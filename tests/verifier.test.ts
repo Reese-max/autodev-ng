@@ -1,4 +1,7 @@
 import { expect, test } from 'vitest'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { KernelVerifier } from '../src/verifier.js'
 import { ConfigSchema } from '../src/types.js'
 import type { Job, RunResult } from '../src/types.js'
@@ -71,4 +74,23 @@ test('無 baseCommitHash 且 judgeUrl 有設 → judge 不被呼叫、alerts 含
   const r = await v.check(JOB, resNoBase)
   expect(r.pass).toBe(true)
   expect(r.alerts.some(a => a.includes('judge-skipped'))).toBe(true)
+})
+
+test('defaultRollback 在無 .adng-worktree marker 的目錄拒絕執行且 alerts 可見', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-vf-'))  // 無 marker、也非 git repo
+  const v = new KernelVerifier({ cfg: cfg({ verifyCommand: `"${NODE}" -e "process.exit(1)"` }) })
+  const job = { task: { id: 'x1x1x1x1', text: 't', line: 0, status: 'open' as const }, projectPath: dir }
+  const r = await v.check(job, { ok: true, output: 'o', costUsd: 0, commitHash: 'b', baseCommitHash: 'a' })
+  expect(r.pass).toBe(false) // verify fail 照舊
+  expect(r.alerts.some(a => /rollback-(refused|failed|exception)/.test(a))).toBe(true) // 但 rollback 被拒且留痕
+})
+
+test('有 .adng-worktree marker 才允許 defaultRollback 嘗試 reset', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-vf-'))
+  writeFileSync(join(dir, '.adng-worktree'), '')
+  // 非 git repo，reset 會失敗 → alerts 記 rollback-failed（而非 refused）
+  const v = new KernelVerifier({ cfg: cfg({ verifyCommand: `"${NODE}" -e "process.exit(1)"` }) })
+  const job = { task: { id: 'x2x2x2x2', text: 't', line: 0, status: 'open' as const }, projectPath: dir }
+  const r = await v.check(job, { ok: true, output: 'o', costUsd: 0, commitHash: 'b', baseCommitHash: 'a' })
+  expect(r.alerts.some(a => a.includes('rollback-failed') || a.includes('rollback-exception'))).toBe(true)
 })

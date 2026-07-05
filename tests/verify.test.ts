@@ -24,3 +24,16 @@ test('timeout → skip 不算 fail（附 detail）', async () => {
   expect(r.status).toBe('skip')
   expect(r.detail).toContain('timeout')
 }, 15_000)
+
+test('exit 9009/127（command not found）→ skip 不算 fail', async () => {
+  const r9009 = await runVerify({ command: `"${NODE}" -e "process.exit(9009)"`, cwd: process.cwd(), timeoutMs: 10_000 })
+  expect(r9009.status).toBe('skip')
+  expect(r9009.detail).toContain('command-not-found')
+  const r127 = await runVerify({ command: `"${NODE}" -e "process.exit(127)"`, cwd: process.cwd(), timeoutMs: 10_000 })
+  expect(r127.status).toBe('skip')
+})
+
+test('指令不存在（bare name 亂打）→ skip 不算 fail', async () => {
+  const r = await runVerify({ command: 'adng-no-such-tool-xyz --version', cwd: process.cwd(), timeoutMs: 15_000 })
+  expect(r.status).toBe('skip')
+}, 20_000)
