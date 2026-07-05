@@ -81,7 +81,7 @@ export class ClaudeCliEngine implements Engine {
     if (after === undefined || after === before) {
       return { ok: false, output: tail(r.stdout), costUsd, failureReason: 'no-commit(phantom completion?)' }
     }
-    return { ok: true, output: tail(r.stdout), costUsd, commitHash: after }
+    return { ok: true, output: tail(r.stdout), costUsd, commitHash: after, baseCommitHash: before }
   }
 }
 

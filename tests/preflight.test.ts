@@ -30,3 +30,27 @@ test('cache 檔損壞視為空 cache 不 throw', () => {
   c.set('k', { ok: false, detail: 'dead' }) // 損壞後仍可重建
   expect(c.get('k')).toEqual({ ok: false, detail: 'dead' })
 })
+
+test('壞結果用 badTtlMs 提早過期，好結果用 ttlMs', async () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'adng-pf-')), 'pf.json')
+  const c = new PreflightCache(file, 60_000, 50)
+  c.set('bad', { ok: false, detail: 'dead' })
+  c.set('good', { ok: true, detail: 'alive' })
+  await new Promise(r => setTimeout(r, 80))
+  expect(c.get('bad')).toBeNull()          // 壞結果 50ms 即過期 → 會重試
+  expect(c.get('good')).not.toBeNull()     // 好結果仍在 60s 窗內
+})
+
+test('entry 形狀損壞（ts 非數字）視為未命中且 set 不 throw', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'adng-pf-')), 'pf.json')
+  writeFileSync(file, JSON.stringify({ k: { r: { ok: true, detail: 'x' } } })) // 缺 ts
+  const c = new PreflightCache(file)
+  expect(c.get('k')).toBeNull()
+  expect(() => c.set('k', { ok: true, detail: 'y' })).not.toThrow()
+})
+
+test('cacheFile 父目錄不存在時 set 不 throw（fail-open）', () => {
+  const c = new PreflightCache(join(mkdtempSync(join(tmpdir(), 'adng-pf-')), 'no', 'such', 'dir', 'pf.json'))
+  expect(() => c.set('k', { ok: true, detail: 'x' })).not.toThrow()
+  expect(c.get('k')).toBeNull() // 寫不進去就當沒 cache
+})

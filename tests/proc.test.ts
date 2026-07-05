@@ -88,3 +88,10 @@ test('timeout 後 resolve 時間 < timeoutMs + 4s（強制 settle timer 不再�
   expect(r.timedOut).toBe(true)
   expect(elapsed).toBeLessThan(timeoutMs + 4000)
 }, 15_000)
+
+test('輸出超過 maxOutputChars 被截斷且有標記', async () => {
+  process.env.FAKE_MODE = 'ok'
+  const r = await runProcess({ ...base, stdinText: 'x'.repeat(10), maxOutputChars: 5 })
+  expect(r.stdout.length).toBeLessThan(200)
+  expect(r.stdout).toContain('[adng: output truncated]')
+})

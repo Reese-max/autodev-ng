@@ -16,6 +16,7 @@ export function runProcess(opts: {
   cwd: string
   stdinText: string
   timeoutMs: number
+  maxOutputChars?: number
 }): Promise<ProcResult> {
   return new Promise(resolve => {
     const t0 = Date.now()
@@ -36,6 +37,10 @@ export function runProcess(opts: {
     let settled = false
     let settleTimer: ReturnType<typeof setTimeout> | undefined
 
+    const cap = opts.maxOutputChars ?? 2_000_000
+    let stdoutTruncated = false
+    let stderrTruncated = false
+
     const finish = (exitCode: number | null): void => {
       if (settled) return
       settled = true
@@ -53,8 +58,34 @@ export function runProcess(opts: {
     }, opts.timeoutMs)
     timer.unref()
 
-    child.stdout.on('data', d => { stdout += d })
-    child.stderr.on('data', d => { stderr += d })
+    child.stdout.on('data', d => {
+      if (stdout.length >= cap) {
+        if (!stdoutTruncated) { stdout += '\n[adng: output truncated]'; stdoutTruncated = true }
+        return
+      }
+      const remaining = cap - stdout.length
+      if (d.length > remaining) {
+        stdout += d.slice(0, remaining)
+        stdout += '\n[adng: output truncated]'
+        stdoutTruncated = true
+      } else {
+        stdout += d
+      }
+    })
+    child.stderr.on('data', d => {
+      if (stderr.length >= cap) {
+        if (!stderrTruncated) { stderr += '\n[adng: output truncated]'; stderrTruncated = true }
+        return
+      }
+      const remaining = cap - stderr.length
+      if (d.length > remaining) {
+        stderr += d.slice(0, remaining)
+        stderr += '\n[adng: output truncated]'
+        stderrTruncated = true
+      } else {
+        stderr += d
+      }
+    })
     child.on('error', err => {
       // spawn/exec 錯誤（如 win32 bare-name ENOENT）不可靜默吞掉，塞進 stderr 讓呼叫端看見
       stderr += String(err)
