@@ -38,3 +38,37 @@ test('verify skip（無指令）→ pass 並 alert', async () => {
   expect(r.pass).toBe(true)
   expect(r.alerts.some(a => a.includes('verify-skip'))).toBe(true)
 })
+
+test('rollback 回傳 false → check 結果 alerts 含 rollback-failed', async () => {
+  const v = new KernelVerifier({
+    cfg: cfg({ verifyCommand: `"${NODE}" -e "process.exit(1)"` }),
+    rollback: () => false
+  })
+  const r = await v.check(JOB, RES)
+  expect(r.pass).toBe(false)
+  expect(r.alerts.some(a => a.includes('rollback-failed'))).toBe(true)
+})
+
+test('rollback 拋例外 → alerts 含 rollback-exception 且 check 不 throw', async () => {
+  const v = new KernelVerifier({
+    cfg: cfg({ verifyCommand: `"${NODE}" -e "process.exit(1)"` }),
+    rollback: () => { throw new Error('boom') }
+  })
+  const r = await v.check(JOB, RES)
+  expect(r.pass).toBe(false)
+  expect(r.alerts.some(a => a.includes('rollback-exception'))).toBe(true)
+})
+
+test('無 baseCommitHash 且 judgeUrl 有設 → judge 不被呼叫、alerts 含 judge-skipped', async () => {
+  const resNoBase: RunResult = { ok: true, output: 'done', costUsd: 0.1, commitHash: 'bbb' }
+  const bombFetch = (async () => {
+    throw new Error('judge fetchFn should not be called')
+  }) as unknown as typeof fetch
+  const v = new KernelVerifier({
+    cfg: cfg({ verifyCommand: `"${NODE}" -e "process.exit(0)"`, judgeUrl: 'http://fake-judge.invalid' }),
+    judgeFetchFn: bombFetch
+  })
+  const r = await v.check(JOB, resNoBase)
+  expect(r.pass).toBe(true)
+  expect(r.alerts.some(a => a.includes('judge-skipped'))).toBe(true)
+})

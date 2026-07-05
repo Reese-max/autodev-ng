@@ -9,6 +9,8 @@ export interface KernelVerifierOpts {
   cfg: Config
   rollback?: (cwd: string, toHash: string) => boolean
   getDiff?: (cwd: string, baseCommitHash?: string) => string
+  /** 測試注入用：轉給 judgeCommit 的 fetchFn（additive，正常執行走 judgeCommit 內建的 global fetch）。 */
+  judgeFetchFn?: typeof fetch
 }
 
 /**
@@ -19,11 +21,13 @@ export class KernelVerifier {
   private readonly cfg: Config
   private readonly rollback: (cwd: string, toHash: string) => boolean
   private readonly getDiff: (cwd: string, baseCommitHash?: string) => string
+  private readonly judgeFetchFn?: typeof fetch
 
   constructor(opts: KernelVerifierOpts) {
     this.cfg = opts.cfg
     this.rollback = opts.rollback ?? defaultRollback
     this.getDiff = opts.getDiff ?? defaultGetDiff
+    this.judgeFetchFn = opts.judgeFetchFn
   }
 
   async check(job: Job, res: RunResult): Promise<VerifierCheck> {
@@ -35,20 +39,27 @@ export class KernelVerifier {
       timeoutMs: this.cfg.verifyTimeoutMs
     })
     if (vOut.status === 'fail') {
-      this.tryRollback(job.projectPath, res.baseCommitHash)
-      return { pass: false, reason: `verify-fail: ${vOut.detail}`, alerts: [] }
+      this.tryRollback(job.projectPath, res.baseCommitHash, alerts)
+      return { pass: false, reason: `verify-fail: ${vOut.detail}`, alerts }
     }
     if (vOut.status === 'skip') alerts.push(`verify-skip: ${vOut.detail}`)
 
     const diff = this.getDiff(job.projectPath, res.baseCommitHash)
+    if (!res.baseCommitHash || !diff) {
+      // baseCommitHash 缺失或 diff 拿不到 → judge 只會收到「有宣稱+空 diff」，容易誤判 MISMATCH
+      // 導致白白 rollback/扣血。這種情況下跳過 judge，pass 完全交由 verify 結果決定。
+      alerts.push('judge-skipped: no baseCommitHash/empty diff')
+      return { pass: true, alerts }
+    }
+
     const claim = tail(res.output, 2000)
     const jOut = await judgeCommit(
-      { url: this.cfg.judgeUrl, model: this.cfg.judgeModel, apiKey: this.cfg.judgeApiKey },
+      { url: this.cfg.judgeUrl, model: this.cfg.judgeModel, apiKey: this.cfg.judgeApiKey, fetchFn: this.judgeFetchFn },
       claim,
       diff
     )
     if (jOut.verdict === 'MISMATCH') {
-      this.tryRollback(job.projectPath, res.baseCommitHash)
+      this.tryRollback(job.projectPath, res.baseCommitHash, alerts)
       return { pass: false, reason: `judge-mismatch: ${jOut.detail}`, alerts }
     }
     if (jOut.verdict === 'SKIP') alerts.push(`judge-skip: ${jOut.detail}`)
@@ -56,12 +67,13 @@ export class KernelVerifier {
     return { pass: true, alerts }
   }
 
-  private tryRollback(cwd: string, baseCommitHash?: string): void {
+  private tryRollback(cwd: string, baseCommitHash: string | undefined, alerts: string[]): void {
     if (!baseCommitHash) return
     try {
-      this.rollback(cwd, baseCommitHash)
-    } catch {
-      // rollback 失敗不可 throw（鐵律 #4）——拒絕原因已經在 reason 裡，這裡只吞錯
+      const ok = this.rollback(cwd, baseCommitHash)
+      if (!ok) alerts.push(`rollback-failed: ${cwd}=>${baseCommitHash}`)
+    } catch (err) {
+      alerts.push(`rollback-exception: ${String(err).slice(0, 200)}`)
     }
   }
 }
