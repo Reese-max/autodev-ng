@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventLog } from '../src/events.js'
@@ -31,4 +31,36 @@ test('heartbeat 覆寫 heartbeat.json', () => {
   const hb = JSON.parse(readFileSync(join(dir, 'heartbeat.json'), 'utf8'))
   expect(hb.state).toBe('idle')
   expect(hb.ts).toBeDefined()
+})
+
+test('appendOnce 遇 events-once.json 損壞不 throw，降級重建為合法 JSON', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-ev-'))
+  const ev = new EventLog(dir)
+  const onceFile = join(dir, 'events-once.json')
+  writeFileSync(onceFile, '{broken')
+  expect(() => ev.appendOnce('idle')).not.toThrow()
+  expect(ev.appendOnce('idle')).toBe(false)
+  const seen = JSON.parse(readFileSync(onceFile, 'utf8'))
+  expect(seen.idle).toBeDefined()
+})
+
+test('append 的 data 不可覆蓋內建 ts/type', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-ev-'))
+  const ev = new EventLog(dir)
+  ev.append('x', { ts: 'FAKE', type: 'EVIL', n: 1 })
+  const line = readFileSync(join(dir, 'events.jsonl'), 'utf8').trim()
+  const parsed = JSON.parse(line)
+  expect(parsed.type).toBe('x')
+  expect(parsed.ts).not.toBe('FAKE')
+  expect(parsed.ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
+  expect(parsed.n).toBe(1)
+})
+
+test('heartbeat 寫入後目錄中無殘留 .tmp 檔', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-ev-'))
+  const ev = new EventLog(dir)
+  ev.heartbeat({ state: 'running', todayCostUsd: 0 })
+  const tmpFiles = readdirSync(dir).filter((f) => f.endsWith('.tmp'))
+  expect(tmpFiles).toHaveLength(0)
+  expect(existsSync(join(dir, 'heartbeat.json'))).toBe(true)
 })
