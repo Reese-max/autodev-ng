@@ -37,3 +37,24 @@ test('指令不存在（bare name 亂打）→ skip 不算 fail', async () => {
   const r = await runVerify({ command: 'adng-no-such-tool-xyz --version', cwd: process.cwd(), timeoutMs: 15_000 })
   expect(r.status).toBe('skip')
 }, 20_000)
+
+test('對抗性反例：真測試失敗，stderr 引號開頭斷言 + 混入亂碼(U+FFFD) → 仍必須是 fail（不可誤放行成 skip）', async () => {
+  const r = await runVerify({
+    command: `"${NODE}" -e "console.error(\\"'expected' does not equal 'actual' \\uFFFD\\uFFFD\\");process.exit(1)"`,
+    cwd: process.cwd(),
+    timeoutMs: 10_000
+  })
+  expect(r.status).toBe('fail')
+})
+
+test('bare name 不存在（探測法）→ skip 且 detail 含 command-not-found', async () => {
+  const r = await runVerify({ command: 'adng-no-such-tool-xyz --version', cwd: process.cwd(), timeoutMs: 15_000 })
+  expect(r.status).toBe('skip')
+  expect(r.detail).toContain('command-not-found')
+}, 20_000)
+
+test('含路徑分隔符但檔案不存在 → skip（探測法，existsSync 直接判斷）', async () => {
+  const r = await runVerify({ command: 'C:/no/such/dir/tool.exe --x', cwd: process.cwd(), timeoutMs: 10_000 })
+  expect(r.status).toBe('skip')
+  expect(r.detail).toContain('command-not-found')
+})
