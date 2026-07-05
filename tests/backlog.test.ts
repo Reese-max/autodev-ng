@@ -93,11 +93,10 @@ test('reason 含 >：report blocked 後 re-read，text 乾淨、id 與 report �
   expect(found.status).toBe('blocked')
 })
 
-test('縫 A：重複任務文字 id 碰撞，nextTask 只給第一筆，第一筆 done 後不再重派第二筆', () => {
+test('縫 A：重複任務文字 id 碰撞，第一筆 done 後第二筆解凍可派工，兩筆皆 done 後 nextTask 回 null（2026-07-05 語意變更：見 backlog.ts report() 收斂性註解）', () => {
   const dupMd = `# Backlog
 - [ ] 修好登入頁 RWD
 - [ ] 修好登入頁 RWD
-- [ ] 第三個開放任務
 `
   const dupFile = join(mkdtempSync(join(tmpdir(), 'adng-')), 'BACKLOG.md')
   writeFileSync(dupFile, dupMd)
@@ -109,9 +108,54 @@ test('縫 A：重複任務文字 id 碰撞，nextTask 只給第一筆，第一�
 
   s.report(first.id, { kind: 'done', commitHash: 'dup1234' })
 
-  // 第一筆已 done，第二筆重複 id 在記憶體中視為 blocked，不會被重新派工
+  // 第一筆已 done，duplicateIds/read 排除 done 後第二筆不再算重複、解凍可派工
   const s2 = new BacklogStore(dupFile)
-  expect(s2.nextTask()!.text).toBe('第三個開放任務')
+  const second = s2.nextTask()!
+  expect(second.text).toBe('修好登入頁 RWD')
+  expect(second.line).toBe(2) // 第二個重複行
+
+  s2.report(second.id, { kind: 'done', commitHash: 'dup5678' })
+
+  // 兩行皆 done，不再有非 done 的重複行可派工
+  const s3 = new BacklogStore(dupFile)
+  expect(s3.nextTask()).toBeNull()
+  const final = readFileSync(dupFile, 'utf8')
+  expect(final).toContain('- [x] 修好登入頁 RWD <!-- adng:done dup1234 -->')
+  expect(final).toContain('- [x] 修好登入頁 RWD <!-- adng:done dup5678 -->')
+})
+
+test('縫 A：第一行 done 後 report 第二筆非 done match 的 id，標的是第二行，第一行 done 標記不被覆寫', () => {
+  const dupMd = `# Backlog
+- [ ] 修好登入頁 RWD
+- [ ] 修好登入頁 RWD
+`
+  const dupFile = join(mkdtempSync(join(tmpdir(), 'adng-')), 'BACKLOG.md')
+  writeFileSync(dupFile, dupMd)
+  const s = new BacklogStore(dupFile)
+
+  const first = s.nextTask()!
+  s.report(first.id, { kind: 'done', commitHash: 'first111' })
+  const afterFirst = readFileSync(dupFile, 'utf8')
+  expect(afterFirst).toContain('- [x] 修好登入頁 RWD <!-- adng:done first111 -->')
+  expect(afterFirst).toContain('- [ ] 修好登入頁 RWD') // 第二行仍 open
+
+  // 同 id 再次 report（第二行仍非 done）：必須命中第二行，不覆寫第一行的 done 標記
+  s.report(first.id, { kind: 'done', commitHash: 'second222' })
+  const afterSecond = readFileSync(dupFile, 'utf8')
+  expect(afterSecond).toContain('- [x] 修好登入頁 RWD <!-- adng:done first111 -->') // 第一行標記維持原樣
+  expect(afterSecond).toContain('- [x] 修好登入頁 RWD <!-- adng:done second222 -->') // 第二行被標上新的 commit
+})
+
+test('縫 A：所有相符行皆 done 時 report 已完成/未知 id 仍 throw（鐵律 #1 邊界不鬆動）', () => {
+  const dupMd = `# Backlog
+- [x] 修好登入頁 RWD <!-- adng:done aaa1111 -->
+- [x] 修好登入頁 RWD <!-- adng:done bbb2222 -->
+`
+  const dupFile = join(mkdtempSync(join(tmpdir(), 'adng-')), 'BACKLOG.md')
+  writeFileSync(dupFile, dupMd)
+  const s = new BacklogStore(dupFile)
+
+  expect(() => s.report(taskId('修好登入頁 RWD'), { kind: 'done', commitHash: 'ccc3333' })).toThrow(/禁止/)
 })
 
 test('縫 A：重複行不影響其他正常任務的解析', () => {

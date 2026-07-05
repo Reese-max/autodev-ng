@@ -88,12 +88,31 @@ export class BacklogStore {
     return this.read().find(t => t.status === 'open') ?? null
   }
 
-  /** 只允許改既有任務行的狀態；未知 id = 有人想創造任務 = 鐵律 #1 違規 */
+  /**
+   * 只允許改既有任務行的狀態；未知 id = 有人想創造任務 = 鐵律 #1 違規。
+   *
+   * 2026-07-05 語意變更（M3a 主控裁決）：尋找目標行時跳過 status==='done' 的行，
+   * 取第一個 id 相符且非 done 的行來標記。這是為了解「done 排除」與縫 A「重複第二筆
+   * 永凍」之間的語意矛盾——duplicateIds()/read() 已將「同文字 done 舊行 + open 新行」
+   * 視為不重複、新行可派工（見上方 dedupeDuplicateIds 註解），若 report() 仍然無視
+   * done 狀態、永遠命中檔案中第一個文字相符的行，就會把新行的派工結果誤標到已經
+   * done 的舊行上，新行的 done 狀態永遠不會被寫入 → 舊行、新行 id 相同，下一輪
+   * nextTask() 又選到「未被標記的新行」重新派工，造成無限重跑。
+   *
+   * 收斂性論證：兩行同文字 open → 第一次派工把第一個非 done match（即第一行）標
+   * done → dedupe 排除 done 後，剩下的第二行不再被判定為重複、可以正常派工 → 引擎
+   * 再次領到這行去做：
+   *   - 若確實有事可做（使用者刻意重加同名任務），會正常完成並標 done，之後兩行
+   *     皆 done，不再有任何非 done match，report() 對舊 id 一律 throw（鐵律 #1）。
+   *   - 若引擎其實無事可做（單純文字撞衫、非真的想重派），連續 no-commit 會依
+   *     既有 blocked 機制判 blocked，成本有界（至多多跑一輪就 blocked，不會無限重跑）。
+   * 兩種情境都在有限步內收斂，任何情境下都不會無限重跑。
+   */
   report(id: string, d: Disposition): void {
     const content = readFileSync(this.file, 'utf8')
     const eol = content.includes('\r\n') ? '\r\n' : '\n'
     const lines = content.split(/\r?\n/)
-    const t = parseBacklog(content).find(t => t.id === id)
+    const t = parseBacklog(content).find(t => t.id === id && t.status !== 'done')
     if (!t) throw new Error(`unknown task id ${id}：系統禁止創造任務（鐵律 #1）`)
     lines[t.line] = d.kind === 'done'
       ? `- [x] ${t.text} <!-- adng:done ${d.commitHash} -->`
