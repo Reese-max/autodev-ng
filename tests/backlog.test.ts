@@ -194,3 +194,50 @@ test('duplicateIds 排除 done：同文字 done 舊行 + open 新行不算重複
   expect(s.duplicateIds()).toEqual([])
   expect(s.nextTask()?.text).toBe('修登入') // 不被永凍
 })
+
+test('HIGH #1：N=3 重複行不餓死——第1行 done、第2行 blocked 後仍能派到第3行，第3行 blocked 後才回 null', () => {
+  const dupMd = `# Backlog
+- [ ] 三重複任務
+- [ ] 三重複任務
+- [ ] 三重複任務
+`
+  const dupFile = join(mkdtempSync(join(tmpdir(), 'adng-')), 'BACKLOG.md')
+  writeFileSync(dupFile, dupMd)
+
+  const s1 = new BacklogStore(dupFile)
+  const first = s1.nextTask()!
+  expect(first.line).toBe(1)
+  s1.report(first.id, { kind: 'done', commitHash: 'r1111' })
+
+  const s2 = new BacklogStore(dupFile)
+  const second = s2.nextTask()!
+  expect(second.line).toBe(2)
+  s2.report(second.id, { kind: 'blocked', reason: '連敗' })
+
+  // 關鍵斷言：第2行 file-blocked 後，第3行（尚未處理過的 open 行）必須能被派到，不能餓死
+  const s3 = new BacklogStore(dupFile)
+  const third = s3.nextTask()
+  expect(third).not.toBeNull()
+  expect(third!.line).toBe(3)
+
+  s3.report(third!.id, { kind: 'blocked', reason: '連敗' })
+
+  // 三行都已 done/blocked，沒有任何 open 行剩下
+  const s4 = new BacklogStore(dupFile)
+  expect(s4.nextTask()).toBeNull()
+})
+
+test('HIGH #1：檔面已 blocked 的行不佔代表名額，nextTask 回真正 open 的那行', () => {
+  const dupMd = `# Backlog
+- [ ] 撞名任務 <!-- adng:blocked reason="舊的失敗" -->
+- [ ] 撞名任務
+`
+  const dupFile = join(mkdtempSync(join(tmpdir(), 'adng-')), 'BACKLOG.md')
+  writeFileSync(dupFile, dupMd)
+
+  const s = new BacklogStore(dupFile)
+  const t = s.nextTask()
+  expect(t).not.toBeNull()
+  expect(t!.line).toBe(2)
+  expect(t!.status).toBe('open')
+})
