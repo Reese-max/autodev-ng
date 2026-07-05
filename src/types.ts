@@ -19,6 +19,7 @@ export interface RunResult {
   costUsd: number
   commitHash?: string
   failureReason?: string
+  baseCommitHash?: string
 }
 
 export interface PreflightResult { ok: boolean; detail: string }

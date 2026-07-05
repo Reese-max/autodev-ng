@@ -2,7 +2,8 @@ import { existsSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
 import type { RunDb } from './db.js'
 import type { EventLog } from './events.js'
-import type { Config, Engine, RunResult, Task } from './types.js'
+import type { Config, Engine, Job, RunResult, Task } from './types.js'
+import type { VerifierCheck } from './verifier.js'
 
 export interface Deps {
   cfg: Config
@@ -10,6 +11,7 @@ export interface Deps {
   db: RunDb
   engine: Engine
   events: EventLog
+  verifier?: { check(job: Job, res: RunResult): Promise<VerifierCheck> }
 }
 
 export type CycleResult =
@@ -25,7 +27,7 @@ function quiet(fn: () => void): void {
   }
 }
 
-export async function runOnce({ cfg, store, db, engine, events }: Deps): Promise<CycleResult> {
+export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps): Promise<CycleResult> {
   if (existsSync(cfg.stopFile)) {
     quiet(() => events.heartbeat({ state: 'stopped', todayCostUsd: todayCost(db) }))
     return 'stopped'
@@ -72,6 +74,24 @@ export async function runOnce({ cfg, store, db, engine, events }: Deps): Promise
 
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默，讓它浮出。
   db.record({ taskId: task.id, ok: res.ok, costUsd: res.costUsd, detail: res.failureReason ?? res.commitHash ?? '' })
+
+  if (res.ok && verifier) {
+    // verifier 本身故障（非 verify-fail / judge-mismatch 的明確拒絕）一律 pass-with-alert（鐵律 #4）：
+    // infra 層的驗證閘壞掉不該反殺已經成功的任務。
+    let vc: VerifierCheck
+    try {
+      vc = await verifier.check({ task, projectPath: cfg.projectPath }, res)
+    } catch (err) {
+      vc = { pass: true, alerts: [`verifier-exception: ${String(err)}`] }
+    }
+    for (const a of vc.alerts) quiet(() => events.append('verify-alert', { task: task.text, detail: a }))
+    if (!vc.pass) {
+      // 引擎那筆已記 ok:true+真實 cost（成本不可造假）；這裡多記一筆 ok:false 讓失敗計數靠這筆走。
+      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected' })
+      quiet(() => events.append('task-verify-failed', { task: task.text, reason: vc.reason }))
+      return resolveFailure({ cfg, store, db, events }, task, 'failed')
+    }
+  }
 
   if (res.ok) {
     try {

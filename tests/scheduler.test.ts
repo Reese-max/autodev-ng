@@ -128,3 +128,20 @@ test('backlog 有重複任務時發 duplicate-tasks 事件（24h 去重）', asy
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events.match(/"type":"duplicate-tasks"/g)).toHaveLength(1)
 })
+
+test('verifier 拒絕 → failed 計數、不打勾；達 maxAttempts 轉 blocked', async () => {
+  const d = deps(new MockEngine([{ ok: true }, { ok: true }]))
+  const rejecter = { check: async () => ({ pass: false, reason: 'verify-fail: 測試紅', alerts: [] }) }
+  const dd = { ...d, verifier: rejecter }
+  expect(await runOnce(dd)).toBe('failed')
+  expect(d.store.nextTask()).not.toBeNull()
+  expect(await runOnce(dd)).toBe('blocked')
+})
+
+test('verifier throw → pass-with-alert（鐵律#4），任務照 done', async () => {
+  const d = deps(new MockEngine([{ ok: true }]))
+  const bomber = { check: async () => { throw new Error('verifier exploded') } }
+  expect(await runOnce({ ...d, verifier: bomber })).toBe('done')
+  const ev = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  expect(ev).toContain('verify-alert')
+})
