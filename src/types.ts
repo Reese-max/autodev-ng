@@ -38,6 +38,11 @@ export const ConfigSchema = z.object({
   dailySoftUsd: z.number().positive().default(40),
   dailyHardUsd: z.number().positive().default(100),
   cooldownMs: z.number().int().nonnegative().default(60_000),
-  stopFile: z.string().default('.adng.stop')
+  stopFile: z.string().default('.adng.stop'),
+  verifyCommand: z.string().optional(),
+  verifyTimeoutMs: z.number().int().positive().default(600_000),
+  judgeUrl: z.string().optional(),
+  judgeModel: z.string().default('gpt-5.4-mini'),
+  judgeApiKey: z.string().default('sk-any')
 })
 export type Config = z.infer<typeof ConfigSchema>
