@@ -146,6 +146,9 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       if (maxCycles !== undefined && cycles >= maxCycles) return 'max-cycles'
       cycles++
 
+      // 每輪迴圈開頭檢查每日摘要（鐵律 #6）——stop 當天也必達
+      await checkAndSendDigest(deps, notifier)
+
       let result: CycleResult
       try {
         result = await runOnce(deps)
@@ -172,8 +175,6 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       if (result === 'blocked' || result === 'cost-hard-stop' || result === 'preflight-failed') {
         await safeSend(notifier, alertMessageFor(result, deps.cfg.dataDir))
       }
-
-      await checkAndSendDigest(deps, notifier)
 
       if (result === 'idle' || result === 'cost-hard-stop') {
         await sleep(idleSleepMs)

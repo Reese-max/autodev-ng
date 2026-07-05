@@ -148,3 +148,23 @@ test('⑤ digest 送失敗（notifier 回 false）→ stamp 不落，下一輪�
   const today = new Date().toISOString().slice(0, 10)
   expect(shouldSendDigest(d.cfg.dataDir, today)).toBe(true) // stamp 始終沒落
 })
+
+test('⑥ stop 檔已存在（runOnce 首輪即回 stopped）+ 當日 digest 未發 → runDaemon 回 stopped 且摘要已發且 stamp 已標記', async () => {
+  const d = deps(new MockEngine(), '# 空 backlog\n')
+  writeFileSync(d.cfg.stopFile, '') // stop 檔存在，首輪 runOnce 即回 stopped
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir: join(d.cfg.dataDir, '..', 'lock') }))
+
+  expect(result).toBe('stopped')
+
+  // 摘要應該被發送過一次（且含「通道自檢」字樣）
+  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  expect(digestSends).toHaveLength(1)
+  expect(digestSends[0]).toContain('adng 通道自檢 OK')
+
+  // stamp 已標記（已不再 shouldSendDigest）
+  const today = new Date().toISOString().slice(0, 10)
+  expect(shouldSendDigest(d.cfg.dataDir, today)).toBe(false)
+})
