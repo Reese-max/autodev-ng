@@ -7,7 +7,7 @@ export function taskId(text: string): string {
 }
 
 const TASK_RE = /^- \[( |x)\] (.*)$/
-const ANNOT_RE = /\s*<!-- adng:[^>]*-->\s*$/
+const ANNOT_RE = /\s*<!-- adng:[\s\S]*?-->\s*$/
 
 export function parseBacklog(md: string): Task[] {
   const tasks: Task[] = []
@@ -41,12 +41,13 @@ export class BacklogStore {
   /** 只允許改既有任務行的狀態；未知 id = 有人想創造任務 = 鐵律 #1 違規 */
   report(id: string, d: Disposition): void {
     const content = readFileSync(this.file, 'utf8')
+    const eol = content.includes('\r\n') ? '\r\n' : '\n'
     const lines = content.split(/\r?\n/)
-    const t = this.read().find(t => t.id === id)
+    const t = parseBacklog(content).find(t => t.id === id)
     if (!t) throw new Error(`unknown task id ${id}：系統禁止創造任務（鐵律 #1）`)
     lines[t.line] = d.kind === 'done'
       ? `- [x] ${t.text} <!-- adng:done ${d.commitHash} -->`
       : `- [ ] ${t.text} <!-- adng:blocked reason=${JSON.stringify(d.reason)} -->`
-    writeFileSync(this.file, lines.join('\n'))
+    writeFileSync(this.file, lines.join(eol))
   }
 }
