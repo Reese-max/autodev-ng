@@ -46,12 +46,16 @@ export async function runOnce({ cfg, store, db, engine, events }: Deps): Promise
     return 'idle'
   }
 
+  const dups = store.duplicateIds()
+  if (dups.length > 0) quiet(() => events.appendOnce('duplicate-tasks', { ids: dups }))
+
   quiet(() => events.heartbeat({ state: 'running', currentTask: task.text, todayCostUsd: spent }))
 
   const pf = await engine.preflight()
   if (!pf.ok) {
     // appendOnce：preflight 持續故障（如引擎掛掉）不可無限灌 log
     quiet(() => events.appendOnce('preflight-failed', { engine: engine.id, detail: pf.detail }))
+    quiet(() => events.heartbeat({ state: 'idle', todayCostUsd: spent }))
     return 'preflight-failed'
   }
 
