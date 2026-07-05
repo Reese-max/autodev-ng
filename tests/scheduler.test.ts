@@ -112,3 +112,19 @@ test('engine 連 throw 兩次 → 第二次回 blocked（補齊 engine-error →
   expect(await runOnce(d)).toBe('blocked')
   expect(d.store.nextTask()).toBeNull() // blocked 不再撿
 })
+
+test('preflight 失敗時 heartbeat 更新為 idle（不留 stale running）', async () => {
+  const e = new MockEngine([], { ok: false, detail: 'auth dead' })
+  const d = deps(e)
+  expect(await runOnce(d)).toBe('preflight-failed')
+  const hb = JSON.parse(readFileSync(join(d.cfg.dataDir, 'heartbeat.json'), 'utf8'))
+  expect(hb.state).toBe('idle')
+})
+
+test('backlog 有重複任務時發 duplicate-tasks 事件（24h 去重）', async () => {
+  const d = deps(new MockEngine(), '- [ ] 重複的\n- [ ] 重複的\n- [ ] 正常的\n')
+  await runOnce(d)
+  await runOnce(d)
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  expect(events.match(/"type":"duplicate-tasks"/g)).toHaveLength(1)
+})

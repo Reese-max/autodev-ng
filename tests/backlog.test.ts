@@ -133,3 +133,12 @@ test('縫 A：重複行不影響其他正常任務的解析', () => {
   expect(tasks[3]!.status).toBe('blocked')
   expect(tasks[3]!.text).toBe('第三個開放任務')
 })
+
+test('duplicateIds 列出重複 id，無重複時為空', () => {
+  const dup = join(mkdtempSync(join(tmpdir(), 'adng-')), 'B.md')
+  writeFileSync(dup, '- [ ] 同一件事\n- [ ] 別件事\n- [ ] 同一件事\n')
+  expect(new BacklogStore(dup).duplicateIds()).toEqual([taskId('同一件事')])
+  const clean = join(mkdtempSync(join(tmpdir(), 'adng-')), 'C.md')
+  writeFileSync(clean, '- [ ] 唯一\n')
+  expect(new BacklogStore(clean).duplicateIds()).toEqual([])
+})

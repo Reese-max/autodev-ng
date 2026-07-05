@@ -51,6 +51,15 @@ export class BacklogStore {
     return dedupeDuplicateIds(parseBacklog(readFileSync(this.file, 'utf8')))
   }
 
+  /** 出現 >1 次的 task id（重複任務會被 read() 降為 blocked 不派工，這裡供 scheduler 告警可見化）。 */
+  duplicateIds(): string[] {
+    const seen = new Map<string, number>()
+    for (const t of parseBacklog(readFileSync(this.file, 'utf8'))) {
+      seen.set(t.id, (seen.get(t.id) ?? 0) + 1)
+    }
+    return [...seen.entries()].filter(([, n]) => n > 1).map(([id]) => id)
+  }
+
   nextTask(): Task | null {
     return this.read().find(t => t.status === 'open') ?? null
   }
