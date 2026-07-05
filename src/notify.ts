@@ -1,5 +1,4 @@
 import { existsSync, readFileSync, appendFileSync } from 'node:fs'
-import { dirname } from 'node:path'
 
 export function loadDiscordToken(tokenFile: string): string | null {
   if (!existsSync(tokenFile)) {
@@ -9,7 +8,9 @@ export function loadDiscordToken(tokenFile: string): string | null {
   const lines = content.split('\n')
   for (const line of lines) {
     if (line.startsWith('LPBOT_TOKEN=')) {
-      return line.slice('LPBOT_TOKEN='.length)
+      const raw = line.slice('LPBOT_TOKEN='.length).trim()
+      const unquoted = raw.replace(/^['"]|['"]$/g, '')
+      return unquoted === '' ? null : unquoted
     }
   }
   return null
@@ -53,7 +54,7 @@ export class DiscordNotifier {
       // Truncate content if needed
       let content = text
       if (content.length > 1900) {
-        content = content.slice(0, 1900) + '…[truncated]'
+        content = [...content].slice(0, 1900).join('') + '…[truncated]'
       }
 
       // Set up abort controller with 15s timeout
@@ -97,7 +98,7 @@ export class DiscordNotifier {
     const entry = {
       ts: new Date().toISOString(),
       reason,
-      textHead: text.slice(0, 120),
+      textHead: [...text].slice(0, 120).join(''),
     }
     const dlqPath = `${this.dataDir}/notify-dlq.jsonl`
     try {

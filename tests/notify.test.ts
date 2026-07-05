@@ -63,3 +63,15 @@ test('超長訊息截 1900 字', async () => {
   expect(body.content.length).toBeLessThanOrEqual(1920)
   expect(body.content).toContain('[truncated]')
 })
+
+test('loadDiscordToken 移除 CRLF、剝除成對引號', () => {
+  expect(loadDiscordToken(tokenFile('LPBOT_TOKEN="abc.def"\r\n'))).toBe('abc.def')
+})
+
+test('loadDiscordToken 移除前後空白', () => {
+  expect(loadDiscordToken(tokenFile('LPBOT_TOKEN=  tok  \n'))).toBe('tok')
+})
+
+test('loadDiscordToken 空引號回 null', () => {
+  expect(loadDiscordToken(tokenFile('LPBOT_TOKEN=""\n'))).toBeNull()
+})
