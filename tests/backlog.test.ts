@@ -142,3 +142,11 @@ test('duplicateIds 列出重複 id，無重複時為空', () => {
   writeFileSync(clean, '- [ ] 唯一\n')
   expect(new BacklogStore(clean).duplicateIds()).toEqual([])
 })
+
+test('duplicateIds 排除 done：同文字 done 舊行 + open 新行不算重複、新行可派工', () => {
+  const f = join(mkdtempSync(join(tmpdir(), 'adng-')), 'B.md')
+  writeFileSync(f, '- [x] 修登入 <!-- adng:done abc -->\n- [ ] 修登入\n')
+  const s = new BacklogStore(f)
+  expect(s.duplicateIds()).toEqual([])
+  expect(s.nextTask()?.text).toBe('修登入') // 不被永凍
+})

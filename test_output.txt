@@ -1,0 +1,13 @@
+
+> autodev-ng@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.9 D:/Users/Administrator/Desktop/autodev-ng
+
+
+ Test Files  11 passed (11)
+      Tests  52 passed (52)
+   Start at  20:29:30
+   Duration  9.94s (transform 882ms, setup 0ms, import 2.77s, tests 10.13s, environment 3ms)
+
