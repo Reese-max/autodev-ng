@@ -92,3 +92,44 @@ test('reason 含 >：report blocked 後 re-read，text 乾淨、id 與 report �
   expect(found.id).toBe(idBefore)
   expect(found.status).toBe('blocked')
 })
+
+test('縫 A：重複任務文字 id 碰撞，nextTask 只給第一筆，第一筆 done 後不再重派第二筆', () => {
+  const dupMd = `# Backlog
+- [ ] 修好登入頁 RWD
+- [ ] 修好登入頁 RWD
+- [ ] 第三個開放任務
+`
+  const dupFile = join(mkdtempSync(join(tmpdir(), 'adng-')), 'BACKLOG.md')
+  writeFileSync(dupFile, dupMd)
+  const s = new BacklogStore(dupFile)
+
+  const first = s.nextTask()!
+  expect(first.text).toBe('修好登入頁 RWD')
+  expect(first.line).toBe(1) // 第一個重複行
+
+  s.report(first.id, { kind: 'done', commitHash: 'dup1234' })
+
+  // 第一筆已 done，第二筆重複 id 在記憶體中視為 blocked，不會被重新派工
+  const s2 = new BacklogStore(dupFile)
+  expect(s2.nextTask()!.text).toBe('第三個開放任務')
+})
+
+test('縫 A：重複行不影響其他正常任務的解析', () => {
+  const dupMd = `# Backlog
+- [ ] 修好登入頁 RWD
+- [ ] 修好登入頁 RWD
+- [x] 已完成項
+- [ ] 第三個開放任務 <!-- adng:blocked reason="x" -->
+`
+  const dupFile = join(mkdtempSync(join(tmpdir(), 'adng-')), 'BACKLOG.md')
+  writeFileSync(dupFile, dupMd)
+  const tasks = new BacklogStore(dupFile).read()
+
+  expect(tasks).toHaveLength(4)
+  expect(tasks[0]!.status).toBe('open')
+  expect(tasks[1]!.status).toBe('blocked') // 重複第二筆被強制視為 blocked
+  expect(tasks[2]!.status).toBe('done')
+  expect(tasks[2]!.text).toBe('已完成項')
+  expect(tasks[3]!.status).toBe('blocked')
+  expect(tasks[3]!.text).toBe('第三個開放任務')
+})
