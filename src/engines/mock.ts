@@ -9,13 +9,15 @@ export class MockEngine implements Engine {
   readonly id = 'mock'
   readonly calls: Job[] = []
   private readonly script: MockStep[]
+  private readonly preflightResult: PreflightResult
 
-  constructor(script: MockStep[] = []) {
+  constructor(script: MockStep[] = [], preflightResult?: PreflightResult) {
     this.script = [...script]
+    this.preflightResult = preflightResult ?? { ok: true, detail: 'mock always ready' }
   }
 
   async preflight(): Promise<PreflightResult> {
-    return { ok: true, detail: 'mock always ready' }
+    return this.preflightResult
   }
 
   async run(job: Job): Promise<RunResult> {
