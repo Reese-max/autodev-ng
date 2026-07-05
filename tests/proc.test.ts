@@ -42,3 +42,49 @@ test('slow：慢但在時限內 → 正常完成', async () => {
   expect(r.timedOut).toBe(false)
   expect(r.exitCode).toBe(0)
 })
+
+/** 用 signal 0 探測 pid 是否還活著（跨平台；Windows 上 Node 亦支援）。 */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+test('hang-tree：雙層樹斬——父子兩層 PID 逾時後皆不存活', async () => {
+  process.env.FAKE_MODE = 'hang-tree'
+  const r = await runProcess({ ...base, stdinText: 'x', timeoutMs: 1500 })
+  expect(r.timedOut).toBe(true)
+
+  const m = r.stderr.match(/CHILD_PID=(\d+)/)
+  expect(m).not.toBeNull()
+  const grandchildPid = Number(m![1])
+
+  // 給 taskkill /T /F（或 SIGKILL）一點時間真正收尾
+  await new Promise(res => setTimeout(res, 500))
+  expect(isPidAlive(grandchildPid)).toBe(false)
+}, 15_000)
+
+test('不存在的指令：失敗必須可見，不可全空（win32 經 cmd /c 非零 exit；其他平台 error 進 stderr）', async () => {
+  const r = await runProcess({
+    command: 'this-command-definitely-does-not-exist-xyz',
+    args: [],
+    cwd: process.cwd(),
+    stdinText: 'x',
+    timeoutMs: 5000
+  })
+  const failureVisible = r.exitCode !== 0 || r.stderr.trim() !== ''
+  expect(failureVisible).toBe(true)
+})
+
+test('timeout 後 resolve 時間 < timeoutMs + 4s（強制 settle timer 不再拖尾事件迴圈）', async () => {
+  process.env.FAKE_MODE = 'hang'
+  const timeoutMs = 1000
+  const t0 = Date.now()
+  const r = await runProcess({ ...base, stdinText: 'x', timeoutMs })
+  const elapsed = Date.now() - t0
+  expect(r.timedOut).toBe(true)
+  expect(elapsed).toBeLessThan(timeoutMs + 4000)
+}, 15_000)
