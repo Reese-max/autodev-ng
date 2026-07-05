@@ -69,9 +69,9 @@ function commandExists(command: string): boolean {
   let exists: boolean
   try {
     if (process.platform === 'win32') {
-      execFileSync('where', [command], { stdio: 'ignore' })
+      execFileSync('where', [command], { stdio: 'ignore', timeout: 5000 })
     } else {
-      execFileSync('/bin/sh', ['-c', 'command -v "$1"', '--', command], { stdio: 'ignore' })
+      execFileSync('/bin/sh', ['-c', 'command -v "$1"', '--', command], { stdio: 'ignore', timeout: 5000 })
     }
     exists = true
   } catch (e) {
