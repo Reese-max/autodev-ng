@@ -3,10 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "adng": "dist/cli.js"
+  },
   "engines": {
     "node": ">=22"
   },
   "scripts": {
+    "build": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
