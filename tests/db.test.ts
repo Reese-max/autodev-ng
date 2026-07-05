@@ -26,3 +26,15 @@ test('costSince 以 UTC 日界線累計', () => {
   expect(db.costSince('2026-07-05')).toBeCloseTo(3.5)
   db.close()
 })
+
+test('costSince 毫秒時戳邊界修正：00:00:00.000Z 納入、前一日 23:59:59.999Z 排除', () => {
+  const db = freshDb()
+  // 應納入：當日 00:00:00.000Z（毫秒記錄）
+  db.record({ taskId: 'boundary-test', ok: true, costUsd: 1.0, detail: '', ts: '2026-07-05T00:00:00.000Z' })
+  // 應排除：前一日 23:59:59.999Z
+  db.record({ taskId: 'boundary-test', ok: true, costUsd: 9.9, detail: '', ts: '2026-07-04T23:59:59.999Z' })
+  // 應納入：當日正常時戳
+  db.record({ taskId: 'boundary-test', ok: true, costUsd: 2.5, detail: '', ts: '2026-07-05T12:00:00Z' })
+  expect(db.costSince('2026-07-05')).toBeCloseTo(3.5)
+  db.close()
+})

@@ -39,7 +39,7 @@ export class RunDb {
 
   costSince(isoDayUtc: string): number {
     const row = this.db.prepare(
-      "SELECT COALESCE(SUM(cost_usd),0) AS c FROM attempts WHERE ts >= ? || 'T00:00:00Z'"
+      "SELECT COALESCE(SUM(cost_usd),0) AS c FROM attempts WHERE substr(ts,1,19) >= ? || 'T00:00:00'"
     ).get(isoDayUtc) as { c: number }
     return row.c
   }
