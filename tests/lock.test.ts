@@ -103,6 +103,40 @@ test('pid.json 指向死掉的 PID 時立即 steal（不等 staleMs），新 pid
   expect(pidFile.pid).toBe(process.pid)
 })
 
+test('死 PID steal 成功後，第二個 acquireLock 立即回 false（新主人的 pid.json 是自己且活著）', () => {
+  const dir = join(mkdtempSync(join(tmpdir(), 'adng-lk-')), 'lock')
+  mkdirSync(dir) // 手動建鎖目錄（不經過 acquireLock，避免此處寫入自己的 pid.json）
+
+  const dead = spawnSync(process.execPath, ['-e', '0'])
+  const deadPid = dead.pid
+  expect(typeof deadPid).toBe('number')
+  assertPidIsDead(deadPid as number)
+
+  writeFileSync(join(dir, 'pid.json'), JSON.stringify({ pid: deadPid, startedAt: new Date().toISOString() }))
+
+  expect(acquireLock(dir, 30 * 60 * 1000)).toBe(true) // steal 成功，建立新鎖（含自己的新 pid.json）
+  expect(acquireLock(dir, 30 * 60 * 1000)).toBe(false) // 新鎖 PID 是自己且活著，必須讓步
+})
+
+test('死 PID steal 成功後，無殘留 .stale-* 目錄', () => {
+  const parent = mkdtempSync(join(tmpdir(), 'adng-lk-'))
+  const dir = join(parent, 'lock')
+  mkdirSync(dir) // 手動建鎖目錄（不經過 acquireLock，避免此處寫入自己的 pid.json）
+
+  const dead = spawnSync(process.execPath, ['-e', '0'])
+  const deadPid = dead.pid
+  expect(typeof deadPid).toBe('number')
+  assertPidIsDead(deadPid as number)
+
+  writeFileSync(join(dir, 'pid.json'), JSON.stringify({ pid: deadPid, startedAt: new Date().toISOString() }))
+
+  expect(acquireLock(dir, 30 * 60 * 1000)).toBe(true) // 觸發 rename → rmSync 殘留清理
+
+  const leftovers = readdirSync(parent).filter((name) => name.includes('.stale-'))
+  expect(leftovers).toEqual([])
+  expect(existsSync(dir)).toBe(true)
+})
+
 test('pid.json 損壞（非 JSON）時 fallback 舊 mtime 邏輯：新鮮不 steal', () => {
   const dir = join(mkdtempSync(join(tmpdir(), 'adng-lk-')), 'lock')
   mkdirSync(dir)

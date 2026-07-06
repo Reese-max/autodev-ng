@@ -40,11 +40,27 @@ function writeOwnPidFile(dir: string): void {
   writeFileAtomic(join(dir, 'pid.json'), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }))
 }
 
+/** writeOwnPidFile 失敗（ENOSPC/EIO 等）時，剛建立的 dir 已是「無 pid.json、無主」的幽靈鎖，
+ *  會擋住後續所有 acquire（含自己重試）長達 staleMs。此處補償刪除該 dir 再 rethrow 原錯；
+ *  rmSync 本身若又失敗，吞掉（避免二次故障掩蓋原始錯誤），仍以原錯為準浮出。 */
+function writeOwnPidFileOrCleanup(dir: string): void {
+  try {
+    writeOwnPidFile(dir)
+  } catch (err) {
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {
+      // 二次故障：吞掉，原始錯誤才是需要浮出的訊號。
+    }
+    throw err
+  }
+}
+
 /** Windows 無 flock：mkdir 是唯一可靠的原子互斥（舊系統實證）。 */
 export function acquireLock(dir: string, staleMs = 30 * 60 * 1000): boolean {
   try {
     mkdirSync(dir, { recursive: false })
-    writeOwnPidFile(dir)
+    writeOwnPidFileOrCleanup(dir)
     return true
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
@@ -84,7 +100,7 @@ export function acquireLock(dir: string, staleMs = 30 * 60 * 1000): boolean {
       if ((mkdirErr as NodeJS.ErrnoException).code !== 'EEXIST') throw mkdirErr
       return false
     }
-    writeOwnPidFile(dir)
+    writeOwnPidFileOrCleanup(dir)
     return true
   }
 }
