@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { acquireLock, releaseLock } from './lock.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
@@ -59,27 +59,53 @@ async function safeSend(notifier: Notifier, text: string): Promise<boolean> {
   }
 }
 
-/** blocked 事件本身不帶任務文字，runOnce 內在派工當下已把 currentTask 寫進 heartbeat.json
- * （scheduler.ts 的 'running' heartbeat），blocked 是同一輪任務失敗轉出，heartbeat 尚未被
- * 覆寫，讀出來的 currentTask 正是剛被 blocked 的那個任務。讀檔/解析任何故障一律回 undefined，
- * 不可讓告警文案組裝反殺主迴圈。 */
-function readHeartbeatCurrentTask(dataDir: string): string | undefined {
+/** HIGH-2 告警冷卻去重：同 key 6h 內只送第一次，其後靜默累計抑制次數；冷卻結束後
+ * 下一則帶抑制計數。硬編常數（不進 ConfigSchema——避免設定維度膨脹，鐵律 #8）。 */
+const ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000
+
+interface CooldownEntry { lastSentMs: number; suppressedCount: number }
+type CooldownTable = Record<string, CooldownEntry>
+
+function cooldownFilePath(dataDir: string): string {
+  return join(dataDir, 'alert-cooldown.json')
+}
+
+/** 冷卻表讀取：檔案缺失/損壞一律視同空表（容錯歸零照發——鐵律 #4，fail-open 不可反殺 daemon）。 */
+function loadCooldownTable(dataDir: string): CooldownTable {
   try {
-    const raw: unknown = JSON.parse(readFileSync(join(dataDir, 'heartbeat.json'), 'utf8'))
-    if (typeof raw !== 'object' || raw === null) return undefined
-    const currentTask = (raw as Record<string, unknown>).currentTask
-    return typeof currentTask === 'string' ? currentTask : undefined
+    const raw: unknown = JSON.parse(readFileSync(cooldownFilePath(dataDir), 'utf8'))
+    if (typeof raw !== 'object' || raw === null) return {}
+    return raw as CooldownTable
   } catch {
-    return undefined
+    return {}
   }
 }
 
-function alertMessageFor(result: CycleResult, dataDir: string): string {
+/** tmp+rename 原子寫，鏡像 events.ts appendOnce 風格。呼叫端一律包在 quiet() 內——
+ * 落地失敗不可反殺主迴圈，頂多下次重啟冷卻表退回舊狀態（fail-open 方向安全）。 */
+function saveCooldownTable(dataDir: string, table: CooldownTable): void {
+  const file = cooldownFilePath(dataDir)
+  const tmp = `${file}.tmp`
+  writeFileSync(tmp, JSON.stringify(table))
+  renameSync(tmp, file)
+}
+
+/** key 設計：系統級告警（cost-hard-stop/preflight-failed 等）key=type；
+ * blocked → key=`blocked:<任務文字前 40 字>`（不同任務各自告警，同任務去重）。 */
+function cooldownKeyFor(result: CycleResult): string {
+  if (typeof result === 'object') return `blocked:${[...result.taskText].slice(0, 40).join('')}`
+  return result
+}
+
+function isAlertableResult(result: CycleResult): boolean {
+  return typeof result === 'object' || result === 'cost-hard-stop' || result === 'preflight-failed'
+}
+
+function baseAlertMessage(result: CycleResult): string {
+  if (typeof result === 'object') {
+    return `daemon 告警：任務 blocked（連敗達上限，需人工介入）——任務：${[...result.taskText].slice(0, 80).join('')}`
+  }
   switch (result) {
-    case 'blocked': {
-      const task = readHeartbeatCurrentTask(dataDir) ?? ''
-      return `daemon 告警：任務 blocked（連敗達上限，需人工介入）——任務：${[...task].slice(0, 80).join('')}`
-    }
     case 'cost-hard-stop':
       return 'daemon 告警：cost-hard-stop——今日成本已達硬停上限，暫停派工'
     case 'preflight-failed':
@@ -87,6 +113,35 @@ function alertMessageFor(result: CycleResult, dataDir: string): string {
     default:
       return `daemon 告警：${result}`
   }
+}
+
+/** 冷卻閘：同 key 冷卻窗（6h）內只送第一次，其後靜默累計 suppressedCount；冷卻窗過後
+ * 下一則帶「（冷卻期間抑制 N 則）」。table 由呼叫端持有（記憶體 Map，daemon 運行期間
+ * 全程共用同一份，避免每輪重新讀檔）；本函式只在有實際變動（抑制計數 +1／真的送出）
+ * 時才落地寫檔，寫檔故障吞掉不炸（鐵律 #4）——不落地頂多下次重啟冷卻語意退回舊狀態，
+ * 方向永遠是「fail-open 照發」而非「誤壓不發」。
+ * digest 送出路徑（checkAndSendDigest）完全不經過這裡——每日必達（鐵律 #6）走自己的
+ * stamp 機制，不受這裡任何冷卻狀態影響。 */
+async function sendCooldownAlert(
+  notifier: Notifier, dataDir: string, table: CooldownTable, result: CycleResult
+): Promise<void> {
+  const key = cooldownKeyFor(result)
+  const now = Date.now()
+  const entry = table[key]
+
+  if (entry && now - entry.lastSentMs < ALERT_COOLDOWN_MS) {
+    entry.suppressedCount++
+    quiet(() => saveCooldownTable(dataDir, table))
+    return
+  }
+
+  const suppressed = entry?.suppressedCount ?? 0
+  const suffix = suppressed > 0 ? `（冷卻期間抑制 ${suppressed} 則）` : ''
+  const sent = await safeSend(notifier, baseAlertMessage(result) + suffix)
+  if (!sent) return // 沒送達：冷卻表不更新，維持「視同沒送過」語意，下一輪照樣可送
+
+  table[key] = { lastSentMs: now, suppressedCount: 0 }
+  quiet(() => saveCooldownTable(dataDir, table))
 }
 
 /** 每輪必檢：每日必達摘要（鐵律 #6）。送達（notifier.send 回 true）才落 stamp；
@@ -149,6 +204,9 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
   try {
     let cycles = 0
     let consecutiveCrashes = 0
+    // 冷卻表：記憶體常駐 + 檔面持久化（daemon 重啟不歸零轟炸）；載入失敗已於
+    // loadCooldownTable 內部容錯為空表（fail-open 照發，鐵律 #4）。
+    const cooldownTable = loadCooldownTable(deps.cfg.dataDir)
 
     while (true) {
       if (maxCycles !== undefined && cycles >= maxCycles) return 'max-cycles'
@@ -180,8 +238,8 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
 
       if (result === 'stopped') return 'stopped'
 
-      if (result === 'blocked' || result === 'cost-hard-stop' || result === 'preflight-failed') {
-        await safeSend(notifier, alertMessageFor(result, deps.cfg.dataDir))
+      if (isAlertableResult(result)) {
+        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, result)
       }
 
       if (result === 'idle' || result === 'cost-hard-stop') {

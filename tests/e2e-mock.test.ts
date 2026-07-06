@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runOnce, type Deps } from '../src/scheduler.js'
+import { runOnce, type CycleResult, type Deps } from '../src/scheduler.js'
 import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
@@ -23,9 +23,9 @@ test('M1 閉環：3 任務→2 完成 1 blocked→idle', async () => {
   ])
   const d: Deps = { cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')), engine, events: new EventLog(cfg.dataDir) }
 
-  const seq: string[] = []
+  const seq: CycleResult[] = []
   for (let i = 0; i < 6; i++) seq.push(await runOnce(d))
-  expect(seq).toEqual(['done', 'failed', 'blocked', 'done', 'idle', 'idle'])
+  expect(seq).toEqual(['done', 'failed', { kind: 'blocked', taskText: '任務B' }, 'done', 'idle', 'idle'])
 
   const md = readFileSync(backlogFile, 'utf8')
   expect(md).toContain('- [x] 任務A')

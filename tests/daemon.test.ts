@@ -8,7 +8,7 @@ import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
 import { MockEngine } from '../src/engines/mock.js'
-import { ConfigSchema } from '../src/types.js'
+import { ConfigSchema, type Disposition } from '../src/types.js'
 import { acquireLock } from '../src/lock.js'
 import { shouldSendDigest } from '../src/digest.js'
 
@@ -212,6 +212,111 @@ test('⑧ 紅線 4 報告窗：db 有昨日 attempts（ok/fail）→ 今日輪�
   expect(digestSends[0]).toContain(yesterday)
   expect(digestSends[0]).toContain('完成 1 筆')
   expect(digestSends[0]).toContain('失敗 1 筆')
+})
+
+test('⑨ 冷卻閘（HIGH-2）：連續 3 輪 cost-hard-stop 只送 1 則告警', async () => {
+  const d = deps(new MockEngine())
+  d.db.record({ taskId: 'z', ok: true, costUsd: 999, detail: 'burn' })
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 3 }))
+
+  expect(result).toBe('max-cycles')
+  const alerts = notifier.sent.filter(t => t.includes('cost-hard-stop'))
+  expect(alerts).toHaveLength(1)
+})
+
+test('⑩ 冷卻閘：冷卻窗（6h）已過的持久化紀錄 → 再送且文案含抑制計數', async () => {
+  const d = deps(new MockEngine())
+  d.db.record({ taskId: 'z', ok: true, costUsd: 999, detail: 'burn' })
+  const sevenHoursAgo = Date.now() - 7 * 60 * 60 * 1000
+  writeFileSync(join(d.cfg.dataDir, 'alert-cooldown.json'), JSON.stringify({
+    'cost-hard-stop': { lastSentMs: sevenHoursAgo, suppressedCount: 3 }
+  }))
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
+
+  expect(result).toBe('max-cycles')
+  const alerts = notifier.sent.filter(t => t.includes('cost-hard-stop'))
+  expect(alerts).toHaveLength(1)
+  expect(alerts[0]).toContain('冷卻期間抑制 3 則')
+})
+
+test('⑪ 冷卻閘：兩個不同任務各自 blocked → 各送一則告警（key 各自獨立）', async () => {
+  const backlog = '- [ ] 任務甲\n- [ ] 任務乙\n'
+  const engine = new MockEngine([
+    { ok: false, reason: 'x' }, { ok: false, reason: 'x' }, // 任務甲連敗 2 次 → blocked
+    { ok: false, reason: 'x' }, { ok: false, reason: 'x' }, // 任務乙連敗 2 次 → blocked
+  ])
+  const d = deps(engine, backlog)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 4 }))
+
+  expect(result).toBe('max-cycles')
+  const blockedAlerts = notifier.sent.filter(t => t.includes('blocked'))
+  expect(blockedAlerts).toHaveLength(2)
+  expect(blockedAlerts[0]).toContain('任務甲')
+  expect(blockedAlerts[1]).toContain('任務乙')
+})
+
+test('⑫ 冷卻閘：同一任務重複轉 blocked（report 未落地）→ 第 2 次起被去重吞掉', async () => {
+  class NeverPersistBlockedStore extends BacklogStore {
+    report(id: string, d: Disposition): void {
+      if (d.kind === 'blocked') return // 模擬「持久化失敗但不 throw」：backlog 仍是 open，下輪重新撿到同任務
+      super.report(id, d)
+    }
+  }
+  const engine = new MockEngine([
+    { ok: false, reason: 'x' }, { ok: false, reason: 'x' },
+    { ok: false, reason: 'x' }, { ok: false, reason: 'x' },
+  ])
+  const d = deps(engine)
+  const neverPersistStore = new NeverPersistBlockedStore(d.cfg.backlogFile)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts({ ...d, store: neverPersistStore }, notifier, sleepCalls, { maxCycles: 4 }))
+
+  expect(result).toBe('max-cycles')
+  const blockedAlerts = notifier.sent.filter(t => t.includes('blocked'))
+  expect(blockedAlerts).toHaveLength(1) // 第 2~4 次同任務（同 key）blocked 被冷卻閘吞掉
+})
+
+test('⑬ 冷卻閘：alert-cooldown.json 損壞 → fail-open 照發不炸 daemon（鐵律 #4）', async () => {
+  const d = deps(new MockEngine())
+  d.db.record({ taskId: 'z', ok: true, costUsd: 999, detail: 'burn' })
+  writeFileSync(join(d.cfg.dataDir, 'alert-cooldown.json'), '{not json')
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
+
+  expect(result).toBe('max-cycles')
+  const alerts = notifier.sent.filter(t => t.includes('cost-hard-stop'))
+  expect(alerts).toHaveLength(1) // 損壞視同無冷卻表 → 正常照發
+})
+
+test('⑭ 冷卻閘不影響 digest：系統告警在冷卻中被吞，每日摘要仍照常送達（鐵律 #6）', async () => {
+  const d = deps(new MockEngine())
+  d.db.record({ taskId: 'z', ok: true, costUsd: 999, detail: 'burn' })
+  writeFileSync(join(d.cfg.dataDir, 'alert-cooldown.json'), JSON.stringify({
+    'cost-hard-stop': { lastSentMs: Date.now(), suppressedCount: 0 }
+  }))
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
+
+  expect(result).toBe('max-cycles')
+  const alerts = notifier.sent.filter(t => t.includes('cost-hard-stop'))
+  expect(alerts).toHaveLength(0) // 冷卻中被吞
+  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  expect(digestSends).toHaveLength(1) // digest 完全不受冷卻表影響，照常送
 })
 
 test('yesterdayUtc：純函數月界/年界正確減一天（UTC）', () => {

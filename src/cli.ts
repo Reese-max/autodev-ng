@@ -11,7 +11,7 @@ import { KernelVerifier } from './verifier.js'
 import { MockEngine } from './engines/mock.js'
 import { ClaudeCliEngine } from './engines/claude-cli.js'
 import { ConfigSchema, type Config, type Engine } from './types.js'
-import { runOnce, type Deps } from './scheduler.js'
+import { runOnce, type CycleResult, type Deps } from './scheduler.js'
 import { runDaemon } from './daemon.js'
 
 function isEnoent(err: unknown): boolean {
@@ -236,11 +236,15 @@ async function cmdStatus(cfgPath: string): Promise<void> {
   }
 }
 
+function formatCycleResult(result: CycleResult): string {
+  return typeof result === 'string' ? result : `blocked（任務：${result.taskText}）`
+}
+
 async function cmdRunOnce(cfgPath: string): Promise<void> {
   const { deps } = assemble(cfgPath)
   try {
     const result = await runOnce(deps)
-    console.log(`CycleResult: ${result}`)
+    console.log(`CycleResult: ${formatCycleResult(result)}`)
   } finally {
     deps.db.close()
   }

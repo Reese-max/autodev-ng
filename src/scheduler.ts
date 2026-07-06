@@ -16,7 +16,11 @@ export interface Deps {
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
-  | 'failed' | 'blocked' | 'preflight-failed' | 'engine-error'
+  | 'failed' | 'preflight-failed' | 'engine-error'
+  // blocked 攜帶任務文字回呼叫端：daemon 的 alertMessageFor 不再讀 heartbeat.currentTask
+  // （解隱性耦合——heartbeat 是「目前跑到哪」的觀測面，blocked 的任務文字該由產生
+  // blocked 的呼叫鏈直接帶回，不該繞去讀一個為了別的目的而存在的檔案）。
+  | { kind: 'blocked'; taskText: string }
 
 /** 觀測（events）故障絕不可反殺主迴圈——統一吞錯（鐵律 #4 精神）。 */
 function quiet(fn: () => void): void {
@@ -130,7 +134,7 @@ function resolveFailure(
     }))
   }
   quiet(() => events.append('task-blocked', { task: task.text }))
-  return 'blocked'
+  return { kind: 'blocked', taskText: task.text }
 }
 
 function todayCost(db: RunDb): number {
