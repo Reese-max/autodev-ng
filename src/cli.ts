@@ -268,6 +268,32 @@ async function cmdDaemon(cfgPath: string): Promise<void> {
   }
 }
 
+/**
+ * M4 Task 7：notify-test 子命令核心——組一則「adng 通道測試 <ISO 時刻>」送出去，回報
+ * 送達與否。notifier 由呼叫端注入（cmdNotifyTest 用 assemble 組出的真 notifier；測試用
+ * mock fetch 建的 notifier），本函數本身不碰檔案/網路，方便單元測試不觸真 API/真 token 檔。
+ */
+export async function runNotifyTest(notifier: DiscordNotifier, now: Date = new Date()): Promise<{ ok: boolean; text: string }> {
+  const text = `adng 通道測試 ${now.toISOString()}`
+  const ok = await notifier.send(text)
+  return { ok, text }
+}
+
+async function cmdNotifyTest(cfgPath: string): Promise<void> {
+  const { deps, notifier } = assemble(cfgPath)
+  try {
+    const { ok, text } = await runNotifyTest(notifier)
+    if (ok) {
+      console.log(`送達成功：${text}`)
+    } else {
+      console.log(`送達失敗（已寫入 DLQ，detail 見 dataDir/notify-dlq.jsonl）：${text}`)
+      process.exitCode = 1
+    }
+  } finally {
+    deps.db.close()
+  }
+}
+
 export interface ParsedArgv { command: string; configPath?: string }
 
 /** argv 手解，不加依賴：`adng <command> --config <path>`。 */
@@ -287,7 +313,7 @@ async function main(): Promise<void> {
   const { command, configPath } = parseArgv(process.argv.slice(2))
 
   if (!configPath) {
-    console.error('用法：adng <status|run-once|daemon> --config <path>')
+    console.error('用法：adng <status|run-once|daemon|notify-test> --config <path>')
     process.exitCode = 1
     return
   }
@@ -302,8 +328,11 @@ async function main(): Promise<void> {
     case 'daemon':
       await cmdDaemon(configPath)
       break
+    case 'notify-test':
+      await cmdNotifyTest(configPath)
+      break
     default:
-      console.error(`未知子命令：${command}（可用：status | run-once | daemon）`)
+      console.error(`未知子命令：${command}（可用：status | run-once | daemon | notify-test）`)
       process.exitCode = 1
   }
 }

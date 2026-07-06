@@ -1,0 +1,13 @@
+{
+  "projectPath": "D:/Users/Administrator/Desktop/voice-actress",
+  "backlogFile": "D:/Users/Administrator/Desktop/voice-actress/BACKLOG-adng.md",
+  "dataDir": "../data/voice-actress",
+  "engine": "claude-cli",
+  "verifyCommand": "npm run verify",
+  "verifyTimeoutMs": 1500000,
+  "judgeUrl": "http://127.0.0.1:8317/v1",
+  "discordChannelId": "1523117277527146507",
+  "timezoneOffsetHours": 8,
+  "failureCostEstimateUsd": 3,
+  "extraDirective": "本專案 commit hook 硬性要求：commit message 最後必須帶一行 `KPI-impact: <一句話描述影響，維護類寫 housekeeping>`。dev server 固定佔用 port 3210，驗證前不要自行啟動 dev server；若 port 3210 被佔用，那是使用者的進程，不要殺它。"
+}

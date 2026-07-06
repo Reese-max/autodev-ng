@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { assemble, formatStatus, parseArgv } from '../src/cli.js'
+import { assemble, formatStatus, parseArgv, runNotifyTest } from '../src/cli.js'
 import { MockEngine } from '../src/engines/mock.js'
 import { ClaudeCliEngine } from '../src/engines/claude-cli.js'
 import { KernelVerifier } from '../src/verifier.js'
@@ -152,6 +152,30 @@ test('assemble：config 非法 JSON → throw 人話訊息含「JSON 格式錯�
   const msg = (caught as Error).message
   expect(msg).toContain('JSON 格式錯誤')
   expect(msg).toContain(cfgPath)
+})
+
+test('runNotifyTest：送達成功（2xx）→ ok true，文字含「adng 通道測試」與指定 ISO 時刻；不讀真 token 檔、不打真 API', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-nt-'))
+  const tokenFile = join(dir, 'fake-tokens.env')
+  writeFileSync(tokenFile, 'LPBOT_TOKEN=fake-tok\n')
+  const okFetch = (async () => new Response('{}', { status: 200 })) as typeof fetch
+  const notifier = new DiscordNotifier({ channelId: 'C1', tokenFile, dataDir: dir, fetchFn: okFetch })
+
+  const result = await runNotifyTest(notifier, new Date('2026-07-07T00:00:00.000Z'))
+  expect(result.ok).toBe(true)
+  expect(result.text).toContain('adng 通道測試')
+  expect(result.text).toContain('2026-07-07T00:00:00.000Z')
+})
+
+test('runNotifyTest：送達失敗（非 2xx）→ ok false', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-nt-'))
+  const tokenFile = join(dir, 'fake-tokens.env')
+  writeFileSync(tokenFile, 'LPBOT_TOKEN=fake-tok\n')
+  const badFetch = (async () => new Response('nope', { status: 500 })) as typeof fetch
+  const notifier = new DiscordNotifier({ channelId: 'C1', tokenFile, dataDir: dir, fetchFn: badFetch })
+
+  const result = await runNotifyTest(notifier)
+  expect(result.ok).toBe(false)
 })
 
 test('assemble：config 缺必填欄位 → throw 人話訊息含「設定檔欄位錯誤」、路徑與欄位名', () => {
