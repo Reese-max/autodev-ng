@@ -42,6 +42,7 @@ test('prepareWorktree：建出 worktree 目錄 + 分支 + marker', () => {
 
   expect(wt.branch).toBe(`adng/${TASK_ID}`)
   expect(wt.cwd).toBe(join(worktreesDir, TASK_ID))
+  expect(wt.baseBranch).toBe('main')
   expect(existsSync(wt.cwd)).toBe(true)
   expect(existsSync(join(wt.cwd, '.adng-worktree'))).toBe(true)
   const marker = JSON.parse(readFileSync(join(wt.cwd, '.adng-worktree'), 'utf8')) as { taskId: string }
@@ -74,7 +75,7 @@ test('mergeBack：worktree 內 commit 後 ff-only 成功、主 repo HEAD 前進�
   const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
   commitFile(wt.cwd, 'feature.txt', 'done\n', 'feat: 完成任務')
 
-  const result = mergeBack(repo, wt.branch)
+  const result = mergeBack(repo, wt.branch, wt.baseBranch)
   expect(result.merged).toBe(true)
   const after = headOf(repo)
   expect(after).not.toBe(before)
@@ -95,8 +96,9 @@ test('mergeBack：主 repo 被第三方推進且與 worktree 分支分岔 → me
   // 第三方直接在主 repo commit，造成分岔（worktree 分支與 main 互不為對方祖先）
   commitFile(repo, 'thirdparty.txt', 'third party\n', 'chore: 第三方推進')
 
-  const result = mergeBack(repo, wt.branch)
+  const result = mergeBack(repo, wt.branch, wt.baseBranch)
   expect(result.merged).toBe(false)
+  expect(result.reason).toBe('merge-conflict')
   expect(result.commitHash).toBeUndefined()
 
   const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
@@ -107,4 +109,52 @@ test('mergeBack：主 repo 被第三方推進且與 worktree 分支分岔 → me
 test('prepareWorktree：非 git 目錄上拋明確錯誤（呼叫端據此歸 blocked，不炸 daemon）', () => {
   const plain = mkdtempSync(join(tmpdir(), 'adng-nogit-'))
   expect(() => prepareWorktree(plain, join(plain, 'worktrees'), TASK_ID)).toThrow(/git/)
+})
+
+// ---------------------------------------------------------------------------
+// HIGH 修復：mergeBack 分支身分核對（不驗主 repo 分支身分 → 成果可能悄悄合錯地方/遺失）
+// ---------------------------------------------------------------------------
+
+test('prepareWorktree：主 repo 處於 detached HEAD → 上拋明確錯誤，拒絕開工', () => {
+  const { repo, worktreesDir } = newRepo()
+  execFileSync('git', ['checkout', '--detach', headOf(repo)], { cwd: repo, stdio: 'ignore' })
+
+  expect(() => prepareWorktree(repo, worktreesDir, TASK_ID)).toThrow(/detached HEAD/)
+})
+
+test('mergeBack：主 repo 於 prepareWorktree 後被切到新分支 → merged:false(branch-switched)，原分支與新分支都沒收到成果，任務分支保留', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  commitFile(wt.cwd, 'feature.txt', 'from worktree\n', 'feat: worktree 端完成')
+
+  // 使用者在任務執行期間切到自己的新分支（非 detached，只是換了分支）
+  execFileSync('git', ['checkout', '-b', 'user-side-branch'], { cwd: repo, stdio: 'ignore' })
+
+  const result = mergeBack(repo, wt.branch, wt.baseBranch)
+  expect(result.merged).toBe(false)
+  expect(result.reason).toBe('branch-switched')
+
+  execFileSync('git', ['checkout', 'main'], { cwd: repo, stdio: 'ignore' })
+  expect(existsSync(join(repo, 'feature.txt'))).toBe(false) // 原分支沒收到成果
+  execFileSync('git', ['checkout', 'user-side-branch'], { cwd: repo, stdio: 'ignore' })
+  expect(existsSync(join(repo, 'feature.txt'))).toBe(false) // 使用者當下分支也沒收到成果
+
+  const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
+  expect(branches).toContain(wt.branch) // adng 任務分支保留，不硬 merge
+})
+
+test('mergeBack：主 repo 於 prepareWorktree 後 detach HEAD → merged:false(branch-switched)，任務分支保留', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  commitFile(wt.cwd, 'feature.txt', 'from worktree\n', 'feat: worktree 端完成')
+
+  execFileSync('git', ['checkout', '--detach', headOf(repo)], { cwd: repo, stdio: 'ignore' })
+
+  const result = mergeBack(repo, wt.branch, wt.baseBranch)
+  expect(result.merged).toBe(false)
+  expect(result.reason).toBe('branch-switched')
+  expect(existsSync(join(repo, 'feature.txt'))).toBe(false)
+
+  const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
+  expect(branches).toContain(wt.branch) // 沒有具名引用被刪掉，成果沒有靜默遺失
 })

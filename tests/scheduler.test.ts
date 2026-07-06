@@ -70,7 +70,7 @@ test('敗第 1 次留 open；敗第 2 次 blocked（鐵律：不無限重試）'
   const d = deps(e)
   expect(await runOnce(d)).toBe('failed')
   expect(d.store.nextTask()).not.toBeNull() // 還是 open
-  expect(await runOnce(d)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一' })
+  expect(await runOnce(d)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一', reason: 'max-attempts' })
   expect(d.store.nextTask()).toBeNull() // blocked 不再撿
 })
 
@@ -145,7 +145,7 @@ test('engine 連 throw 兩次 → 第二次回 blocked（補齊 engine-error →
   const d = deps(new MockEngine([{ throw: 'ECONNRESET' }, { throw: 'ECONNRESET' }]))
   expect(await runOnce(d)).toBe('engine-error')
   expect(d.store.nextTask()).not.toBeNull() // 還是 open
-  expect(await runOnce(d)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一' })
+  expect(await runOnce(d)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一', reason: 'max-attempts' })
   expect(d.store.nextTask()).toBeNull() // blocked 不再撿
 })
 
@@ -171,7 +171,7 @@ test('verifier 拒絕 → failed 計數、不打勾；達 maxAttempts 轉 blocke
   const dd = { ...d, verifier: rejecter }
   expect(await runOnce(dd)).toBe('failed')
   expect(d.store.nextTask()).not.toBeNull()
-  expect(await runOnce(dd)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一' })
+  expect(await runOnce(dd)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一', reason: 'max-attempts' })
 })
 
 test('verifier throw → pass-with-alert（鐵律#4），任務照 done', async () => {
@@ -260,7 +260,7 @@ test('非 git 專案：prepareWorktree 上拋 → scheduler 歸 blocked+告警�
   }
 
   const result = await runOnce(d)
-  expect(result).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一' })
+  expect(result).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一', reason: 'not-a-git-repo' })
   expect(e.calls).toHaveLength(0)
   const events = readFileSync(join(cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events).toContain('worktree-prepare-failed')
@@ -284,7 +284,7 @@ test('mergeBack ff 失敗（主分支同時被第三方推進且與 worktree 分
   projectPath = d.cfg.projectPath
 
   const result = await runOnce(d)
-  expect(result).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一' })
+  expect(result).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一', reason: 'merge-conflict' })
   expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('adng:blocked')
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events).toContain('merge-conflict')
@@ -304,6 +304,36 @@ test('engine 失敗（res.ok=false）：worktree 保留現場（不清理），e
   expect(existsSync(worktreePath)).toBe(true)
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events).toContain('worktree-kept')
+})
+
+test('HIGH 修復：engine 執行期間主 repo 被切到新分支 → blocked(reason=branch-switched)，成果不落到使用者當下分支，adng 分支保留', async () => {
+  let projectPath = ''
+  const e = new MockEngine([{
+    ok: true,
+    beforeResult: job => {
+      commitFile(job.projectPath, 'feature.txt', 'from engine\n', 'feat: engine 完成任務')
+      // 使用者在任務執行期間切到自己的新分支（模擬 25 分鐘 engine+verify 執行期間的操作）
+      execFileSync('git', ['checkout', '-b', 'user-side-branch'], { cwd: projectPath, stdio: 'ignore' })
+    }
+  }])
+  const d = deps(e)
+  projectPath = d.cfg.projectPath
+
+  const result = await runOnce(d)
+  expect(result).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一', reason: 'branch-switched' })
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  expect(events).toContain('branch-switched')
+
+  // 使用者當下所在分支與原分支（main）都沒收到成果——沒有悄悄合到「使用者當下所在的分支」
+  expect(existsSync(join(d.cfg.projectPath, 'feature.txt'))).toBe(false)
+  execFileSync('git', ['checkout', 'main'], { cwd: d.cfg.projectPath, stdio: 'ignore' })
+  expect(existsSync(join(d.cfg.projectPath, 'feature.txt'))).toBe(false)
+
+  // adng 任務分支保留給人工介入（不硬 merge、不清理）
+  const worktreePath = join(d.cfg.worktreesDir, taskId('任務一'))
+  expect(existsSync(worktreePath)).toBe(true)
+  const branches = execFileSync('git', ['branch', '--list', `adng/${taskId('任務一')}`], { cwd: d.cfg.projectPath, encoding: 'utf8' })
+  expect(branches).toContain(`adng/${taskId('任務一')}`)
 })
 
 test('M4 Task 6 e2e：全鏈路——backlog 撿起→worktree→engine commit→verify(省 verifyCommand)→mergeBack→主 repo HEAD 前進→worktree 清掉→backlog 標 done', async () => {
@@ -342,4 +372,39 @@ test('M4 Task 6 e2e：全鏈路——backlog 撿起→worktree→engine commit�
   const events = readFileSync(join(cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events).toContain('verify-alert') // verify-skip alert 仍留痕
   expect(events).toContain('task-done')
+})
+
+test('MEDIUM 2 回歸：worktree 內壞 commit + verifyCommand 失敗 → 真 rollback 跑過，worktree HEAD 回 base、marker 存活、主 repo 全程不動、任務不標 done', async () => {
+  const NODE = process.execPath
+  // beforeResult 鉤子模擬「MockEngine 從不設 baseCommitHash」的既有缺口：先在 worktree 內
+  // rev-parse HEAD 拿到 base（engine 弄髒 worktree 之前），回傳字串讓 mock.ts 塞進
+  // RunResult.baseCommitHash——這是 verifier 的 tryRollback 依賴的真值，全套測試過去沒有
+  // 一條走過 runOnce→verifier→真 git reset --hard 的完整鏈。
+  const e = new MockEngine([{
+    ok: true,
+    beforeResult: job => {
+      const baseHash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: job.projectPath, encoding: 'utf8' }).trim()
+      commitFile(job.projectPath, 'bad.txt', 'oops\n', 'feat: 壞掉的內容')
+      return baseHash
+    }
+  }])
+  const d = deps(e)
+  const cfgWithVerify = { ...d.cfg, verifyCommand: `"${NODE}" -e "process.exit(1)"` }
+  const verifier = new KernelVerifier({ cfg: cfgWithVerify })
+  const beforeMainHash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: d.cfg.projectPath, encoding: 'utf8' }).trim()
+
+  const result = await runOnce({ ...d, cfg: cfgWithVerify, verifier })
+
+  expect(result).toBe('failed')
+  expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [ ] 任務一') // 任務不標 done
+
+  const worktreePath = join(d.cfg.worktreesDir, taskId('任務一'))
+  expect(existsSync(join(worktreePath, '.adng-worktree'))).toBe(true) // marker 存活
+  expect(existsSync(join(worktreePath, 'bad.txt'))).toBe(false) // 壞 commit 被 rollback 清掉，worktree HEAD 已回 base
+
+  const mainHashAfter = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: d.cfg.projectPath, encoding: 'utf8' }).trim()
+  expect(mainHashAfter).toBe(beforeMainHash) // 主 repo HEAD 全程不動
+
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  expect(events).toContain('task-verify-failed')
 })

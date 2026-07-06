@@ -2,8 +2,9 @@ import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-export interface WorktreeHandle { cwd: string; branch: string }
-export interface MergeBackResult { merged: boolean; commitHash?: string }
+export interface WorktreeHandle { cwd: string; branch: string; baseBranch: string }
+export type MergeBackFailReason = 'branch-switched' | 'merge-conflict'
+export interface MergeBackResult { merged: boolean; commitHash?: string; reason?: MergeBackFailReason }
 
 /** worktree 根目錄的旗標檔：verifier 的 defaultRollback 守門用它辨識「這是 adng 管理的
  * worktree」才允許 `git reset --hard`，防止誤傷使用者一般專案目錄裡未提交的工作。 */
@@ -32,6 +33,13 @@ function gitTolerant(args: string[], cwd: string, timeoutMs: number): void {
   } catch {
     // 容忍：見上方註解
   }
+}
+
+/** 主 repo 目前所在分支名稱（`git symbolic-ref --short HEAD`）。detached HEAD 時這條指令
+ * 本身就會失敗上拋——呼叫端依語境決定：prepareWorktree 直接拒絕開工；mergeBack 判定
+ * branch-switched（HIGH 修復：ff-only 本身看不出「快轉到的是不是原本那條分支」）。 */
+function currentBranch(projectPath: string): string {
+  return git(['symbolic-ref', '--short', 'HEAD'], projectPath, QUICK_TIMEOUT_MS).trim()
 }
 
 /** 非 git 專案探測：`git rev-parse --git-dir` 失敗 → 上拋明確錯誤，呼叫端（scheduler）
@@ -90,6 +98,15 @@ function ensureMarkerIgnored(projectPath: string): void {
 export function prepareWorktree(projectPath: string, worktreesDir: string, taskId: string): WorktreeHandle {
   assertGitRepo(projectPath)
 
+  // HIGH 修復：engine+verify 耗時可達數十分鐘，期間主 repo 若被切走分支，mergeBack 需要
+  // 「當時身分」核對；detached HEAD 無具名分支可記，當下拒絕開工上拋（scheduler 歸 blocked）。
+  let baseBranch: string
+  try {
+    baseBranch = currentBranch(projectPath)
+  } catch (err) {
+    throw new Error(`prepareWorktree: 主 repo 處於 detached HEAD，拒絕開工：${String(err)}`)
+  }
+
   const branch = branchNameFor(taskId)
   const worktreePath = join(worktreesDir, taskId)
 
@@ -101,18 +118,29 @@ export function prepareWorktree(projectPath: string, worktreesDir: string, taskI
   ensureMarkerIgnored(projectPath)
   writeFileSync(join(worktreePath, WORKTREE_MARKER), JSON.stringify({ taskId, createdAt: new Date().toISOString() }))
 
-  return { cwd: worktreePath, branch }
+  return { cwd: worktreePath, branch, baseBranch }
 }
 
 /**
- * 在主 repo 把任務分支 ff-only 合回。ff 不可行（使用者/第三方同時動了主分支，兩邊分岔）
- * → 回 `{ merged: false }` 不硬 merge、不拋——呼叫端（scheduler）決定 blocked，分支保留給人工。
+ * 在主 repo 把任務分支 ff-only 合回。HIGH 修復：merge 前核對主 repo「現在」是否仍在
+ * prepareWorktree 當時記下的 expectedBaseBranch——ff-only 看不出快轉到的是不是原本那條
+ * 分支，使用者中途切分支/detach HEAD 仍會「成功」但合錯地方（detached 時甚至隨後被
+ * cleanupWorktree 的 branch -d 一併清掉、靜默遺失）。身分不符一律回
+ * `{merged:false, reason:'branch-switched'}`，不執行 merge、不拋——呼叫端決定 blocked。
  */
-export function mergeBack(projectPath: string, branch: string): MergeBackResult {
+export function mergeBack(projectPath: string, branch: string, expectedBaseBranch: string): MergeBackResult {
+  let nowBranch: string
+  try {
+    nowBranch = currentBranch(projectPath)
+  } catch {
+    return { merged: false, reason: 'branch-switched' } // detached HEAD
+  }
+  if (nowBranch !== expectedBaseBranch) return { merged: false, reason: 'branch-switched' }
+
   try {
     git(['merge', '--ff-only', branch], projectPath, QUICK_TIMEOUT_MS)
   } catch {
-    return { merged: false }
+    return { merged: false, reason: 'merge-conflict' }
   }
   const commitHash = git(['rev-parse', 'HEAD'], projectPath, QUICK_TIMEOUT_MS).trim()
   return { merged: true, commitHash }

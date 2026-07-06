@@ -15,6 +15,10 @@ export interface Deps {
   verifier?: { check(job: Job, res: RunResult): Promise<VerifierCheck> }
 }
 
+/** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
+ * ——不是每種 blocked 都是「連敗」，含糊文案會誤導人工介入的方向。 */
+export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'branch-switched'
+
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
   | 'failed' | 'preflight-failed' | 'engine-error'
@@ -23,7 +27,7 @@ export type CycleResult =
   // blocked 的呼叫鏈直接帶回，不該繞去讀一個為了別的目的而存在的檔案）。
   // taskId 供 daemon 冷卻閘 key 使用（修正：舊版 key 用任務文字前 40 字，兩個長任務
   // 前 40 字相同會撞出同一個 key、互相吞告警；taskId 全域唯一不會有這問題）。
-  | { kind: 'blocked'; taskId: string; taskText: string }
+  | { kind: 'blocked'; taskId: string; taskText: string; reason: BlockedReason }
 
 /** 觀測（events）故障絕不可反殺主迴圈——統一吞錯（鐵律 #4 精神）。 */
 function quiet(fn: () => void): void {
@@ -76,7 +80,7 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
     wt = prepareWorktree(cfg.projectPath, cfg.worktreesDir, task.id)
   } catch (err) {
     quiet(() => events.append('worktree-prepare-failed', { task: task.text, error: String(err) }))
-    return blockTask({ store, events }, task, `worktree 建立失敗：${String(err)}`)
+    return blockTask({ store, events }, task, 'not-a-git-repo', `worktree 建立失敗：${String(err)}`)
   }
 
   // extraDirective 附加到 job.directive 尾（未設定時維持 undefined）——engine 端現階段
@@ -128,12 +132,21 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
 
   if (res.ok) {
     // engine 成功 + verify 通過（或未設 verifier）→ 嘗試把任務分支 ff-only 合回主 repo。
-    const merge = mergeBack(cfg.projectPath, wt.branch)
+    const merge = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch)
     if (!merge.merged) {
+      if (merge.reason === 'branch-switched') {
+        // HIGH 修復：主 repo 已不在 prepareWorktree 當時記下的分支（切走或 detached）——
+        // 不硬 merge，成果不會悄悄落到使用者當下所在分支；worktree/分支保留給人工介入。
+        quiet(() => events.append('branch-switched', { task: task.text, branch: wt.branch }))
+        return blockTask(
+          { store, events }, task, 'branch-switched',
+          'branch-switched：主 repo 分支已切換或處於 detached HEAD，成果未合回，需人工介入合併'
+        )
+      }
       // 主分支同時被使用者/第三方動過，ff 不可行——不硬 merge，worktree/分支保留給人工，
       // 直接 blocked（不計入 maxAttempts：這不是任務本身失敗，是環境衝突）。
       quiet(() => events.append('merge-conflict', { task: task.text, branch: wt.branch }))
-      return blockTask({ store, events }, task, 'merge-conflict：主分支已前進，需人工介入合併')
+      return blockTask({ store, events }, task, 'merge-conflict', 'merge-conflict：主分支已前進，需人工介入合併')
     }
 
     try {
@@ -171,17 +184,18 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
 function blockTask(
   { store, events }: Pick<Deps, 'store' | 'events'>,
   task: Task,
-  reason: string
+  reason: BlockedReason,
+  humanReason: string
 ): CycleResult {
   try {
-    store.report(task.id, { kind: 'blocked', reason })
+    store.report(task.id, { kind: 'blocked', reason: humanReason })
   } catch (err) {
     quiet(() => events.append('report-failed', {
       task: task.text, kind: 'blocked', error: String(err), willRepick: true
     }))
   }
-  quiet(() => events.append('task-blocked', { task: task.text }))
-  return { kind: 'blocked', taskId: task.id, taskText: task.text }
+  quiet(() => events.append('task-blocked', { task: task.text, reason }))
+  return { kind: 'blocked', taskId: task.id, taskText: task.text, reason }
 }
 
 /**
@@ -194,7 +208,7 @@ function resolveFailure(
   base: 'failed' | 'engine-error'
 ): CycleResult {
   if (db.failCount(task.id) < cfg.maxAttempts) return base
-  return blockTask({ store, events }, task, `連敗 ${cfg.maxAttempts} 次，人工介入`)
+  return blockTask({ store, events }, task, 'max-attempts', `連敗 ${cfg.maxAttempts} 次，人工介入`)
 }
 
 /** M4 Task 3：本地日成本（取代舊版 UTC 字串切割）。offsetHours=0 時與舊行為完全一致

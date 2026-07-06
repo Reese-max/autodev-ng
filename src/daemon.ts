@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { acquireLock, releaseLock } from './lock.js'
 import { localDay } from './db.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
-import { runOnce, type Deps, type CycleResult } from './scheduler.js'
+import { runOnce, type Deps, type CycleResult, type BlockedReason } from './scheduler.js'
 
 export interface Notifier {
   send(text: string): Promise<boolean>
@@ -107,9 +107,20 @@ function isAlertableResult(result: CycleResult): boolean {
   return typeof result === 'object' || result === 'cost-hard-stop' || result === 'preflight-failed'
 }
 
-function baseAlertMessage(result: CycleResult): string {
+/** MEDIUM 1 修復：blocked 告警文案曾對所有原因統一印「連敗達上限」，但非 git 專案／
+ * merge-conflict／branch-switched 都不是連敗，含糊文案會誤導人工介入的方向。 */
+function blockedReasonText(reason: BlockedReason): string {
+  switch (reason) {
+    case 'max-attempts': return '連敗達上限，需人工介入'
+    case 'not-a-git-repo': return 'worktree 建立失敗（非 git 專案或主 repo 狀態異常），需人工介入'
+    case 'merge-conflict': return '主分支已前進導致無法自動合併，需人工介入合併'
+    case 'branch-switched': return '主 repo 分支已切換或處於 detached HEAD，成果未合回，需人工介入合併'
+  }
+}
+
+export function baseAlertMessage(result: CycleResult): string {
   if (typeof result === 'object') {
-    return `daemon 告警：任務 blocked（連敗達上限，需人工介入）——任務：${[...result.taskText].slice(0, 80).join('')}`
+    return `daemon 告警：任務 blocked（${blockedReasonText(result.reason)}）——任務：${[...result.taskText].slice(0, 80).join('')}`
   }
   switch (result) {
     case 'cost-hard-stop':

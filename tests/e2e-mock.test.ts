@@ -41,7 +41,11 @@ test('M1 閉環：3 任務→2 完成 1 blocked→idle', async () => {
 
   const seq: CycleResult[] = []
   for (let i = 0; i < 6; i++) seq.push(await runOnce(d))
-  expect(seq).toEqual(['done', 'failed', { kind: 'blocked', taskId: taskId('任務B'), taskText: '任務B' }, 'done', 'idle', 'idle'])
+  expect(seq).toEqual([
+    'done', 'failed',
+    { kind: 'blocked', taskId: taskId('任務B'), taskText: '任務B', reason: 'max-attempts' },
+    'done', 'idle', 'idle'
+  ])
 
   const md = readFileSync(backlogFile, 'utf8')
   expect(md).toContain('- [x] 任務A')

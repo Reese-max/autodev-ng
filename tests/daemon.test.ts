@@ -3,8 +3,8 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runDaemon, yesterdayLocal, type DaemonOpts, type Notifier } from '../src/daemon.js'
-import type { Deps } from '../src/scheduler.js'
+import { runDaemon, yesterdayLocal, baseAlertMessage, type DaemonOpts, type Notifier } from '../src/daemon.js'
+import type { CycleResult, Deps } from '../src/scheduler.js'
 import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
@@ -419,6 +419,21 @@ test('⑯ 冷卻閘（修 3）：兩個不同 task.id 但任務文字前 40 字�
   expect(blockedAlerts).toHaveLength(2)
   expect(blockedAlerts[0]).toContain('第一個任務')
   expect(blockedAlerts[1]).toContain('第二個任務')
+})
+
+test('MEDIUM 1 修復：baseAlertMessage 依 blocked reason 各出對應人話文案（不再全部印「連敗達上限」）', () => {
+  const blocked = (reason: 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'branch-switched'): CycleResult =>
+    ({ kind: 'blocked', taskId: 't1', taskText: '某任務', reason })
+
+  expect(baseAlertMessage(blocked('max-attempts'))).toContain('連敗達上限')
+  expect(baseAlertMessage(blocked('not-a-git-repo'))).toContain('worktree 建立失敗')
+  expect(baseAlertMessage(blocked('merge-conflict'))).toContain('無法自動合併')
+  expect(baseAlertMessage(blocked('branch-switched'))).toContain('分支已切換或處於 detached HEAD')
+
+  // 三個新原因都不該被誤植成舊版的「連敗達上限」文案
+  expect(baseAlertMessage(blocked('not-a-git-repo'))).not.toContain('連敗達上限')
+  expect(baseAlertMessage(blocked('merge-conflict'))).not.toContain('連敗達上限')
+  expect(baseAlertMessage(blocked('branch-switched'))).not.toContain('連敗達上限')
 })
 
 test('yesterdayLocal：純函數月界/年界正確減一天（本地日曆日，位移邏輯與 offset 無關）', () => {
