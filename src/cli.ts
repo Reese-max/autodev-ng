@@ -70,6 +70,7 @@ function expandConfigPaths(baseDir: string, cfg: Config): Config {
     dataDir: expandPath(baseDir, cfg.dataDir),
     stopFile: expandPath(baseDir, cfg.stopFile),
     discordTokenFile: expandPath(baseDir, cfg.discordTokenFile),
+    worktreesDir: expandPath(baseDir, cfg.worktreesDir),
   }
 }
 

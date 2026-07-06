@@ -11,7 +11,14 @@ export type Disposition =
   | { kind: 'done'; commitHash: string }
   | { kind: 'blocked'; reason: string }
 
-export interface Job { task: Task; projectPath: string }
+export interface Job {
+  task: Task
+  projectPath: string
+  /** M4 Task 6（worktree 接線）：cfg.extraDirective 附加在任務文字尾的專案特規指示
+   * （如 voice-actress 的 KPI-impact 標籤要求）。未設定 extraDirective 時維持 undefined，
+   * engine 端沒有義務讀它——現階段僅 scheduler 組裝並傳遞，供未來引擎接線消費。 */
+  directive?: string
+}
 
 export interface RunResult {
   ok: boolean
@@ -47,6 +54,11 @@ export const ConfigSchema = z.object({
   // M4 Task 3（成本記帳）：本地日界線與失敗成本估計。台灣預設 +8；成本日界線與 digest 報日共用同一個 offset。
   timezoneOffsetHours: z.number().int().min(-12).max(14).default(8),
   failureCostEstimateUsd: z.number().nonnegative().default(1),
+  // M4 Task 6（worktree 接線）：worktreesDir 相對 config 檔目錄展開（cli.ts expandConfigPaths
+  // 慣例，同 stopFile）；worktree.ts 本身收絕對路徑，展開留在 assemble 層。extraDirective 為
+  // 每輪注入 engine prompt 尾端的專案特規文字（可選，未設時 job.directive 為 undefined）。
+  worktreesDir: z.string().default('worktrees'),
+  extraDirective: z.string().optional(),
   stopFile: z.string().default('.adng.stop'),
   verifyCommand: z.string().optional(),
   verifyTimeoutMs: z.number().int().positive().default(600_000),

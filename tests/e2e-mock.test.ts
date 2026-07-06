@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest'
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,13 +10,28 @@ import { EventLog } from '../src/events.js'
 import { MockEngine } from '../src/engines/mock.js'
 import { ConfigSchema } from '../src/types.js'
 
+/** M4 Task 6：scheduler 對每個任務執行 prepareWorktree/mergeBack，projectPath 必須是真 git repo。 */
+function initGitRepo(dir: string): void {
+  execFileSync('git', ['init', '-b', 'main'], { cwd: dir, stdio: 'ignore' })
+  execFileSync('git', ['config', 'user.email', 'adng-test@example.com'], { cwd: dir, stdio: 'ignore' })
+  execFileSync('git', ['config', 'user.name', 'adng-test'], { cwd: dir, stdio: 'ignore' })
+  // Windows 全域 core.autocrlf=true 會讓 checkout 內容 LF→CRLF 而被 git 視為 modified，
+  // 干擾 `git worktree remove`（非 --force）；臨時 repo 內 local 覆寫避免依賴全域設定。
+  execFileSync('git', ['config', 'core.autocrlf', 'false'], { cwd: dir, stdio: 'ignore' })
+  writeFileSync(join(dir, 'README.md'), '# adng test repo\n')
+  execFileSync('git', ['add', '.'], { cwd: dir, stdio: 'ignore' })
+  execFileSync('git', ['commit', '-m', 'chore: init'], { cwd: dir, stdio: 'ignore' })
+}
+
 test('M1 閉環：3 任務→2 完成 1 blocked→idle', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-e2e-'))
+  initGitRepo(dir)
   const backlogFile = join(dir, 'BACKLOG.md')
   writeFileSync(backlogFile, '- [ ] 任務A\n- [ ] 任務B\n- [ ] 任務C\n')
   const cfg = ConfigSchema.parse({
     projectPath: dir, backlogFile, dataDir: join(dir, 'data'),
-    engine: 'mock', stopFile: join(dir, '.adng.stop')
+    engine: 'mock', stopFile: join(dir, '.adng.stop'),
+    worktreesDir: join(dir, 'worktrees') // 絕對路徑，絕不落在真專案目錄（鐵律 #6）
   })
   // 劇本：A 成功；B 連敗兩次；C 成功
   const engine = new MockEngine([

@@ -4,6 +4,7 @@ import { localDay, type RunDb } from './db.js'
 import type { EventLog } from './events.js'
 import type { Config, Engine, Job, RunResult, Task } from './types.js'
 import type { VerifierCheck } from './verifier.js'
+import { cleanupWorktree, mergeBack, prepareWorktree, type WorktreeHandle } from './worktree.js'
 
 export interface Deps {
   cfg: Config
@@ -67,14 +68,30 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
     return 'preflight-failed'
   }
 
+  // M4 Task 6（worktree 接線）：任務級隔離執行環境。非 git 專案（prepareWorktree 上拋）
+  // → 直接 blocked+告警，不計入 maxAttempts 失敗計數（環境問題而非任務本身失敗——
+  // fail-open 不炸 daemon，鐵律 #4）。
+  let wt: WorktreeHandle
+  try {
+    wt = prepareWorktree(cfg.projectPath, cfg.worktreesDir, task.id)
+  } catch (err) {
+    quiet(() => events.append('worktree-prepare-failed', { task: task.text, error: String(err) }))
+    return blockTask({ store, events }, task, `worktree 建立失敗：${String(err)}`)
+  }
+
+  // extraDirective 附加到 job.directive 尾（未設定時維持 undefined）——engine 端現階段
+  // 沒有義務讀它，這裡只負責組裝與傳遞（消費留給引擎接線任務）。
+  const directive = cfg.extraDirective ? `${task.text}\n\n${cfg.extraDirective}` : undefined
+
   // try 只包 engine.run 本身：db.record／store.report／events 的下游 I/O 故障
   // 不該被誤判成「引擎錯誤」而污染 failCount。
   let res: RunResult
   try {
-    res = await engine.run({ task, projectPath: cfg.projectPath })
+    res = await engine.run({ task, projectPath: wt.cwd, directive })
   } catch (err) {
     db.record({ taskId: task.id, ok: false, costUsd: 0, detail: String(err) })
     quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
+    quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
     return resolveFailure({ cfg, store, db, events }, task, 'engine-error')
   }
 
@@ -94,7 +111,7 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
     // infra 層的驗證閘壞掉不該反殺已經成功的任務。
     let vc: VerifierCheck
     try {
-      vc = await verifier.check({ task, projectPath: cfg.projectPath }, res)
+      vc = await verifier.check({ task, projectPath: wt.cwd }, res)
     } catch (err) {
       vc = { pass: true, alerts: [`verifier-exception: ${String(err)}`] }
     }
@@ -103,25 +120,68 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
       // 引擎那筆已記 ok:true+真實 cost（成本不可造假）；這裡多記一筆 ok:false 讓失敗計數靠這筆走。
       db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected' })
       quiet(() => events.append('task-verify-failed', { task: task.text, reason: vc.reason }))
+      // engine 失敗/verify 拒：rollback 已在 worktree 內安全跑過，保留現場供 debug（不清理）。
+      quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
       return resolveFailure({ cfg, store, db, events }, task, 'failed')
     }
   }
 
   if (res.ok) {
+    // engine 成功 + verify 通過（或未設 verifier）→ 嘗試把任務分支 ff-only 合回主 repo。
+    const merge = mergeBack(cfg.projectPath, wt.branch)
+    if (!merge.merged) {
+      // 主分支同時被使用者/第三方動過，ff 不可行——不硬 merge，worktree/分支保留給人工，
+      // 直接 blocked（不計入 maxAttempts：這不是任務本身失敗，是環境衝突）。
+      quiet(() => events.append('merge-conflict', { task: task.text, branch: wt.branch }))
+      return blockTask({ store, events }, task, 'merge-conflict：主分支已前進，需人工介入合併')
+    }
+
     try {
-      store.report(task.id, { kind: 'done', commitHash: res.commitHash ?? 'unknown' })
+      store.report(task.id, { kind: 'done', commitHash: merge.commitHash ?? res.commitHash ?? 'unknown' })
     } catch (err) {
       // backlog 沒打勾：已知殘留風險——下一輪會重新撿到這個「已完成」任務。
       quiet(() => events.append('report-failed', {
         task: task.text, kind: 'done', error: String(err), willRepick: true
       }))
     }
-    quiet(() => events.append('task-done', { task: task.text, cost: res.costUsd, commit: res.commitHash }))
+    quiet(() => events.append('task-done', { task: task.text, cost: res.costUsd, commit: merge.commitHash }))
+
+    try {
+      cleanupWorktree(cfg.projectPath, wt.cwd, wt.branch)
+    } catch (err) {
+      // 清理失敗（罕見：檔案鎖住等）保留現場供 debug，不強行二次清除掩蓋問題。
+      quiet(() => events.append('worktree-kept', {
+        taskId: task.id, branch: wt.branch, worktreePath: wt.cwd, error: String(err)
+      }))
+    }
     return 'done'
   }
 
   quiet(() => events.append('task-failed', { task: task.text, reason: res.failureReason }))
+  // engine 失敗（res.ok===false，非例外）：既有流程走 resolveFailure，worktree 保留現場。
+  quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
   return resolveFailure({ cfg, store, db, events }, task, 'failed')
+}
+
+/**
+ * 環境級 blocked（worktree 建立失敗於非 git 專案 / mergeBack ff 失敗）：不計入 maxAttempts
+ * （不是任務本身的失敗），直接標記 blocked 讓人工介入。store.report 拋錯只吞錯記事件
+ * （同 resolveFailure 慣例——backlog 沒標到 blocked 是已知殘留風險，下一輪會重新撿到）。
+ */
+function blockTask(
+  { store, events }: Pick<Deps, 'store' | 'events'>,
+  task: Task,
+  reason: string
+): CycleResult {
+  try {
+    store.report(task.id, { kind: 'blocked', reason })
+  } catch (err) {
+    quiet(() => events.append('report-failed', {
+      task: task.text, kind: 'blocked', error: String(err), willRepick: true
+    }))
+  }
+  quiet(() => events.append('task-blocked', { task: task.text }))
+  return { kind: 'blocked', taskId: task.id, taskText: task.text }
 }
 
 /**
@@ -134,17 +194,7 @@ function resolveFailure(
   base: 'failed' | 'engine-error'
 ): CycleResult {
   if (db.failCount(task.id) < cfg.maxAttempts) return base
-
-  try {
-    store.report(task.id, { kind: 'blocked', reason: `連敗 ${cfg.maxAttempts} 次，人工介入` })
-  } catch (err) {
-    // backlog 沒打上 blocked 標記：已知殘留風險——下一輪會重新撿到這個「該擋下」的任務。
-    quiet(() => events.append('report-failed', {
-      task: task.text, kind: 'blocked', error: String(err), willRepick: true
-    }))
-  }
-  quiet(() => events.append('task-blocked', { task: task.text }))
-  return { kind: 'blocked', taskId: task.id, taskText: task.text }
+  return blockTask({ store, events }, task, `連敗 ${cfg.maxAttempts} 次，人工介入`)
 }
 
 /** M4 Task 3：本地日成本（取代舊版 UTC 字串切割）。offsetHours=0 時與舊行為完全一致
