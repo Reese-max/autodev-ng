@@ -32,32 +32,43 @@ function eventsPath(dataDir: string): string {
   return join(dataDir, 'events.jsonl')
 }
 
-/** 當日 verify-alert 事件數（紅線 4：verify skip 若不落 digest，config 打錯字時安全網靜默關閉沒人知道）。
- * 缺檔＝0；容錯讀檔/逐行解析（同 countDlqLines：摘要本身就是通道自檢，自己不能先倒——鐵律 #6）。
+/** verify-alert 分計結果（M4 Task 4）：verifySkip=安全網未啟用（verify-skip 前綴）；
+ * other=驗證鏈其他告警（judge-skipped/judge-skip/rollback-failed/rollback-exception/verifier-exception 等，
+ * 依 detail 前綴分流，非 verify-skip 一律歸此類——覆蓋所有既有與未來新增的告警前綴，不必逐一列舉維護）。 */
+interface VerifyAlertCounts { verifySkip: number; other: number }
+
+/** 當日 verify-alert 事件分計（紅線 4：verify skip 若不落 digest，config 打錯字時安全網靜默關閉沒人知道）。
+ * 缺檔＝{0,0}；容錯讀檔/逐行解析（同 countDlqLines：摘要本身就是通道自檢，自己不能先倒——鐵律 #6）。
  * 日界線改用 localDay(ts, offsetHours)===isoDayUtc（M4 Task 3）：offsetHours=0 時與舊版
  * ts.slice(0,10) 前綴比對完全等價（相容性錨點），offsetHours≠0 時依本地日曆日歸類。 */
-function countVerifyAlertsToday(dataDir: string, isoDayUtc: string, offsetHours: number): number {
+function countVerifyAlertsToday(dataDir: string, isoDayUtc: string, offsetHours: number): VerifyAlertCounts {
+  const zero: VerifyAlertCounts = { verifySkip: 0, other: 0 }
   const file = eventsPath(dataDir)
-  if (!existsSync(file)) return 0
+  if (!existsSync(file)) return zero
   try {
     const content = readFileSync(file, 'utf8')
-    if (content.trim() === '') return 0
-    let count = 0
+    if (content.trim() === '') return zero
+    const counts: VerifyAlertCounts = { verifySkip: 0, other: 0 }
     for (const line of content.split(/\r?\n/)) {
       if (line.length === 0) continue
       try {
         const parsed = JSON.parse(line) as Record<string, unknown>
         const ts = parsed.ts
+        const detail = parsed.detail
         if (parsed.type === 'verify-alert' && typeof ts === 'string' && localDay(ts, offsetHours) === isoDayUtc) {
-          count++
+          if (typeof detail === 'string' && detail.startsWith('verify-skip:')) {
+            counts.verifySkip++
+          } else {
+            counts.other++
+          }
         }
       } catch {
         // 壞行跳過，不讓整份摘要因為單一壞行炸掉
       }
     }
-    return count
+    return counts
   } catch {
-    return 0
+    return zero
   }
 }
 
@@ -67,7 +78,7 @@ export function buildDigest(opts: BuildDigestOpts): string {
   const offsetHours = opts.offsetHours ?? 0
   const stats = db.dayStats(isoDayUtc, offsetHours)
   const dlqCount = countDlqLines(dataDir)
-  const verifySkipCount = countVerifyAlertsToday(dataDir, isoDayUtc, offsetHours)
+  const { verifySkip, other } = countVerifyAlertsToday(dataDir, isoDayUtc, offsetHours)
   const lines = [
     `adng 每日摘要 ${isoDayUtc}`,
     `完成 ${stats.ok} 筆／失敗 ${stats.fail} 筆`,
@@ -75,8 +86,11 @@ export function buildDigest(opts: BuildDigestOpts): string {
     `DLQ 積壓：${dlqCount} 筆`,
   ]
   // N=0 不印，避免雜訊；N>0 才浮出（鐵律 #4：fail-open-with-alert，不能只落 events.jsonl 沒人看）。
-  if (verifySkipCount > 0) {
-    lines.push(`⚠ 本日 verify 略過 ${verifySkipCount} 次（安全網未啟用，請檢查 verifyCommand）`)
+  if (verifySkip > 0) {
+    lines.push(`⚠ 本日 verify 略過 ${verifySkip} 次（安全網未啟用，請檢查 verifyCommand）`)
+  }
+  if (other > 0) {
+    lines.push(`⚠ 本日驗證鏈其他告警 ${other} 次（詳見 events.jsonl）`)
   }
   lines.push(`adng 通道自檢 OK`)
   return lines.join('\n')
