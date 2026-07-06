@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runOnce, type Deps } from '../src/scheduler.js'
-import { BacklogStore } from '../src/backlog.js'
+import { BacklogStore, taskId } from '../src/backlog.js'
 import type { Disposition } from '../src/types.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
@@ -34,7 +34,7 @@ test('敗第 1 次留 open；敗第 2 次 blocked（鐵律：不無限重試）'
   const d = deps(e)
   expect(await runOnce(d)).toBe('failed')
   expect(d.store.nextTask()).not.toBeNull() // 還是 open
-  expect(await runOnce(d)).toEqual({ kind: 'blocked', taskText: '任務一' })
+  expect(await runOnce(d)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一' })
   expect(d.store.nextTask()).toBeNull() // blocked 不再撿
 })
 
@@ -109,7 +109,7 @@ test('engine 連 throw 兩次 → 第二次回 blocked（補齊 engine-error →
   const d = deps(new MockEngine([{ throw: 'ECONNRESET' }, { throw: 'ECONNRESET' }]))
   expect(await runOnce(d)).toBe('engine-error')
   expect(d.store.nextTask()).not.toBeNull() // 還是 open
-  expect(await runOnce(d)).toEqual({ kind: 'blocked', taskText: '任務一' })
+  expect(await runOnce(d)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一' })
   expect(d.store.nextTask()).toBeNull() // blocked 不再撿
 })
 
@@ -135,7 +135,7 @@ test('verifier 拒絕 → failed 計數、不打勾；達 maxAttempts 轉 blocke
   const dd = { ...d, verifier: rejecter }
   expect(await runOnce(dd)).toBe('failed')
   expect(d.store.nextTask()).not.toBeNull()
-  expect(await runOnce(dd)).toEqual({ kind: 'blocked', taskText: '任務一' })
+  expect(await runOnce(dd)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一' })
 })
 
 test('verifier throw → pass-with-alert（鐵律#4），任務照 done', async () => {

@@ -90,10 +90,12 @@ function saveCooldownTable(dataDir: string, table: CooldownTable): void {
   renameSync(tmp, file)
 }
 
-/** key 設計：系統級告警（cost-hard-stop/preflight-failed 等）key=type；
- * blocked → key=`blocked:<任務文字前 40 字>`（不同任務各自告警，同任務去重）。 */
+/** key 設計：系統級告警（cost-hard-stop/preflight-failed/lock-busy/daemon-crash/
+ * daemon-crash-pause 等）key=固定字串本身；blocked → key=`blocked:<task.id>`
+ * （修正：舊版用任務文字前 40 字，兩個長任務前 40 字相同會撞出同一個 key、互相吞
+ * 告警——task.id 全域唯一，不會有這問題）。 */
 function cooldownKeyFor(result: CycleResult): string {
-  if (typeof result === 'object') return `blocked:${[...result.taskText].slice(0, 40).join('')}`
+  if (typeof result === 'object') return `blocked:${result.taskId}`
   return result
 }
 
@@ -121,11 +123,14 @@ function baseAlertMessage(result: CycleResult): string {
  * 時才落地寫檔，寫檔故障吞掉不炸（鐵律 #4）——不落地頂多下次重啟冷卻語意退回舊狀態，
  * 方向永遠是「fail-open 照發」而非「誤壓不發」。
  * digest 送出路徑（checkAndSendDigest）完全不經過這裡——每日必達（鐵律 #6）走自己的
- * stamp 機制，不受這裡任何冷卻狀態影響。 */
+ * stamp 機制，不受這裡任何冷卻狀態影響。
+ * 接口採 key/message 而非 CycleResult：lock-busy、daemon-crash、daemon-crash-pause
+ * 三種告警不是 runOnce 的 CycleResult，套不上 cooldownKeyFor/baseAlertMessage，改由
+ * 呼叫端各自準備好 key 與文案（CycleResult 系告警則由呼叫點先呼叫
+ * cooldownKeyFor(result)/baseAlertMessage(result) 算好再傳進來）。 */
 async function sendCooldownAlert(
-  notifier: Notifier, dataDir: string, table: CooldownTable, result: CycleResult
+  notifier: Notifier, dataDir: string, table: CooldownTable, key: string, message: string
 ): Promise<void> {
-  const key = cooldownKeyFor(result)
   const now = Date.now()
   const entry = table[key]
 
@@ -137,7 +142,7 @@ async function sendCooldownAlert(
 
   const suppressed = entry?.suppressedCount ?? 0
   const suffix = suppressed > 0 ? `（冷卻期間抑制 ${suppressed} 則）` : ''
-  const sent = await safeSend(notifier, baseAlertMessage(result) + suffix)
+  const sent = await safeSend(notifier, message + suffix)
   if (!sent) return // 沒送達：冷卻表不更新，維持「視同沒送過」語意，下一輪照樣可送
 
   table[key] = { lastSentMs: now, suppressedCount: 0 }
@@ -183,10 +188,17 @@ async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void>
  * - 紅線 1：每輪 runOnce 全包 try/catch，crash 不死、指數退避、連續 5 次暫停 30 分。
  * - 紅線 2 後半：acquireLock 接線——失敗（false）single-flight 讓步；throw（EPERM 類 infra 故障）
  *   炸給排程器看，不可假活。
+ * - HIGH-2 補強：lock-busy／daemon-crash／daemon-crash-pause 三種告警也都走冷卻閘
+ *   （key 各自獨立），避免 respawn 排程（Task 9，每 15 分嘗試）撞鎖或持續崩潰時
+ *   把通知頻道洗爆。
  */
 export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
   const { deps, notifier, lockDir, cooldownMs, idleSleepMs, maxCycles } = opts
   const sleep = opts.sleepFn ?? defaultSleep
+  // 冷卻表：記憶體常駐 + 檔面持久化（daemon 重啟不歸零轟炸）；載入失敗已於
+  // loadCooldownTable 內部容錯為空表（fail-open 照發，鐵律 #4）。
+  // 挪到鎖檢查之前：lock-busy 告警也要吃得到冷卻閘。
+  const cooldownTable = loadCooldownTable(deps.cfg.dataDir)
 
   let locked: boolean
   try {
@@ -197,16 +209,18 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
   }
 
   if (!locked) {
-    await safeSend(notifier, 'daemon 啟動失敗：lock 被佔用（single-flight，可能已有 instance 在跑）')
+    // lock-busy 進程隨即退出：sendCooldownAlert 內對冷卻表的落地寫入是同步呼叫，
+    // return 之前已完成，不會漏寫（鏡像既有 saveCooldownTable 同步寫慣例）。
+    await sendCooldownAlert(
+      notifier, deps.cfg.dataDir, cooldownTable,
+      'lock-busy', 'daemon 啟動失敗：lock 被佔用（single-flight，可能已有 instance 在跑）'
+    )
     return 'lock-busy'
   }
 
   try {
     let cycles = 0
     let consecutiveCrashes = 0
-    // 冷卻表：記憶體常駐 + 檔面持久化（daemon 重啟不歸零轟炸）；載入失敗已於
-    // loadCooldownTable 內部容錯為空表（fail-open 照發，鐵律 #4）。
-    const cooldownTable = loadCooldownTable(deps.cfg.dataDir)
 
     while (true) {
       if (maxCycles !== undefined && cycles >= maxCycles) return 'max-cycles'
@@ -221,10 +235,16 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       } catch (err) {
         consecutiveCrashes++
         quiet(() => deps.events.append('runonce-crash', { error: String(err), consecutiveCrashes }))
-        await safeSend(notifier, `daemon 告警：runOnce 崩潰（連續第 ${consecutiveCrashes} 次）——${String(err)}`)
+        await sendCooldownAlert(
+          notifier, deps.cfg.dataDir, cooldownTable,
+          'daemon-crash', `daemon 告警：runOnce 崩潰（連續第 ${consecutiveCrashes} 次）——${String(err)}`
+        )
 
         if (consecutiveCrashes >= CONSECUTIVE_CRASH_PAUSE_THRESHOLD) {
-          await safeSend(notifier, 'daemon 告警：連續崩潰暫停——已連續崩潰 5 次，暫停 30 分鐘後重試')
+          await sendCooldownAlert(
+            notifier, deps.cfg.dataDir, cooldownTable,
+            'daemon-crash-pause', 'daemon 告警：連續崩潰暫停——已連續崩潰 5 次，暫停 30 分鐘後重試'
+          )
           await sleep(CRASH_PAUSE_MS)
           consecutiveCrashes = 0
         } else {
@@ -239,7 +259,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       if (result === 'stopped') return 'stopped'
 
       if (isAlertableResult(result)) {
-        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, result)
+        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, cooldownKeyFor(result), baseAlertMessage(result))
       }
 
       if (result === 'idle' || result === 'cost-hard-stop') {

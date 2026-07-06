@@ -20,7 +20,9 @@ export type CycleResult =
   // blocked 攜帶任務文字回呼叫端：daemon 的 alertMessageFor 不再讀 heartbeat.currentTask
   // （解隱性耦合——heartbeat 是「目前跑到哪」的觀測面，blocked 的任務文字該由產生
   // blocked 的呼叫鏈直接帶回，不該繞去讀一個為了別的目的而存在的檔案）。
-  | { kind: 'blocked'; taskText: string }
+  // taskId 供 daemon 冷卻閘 key 使用（修正：舊版 key 用任務文字前 40 字，兩個長任務
+  // 前 40 字相同會撞出同一個 key、互相吞告警；taskId 全域唯一不會有這問題）。
+  | { kind: 'blocked'; taskId: string; taskText: string }
 
 /** 觀測（events）故障絕不可反殺主迴圈——統一吞錯（鐵律 #4 精神）。 */
 function quiet(fn: () => void): void {
@@ -134,7 +136,7 @@ function resolveFailure(
     }))
   }
   quiet(() => events.append('task-blocked', { task: task.text }))
-  return { kind: 'blocked', taskText: task.text }
+  return { kind: 'blocked', taskId: task.id, taskText: task.text }
 }
 
 function todayCost(db: RunDb): number {

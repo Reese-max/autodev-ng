@@ -77,7 +77,7 @@ test('① lock 被占 → lock-busy，告警一次，runOnce 完全不執行', a
   expect(notifier.sent[0]).toMatch(/lock|佔用/)
 })
 
-test('② runOnce throw → 不死、runonce-crash 事件、告警、指數退避後繼續下一輪', async () => {
+test('② runOnce throw → 不死、runonce-crash 事件每輪都記、告警走冷卻閘（同 key 只送 1 則）、指數退避後繼續下一輪', async () => {
   class ThrowingStore extends BacklogStore {
     nextTask(): never {
       throw new Error('backlog 讀取炸裂（模擬 I/O 故障）')
@@ -92,13 +92,43 @@ test('② runOnce throw → 不死、runonce-crash 事件、告警、指數退�
 
   expect(result).toBe('max-cycles')
   // 3 輪皆 crash：指數退避 cooldownMs*2^1, *2^2, *2^3（皆未達 5 次連續崩潰暫停門檻）
+  // ——冷卻閘只影響「送不送告警」，不影響退避節奏本身。
   expect(sleepCalls).toEqual([2000, 4000, 8000])
 
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events.match(/"type":"runonce-crash"/g)).toHaveLength(3)
 
+  // 修 2（daemon-crash 納冷卻閘）：3 輪同 key，6h 冷卻窗內只送第 1 則，後兩則被抑制吞掉。
   const crashAlerts = notifier.sent.filter(t => t.includes('runOnce 崩潰'))
-  expect(crashAlerts).toHaveLength(3)
+  expect(crashAlerts).toHaveLength(1)
+})
+
+test('②b 冷卻閘：連續 5 次崩潰觸發暫停——daemon-crash 與 daemon-crash-pause 各自 key 互不干擾、皆只送 1 則', async () => {
+  class ThrowingStore extends BacklogStore {
+    nextTask(): never {
+      throw new Error('backlog 讀取炸裂（模擬 I/O 故障）')
+    }
+  }
+  const d = deps(new MockEngine())
+  const throwingStore = new ThrowingStore(d.cfg.backlogFile)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  // 6 輪：前 4 輪指數退避、第 5 輪觸發連續崩潰暫停（sleep CRASH_PAUSE_MS 並歸零計數）、
+  // 第 6 輪 consecutiveCrashes 重新從 1 起算。
+  const result = await runDaemon(baseOpts({ ...d, store: throwingStore }, notifier, sleepCalls, { maxCycles: 6, cooldownMs: 1000 }))
+
+  expect(result).toBe('max-cycles')
+  expect(sleepCalls).toEqual([2000, 4000, 8000, 16000, 30 * 60 * 1000, 2000])
+
+  // daemon-crash 冷卻閘：6 輪全部同 key，只送 1 則。
+  const crashAlerts = notifier.sent.filter(t => t.includes('runOnce 崩潰'))
+  expect(crashAlerts).toHaveLength(1)
+
+  // daemon-crash-pause 是獨立 key，在這 6 輪內只觸發過 1 次（第 5 輪），本就只送 1 則；
+  // 用來確認冷卻閘去重不會誤傷「暫停機制本身」——暫停照樣在第 5 輪發生（見上面 sleepCalls）。
+  const pauseAlerts = notifier.sent.filter(t => t.includes('連續崩潰暫停'))
+  expect(pauseAlerts).toHaveLength(1)
 })
 
 test('③ 一個任務成功、一個任務連敗轉 blocked，其餘輪跑到 idle：digest 一天只送一次、blocked 告警內容含任務文字', async () => {
@@ -317,6 +347,58 @@ test('⑭ 冷卻閘不影響 digest：系統告警在冷卻中被吞，每日摘
   expect(alerts).toHaveLength(0) // 冷卻中被吞
   const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
   expect(digestSends).toHaveLength(1) // digest 完全不受冷卻表影響，照常送
+})
+
+test('⑮ 冷卻閘（修 1）：lock-busy 連續兩次啟動在冷卻窗內只送 1 則，7h 後第三次再送並帶抑制計數', async () => {
+  const d = deps(new MockEngine())
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+  const lockDir = join(d.cfg.dataDir, '..', 'lock')
+  expect(acquireLock(lockDir)).toBe(true) // 外部持鎖，模擬已有 instance 在跑（lock 全程不釋放）
+
+  const r1 = await runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir }))
+  expect(r1).toBe('lock-busy')
+
+  const r2 = await runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir }))
+  expect(r2).toBe('lock-busy')
+
+  const lockBusyAlerts = notifier.sent.filter(t => /lock|佔用/.test(t))
+  expect(lockBusyAlerts).toHaveLength(1) // 第二次 respawn 在 6h 冷卻窗內被吞（Task 9 每 15 分撞鎖情境）
+
+  // 模擬 7h 後：直接改冷卻表 lastSentMs（鏡像既有測試⑩手法）
+  const cooldownFile = join(d.cfg.dataDir, 'alert-cooldown.json')
+  const table = JSON.parse(readFileSync(cooldownFile, 'utf8'))
+  table['lock-busy'].lastSentMs = Date.now() - 7 * 60 * 60 * 1000
+  writeFileSync(cooldownFile, JSON.stringify(table))
+
+  const r3 = await runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir }))
+  expect(r3).toBe('lock-busy')
+
+  const lockBusyAlertsAfter = notifier.sent.filter(t => /lock|佔用/.test(t))
+  expect(lockBusyAlertsAfter).toHaveLength(2)
+  expect(lockBusyAlertsAfter[1]).toContain('冷卻期間抑制')
+})
+
+test('⑯ 冷卻閘（修 3）：兩個不同 task.id 但任務文字前 40 字相同 → key 各自獨立、各發一則 blocked 告警', async () => {
+  const prefix = 'A'.repeat(40)
+  const backlog = `- [ ] ${prefix}-第一個任務\n- [ ] ${prefix}-第二個任務\n`
+  const engine = new MockEngine([
+    { ok: false, reason: 'x' }, { ok: false, reason: 'x' }, // 第一個任務連敗 2 次 → blocked
+    { ok: false, reason: 'x' }, { ok: false, reason: 'x' }, // 第二個任務連敗 2 次 → blocked
+  ])
+  const d = deps(engine, backlog)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 4 }))
+
+  expect(result).toBe('max-cycles')
+  // 舊版 key = `blocked:<文字前 40 字>` 會讓這兩個任務撞出同一個 key，第二則被冷卻閘誤吞；
+  // 改用 task.id 後兩者 key 不同，各自獨立發送。
+  const blockedAlerts = notifier.sent.filter(t => t.includes('blocked'))
+  expect(blockedAlerts).toHaveLength(2)
+  expect(blockedAlerts[0]).toContain('第一個任務')
+  expect(blockedAlerts[1]).toContain('第二個任務')
 })
 
 test('yesterdayUtc：純函數月界/年界正確減一天（UTC）', () => {
