@@ -120,3 +120,57 @@ test('parseArgv：解出子命令與 --config 值', () => {
   expect(parseArgv(['run-once'])).toEqual({ command: 'run-once', configPath: undefined })
   expect(parseArgv([])).toEqual({ command: '', configPath: undefined })
 })
+
+test('assemble：config 檔不存在 → throw 人話訊息含「設定檔不存在」與路徑', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cli-'))
+  const missing = join(dir, 'no-such-config.json')
+
+  let caught: unknown
+  try {
+    assemble(missing)
+  } catch (err) {
+    caught = err
+  }
+  expect(caught).toBeInstanceOf(Error)
+  const msg = (caught as Error).message
+  expect(msg).toContain('設定檔不存在')
+  expect(msg).toContain(missing)
+})
+
+test('assemble：config 非法 JSON → throw 人話訊息含「JSON 格式錯誤」與路徑', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cli-'))
+  const cfgPath = join(dir, 'config.json')
+  writeFileSync(cfgPath, '{ "projectPath": ')
+
+  let caught: unknown
+  try {
+    assemble(cfgPath)
+  } catch (err) {
+    caught = err
+  }
+  expect(caught).toBeInstanceOf(Error)
+  const msg = (caught as Error).message
+  expect(msg).toContain('JSON 格式錯誤')
+  expect(msg).toContain(cfgPath)
+})
+
+test('assemble：config 缺必填欄位 → throw 人話訊息含「設定檔欄位錯誤」、路徑與欄位名', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cli-'))
+  const cfgPath = join(dir, 'config.json')
+  // 缺 backlogFile / dataDir / engine 三個必填欄位
+  writeFileSync(cfgPath, JSON.stringify({ projectPath: './project' }))
+
+  let caught: unknown
+  try {
+    assemble(cfgPath)
+  } catch (err) {
+    caught = err
+  }
+  expect(caught).toBeInstanceOf(Error)
+  const msg = (caught as Error).message
+  expect(msg).toContain('設定檔欄位錯誤')
+  expect(msg).toContain(cfgPath)
+  expect(msg).toContain('backlogFile')
+  expect(msg).toContain('dataDir')
+  expect(msg).toContain('engine')
+})

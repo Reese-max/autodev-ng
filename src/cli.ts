@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { ZodError } from 'zod'
 import { BacklogStore } from './backlog.js'
 import { RunDb } from './db.js'
 import { EventLog } from './events.js'
@@ -12,6 +13,45 @@ import { ClaudeCliEngine } from './engines/claude-cli.js'
 import { ConfigSchema, type Config, type Engine } from './types.js'
 import { runOnce, type Deps } from './scheduler.js'
 import { runDaemon } from './daemon.js'
+
+function isEnoent(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as NodeJS.ErrnoException).code === 'ENOENT'
+}
+
+/**
+ * config 讀取＋解析的人話化錯誤層：讀檔/JSON.parse/ConfigSchema.parse 三段各自
+ * 攔截，把原生錯誤（ENOENT / SyntaxError / ZodError）轉成含「設定檔路徑」的
+ * 中文一行訊息（ZodError 額外逐 issue 展開一行），丟給呼叫端（assemble）當
+ * 一般 Error 往上拋——CLI 頂層 catch 只印 message、不印 stack。
+ */
+function loadConfig(absCfgPath: string): unknown {
+  let rawText: string
+  try {
+    rawText = readFileSync(absCfgPath, 'utf8')
+  } catch (err) {
+    if (isEnoent(err)) throw new Error(`設定檔不存在: ${absCfgPath}`)
+    throw err
+  }
+
+  try {
+    return JSON.parse(rawText)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`設定檔 JSON 格式錯誤: ${absCfgPath}（${msg}）`)
+  }
+}
+
+function parseConfig(absCfgPath: string, raw: unknown): Config {
+  try {
+    return ConfigSchema.parse(raw)
+  } catch (err) {
+    if (err instanceof ZodError) {
+      const lines = err.issues.map(issue => `- ${issue.path.join('.') || '(root)'}: ${issue.message}`)
+      throw new Error([`設定檔欄位錯誤: ${absCfgPath}`, ...lines].join('\n'))
+    }
+    throw err
+  }
+}
 
 const IDLE_SLEEP_MS = 5 * 60 * 1000
 
@@ -41,8 +81,8 @@ function expandConfigPaths(baseDir: string, cfg: Config): Config {
  */
 export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifier; cfg: Config } {
   const absCfgPath = resolve(cfgPath)
-  const raw: unknown = JSON.parse(readFileSync(absCfgPath, 'utf8'))
-  const parsed = ConfigSchema.parse(raw)
+  const raw = loadConfig(absCfgPath)
+  const parsed = parseConfig(absCfgPath, raw)
   const cfg = expandConfigPaths(dirname(absCfgPath), parsed)
 
   // EventLog 建構子會 mkdirSync(dataDir)，必須先跑，RunDb 才能在同一個目錄下建 sqlite 檔。
@@ -80,6 +120,8 @@ export interface StatusInput {
   dailySoftUsd: number
   dailyHardUsd: number
   backlog: BacklogCounts
+  /** backlogFile 讀取時 ENOENT（檔案消失）的人話訊息；有值時取代 backlog 計數那一行，其餘欄位照常印。 */
+  backlogError?: string
   dlqCount: number
   lastDigestDay?: string
 }
@@ -90,11 +132,14 @@ export function formatStatus(input: StatusInput): string {
 
   const hb = input.heartbeat
   const taskLine = hb.currentTask ? `｜currentTask=${hb.currentTask}` : ''
+  const backlogLine = input.backlogError
+    ? `backlog：${input.backlogError}`
+    : `backlog：open=${input.backlog.open}｜blocked=${input.backlog.blocked}｜done=${input.backlog.done}`
   return [
     'adng status',
     `heartbeat：${hb.ts}｜state=${hb.state}${taskLine}`,
     `今日成本：$${hb.todayCostUsd.toFixed(4)}（軟頂 $${input.dailySoftUsd.toFixed(2)} / 硬頂 $${input.dailyHardUsd.toFixed(2)}）`,
-    `backlog：open=${input.backlog.open}｜blocked=${input.backlog.blocked}｜done=${input.backlog.done}`,
+    backlogLine,
     `DLQ 積壓：${input.dlqCount} 筆`,
     `最後 digest 日期：${input.lastDigestDay ?? '尚未發送過'}`,
   ].join('\n')
@@ -154,6 +199,20 @@ function backlogCounts(store: BacklogStore): BacklogCounts {
   }
 }
 
+const EMPTY_BACKLOG_COUNTS: BacklogCounts = { open: 0, blocked: 0, done: 0 }
+
+/** backlogFile 在 status 讀取當下消失（被刪、被移走）不該讓整個 status 指令炸掉——
+ * 其他觀測資料（heartbeat/成本/DLQ/digest）依然有價值，只把 backlog 那段換成人話提示。
+ * 只吞 ENOENT，其餘錯誤（權限、壞檔內容以外的例外）原樣往上拋。 */
+function safeBacklogCounts(store: BacklogStore, backlogFile: string): { counts: BacklogCounts; error?: string } {
+  try {
+    return { counts: backlogCounts(store) }
+  } catch (err) {
+    if (isEnoent(err)) return { counts: EMPTY_BACKLOG_COUNTS, error: `backlog 檔不存在: ${backlogFile}` }
+    throw err
+  }
+}
+
 async function cmdStatus(cfgPath: string): Promise<void> {
   const { deps } = assemble(cfgPath)
   try {
@@ -162,11 +221,13 @@ async function cmdStatus(cfgPath: string): Promise<void> {
       console.log('daemon 未跑過')
       return
     }
+    const { counts, error: backlogError } = safeBacklogCounts(deps.store, deps.cfg.backlogFile)
     console.log(formatStatus({
       heartbeat,
       dailySoftUsd: deps.cfg.dailySoftUsd,
       dailyHardUsd: deps.cfg.dailyHardUsd,
-      backlog: backlogCounts(deps.store),
+      backlog: counts,
+      backlogError,
       dlqCount: countDlqLines(deps.cfg.dataDir),
       lastDigestDay: readLastDigestDay(deps.cfg.dataDir),
     }))
@@ -244,9 +305,10 @@ async function main(): Promise<void> {
 
 // cli 進入點薄殼：只有直接執行本檔（`node dist/cli.js` / `adng`）才跑 main()，
 // 被其他模組 import（例如 tests/cli.test.ts import assemble/formatStatus）不會觸發。
+// 頂層 catch 只印 message（config 三類錯誤已在 loadConfig/parseConfig 轉成人話），不印 stack。
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  main().catch(err => {
-    console.error(String(err))
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err))
     process.exitCode = 1
   })
 }
