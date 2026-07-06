@@ -44,6 +44,8 @@ export const ConfigSchema = z.object({
   verifyTimeoutMs: z.number().int().positive().default(600_000),
   judgeUrl: z.string().optional(),
   judgeModel: z.string().default('gpt-5.4-mini'),
-  judgeApiKey: z.string().default('sk-any')
+  judgeApiKey: z.string().default('sk-any'),
+  discordChannelId: z.string().optional(),
+  discordTokenFile: z.string().default('C:/Users/Administrator/openab/.env.tokens')
 })
 export type Config = z.infer<typeof ConfigSchema>
