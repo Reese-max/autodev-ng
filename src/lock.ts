@@ -1,22 +1,71 @@
-import { mkdirSync, rmSync, statSync, renameSync } from 'node:fs'
+import { mkdirSync, rmSync, statSync, renameSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+interface PidInfo {
+  pid: number
+  startedAt: string
+}
+
+/** process.kill(pid, 0) 不拋=活、EPERM=活（無權限但存在）、ESRCH=死。其餘未知例外 fail-safe 視為活著（不誤搶）。 */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== 'ESRCH'
+  }
+}
+
+/** 讀 dir/pid.json 判定鎖主人是否存活。缺失/損壞/pid 非正整數一律回 'unknown'（fallback 舊 mtime 邏輯），
+ *  讀取過程任何例外皆視為「損壞」（驗活是盡力而為，不 rethrow）。 */
+function checkLockOwner(dir: string): 'alive' | 'dead' | 'unknown' {
+  try {
+    const parsed = JSON.parse(readFileSync(join(dir, 'pid.json'), 'utf8')) as Partial<PidInfo>
+    const pid = parsed.pid
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return 'unknown'
+    return isPidAlive(pid) ? 'alive' : 'dead'
+  } catch {
+    return 'unknown'
+  }
+}
+
+function writeFileAtomic(file: string, content: string): void {
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`
+  writeFileSync(tmp, content)
+  renameSync(tmp, file)
+}
+
+/** 比照 events.ts heartbeat 的 tmp+rename 原子寫慣例，記錄目前持鎖者身分供下次驗活。 */
+function writeOwnPidFile(dir: string): void {
+  writeFileAtomic(join(dir, 'pid.json'), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }))
+}
 
 /** Windows 無 flock：mkdir 是唯一可靠的原子互斥（舊系統實證）。 */
 export function acquireLock(dir: string, staleMs = 30 * 60 * 1000): boolean {
   try {
     mkdirSync(dir, { recursive: false })
+    writeOwnPidFile(dir)
     return true
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
 
-    let age: number
-    try {
-      age = Date.now() - statSync(dir).mtimeMs
-    } catch (statErr) {
-      // ENOENT：鎖目錄在檢查 age 前已被清走（正常讓步）。其他 code 為 infra 故障，須浮出。
-      if ((statErr as NodeJS.ErrnoException).code !== 'ENOENT') throw statErr
-      return false
+    // (1) pid.json 指向存活進程 → 直接讓步，不看 mtime（修「假 stale」：長任務不更新 mtime 被誤搶）。
+    const owner = checkLockOwner(dir)
+    if (owner === 'alive') return false
+
+    // (3) pid.json 缺失/損壞 → fallback 既有 mtime 年齡判定（staleMs 語意保留）。
+    if (owner === 'unknown') {
+      let age: number
+      try {
+        age = Date.now() - statSync(dir).mtimeMs
+      } catch (statErr) {
+        // ENOENT：鎖目錄在檢查 age 前已被清走（正常讓步）。其他 code 為 infra 故障，須浮出。
+        if ((statErr as NodeJS.ErrnoException).code !== 'ENOENT') throw statErr
+        return false
+      }
+      if (age <= staleMs) return false
     }
-    if (age <= staleMs) return false
+    // owner === 'dead'：不等 staleMs，立即進入以下搶奪流程（修「假 fresh」：崩潰後 30 分內鎖佔著茅坑）。
 
     // rename 為原子操作：同一路徑只有一個 process 能搶到，輸家直接讓步。
     const stolen = `${dir}.stale-${process.pid}-${Date.now()}`
@@ -35,6 +84,7 @@ export function acquireLock(dir: string, staleMs = 30 * 60 * 1000): boolean {
       if ((mkdirErr as NodeJS.ErrnoException).code !== 'EEXIST') throw mkdirErr
       return false
     }
+    writeOwnPidFile(dir)
     return true
   }
 }
