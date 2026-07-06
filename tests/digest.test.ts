@@ -108,3 +108,37 @@ test('markDigestSent 原子寫入：寫入後不留 .tmp 殘檔', () => {
   expect(shouldSendDigest(dataDir, '2026-07-05')).toBe(false)
   expect(existsSync(join(dataDir, 'digest-stamp.json.tmp'))).toBe(false)
 })
+
+test('buildDigest：當日有 N 筆 verify-alert 事件 → 摘要含「verify 略過」與 N（紅線 4 告警半條）', () => {
+  const db = freshDb()
+  const dataDir = freshDataDir()
+  writeFileSync(join(dataDir, 'events.jsonl'), [
+    JSON.stringify({ type: 'verify-alert', detail: 'verify-skip: command not found', ts: '2026-07-05T01:00:00Z' }),
+    JSON.stringify({ type: 'verify-alert', detail: 'verify-skip: command not found', ts: '2026-07-05T02:00:00Z' }),
+    JSON.stringify({ type: 'verify-alert', detail: 'judge-skip: x', ts: '2026-07-05T03:00:00.000Z' }),
+  ].join('\n') + '\n')
+
+  const text = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05' })
+  expect(text).toContain('verify 略過 3 次')
+  db.close()
+})
+
+test('buildDigest：N=0（無 verify-alert 事件）不印 verify 略過那行（不加雜訊）', () => {
+  const db = freshDb()
+  const dataDir = freshDataDir()
+  const text = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05' })
+  expect(text).not.toContain('verify 略過')
+  db.close()
+})
+
+test('buildDigest：events.jsonl 內非當日（昨日）的 verify-alert 不計入 N（日界線）', () => {
+  const db = freshDb()
+  const dataDir = freshDataDir()
+  writeFileSync(join(dataDir, 'events.jsonl'), [
+    JSON.stringify({ type: 'verify-alert', detail: 'verify-skip: x', ts: '2026-07-04T23:59:59.999Z' }),
+  ].join('\n') + '\n')
+
+  const text = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05' })
+  expect(text).not.toContain('verify 略過')
+  db.close()
+})
