@@ -20,40 +20,48 @@ function engine(mode: string, hashes: (string | undefined)[], timeoutMs = 10_000
   })
 }
 
-test('成功+有新 commit → ok、cost、commitHash', async () => {
+test('成功+有新 commit → ok、cost、commitHash、costUnknown 不設（真值可信，非估計）', async () => {
   const e = engine('ok', ['aaa', 'bbb'])
   const r = await e.run({ task: T, projectPath: process.cwd() })
   expect(r.ok).toBe(true)
   expect(r.costUsd).toBeCloseTo(0.123)
   expect(r.commitHash).toBe('bbb')
+  expect(r.costUnknown).toBeFalsy()
 })
 
-test('成功但無新 commit → 降級 phantom completion', async () => {
+test('成功但無新 commit → 降級 phantom completion，costUnknown 不設（total_cost_usd 已真實解出）', async () => {
   const e = engine('ok', ['aaa', 'aaa'])
   const r = await e.run({ task: T, projectPath: process.cwd() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toContain('no-commit')
+  expect(r.costUnknown).toBeFalsy()
 })
 
-test('exit 非零 → ok:false 且 stderr 進 failureReason', async () => {
+test('exit 非零 → ok:false 且 stderr 進 failureReason、costUnknown=true（真花錢前必修：真實成本未知不可記 0）', async () => {
   const e = engine('fail', ['aaa', 'aaa'])
   const r = await e.run({ task: T, projectPath: process.cwd() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toContain('simulated 429')
+  expect(r.costUsd).toBe(0)
+  expect(r.costUnknown).toBe(true)
 })
 
-test('exit 0 空輸出 → ok:false（踩雷 §13）', async () => {
+test('exit 0 空輸出 → ok:false（踩雷 §13）、costUnknown=true', async () => {
   const e = engine('empty', ['aaa', 'aaa'])
   const r = await e.run({ task: T, projectPath: process.cwd() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toContain('empty')
+  expect(r.costUsd).toBe(0)
+  expect(r.costUnknown).toBe(true)
 })
 
-test('hang → timeout、costUsd 0', async () => {
+test('hang → timeout、costUsd 0、costUnknown=true（timeout 輪其實照樣燒錢，不可記真 0）', async () => {
   const e = engine('hang', ['aaa', 'aaa'], 1500)
   const r = await e.run({ task: T, projectPath: process.cwd() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toBe('timeout')
+  expect(r.costUsd).toBe(0)
+  expect(r.costUnknown).toBe(true)
 }, 15_000)
 
 test('preflight：PONG 判 ok 且第二次走 cache（fake 只被叫一次）', async () => {

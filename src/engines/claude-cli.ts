@@ -63,14 +63,23 @@ export class ClaudeCliEngine implements Engine {
       stdinText: prompt, timeoutMs: this.timeoutMs
     })
 
-    if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, failureReason: 'timeout' }
+    // M4 Task 3（真花錢前必修）：以下三種路徑 costUsd 記 0 只是「沒能力解出真值」的佔位，
+    // 不代表真的沒花錢（CLI 進程極可能已實際呼叫並燒 token）——costUnknown:true 讓 scheduler
+    // 記帳層知道該改記 cfg.failureCostEstimateUsd，而非把這個 0 當真值入帳。
+    if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
-      return { ok: false, output: tail(r.stderr), costUsd: 0, failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}` }
+      return {
+        ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true,
+        failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}`
+      }
     }
 
     const parsed = parseResultJson(r.stdout)
     if (!parsed) {
-      return { ok: false, output: tail(r.stdout), costUsd: 0, failureReason: 'empty-or-unparseable output（exit 0 零輸出 ≠ 成功）' }
+      return {
+        ok: false, output: tail(r.stdout), costUsd: 0, costUnknown: true,
+        failureReason: 'empty-or-unparseable output（exit 0 零輸出 ≠ 成功）'
+      }
     }
     const costUsd = typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : 0
     if (parsed.is_error === true) {

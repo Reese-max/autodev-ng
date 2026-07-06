@@ -1,11 +1,14 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { RunDb } from './db.js'
+import { localDay, type RunDb } from './db.js'
 
 export interface BuildDigestOpts {
   db: RunDb
   dataDir: string
   isoDayUtc: string
+  /** M4 Task 3：本地日界線 offset（小時）。預設 0（UTC，等價舊行為，相容性錨點）；
+   * 呼叫端（daemon checkAndSendDigest）一律帶入 cfg.timezoneOffsetHours。 */
+  offsetHours?: number
 }
 
 function dlqPath(dataDir: string): string {
@@ -31,9 +34,9 @@ function eventsPath(dataDir: string): string {
 
 /** 當日 verify-alert 事件數（紅線 4：verify skip 若不落 digest，config 打錯字時安全網靜默關閉沒人知道）。
  * 缺檔＝0；容錯讀檔/逐行解析（同 countDlqLines：摘要本身就是通道自檢，自己不能先倒——鐵律 #6）。
- * 日界線比照 db.ts dayStats 的既有慣例：ts 前綴（slice(0,10)）與 isoDayUtc 做嚴格相等，
- * 避開毫秒時戳與字典序陷阱。 */
-function countVerifyAlertsToday(dataDir: string, isoDayUtc: string): number {
+ * 日界線改用 localDay(ts, offsetHours)===isoDayUtc（M4 Task 3）：offsetHours=0 時與舊版
+ * ts.slice(0,10) 前綴比對完全等價（相容性錨點），offsetHours≠0 時依本地日曆日歸類。 */
+function countVerifyAlertsToday(dataDir: string, isoDayUtc: string, offsetHours: number): number {
   const file = eventsPath(dataDir)
   if (!existsSync(file)) return 0
   try {
@@ -45,7 +48,7 @@ function countVerifyAlertsToday(dataDir: string, isoDayUtc: string): number {
       try {
         const parsed = JSON.parse(line) as Record<string, unknown>
         const ts = parsed.ts
-        if (parsed.type === 'verify-alert' && typeof ts === 'string' && ts.slice(0, 10) === isoDayUtc) {
+        if (parsed.type === 'verify-alert' && typeof ts === 'string' && localDay(ts, offsetHours) === isoDayUtc) {
           count++
         }
       } catch {
@@ -61,9 +64,10 @@ function countVerifyAlertsToday(dataDir: string, isoDayUtc: string): number {
 /** 每日必達摘要（鐵律 #6）：即使今天零任務、零成本，也要產出一份文字證明通道還活著。 */
 export function buildDigest(opts: BuildDigestOpts): string {
   const { db, dataDir, isoDayUtc } = opts
-  const stats = db.dayStats(isoDayUtc)
+  const offsetHours = opts.offsetHours ?? 0
+  const stats = db.dayStats(isoDayUtc, offsetHours)
   const dlqCount = countDlqLines(dataDir)
-  const verifySkipCount = countVerifyAlertsToday(dataDir, isoDayUtc)
+  const verifySkipCount = countVerifyAlertsToday(dataDir, isoDayUtc, offsetHours)
   const lines = [
     `adng 每日摘要 ${isoDayUtc}`,
     `完成 ${stats.ok} 筆／失敗 ${stats.fail} 筆`,

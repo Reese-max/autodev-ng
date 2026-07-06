@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
-import type { RunDb } from './db.js'
+import { localDay, type RunDb } from './db.js'
 import type { EventLog } from './events.js'
 import type { Config, Engine, Job, RunResult, Task } from './types.js'
 import type { VerifierCheck } from './verifier.js'
@@ -35,11 +35,11 @@ function quiet(fn: () => void): void {
 
 export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps): Promise<CycleResult> {
   if (existsSync(cfg.stopFile)) {
-    quiet(() => events.heartbeat({ state: 'stopped', todayCostUsd: todayCost(db) }))
+    quiet(() => events.heartbeat({ state: 'stopped', todayCostUsd: todayCost(db, cfg.timezoneOffsetHours) }))
     return 'stopped'
   }
 
-  const spent = todayCost(db)
+  const spent = todayCost(db, cfg.timezoneOffsetHours)
   if (spent >= cfg.dailyHardUsd) {
     quiet(() => events.appendOnce('cost-hard-stop', { spent }))
     quiet(() => events.heartbeat({ state: 'cost-stopped', todayCostUsd: spent }))
@@ -79,7 +79,15 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
   }
 
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默，讓它浮出。
-  db.record({ taskId: task.id, ok: res.ok, costUsd: res.costUsd, detail: res.failureReason ?? res.commitHash ?? '' })
+  // 失敗成本估計（M4 Task 3，真花錢前必修）：res.costUnknown===true 表示引擎沒能力回報真值
+  // （timeout/exit≠0/輸出不可解析——已於 claude-cli.ts 標記），改記 cfg.failureCostEstimateUsd，
+  // detail 帶 cost-estimated 標記供人工／digest 辨識這是估計值非真值。engine 正常解析出真值
+  // （包含 is_error 但仍解出 JSON、真值恰好 0）時 costUnknown 不設，照記真值不套估計。
+  const costEstimated = !res.ok && res.costUnknown === true
+  const recordedCostUsd = costEstimated ? cfg.failureCostEstimateUsd : res.costUsd
+  const baseDetail = res.failureReason ?? res.commitHash ?? ''
+  const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
+  db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail })
 
   if (res.ok && verifier) {
     // verifier 本身故障（非 verify-fail / judge-mismatch 的明確拒絕）一律 pass-with-alert（鐵律 #4）：
@@ -139,6 +147,8 @@ function resolveFailure(
   return { kind: 'blocked', taskId: task.id, taskText: task.text }
 }
 
-function todayCost(db: RunDb): number {
-  return db.costSince(new Date().toISOString().slice(0, 10))
+/** M4 Task 3：本地日成本（取代舊版 UTC 字串切割）。offsetHours=0 時與舊行為完全一致
+ * （相容性錨點）；生產路徑一律帶入 cfg.timezoneOffsetHours。 */
+function todayCost(db: RunDb, offsetHours: number): number {
+  return db.costForLocalDay(localDay(new Date().toISOString(), offsetHours), offsetHours)
 }

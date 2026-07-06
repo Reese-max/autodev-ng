@@ -20,6 +20,11 @@ export interface RunResult {
   commitHash?: string
   failureReason?: string
   baseCommitHash?: string
+  /** M4 Task 3（真花錢前必修）：true 表示 costUsd 是「引擎沒能力回報真值」時的佔位 0
+   * （timeout / exit≠0 / 輸出不可解析——CLI 進程極可能已實際呼叫並燒錢，只是沒能力回報
+   * 真實金額），與「引擎成功解析出 JSON、真實回報值恰好是 0」不同語意。scheduler 記帳層
+   * 據此決定是否改記 cfg.failureCostEstimateUsd；未設（undefined/false）＝costUsd 是可信真值。 */
+  costUnknown?: boolean
 }
 
 export interface PreflightResult { ok: boolean; detail: string }
@@ -39,6 +44,9 @@ export const ConfigSchema = z.object({
   dailySoftUsd: z.number().positive().default(40),
   dailyHardUsd: z.number().positive().default(100),
   cooldownMs: z.number().int().nonnegative().default(60_000),
+  // M4 Task 3（成本記帳）：本地日界線與失敗成本估計。台灣預設 +8；成本日界線與 digest 報日共用同一個 offset。
+  timezoneOffsetHours: z.number().int().min(-12).max(14).default(8),
+  failureCostEstimateUsd: z.number().nonnegative().default(1),
   stopFile: z.string().default('.adng.stop'),
   verifyCommand: z.string().optional(),
   verifyTimeoutMs: z.number().int().positive().default(600_000),

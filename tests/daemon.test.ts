@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runDaemon, yesterdayUtc, type DaemonOpts, type Notifier } from '../src/daemon.js'
+import { runDaemon, yesterdayLocal, type DaemonOpts, type Notifier } from '../src/daemon.js'
 import type { Deps } from '../src/scheduler.js'
 import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
@@ -43,7 +43,11 @@ function deps(engine: MockEngine, backlogMd = '- [ ] 任務一\n'): Deps {
   writeFileSync(backlogFile, backlogMd)
   const cfg = ConfigSchema.parse({
     projectPath: dir, backlogFile, dataDir: join(dir, 'data'),
-    engine: 'mock', stopFile: join(dir, '.adng.stop')
+    engine: 'mock', stopFile: join(dir, '.adng.stop'),
+    // 本檔既有測試（utcDay 輔助函式、digest 昨日/今日斷言）全部鎖定純 UTC 日界線語意；
+    // ConfigSchema 預設 timezoneOffsetHours=8 會讓日界線在 UTC 16:00 前後偏移、隨執行時刻變動
+    // 而 flaky，這裡明確釘住 offset=0 保持既有語意（相容性錨點——M4 Task 3）。
+    timezoneOffsetHours: 0
   })
   return { cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')), engine, events: new EventLog(cfg.dataDir) }
 }
@@ -401,8 +405,8 @@ test('⑯ 冷卻閘（修 3）：兩個不同 task.id 但任務文字前 40 字�
   expect(blockedAlerts[1]).toContain('第二個任務')
 })
 
-test('yesterdayUtc：純函數月界/年界正確減一天（UTC）', () => {
-  expect(yesterdayUtc('2026-03-01')).toBe('2026-02-28')
-  expect(yesterdayUtc('2026-01-01')).toBe('2025-12-31')
-  expect(yesterdayUtc('2026-07-05')).toBe('2026-07-04')
+test('yesterdayLocal：純函數月界/年界正確減一天（本地日曆日，位移邏輯與 offset 無關）', () => {
+  expect(yesterdayLocal('2026-03-01')).toBe('2026-02-28')
+  expect(yesterdayLocal('2026-01-01')).toBe('2025-12-31')
+  expect(yesterdayLocal('2026-07-05')).toBe('2026-07-04')
 })

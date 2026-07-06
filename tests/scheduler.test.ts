@@ -5,10 +5,20 @@ import { join } from 'node:path'
 import { runOnce, type Deps } from '../src/scheduler.js'
 import { BacklogStore, taskId } from '../src/backlog.js'
 import type { Disposition } from '../src/types.js'
-import { RunDb } from '../src/db.js'
+import { RunDb, localDay, type AttemptRecord } from '../src/db.js'
 import { EventLog } from '../src/events.js'
 import { MockEngine } from '../src/engines/mock.js'
 import { ConfigSchema } from '../src/types.js'
+
+/** db.record 呼叫的窺視殼——鏡像既有 ThrowingReportStore 手法：繼承真實 RunDb，
+ * 覆寫 record 時先攔一份參數快照再照跑 super（維持真實 sqlite 落地行為不變）。 */
+class RecordSpyDb extends RunDb {
+  readonly records: AttemptRecord[] = []
+  record(r: AttemptRecord): void {
+    this.records.push(r)
+    super.record(r)
+  }
+}
 
 let dir: string
 function deps(engine: MockEngine, backlogMd = '- [ ] 任務一\n'): Deps {
@@ -26,7 +36,7 @@ test('happy path：done + backlog 打勾 + 記帳', async () => {
   const d = deps(new MockEngine([{ ok: true, costUsd: 0.3 }]))
   expect(await runOnce(d)).toBe('done')
   expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [x] 任務一')
-  expect(d.db.costSince('2000-01-01')).toBeCloseTo(0.3)
+  expect(d.db.costForLocalDay(localDay(new Date().toISOString(), 0), 0)).toBeCloseTo(0.3)
 })
 
 test('敗第 1 次留 open；敗第 2 次 blocked（鐵律：不無限重試）', async () => {
@@ -95,7 +105,7 @@ test('engine 成功但 store.report 拋錯：仍回 done、db 只記一筆 ok（
   const task = d.store.nextTask()
   expect(task).not.toBeNull()
   expect(d.db.failCount(task!.id)).toBe(0)
-  expect(d.db.costSince('2000-01-01')).toBeCloseTo(0.2)
+  expect(d.db.costForLocalDay(localDay(new Date().toISOString(), 0), 0)).toBeCloseTo(0.2)
 
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events).toContain('"type":"report-failed"')
@@ -144,4 +154,34 @@ test('verifier throw → pass-with-alert（鐵律#4），任務照 done', async 
   expect(await runOnce({ ...d, verifier: bomber })).toBe('done')
   const ev = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(ev).toContain('verify-alert')
+})
+
+test('失敗成本估計（M4 Task 3）：engine 回報 costUnknown（如 timeout）→ db 記 cfg.failureCostEstimateUsd 且 detail 帶 cost-estimated 標記', async () => {
+  const e = new MockEngine([{ ok: false, reason: 'timeout', costUsd: 0, costUnknown: true }])
+  const d = deps(e)
+  const spyDb = new RecordSpyDb(join(dir, 'run-spy.db'))
+  const result = await runOnce({ ...d, db: spyDb })
+  expect(result).toBe('failed')
+  expect(spyDb.records).toHaveLength(1)
+  expect(spyDb.records[0]!.costUsd).toBeCloseTo(1) // ConfigSchema.failureCostEstimateUsd 預設 1
+  expect(spyDb.records[0]!.detail).toContain('cost-estimated')
+})
+
+test('失敗成本估計：engine 回報真實 costUsd（非 costUnknown）→ 照記真值、detail 不帶 cost-estimated 標記', async () => {
+  const e = new MockEngine([{ ok: false, reason: 'is_error: 真實失敗但有回報成本', costUsd: 0.42 }])
+  const d = deps(e)
+  const spyDb = new RecordSpyDb(join(dir, 'run-spy2.db'))
+  expect(await runOnce({ ...d, db: spyDb })).toBe('failed')
+  expect(spyDb.records).toHaveLength(1)
+  expect(spyDb.records[0]!.costUsd).toBeCloseTo(0.42)
+  expect(spyDb.records[0]!.detail).not.toContain('cost-estimated')
+})
+
+test('失敗成本估計：自訂 failureCostEstimateUsd（如 2.5）流動到 db 記帳', async () => {
+  const e = new MockEngine([{ ok: false, reason: 'exit 1: boom', costUsd: 0, costUnknown: true }])
+  const d = deps(e)
+  const customCfg = { ...d.cfg, failureCostEstimateUsd: 2.5 }
+  const spyDb = new RecordSpyDb(join(dir, 'run-spy3.db'))
+  await runOnce({ ...d, cfg: customCfg, db: spyDb })
+  expect(spyDb.records[0]!.costUsd).toBeCloseTo(2.5)
 })

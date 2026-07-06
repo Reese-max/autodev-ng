@@ -1,6 +1,7 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { acquireLock, releaseLock } from './lock.js'
+import { localDay } from './db.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
 import { runOnce, type Deps, type CycleResult } from './scheduler.js'
 
@@ -30,13 +31,16 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10)
+/** M4 Task 3：本地日字串（取代舊版純 UTC 切割）。offsetHours=0 時與舊行為完全一致（相容性錨點）。 */
+function todayLocal(offsetHours: number): string {
+  return localDay(new Date().toISOString(), offsetHours)
 }
 
-/** UTC 日字串減一天（紅線 4 報告窗：digest 要報「已完結的前一天」，不能報「今天才剛開始的幾分鐘」）。
- * 用 Date UTC 運算（減 86400000ms 再取 ISO 前 10 碼）避開時區與月/年界字串拼接的陷阱。 */
-export function yesterdayUtc(day: string): string {
+/** 本地日字串減一天（紅線 4 報告窗：digest 要報「已完結的前一天」，不能報「今天才剛開始的幾分鐘」）。
+ * 用 Date UTC 運算（減 86400000ms 再取 ISO 前 10 碼）避開時區與月/年界字串拼接的陷阱。
+ * 純日曆日減一天，跟 offset 無關（day 本身已經是依 offset 算出的本地日曆日字串——重命名自
+ * 舊版 yesterdayUtc，行為不變，僅語意從「UTC 日」改為「本地日」，M4 Task 3）。 */
+export function yesterdayLocal(day: string): string {
   return new Date(new Date(`${day}T00:00:00Z`).getTime() - 86400000).toISOString().slice(0, 10)
 }
 
@@ -154,7 +158,8 @@ async function sendCooldownAlert(
  * digest 建置/讀寫 stamp 任何故障都吞掉——通知面故障不可中斷主迴圈。 */
 async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void> {
   const dataDir = deps.cfg.dataDir
-  const day = todayUtc()
+  const offsetHours = deps.cfg.timezoneOffsetHours
+  const day = todayLocal(offsetHours)
 
   let due: boolean
   try {
@@ -164,11 +169,11 @@ async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void>
   }
   if (!due) return
 
-  // stamp 判定仍用 today（重送/stop-day 語意不變）；實際聚合報「已完結的前一 UTC 日」，
+  // stamp 判定仍用 today（重送/stop-day 語意不變）；實際聚合報「已完結的前一本地日」，
   // 否則今天輪首送出時 today 才過幾分鐘，ok/fail/cost/DLQ/verify-skip 全部趨近於 0（紅線 4）。
   let text: string
   try {
-    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayUtc(day) })
+    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayLocal(day), offsetHours })
   } catch {
     return
   }

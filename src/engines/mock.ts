@@ -2,7 +2,7 @@ import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 
 export type MockStep =
   | { ok: true; costUsd?: number }
-  | { ok: false; reason: string; costUsd?: number }
+  | { ok: false; reason: string; costUsd?: number; costUnknown?: boolean }
   | { throw: string }
 
 export class MockEngine implements Engine {
@@ -27,6 +27,9 @@ export class MockEngine implements Engine {
     if (step.ok) {
       return { ok: true, output: 'mock done', costUsd: step.costUsd ?? 0.01, commitHash: 'mock0000' }
     }
-    return { ok: false, output: 'mock fail', costUsd: step.costUsd ?? 0.01, failureReason: step.reason }
+    return {
+      ok: false, output: 'mock fail', costUsd: step.costUsd ?? 0.01,
+      failureReason: step.reason, costUnknown: step.costUnknown
+    }
   }
 }
