@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runDaemon, type DaemonOpts, type Notifier } from '../src/daemon.js'
+import { runDaemon, yesterdayUtc, type DaemonOpts, type Notifier } from '../src/daemon.js'
 import type { Deps } from '../src/scheduler.js'
 import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
@@ -11,6 +11,14 @@ import { MockEngine } from '../src/engines/mock.js'
 import { ConfigSchema } from '../src/types.js'
 import { acquireLock } from '../src/lock.js'
 import { shouldSendDigest } from '../src/digest.js'
+
+/** 獨立於 src/daemon.ts 實作的 UTC 日期算法（用 setUTCDate 而非 ms 相減），
+ * 避免測試與生產碼共用同一套算法而失去回歸保護力。offset=-1 即「昨天」。 */
+function utcDay(offsetDays: number): string {
+  const d = new Date()
+  d.setUTCDate(d.getUTCDate() + offsetDays)
+  return d.toISOString().slice(0, 10)
+}
 
 /** 記錄呼叫、立即 resolve 的假 sleep——測試不用真的等待。 */
 function fakeSleep(calls: number[]): (ms: number) => Promise<void> {
@@ -167,4 +175,47 @@ test('⑥ stop 檔已存在（runOnce 首輪即回 stopped）+ 當日 digest 未
   // stamp 已標記（已不再 shouldSendDigest）
   const today = new Date().toISOString().slice(0, 10)
   expect(shouldSendDigest(d.cfg.dataDir, today)).toBe(false)
+})
+
+test('⑦ 紅線 4 報告窗：events.jsonl 含昨日 verify-alert → 今日輪首送出的摘要含正確 N 且顯示昨日日期', async () => {
+  const d = deps(new MockEngine(), '# 空 backlog\n') // 直接 idle，快速觸發 digest 檢查
+  const yesterday = utcDay(-1)
+  writeFileSync(join(d.cfg.dataDir, 'events.jsonl'), [
+    JSON.stringify({ type: 'verify-alert', detail: 'verify-skip: x', ts: `${yesterday}T23:30:00.000Z` }),
+    JSON.stringify({ type: 'verify-alert', detail: 'verify-skip: x', ts: `${yesterday}T10:00:00.000Z` }),
+  ].join('\n') + '\n')
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 2 }))
+
+  expect(result).toBe('max-cycles')
+  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  expect(digestSends).toHaveLength(1)
+  expect(digestSends[0]).toContain(yesterday)
+  expect(digestSends[0]).toContain('verify 略過 2 次')
+})
+
+test('⑧ 紅線 4 報告窗：db 有昨日 attempts（ok/fail）→ 今日輪首摘要的完成/失敗計數計入昨日數字', async () => {
+  const d = deps(new MockEngine(), '# 空 backlog\n')
+  const yesterday = utcDay(-1)
+  d.db.record({ taskId: 'y1', ok: true, costUsd: 1.5, detail: '', ts: `${yesterday}T08:00:00.000Z` })
+  d.db.record({ taskId: 'y2', ok: false, costUsd: 0.5, detail: 'x', ts: `${yesterday}T09:00:00.000Z` })
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 2 }))
+
+  expect(result).toBe('max-cycles')
+  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  expect(digestSends).toHaveLength(1)
+  expect(digestSends[0]).toContain(yesterday)
+  expect(digestSends[0]).toContain('完成 1 筆')
+  expect(digestSends[0]).toContain('失敗 1 筆')
+})
+
+test('yesterdayUtc：純函數月界/年界正確減一天（UTC）', () => {
+  expect(yesterdayUtc('2026-03-01')).toBe('2026-02-28')
+  expect(yesterdayUtc('2026-01-01')).toBe('2025-12-31')
+  expect(yesterdayUtc('2026-07-05')).toBe('2026-07-04')
 })

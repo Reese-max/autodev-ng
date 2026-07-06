@@ -34,6 +34,12 @@ function todayUtc(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+/** UTC 日字串減一天（紅線 4 報告窗：digest 要報「已完結的前一天」，不能報「今天才剛開始的幾分鐘」）。
+ * 用 Date UTC 運算（減 86400000ms 再取 ISO 前 10 碼）避開時區與月/年界字串拼接的陷阱。 */
+export function yesterdayUtc(day: string): string {
+  return new Date(new Date(`${day}T00:00:00Z`).getTime() - 86400000).toISOString().slice(0, 10)
+}
+
 /** daemon 觀測/通知面自身故障絕不可反殺主迴圈——統一吞錯（鐵律 #4 精神，同 scheduler.ts 的 quiet）。 */
 function quiet(fn: () => void): void {
   try {
@@ -98,9 +104,11 @@ async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void>
   }
   if (!due) return
 
+  // stamp 判定仍用 today（重送/stop-day 語意不變）；實際聚合報「已完結的前一 UTC 日」，
+  // 否則今天輪首送出時 today 才過幾分鐘，ok/fail/cost/DLQ/verify-skip 全部趨近於 0（紅線 4）。
   let text: string
   try {
-    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: day })
+    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayUtc(day) })
   } catch {
     return
   }
