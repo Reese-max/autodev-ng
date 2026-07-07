@@ -95,3 +95,34 @@ test('輸出超過 maxOutputChars 被截斷且有標記', async () => {
   expect(r.stdout.length).toBeLessThan(200)
   expect(r.stdout).toContain('[adng: output truncated]')
 })
+
+// ---------------------------------------------------------------------------
+// M5 Task 1：env 透傳（m3 檔位 ANTHROPIC_* 注入路徑）
+
+test('env 透傳：opts.env 疊在 process.env 上進子進程；未設時行為不變（不注入）', async () => {
+  const args = ['-e', 'console.log(process.env.ADNG_M5_PROBE ?? "(unset)")']
+  const withEnv = await runProcess({
+    command: process.execPath, args, cwd: process.cwd(), stdinText: '', timeoutMs: 10_000,
+    env: { ADNG_M5_PROBE: 'hello-m5' }
+  })
+  expect(withEnv.stdout).toContain('hello-m5')
+  const without = await runProcess({
+    command: process.execPath, args, cwd: process.cwd(), stdinText: '', timeoutMs: 10_000
+  })
+  expect(without.stdout).toContain('(unset)')
+})
+
+test('env 透傳：opts.env 是「疊加」不是「取代」——父進程既有環境變數仍可見', async () => {
+  process.env.ADNG_M5_PARENT = 'from-parent'
+  try {
+    const r = await runProcess({
+      command: process.execPath,
+      args: ['-e', 'console.log((process.env.ADNG_M5_PARENT ?? "?") + "|" + (process.env.ADNG_M5_EXTRA ?? "?"))'],
+      cwd: process.cwd(), stdinText: '', timeoutMs: 10_000,
+      env: { ADNG_M5_EXTRA: 'from-opts' }
+    })
+    expect(r.stdout).toContain('from-parent|from-opts')
+  } finally {
+    delete process.env.ADNG_M5_PARENT
+  }
+})

@@ -103,3 +103,41 @@ test('preflight 失敗也寫 cache（不連環重打）', async () => {
   process.env.FAKE_MODE = 'ok'
   expect((await e.preflight()).ok).toBe(false) // 仍是 cache 的壞結果
 })
+
+// ---------------------------------------------------------------------------
+// M5 Task 1：env / model 檔位（m3＝claude CLI＋MiniMax 相容端點）
+
+function inlineEngine(script: string, opts: { env?: Record<string, string>; model?: string } = {}): ClaudeCliEngine {
+  const cache = new PreflightCache(join(mkdtempSync(join(tmpdir(), 'adng-cc-')), 'pf.json'))
+  let i = 0
+  const hashes = ['aaa', 'bbb']
+  return new ClaudeCliEngine({
+    // baseArgs 尾加 `--`：node -e 之後引擎追加的旗標（如 --model）需以 -- 分隔
+    // 才會落到 process.argv，而不是被 node 當自己的選項吃掉。
+    command: process.execPath, baseArgs: ['-e', script, '--'], timeoutMs: 10_000, pingTimeoutMs: 10_000,
+    cache, getCommitHash: () => hashes[Math.min(i++, hashes.length - 1)], ...opts
+  })
+}
+
+test('M5：opts.env 透傳到 CLI 子進程（值只進子進程環境，不經 argv/log）', async () => {
+  const script = 'process.stdin.resume(); process.stdin.on("end", () => console.log(JSON.stringify({ total_cost_usd: 0.01, envSeen: process.env.ADNG_FAKE_TOKEN ?? "(unset)" })))'
+  const e = inlineEngine(script, { env: { ADNG_FAKE_TOKEN: 'sk-fake-not-a-real-key' } })
+  const r = await e.run({ task: T, projectPath: process.cwd() })
+  expect(r.ok).toBe(true)
+  expect(r.output).toContain('sk-fake-not-a-real-key') // 子進程真的看得到注入的 env
+})
+
+test('M5：opts.model → CLI args 追加 --model <model>；未設不加旗標', async () => {
+  const script = 'process.stdin.resume(); process.stdin.on("end", () => console.log(JSON.stringify({ total_cost_usd: 0.01, argv: process.argv.slice(1) })))'
+  const withModel = await inlineEngine(script, { model: 'MiniMax-M3' }).run({ task: T, projectPath: process.cwd() })
+  expect(withModel.output).toContain('--model')
+  expect(withModel.output).toContain('MiniMax-M3')
+  const without = await inlineEngine(script).run({ task: T, projectPath: process.cwd() })
+  expect(without.output).not.toContain('--model')
+})
+
+test('M5：opts.id override（registry 以 tag 區分同 adapter 多檔位）；未設維持 claude-cli', () => {
+  const cache = new PreflightCache(join(mkdtempSync(join(tmpdir(), 'adng-cc-')), 'pf.json'))
+  expect(new ClaudeCliEngine({ cache, id: 'claude-cli:m3' }).id).toBe('claude-cli:m3')
+  expect(new ClaudeCliEngine({ cache }).id).toBe('claude-cli')
+})

@@ -53,3 +53,45 @@ test('failureCostEstimateUsd 負值被拒、0 允許（nonnegative）', () => {
   })
   expect(cfg.failureCostEstimateUsd).toBe(0)
 })
+
+// ---------------------------------------------------------------------------
+// M5 Task 1：engines map + defaultEngine
+
+test('engines 未設 → 依 legacy engine 補預設 { claude: { adapter: <engine> } }、defaultEngine=claude（向後相容硬線）', () => {
+  const mock = ConfigSchema.parse({ projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'mock' })
+  expect(mock.defaultEngine).toBe('claude')
+  expect(mock.engines).toEqual({ claude: { adapter: 'mock' } })
+  const cc = ConfigSchema.parse({ projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'claude-cli' })
+  expect(cc.engines).toEqual({ claude: { adapter: 'claude-cli' } })
+})
+
+test('defaultEngine 不在 engines 白名單 → schema refine 拒', () => {
+  expect(() => ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'claude-cli',
+    engines: { m3: { adapter: 'claude-cli' } } // 沒有 claude（預設 defaultEngine）
+  })).toThrow()
+  expect(() => ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'claude-cli', defaultEngine: 'ghost'
+  })).toThrow()
+})
+
+test('engines 欄位驗證：全矩陣 adapter 可寫、未知 adapter 拒、costPerRunUsd 負值拒、env/model/timeoutMs 可選', () => {
+  const cfg = ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'claude-cli',
+    engines: {
+      claude: { adapter: 'claude-cli' },
+      m3: { adapter: 'claude-cli', costPerRunUsd: 0.5, env: { ANTHROPIC_BASE_URL: 'http://x' }, model: 'MiniMax-M3', timeoutMs: 60000 },
+      agy: { adapter: 'agy', costPerRunUsd: 0 } // 未實作 adapter 允許先寫進 config（resolve 時才報錯）
+    }
+  })
+  expect(cfg.engines['m3']!.costPerRunUsd).toBe(0.5)
+  expect(cfg.engines['agy']!.costPerRunUsd).toBe(0)
+  expect(() => ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'claude-cli',
+    engines: { claude: { adapter: 'gpt99' } }
+  })).toThrow()
+  expect(() => ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'claude-cli',
+    engines: { claude: { adapter: 'claude-cli', costPerRunUsd: -1 } }
+  })).toThrow()
+})

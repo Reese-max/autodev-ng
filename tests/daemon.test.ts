@@ -65,7 +65,7 @@ function deps(engine: MockEngine, backlogMd = '- [ ] 任務一\n'): Deps {
     // 而 flaky，這裡明確釘住 offset=0 保持既有語意（相容性錨點——M4 Task 3）。
     timezoneOffsetHours: 0
   })
-  return { cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')), engine, events: new EventLog(cfg.dataDir) }
+  return { cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')), engines: { resolve: () => engine }, events: new EventLog(cfg.dataDir) }
 }
 
 function baseOpts(d: Deps, notifier: Notifier, sleepCalls: number[], overrides: Partial<DaemonOpts> = {}): DaemonOpts {
@@ -530,4 +530,10 @@ test('yesterdayLocal：純函數月界/年界正確減一天（本地日曆日�
   expect(yesterdayLocal('2026-03-01')).toBe('2026-02-28')
   expect(yesterdayLocal('2026-01-01')).toBe('2025-12-31')
   expect(yesterdayLocal('2026-07-05')).toBe('2026-07-04')
+})
+
+test('M5 Task 1：baseAlertMessage 對 engine-not-allowed 出對應人話文案（daemon 告警文案 switch 同步）', () => {
+  const msg = baseAlertMessage({ kind: 'blocked', taskId: 't9', taskText: '[engine:zen] 跑雜務', reason: 'engine-not-allowed' })
+  expect(msg).toContain('白名單')
+  expect(msg).toContain('daemon 告警')
 })

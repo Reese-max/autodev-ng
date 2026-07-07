@@ -37,7 +37,7 @@ test('M1 閉環：3 任務→2 完成 1 blocked→idle', async () => {
   const engine = new MockEngine([
     { ok: true }, { ok: false, reason: 'b1' }, { ok: false, reason: 'b2' }, { ok: true }
   ])
-  const d: Deps = { cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')), engine, events: new EventLog(cfg.dataDir) }
+  const d: Deps = { cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')), engines: { resolve: () => engine }, events: new EventLog(cfg.dataDir) }
 
   const seq: CycleResult[] = []
   for (let i = 0; i < 6; i++) seq.push(await runOnce(d))

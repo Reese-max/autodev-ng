@@ -241,3 +241,57 @@ test('HIGH #1：檔面已 blocked 的行不佔代表名額，nextTask 回真正 
   expect(t!.line).toBe(2)
   expect(t!.status).toBe('open')
 })
+
+// ---------------------------------------------------------------------------
+// M5 Task 1：[engine:xxx] 行內 tag 解析（剝離不入 taskId 雜湊）
+
+test('engine tag：行首 [engine:agy] → engineTag=agy、text 剝離 tag、id 與無 tag 同文字一致', () => {
+  const t = parseBacklog('- [ ] [engine:agy] 清理 log 檔\n')[0]!
+  expect(t.engineTag).toBe('agy')
+  expect(t.text).toBe('清理 log 檔')
+  expect(t.id).toBe(taskId('清理 log 檔')) // tag 不入雜湊
+})
+
+test('engine tag：行尾 [engine:m3] 也解析、blocked 註記共存時仍正確', () => {
+  const t = parseBacklog('- [ ] 跑雜務 [engine:m3]\n')[0]!
+  expect(t.engineTag).toBe('m3')
+  expect(t.text).toBe('跑雜務')
+  const b = parseBacklog('- [ ] 跑雜務 [engine:m3] <!-- adng:blocked reason="x" -->\n')[0]!
+  expect(b.engineTag).toBe('m3')
+  expect(b.status).toBe('blocked')
+  expect(b.id).toBe(taskId('跑雜務'))
+})
+
+test('雜湊硬回歸線：無 tag 任務 engineTag undefined、id 錨定值不變（M5 改動前實測快照 2026-07-07）', () => {
+  const tasks = parseBacklog('- [ ] 任務一\n- [ ] 修 bug\n')
+  expect(tasks[0]!.engineTag).toBeUndefined()
+  expect(tasks[0]!.rawText).toBeUndefined()
+  expect(tasks[0]!.id).toBe('17842c9b') // taskId('任務一') @ HEAD=8fbcae2
+  expect(tasks[1]!.id).toBe('625938c7') // taskId('修 bug') @ HEAD=8fbcae2
+})
+
+test('雜湊硬回歸線：voice-actress BACKLOG-adng.md 既有 done 行 id 不得漂移', () => {
+  const line = '- [x] 修復 dashboard 空資料 500：dashboard 在資料庫無資料（或統計為空）時回 500，應改為回 200 並回傳空狀態（空列表/零統計），不得改動既有非空資料行為；補上空資料情境的回歸測試，並確保 npm run verify 全數通過 <!-- adng:done 21210e24920788705e984d5a3e92a493a0b1ec2c -->\n'
+  const t = parseBacklog(line)[0]!
+  expect(t.id).toBe('c0166864') // 真實 done 行 id @ HEAD=8fbcae2（漂移＝已完成任務被重新派工燒錢）
+  expect(t.status).toBe('done')
+})
+
+test('engine tag 寫回：report done/blocked 保留 tag 原文與位置（鐵律 #1 不改寫任務文字），重解析 id 不漂移', () => {
+  writeFileSync(file, '- [ ] [engine:m3] 跑雜務\n- [ ] 雜務二 [engine:agy]\n')
+  const store = new BacklogStore(file)
+  store.report(taskId('跑雜務'), { kind: 'done', commitHash: 'abc123' })
+  store.report(taskId('雜務二'), { kind: 'blocked', reason: 'engine-not-allowed' })
+  const content = readFileSync(file, 'utf8')
+  expect(content).toContain('- [x] [engine:m3] 跑雜務 <!-- adng:done abc123 -->')
+  expect(content).toContain('- [ ] 雜務二 [engine:agy] <!-- adng:blocked')
+  const again = parseBacklog(content)
+  expect(again[0]!).toMatchObject({ id: taskId('跑雜務'), status: 'done', engineTag: 'm3' })
+  expect(again[1]!).toMatchObject({ id: taskId('雜務二'), status: 'blocked', engineTag: 'agy' })
+})
+
+test('engine tag 不合法位置（文字中間）不解析——只認行首/行尾', () => {
+  const t = parseBacklog('- [ ] 修好 [engine:agy] 登入頁\n')[0]!
+  expect(t.engineTag).toBeUndefined()
+  expect(t.text).toBe('修好 [engine:agy] 登入頁') // 原文照舊、雜湊含全文
+})

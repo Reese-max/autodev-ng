@@ -55,7 +55,7 @@ function deps(engine: MockEngine, backlogMd = '- [ ] 任務一\n'): Deps {
     engine: 'mock', stopFile: join(dir, '.adng.stop'),
     worktreesDir: join(dir, 'worktrees') // 絕對路徑，絕不落在真專案目錄（鐵律 #6）
   })
-  return { cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')), engine, events: new EventLog(cfg.dataDir) }
+  return { cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')), engines: { resolve: () => engine }, events: new EventLog(cfg.dataDir) }
 }
 
 test('happy path：done + backlog 打勾 + 記帳', async () => {
@@ -269,7 +269,7 @@ test('非 git 專案：prepareWorktree 上拋 → scheduler 歸 blocked+告警�
   const e = new MockEngine([{ ok: true }])
   const d: Deps = {
     cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(plainDir, 'run.db')),
-    engine: e, events: new EventLog(cfg.dataDir)
+    engines: { resolve: () => e }, events: new EventLog(cfg.dataDir)
   }
 
   const result = await runOnce(d)
@@ -368,7 +368,7 @@ test('M4 Task 6 e2e：全鏈路——backlog 撿起→worktree→engine commit�
   const verifier = new KernelVerifier({ cfg }) // 真實 KernelVerifier，verifyCommand 未設 → verify-skip alert，不影響 pass
   const d: Deps = {
     cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(repo, 'run.db')),
-    engine, events: new EventLog(cfg.dataDir), verifier
+    engines: { resolve: () => engine }, events: new EventLog(cfg.dataDir), verifier
   }
 
   expect(await runOnce(d)).toBe('done')
@@ -420,4 +420,101 @@ test('MEDIUM 2 回歸：worktree 內壞 commit + verifyCommand 失敗 → 真 ro
 
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events).toContain('task-verify-failed')
+})
+
+// ---------------------------------------------------------------------------
+// M5 Task 1：引擎路由（per-task tag 解析、engine-not-allowed、固定成本記帳）
+
+test('engine-not-allowed：tag 不在 engines 白名單 → 直接 blocked、engine 零呼叫、backlog 註記且 tag 原文保留', async () => {
+  const e = new MockEngine([{ ok: true }])
+  const d = deps(e, '- [ ] [engine:zen] 跑雜務\n')
+  const result = await runOnce(d)
+  expect(result).toEqual({ kind: 'blocked', taskId: taskId('跑雜務'), taskText: '跑雜務', reason: 'engine-not-allowed' })
+  expect(e.calls).toHaveLength(0) // 違規 tag 絕不派工（zen 不派 voice-actress 靠這條落地）
+  const backlog = readFileSync(d.cfg.backlogFile, 'utf8')
+  expect(backlog).toContain('adng:blocked')
+  expect(backlog).toContain('[engine:zen]') // 鐵律 #1：任務原文（含 tag）不被改寫
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  expect(events).toContain('task-blocked')
+})
+
+test('per-task 路由：tag 在白名單 → resolver 以該 tag 解析；無 tag 用 cfg.defaultEngine', async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'adng-route-'))
+  initGitRepo(repo)
+  const backlogFile = join(repo, 'BACKLOG.md')
+  writeFileSync(backlogFile, '- [ ] [engine:agy] 任務甲\n- [ ] 任務乙\n')
+  const cfg = ConfigSchema.parse({
+    projectPath: repo, backlogFile, dataDir: join(repo, 'data'),
+    engine: 'mock', stopFile: join(repo, '.adng.stop'), worktreesDir: join(repo, 'worktrees'),
+    engines: { claude: { adapter: 'mock' }, agy: { adapter: 'mock' } }
+  })
+  const engine = new MockEngine([{ ok: true }, { ok: true }])
+  const resolved: string[] = []
+  const d: Deps = {
+    cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(repo, 'run.db')),
+    engines: { resolve: tag => { resolved.push(tag); return engine } },
+    events: new EventLog(cfg.dataDir)
+  }
+  expect(await runOnce(d)).toBe('done')
+  expect(await runOnce(d)).toBe('done')
+  expect(resolved).toEqual(['agy', 'claude']) // 甲走 tag、乙走 defaultEngine 預設 claude
+})
+
+test('resolver 拋錯（adapter 未實作／env 引用缺失）→ blocked(engine-not-allowed)，錯誤訊息進 backlog 註記', async () => {
+  const e = new MockEngine([{ ok: true }])
+  const d = deps(e)
+  d.engines = { resolve: () => { throw new Error('adapter codex 尚未實作') } }
+  const result = await runOnce(d)
+  expect(result).toMatchObject({ kind: 'blocked', reason: 'engine-not-allowed' })
+  expect(e.calls).toHaveLength(0)
+  expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('尚未實作')
+})
+
+test('M5 記帳：固定成本引擎（costPerRunUsd 有設）成功 → db 記固定值而非引擎回報值', async () => {
+  const e = new MockEngine([{ ok: true, costUsd: 0.01 }])
+  const d = deps(e)
+  const cfg = { ...d.cfg, engines: { claude: { adapter: 'mock' as const, costPerRunUsd: 0.7 } } }
+  const spyDb = new RecordSpyDb(join(dir, 'run-m5a.db'))
+  expect(await runOnce({ ...d, cfg, db: spyDb })).toBe('done')
+  expect(spyDb.records).toHaveLength(1)
+  expect(spyDb.records[0]!.costUsd).toBeCloseTo(0.7)
+})
+
+test('M5 記帳：固定成本引擎失敗（即使 costUnknown）→ 照記 costPerRunUsd，不套 failureCostEstimateUsd、不帶 cost-estimated 標記', async () => {
+  const e = new MockEngine([{ ok: false, reason: 'timeout', costUsd: 0, costUnknown: true }])
+  const d = deps(e)
+  const cfg = { ...d.cfg, engines: { claude: { adapter: 'mock' as const, costPerRunUsd: 0.5 } }, failureCostEstimateUsd: 3 }
+  const spyDb = new RecordSpyDb(join(dir, 'run-m5b.db'))
+  expect(await runOnce({ ...d, cfg, db: spyDb })).toBe('failed')
+  expect(spyDb.records).toHaveLength(1)
+  expect(spyDb.records[0]!.costUsd).toBeCloseTo(0.5)
+  expect(spyDb.records[0]!.detail).not.toContain('cost-estimated') // 估計語意只留給真值引擎
+})
+
+test('M5 記帳：固定成本引擎 costPerRunUsd=0（如 agy 免費）→ 成功失敗都入帳 0，語意保留（非 costUnknown 佔位）', async () => {
+  const e = new MockEngine([{ ok: false, reason: 'x', costUsd: 0.01, costUnknown: true }])
+  const d = deps(e)
+  const cfg = { ...d.cfg, engines: { claude: { adapter: 'mock' as const, costPerRunUsd: 0 } }, failureCostEstimateUsd: 3 }
+  const spyDb = new RecordSpyDb(join(dir, 'run-m5c.db'))
+  expect(await runOnce({ ...d, cfg, db: spyDb })).toBe('failed')
+  expect(spyDb.records[0]!.costUsd).toBe(0)
+  expect(spyDb.records[0]!.detail).not.toContain('cost-estimated')
+})
+
+test('M5 記帳：固定成本引擎連 engine.run 拋例外都入帳 costPerRunUsd（進程可能已實際起跑燒錢）', async () => {
+  const e = new MockEngine([{ throw: 'ECONNRESET' }])
+  const d = deps(e)
+  const cfg = { ...d.cfg, engines: { claude: { adapter: 'mock' as const, costPerRunUsd: 0.5 } } }
+  const spyDb = new RecordSpyDb(join(dir, 'run-m5d.db'))
+  expect(await runOnce({ ...d, cfg, db: spyDb })).toBe('engine-error')
+  expect(spyDb.records[0]!.costUsd).toBeCloseTo(0.5)
+})
+
+test('M5 記帳回歸：真值引擎（costPerRunUsd 未設）語意完全不變——costUnknown 失敗仍套 failureCostEstimateUsd', async () => {
+  const e = new MockEngine([{ ok: false, reason: 'timeout', costUsd: 0, costUnknown: true }])
+  const d = deps(e)
+  const spyDb = new RecordSpyDb(join(dir, 'run-m5e.db'))
+  expect(await runOnce({ ...d, db: spyDb })).toBe('failed')
+  expect(spyDb.records[0]!.costUsd).toBeCloseTo(1) // ConfigSchema.failureCostEstimateUsd 預設 1
+  expect(spyDb.records[0]!.detail).toContain('cost-estimated')
 })

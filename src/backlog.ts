@@ -8,6 +8,18 @@ export function taskId(text: string): string {
 
 const TASK_RE = /^- \[( |x)\] (.*)$/
 const ANNOT_RE = /\s*<!-- adng:[\s\S]*?-->\s*$/
+// M5 Task 1：行內引擎 tag，行首或行尾皆可。剝離後不入 taskId 雜湊——無 tag 任務
+// 走不到剝離分支，雜湊與 M4 以前完全一致（既有 done 行 id 不得漂移的硬回歸線）。
+const ENGINE_TAG_HEAD_RE = /^\[engine:([\w-]+)\]\s*/
+const ENGINE_TAG_TAIL_RE = /\s*\[engine:([\w-]+)\]$/
+
+function extractEngineTag(raw: string): { text: string; engineTag?: string } {
+  const head = ENGINE_TAG_HEAD_RE.exec(raw)
+  if (head) return { text: raw.slice(head[0].length), engineTag: head[1]! }
+  const tail = ENGINE_TAG_TAIL_RE.exec(raw)
+  if (tail) return { text: raw.slice(0, tail.index), engineTag: tail[1]! }
+  return { text: raw }
+}
 
 export function parseBacklog(md: string): Task[] {
   const tasks: Task[] = []
@@ -16,12 +28,16 @@ export function parseBacklog(md: string): Task[] {
     if (!m) return
     const raw = m[2]!
     const blocked = /<!-- adng:blocked\b/.test(raw)
-    const text = raw.replace(ANNOT_RE, '')
+    const noAnnot = raw.replace(ANNOT_RE, '')
+    const { text, engineTag } = extractEngineTag(noAnnot)
     tasks.push({
       id: taskId(text),
       text,
       line: i,
-      status: m[1] === 'x' ? 'done' : blocked ? 'blocked' : 'open'
+      status: m[1] === 'x' ? 'done' : blocked ? 'blocked' : 'open',
+      // rawText 只在有 tag（寫回時 text 不等於原文）時攜帶——report() 寫回必須保留
+      // 使用者行上的 tag 原文（鐵律 #1：絕不改寫任務文字）。
+      ...(engineTag !== undefined ? { engineTag, rawText: noAnnot } : {})
     })
   })
   return tasks
@@ -114,9 +130,11 @@ export class BacklogStore {
     const matches = parseBacklog(content).filter(t => t.id === id && t.status !== 'done')
     const t = matches.find(t => t.status === 'open') ?? matches[0]
     if (!t) throw new Error(`unknown task id ${id}：系統禁止創造任務（鐵律 #1）`)
+    // rawText ?? text：有 engine tag 的行寫回時保留 tag 原文（含原位置），鐵律 #1。
+    const lineText = t.rawText ?? t.text
     lines[t.line] = d.kind === 'done'
-      ? `- [x] ${t.text} <!-- adng:done ${d.commitHash} -->`
-      : `- [ ] ${t.text} <!-- adng:blocked reason=${JSON.stringify(d.reason)} -->`
+      ? `- [x] ${lineText} <!-- adng:done ${d.commitHash} -->`
+      : `- [ ] ${lineText} <!-- adng:blocked reason=${JSON.stringify(d.reason)} -->`
     writeFileSync(this.file, lines.join(eol))
   }
 }

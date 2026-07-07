@@ -10,7 +10,7 @@ import { PreflightCache } from './preflight.js'
 import { KernelVerifier } from './verifier.js'
 import { MockEngine } from './engines/mock.js'
 import { ClaudeCliEngine } from './engines/claude-cli.js'
-import { ConfigSchema, type Config, type Engine } from './types.js'
+import { ConfigSchema, type Config, type Engine, type EngineConfig, type EngineResolver } from './types.js'
 import { runOnce, type CycleResult, type Deps } from './scheduler.js'
 import { runDaemon } from './daemon.js'
 
@@ -74,9 +74,58 @@ function expandConfigPaths(baseDir: string, cfg: Config): Config {
   }
 }
 
+/** M5 Task 1：`{env:VAR}` 展開（assemble 層）——config 只寫變數引用，真值從進程環境取，
+ * 不落 config/log/backlog 明文。變數缺失時只報「變數名」，絕不外洩值。導出供測試。 */
+export function expandEnvValue(value: string): string {
+  return value.replace(/\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name: string) => {
+    const v = process.env[name]
+    if (v === undefined) throw new Error(`環境變數未設定: ${name}（config engines 引用 {env:${name}}）`)
+    return v
+  })
+}
+
+function expandEnvMap(env: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!env) return undefined
+  return Object.fromEntries(Object.entries(env).map(([k, v]) => [k, expandEnvValue(v)]))
+}
+
+/** M5 Task 1：引擎 registry——per-task 按需建（lazy：沒被任務 tag 到的引擎不建、
+ * 其 {env:VAR} 缺失也不影響其他引擎）、建後 cache。未實作的 adapter resolve 時拋錯，
+ * scheduler 歸 blocked(engine-not-allowed)。導出供測試。 */
+export function makeEngineRegistry(cfg: Config): EngineResolver {
+  const cache = new Map<string, Engine>()
+  const build = (tag: string, ec: EngineConfig): Engine => {
+    switch (ec.adapter) {
+      case 'mock':
+        return new MockEngine()
+      case 'claude-cli':
+        return new ClaudeCliEngine({
+          id: tag === 'claude' ? 'claude-cli' : `claude-cli:${tag}`,
+          cache: new PreflightCache(join(cfg.dataDir, tag === 'claude' ? 'preflight-cache.json' : `preflight-cache-${tag}.json`)),
+          env: expandEnvMap(ec.env),
+          model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
+          timeoutMs: ec.timeoutMs
+        })
+      default:
+        throw new Error(`adapter ${ec.adapter} 尚未實作（M5 Task 3-8 逐一落地）`)
+    }
+  }
+  return {
+    resolve(tag: string): Engine {
+      const hit = cache.get(tag)
+      if (hit) return hit
+      const ec = cfg.engines[tag]
+      if (!ec) throw new Error(`engine tag 不在 engines 白名單: ${tag}`)
+      const engine = build(tag, ec)
+      cache.set(tag, engine)
+      return engine
+    }
+  }
+}
+
 /**
  * 組裝層（cli 進入點薄殼共用）：讀 config JSON → ConfigSchema.parse → 展開路徑 →
- * 組 BacklogStore/RunDb/EventLog/engine（依 cfg.engine 選 mock 或 claude-cli+PreflightCache）/
+ * 組 BacklogStore/RunDb/EventLog/engine registry（cfg.engines 白名單，per-task lazy 建）/
  * KernelVerifier → Deps；另組 DiscordNotifier 供 daemon 子命令使用。
  * 導出供測試：驗證組裝正確性（engine 型別、verifier 有掛、路徑展開）不必真的跑 CLI 進程。
  */
@@ -91,9 +140,7 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
   const store = new BacklogStore(cfg.backlogFile)
   const db = new RunDb(join(cfg.dataDir, 'run.db'))
 
-  const engine: Engine = cfg.engine === 'claude-cli'
-    ? new ClaudeCliEngine({ cache: new PreflightCache(join(cfg.dataDir, 'preflight-cache.json')) })
-    : new MockEngine()
+  const engines = makeEngineRegistry(cfg)
 
   const verifier = new KernelVerifier({ cfg })
 
@@ -103,7 +150,7 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
     dataDir: cfg.dataDir,
   })
 
-  const deps: Deps = { cfg, store, db, engine, events, verifier }
+  const deps: Deps = { cfg, store, db, engines, events, verifier }
   return { deps, notifier, cfg }
 }
 

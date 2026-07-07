@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
 import { localDay, type RunDb } from './db.js'
 import type { EventLog } from './events.js'
-import type { Config, Engine, Job, RunResult, Task } from './types.js'
+import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
 import type { VerifierCheck } from './verifier.js'
 import { cleanupWorktree, mergeBack, prepareWorktree, type WorktreeHandle } from './worktree.js'
 
@@ -10,14 +10,20 @@ export interface Deps {
   cfg: Config
   store: BacklogStore
   db: RunDb
-  engine: Engine
+  /** M5 Task 1：per-config 單例改為 per-task 解析（registry 按需建、可 cache，實作在
+   * assemble 層）。任務 engineTag（或 cfg.defaultEngine）先過 cfg.engines 白名單再 resolve。 */
+  engines: EngineResolver
   events: EventLog
   verifier?: { check(job: Job, res: RunResult): Promise<VerifierCheck> }
 }
 
 /** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
  * ——不是每種 blocked 都是「連敗」，含糊文案會誤導人工介入的方向。 */
-export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'branch-switched'
+export type BlockedReason =
+  | 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'branch-switched'
+  // M5 Task 1：任務 tag 不在本專案 engines 白名單（或引擎無法建立）。直接 blocked，
+  // 系統不自作主張換引擎（鐵律 #1 精神；zen 不派 voice-actress 即靠白名單落地）。
+  | 'engine-not-allowed'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
@@ -38,7 +44,7 @@ function quiet(fn: () => void): void {
   }
 }
 
-export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps): Promise<CycleResult> {
+export async function runOnce({ cfg, store, db, engines, events, verifier }: Deps): Promise<CycleResult> {
   if (existsSync(cfg.stopFile)) {
     quiet(() => events.heartbeat({ state: 'stopped', todayCostUsd: todayCost(db, cfg.timezoneOffsetHours) }))
     return 'stopped'
@@ -63,6 +69,31 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
   if (dups.length > 0) quiet(() => events.appendOnce('duplicate-tasks', { ids: dups }))
 
   quiet(() => events.heartbeat({ state: 'running', currentTask: task.text, todayCostUsd: spent }))
+
+  // M5 Task 1：per-task 引擎解析。tag 不在 cfg.engines 白名單 → 直接 blocked
+  // （engine-not-allowed），不計 maxAttempts（是路由設定問題，不是任務本身失敗）。
+  // resolve 拋錯（adapter 未實作／{env:VAR} 引用缺失）同歸此路——錯誤訊息只含變數名
+  // 不含值（API key 永不落 log/backlog）。
+  const engineTag = task.engineTag ?? cfg.defaultEngine
+  const engineCfg = cfg.engines[engineTag]
+  if (!engineCfg) {
+    return blockTask(
+      { store, events }, task, 'engine-not-allowed',
+      `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`
+    )
+  }
+  let engine: Engine
+  try {
+    engine = engines.resolve(engineTag)
+  } catch (err) {
+    return blockTask(
+      { store, events }, task, 'engine-not-allowed',
+      `engine-not-allowed：引擎 ${engineTag} 無法建立（${String(err)}）`
+    )
+  }
+  // 非 claude 真值引擎（costPerRunUsd 有設）：成功失敗一律入帳固定估計值；
+  // 未設＝真值引擎，保留真值解析與 costUnknown→failureCostEstimateUsd 語意（M4 Task 3）。
+  const fixedCost = engineCfg.costPerRunUsd
 
   const pf = await engine.preflight()
   if (!pf.ok) {
@@ -93,7 +124,8 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
   try {
     res = await engine.run({ task, projectPath: wt.cwd, directive })
   } catch (err) {
-    db.record({ taskId: task.id, ok: false, costUsd: 0, detail: String(err) })
+    // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
+    db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err) })
     quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
     return resolveFailure({ cfg, store, db, events }, task, 'engine-error')
@@ -104,8 +136,10 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
   // （timeout/exit≠0/輸出不可解析——已於 claude-cli.ts 標記），改記 cfg.failureCostEstimateUsd，
   // detail 帶 cost-estimated 標記供人工／digest 辨識這是估計值非真值。engine 正常解析出真值
   // （包含 is_error 但仍解出 JSON、真值恰好 0）時 costUnknown 不設，照記真值不套估計。
-  const costEstimated = !res.ok && res.costUnknown === true
-  const recordedCostUsd = costEstimated ? cfg.failureCostEstimateUsd : res.costUsd
+  // M5 Task 1：fixedCost 有設（非 claude 真值引擎）→ 成功失敗一律入帳固定估計值，
+  // costUnknown/failureCostEstimateUsd 的估計語意只留給真值引擎（claude）。
+  const costEstimated = fixedCost === undefined && !res.ok && res.costUnknown === true
+  const recordedCostUsd = fixedCost ?? (costEstimated ? cfg.failureCostEstimateUsd : res.costUsd)
   const baseDetail = res.failureReason ?? res.commitHash ?? ''
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
   db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail })
@@ -157,7 +191,7 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
         task: task.text, kind: 'done', error: String(err), willRepick: true
       }))
     }
-    quiet(() => events.append('task-done', { task: task.text, cost: res.costUsd, commit: merge.commitHash }))
+    quiet(() => events.append('task-done', { task: task.text, cost: recordedCostUsd, commit: merge.commitHash }))
 
     try {
       cleanupWorktree(cfg.projectPath, wt.cwd, wt.branch)

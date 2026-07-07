@@ -5,6 +5,12 @@ export interface Task {
   text: string
   line: number
   status: 'open' | 'done' | 'blocked'
+  /** M5 Task 1：行內 `[engine:xxx]` tag（行首或行尾）。解析時從 text 剝離、不入 taskId 雜湊
+   * ——無 tag 任務的雜湊因此完全不變（硬回歸線：既有 done 行 id 不得漂移）。 */
+  engineTag?: string
+  /** 寫回檔案用的任務原文（含 engine tag、不含 adng 註記）。鐵律 #1：系統只改勾選狀態與
+   * 行尾註記，絕不改寫使用者的任務文字——tag 剝離只發生在解讀層，寫回時必須原樣保留。 */
+  rawText?: string
 }
 
 export type Disposition =
@@ -42,6 +48,26 @@ export interface Engine {
   run(job: Job): Promise<RunResult>
 }
 
+/** M5 Task 1：per-task 引擎解析。scheduler 依任務 tag（或 cfg.defaultEngine）按需取引擎
+ * （registry 按需建、可 cache——實作在 assemble 層 cli.ts）。resolve 拋錯＝引擎無法建立
+ * （adapter 未實作／env 引用缺失），scheduler 歸 blocked(engine-not-allowed)。 */
+export interface EngineResolver {
+  resolve(tag: string): Engine
+}
+
+/** 引擎矩陣單格設定。adapter 列全矩陣（M5 Task 3-8 逐一落地；未實作的 adapter 在
+ * resolve 時報錯而非 schema 擋掉——config 可以先寫好等 adapter 上線）。
+ * costPerRunUsd：非 claude 真值引擎的固定成本估計，成功失敗一律入帳此值；
+ * 未設＝真值引擎（claude），保留真值解析與 costUnknown→failureCostEstimateUsd 語意。 */
+export const EngineConfigSchema = z.object({
+  adapter: z.enum(['mock', 'claude-cli', 'codex', 'agy', 'copilot', 'qwen', 'grok', 'opencode']),
+  costPerRunUsd: z.number().nonnegative().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  model: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional()
+})
+export type EngineConfig = z.infer<typeof EngineConfigSchema>
+
 export const ConfigSchema = z.object({
   projectPath: z.string().min(1),
   backlogFile: z.string().min(1),
@@ -66,6 +92,17 @@ export const ConfigSchema = z.object({
   judgeModel: z.string().default('gpt-5.4-mini'),
   judgeApiKey: z.string().default('sk-any'),
   discordChannelId: z.string().optional(),
-  discordTokenFile: z.string().default('C:/Users/Administrator/openab/.env.tokens')
+  discordTokenFile: z.string().default('C:/Users/Administrator/openab/.env.tokens'),
+  // M5 Task 1（引擎矩陣）：engines＝本專案引擎白名單（tag → 引擎設定），defaultEngine＝
+  // 無 tag 任務的預設 tag。engines 未設時於下方 transform 依 legacy engine 欄位補
+  // { claude: { adapter: <engine> } }——既有 config（如 voice-actress.json 不加 engines 段）
+  // 行為完全不變（向後相容硬線）。
+  engines: z.record(z.string(), EngineConfigSchema).optional(),
+  defaultEngine: z.string().default('claude')
 })
+  .transform(c => ({ ...c, engines: c.engines ?? { claude: { adapter: c.engine } } }))
+  .refine(c => c.defaultEngine in c.engines, {
+    message: 'defaultEngine 必須存在於 engines 白名單內',
+    path: ['defaultEngine']
+  })
 export type Config = z.infer<typeof ConfigSchema>

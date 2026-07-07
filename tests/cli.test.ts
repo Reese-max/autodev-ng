@@ -2,7 +2,8 @@ import { expect, test } from 'vitest'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { assemble, finalizeRunOnceHeartbeat, formatStatus, parseArgv, runNotifyTest } from '../src/cli.js'
+import { assemble, expandEnvValue, finalizeRunOnceHeartbeat, formatStatus, makeEngineRegistry, parseArgv, runNotifyTest } from '../src/cli.js'
+import { ConfigSchema } from '../src/types.js'
 import { MockEngine } from '../src/engines/mock.js'
 import { ClaudeCliEngine } from '../src/engines/claude-cli.js'
 import { KernelVerifier } from '../src/verifier.js'
@@ -19,13 +20,14 @@ function writeConfig(dir: string, over: Record<string, unknown> = {}): string {
   return cfgPath
 }
 
-test('assemble：mock engine → deps.engine 是 MockEngine、verifier 有掛、notifier 是 DiscordNotifier', () => {
+test('assemble：mock engine → registry 以 defaultEngine 解析出 MockEngine、verifier 有掛、notifier 是 DiscordNotifier', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-cli-'))
   const cfgPath = writeConfig(dir)
 
   const { deps, notifier, cfg } = assemble(cfgPath)
   try {
-    expect(deps.engine).toBeInstanceOf(MockEngine)
+    // 向後相容硬線：engines 未設時 legacy engine 欄位決定預設 adapter（claude → mock）
+    expect(deps.engines.resolve(cfg.defaultEngine)).toBeInstanceOf(MockEngine)
     expect(deps.verifier).toBeInstanceOf(KernelVerifier)
     expect(notifier).toBeInstanceOf(DiscordNotifier)
     expect(cfg).toBe(deps.cfg)
@@ -34,14 +36,16 @@ test('assemble：mock engine → deps.engine 是 MockEngine、verifier 有掛、
   }
 })
 
-test('assemble：claude-cli engine → deps.engine 是 ClaudeCliEngine', () => {
+test('assemble：claude-cli engine（engines 未設的既有 config）→ registry 解析出 ClaudeCliEngine 且可 cache（同 tag 同實例）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-cli-'))
   const cfgPath = writeConfig(dir, { engine: 'claude-cli' })
 
-  const { deps } = assemble(cfgPath)
+  const { deps, cfg } = assemble(cfgPath)
   try {
-    expect(deps.engine).toBeInstanceOf(ClaudeCliEngine)
-    expect(deps.engine.id).toBe('claude-cli')
+    const engine = deps.engines.resolve(cfg.defaultEngine)
+    expect(engine).toBeInstanceOf(ClaudeCliEngine)
+    expect(engine.id).toBe('claude-cli')
+    expect(deps.engines.resolve(cfg.defaultEngine)).toBe(engine) // registry cache：按需建一次
   } finally {
     deps.db.close()
   }
@@ -249,4 +253,101 @@ test('finalizeRunOnceHeartbeat：stopped/cost-hard-stop/idle/preflight-failed �
     expect(hb.state).toBe('stopped') // 沒被覆寫成 idle
     expect(hb.todayCostUsd).toBe(9.99)
   }
+})
+
+// ---------------------------------------------------------------------------
+// M5 Task 1：m3 檔位 assemble（{env:VAR} 展開、registry lazy 建與白名單）
+
+test('M5：m3 檔位 assemble——{env:VAR} 於 assemble 層展開成真值進 engine（值不落 config/log）、--model 旗標帶上', () => {
+  process.env.ADNG_TEST_MM_KEY = 'sk-fake-m3-key-for-test'
+  process.env.ADNG_TEST_MM_BASE = 'http://127.0.0.1:9999/fake'
+  process.env.ADNG_TEST_MM_MODEL = 'MiniMax-M3'
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cli-m3-'))
+  const cfgPath = writeConfig(dir, {
+    engine: 'claude-cli',
+    engines: {
+      claude: { adapter: 'claude-cli' },
+      m3: {
+        adapter: 'claude-cli', costPerRunUsd: 0.5, model: '{env:ADNG_TEST_MM_MODEL}',
+        env: { ANTHROPIC_BASE_URL: '{env:ADNG_TEST_MM_BASE}', ANTHROPIC_AUTH_TOKEN: '{env:ADNG_TEST_MM_KEY}' }
+      }
+    }
+  })
+  const { deps } = assemble(cfgPath)
+  try {
+    const m3 = deps.engines.resolve('m3')
+    expect(m3).toBeInstanceOf(ClaudeCliEngine)
+    expect(m3.id).toBe('claude-cli:m3') // 觀測面可分辨 m3 檔位
+    const inner = m3 as unknown as { env?: Record<string, string>; baseArgs: string[] }
+    expect(inner.env).toEqual({
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:9999/fake',
+      ANTHROPIC_AUTH_TOKEN: 'sk-fake-m3-key-for-test'
+    })
+    expect(inner.baseArgs).toContain('--model')
+    expect(inner.baseArgs).toContain('MiniMax-M3')
+  } finally {
+    deps.db.close()
+    delete process.env.ADNG_TEST_MM_KEY
+    delete process.env.ADNG_TEST_MM_BASE
+    delete process.env.ADNG_TEST_MM_MODEL
+  }
+})
+
+test('M5：{env:VAR} 引用缺失 → resolve 該 tag 才拋錯（lazy：assemble 不炸、其他引擎不受影響），訊息含變數名不含值', () => {
+  delete process.env.ADNG_TEST_MISSING_VAR
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cli-m3-'))
+  const cfgPath = writeConfig(dir, {
+    engine: 'claude-cli',
+    engines: {
+      claude: { adapter: 'claude-cli' },
+      m3: { adapter: 'claude-cli', env: { ANTHROPIC_AUTH_TOKEN: '{env:ADNG_TEST_MISSING_VAR}' } }
+    }
+  })
+  const { deps } = assemble(cfgPath) // lazy：沒 resolve 到 m3 前不炸
+  try {
+    expect(deps.engines.resolve('claude')).toBeInstanceOf(ClaudeCliEngine)
+    expect(() => deps.engines.resolve('m3')).toThrow(/ADNG_TEST_MISSING_VAR/)
+  } finally {
+    deps.db.close()
+  }
+})
+
+test('M5：registry——白名單外 tag 拋錯；未實作 adapter resolve 時拋「尚未實作」', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cli-m3-'))
+  const cfgPath = writeConfig(dir, {
+    engine: 'claude-cli',
+    engines: { claude: { adapter: 'claude-cli' }, codex: { adapter: 'codex', costPerRunUsd: 1 } }
+  })
+  const { deps } = assemble(cfgPath)
+  try {
+    expect(() => deps.engines.resolve('zen')).toThrow(/白名單/)
+    expect(() => deps.engines.resolve('codex')).toThrow(/尚未實作/)
+  } finally {
+    deps.db.close()
+  }
+})
+
+test('M5：expandEnvValue——字串內嵌展開、多引用、無引用原樣、缺失只報變數名', () => {
+  process.env.ADNG_TEST_EXP = 'val-123'
+  try {
+    expect(expandEnvValue('{env:ADNG_TEST_EXP}')).toBe('val-123')
+    expect(expandEnvValue('Bearer {env:ADNG_TEST_EXP}/{env:ADNG_TEST_EXP}')).toBe('Bearer val-123/val-123')
+    expect(expandEnvValue('無引用原樣')).toBe('無引用原樣')
+    delete process.env.ADNG_TEST_NOPE
+    expect(() => expandEnvValue('{env:ADNG_TEST_NOPE}')).toThrow(/ADNG_TEST_NOPE/)
+  } finally {
+    delete process.env.ADNG_TEST_EXP
+  }
+})
+
+test('M5：既有 configs/voice-actress.json（真檔）schema 全過——engines 白名單含 claude/m3、不含 zen；registry lazy 不碰 m3 就不需要 MINIMAX_*', () => {
+  // 不走 assemble：避免測試打開真 dataDir 的 run.db（可能與跑中的 daemon 打架）。
+  // schema 驗證＋registry（dataDir 換 temp）已覆蓋「真檔能跑」的組裝面。
+  const realCfgPath = resolve(import.meta.dirname, '..', 'configs', 'voice-actress.json')
+  const cfg = ConfigSchema.parse(JSON.parse(readFileSync(realCfgPath, 'utf8')))
+  expect(cfg.defaultEngine).toBe('claude')
+  expect(Object.keys(cfg.engines)).toEqual(['claude', 'm3'])
+  expect(cfg.engines['zen']).toBeUndefined() // opencode zen 明文禁派 voice-actress
+  const registry = makeEngineRegistry({ ...cfg, dataDir: mkdtempSync(join(tmpdir(), 'adng-va-')) })
+  expect(registry.resolve('claude')).toBeInstanceOf(ClaudeCliEngine) // lazy：不 resolve m3 不需要 MINIMAX env
 })
