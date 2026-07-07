@@ -313,23 +313,25 @@ test('M5：{env:VAR} 引用缺失 → resolve 該 tag 才拋錯（lazy：assembl
   }
 })
 
-test('M5：registry——白名單外 tag 拋錯；未實作 adapter resolve 時拋「尚未實作」；codex 已接線（Task 3）', () => {
+test('M5：registry——白名單外 tag 拋錯；未實作 adapter resolve 時拋「尚未實作」；codex/agy 已接線（Task 3/4 合流）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-cli-m3-'))
   const cfgPath = writeConfig(dir, {
     engine: 'claude-cli',
     engines: {
       claude: { adapter: 'claude-cli' },
       codex: { adapter: 'codex', costPerRunUsd: 1 },
-      agy: { adapter: 'agy' }
+      agy: { adapter: 'agy' },
+      qwen: { adapter: 'qwen', costPerRunUsd: 0.5 }
     }
   })
   const { deps } = assemble(cfgPath)
   try {
     expect(() => deps.engines.resolve('zen')).toThrow(/白名單/)
-    expect(() => deps.engines.resolve('agy')).toThrow(/尚未實作/)
+    expect(() => deps.engines.resolve('qwen')).toThrow(/尚未實作/)
     const codex = deps.engines.resolve('codex')
     expect(codex).toBeInstanceOf(CodexEngine)
     expect(codex.id).toBe('codex')
+    expect(deps.engines.resolve('agy').id).toBe('agy')
   } finally {
     deps.db.close()
   }
