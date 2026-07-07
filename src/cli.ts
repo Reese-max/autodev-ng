@@ -12,6 +12,7 @@ import { MockEngine } from './engines/mock.js'
 import { ClaudeCliEngine } from './engines/claude-cli.js'
 import { CodexEngine } from './engines/codex.js'
 import { CopilotEngine } from './engines/copilot.js'
+import { AgyEngine } from './engines/agy.js'
 import { ConfigSchema, type Config, type Engine, type EngineConfig, type EngineResolver } from './types.js'
 import { runOnce, type CycleResult, type Deps } from './scheduler.js'
 import { runDaemon } from './daemon.js'
@@ -122,6 +123,15 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model), // 未設鎖 gpt-5-mini（adapter 預設）
+          timeoutMs: ec.timeoutMs
+        })
+      case 'agy':
+        // M5 Task 4：WSL 內 Antigravity CLI。ec.env 不透傳（WSL 邊界，Windows env 不會自動
+        // 進 Linux 側；真有需要屬 WSLENV 工程，另議）；model 同 claude-cli 支援 {env:VAR} 展開。
+        return new AgyEngine({
+          id: tag === 'agy' ? 'agy' : `agy:${tag}`,
+          cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
+          model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
           timeoutMs: ec.timeoutMs
         })
       default:
