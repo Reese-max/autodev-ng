@@ -76,6 +76,19 @@ test('loadDiscordToken 空引號回 null', () => {
   expect(loadDiscordToken(tokenFile('LPBOT_TOKEN=""\n'))).toBeNull()
 })
 
+test('loadDiscordToken 容忍 cmd batch set 前綴（CRLF 行尾）', () => {
+  expect(loadDiscordToken(tokenFile('set LPBOT_TOKEN=abc.fake.token\r\n'))).toBe('abc.fake.token')
+  expect(loadDiscordToken(tokenFile('SET LPBOT_TOKEN=abc.fake.token\r\n'))).toBe('abc.fake.token')
+})
+
+test('loadDiscordToken 容忍 shell export 前綴', () => {
+  expect(loadDiscordToken(tokenFile('export LPBOT_TOKEN=abc.fake.token\n'))).toBe('abc.fake.token')
+})
+
+test('loadDiscordToken set 前綴的其他變數不誤抓', () => {
+  expect(loadDiscordToken(tokenFile('set OTHER_TOKEN=x\nset ANOTHER=y\n'))).toBeNull()
+})
+
 // MEDIUM-4：notify-dlq.jsonl 無界成長治理。行數制門檻（brief：>2000 保尾 1000）。
 function seedDlqFile(dir: string, n: number): string {
   const file = join(dir, 'notify-dlq.jsonl')

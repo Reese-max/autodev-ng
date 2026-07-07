@@ -31,8 +31,10 @@ export function loadDiscordToken(tokenFile: string): string | null {
   const content = readFileSync(tokenFile, 'utf8')
   const lines = content.split('\n')
   for (const line of lines) {
-    if (line.startsWith('LPBOT_TOKEN=')) {
-      const raw = line.slice('LPBOT_TOKEN='.length).trim()
+    // 真實 token 檔可能是 cmd batch（`set LPBOT_TOKEN=…`）或 shell（`export LPBOT_TOKEN=…`）格式
+    const m = /^(?:set\s+|export\s+)?LPBOT_TOKEN=(.*)$/i.exec(line.trim())
+    if (m) {
+      const raw = m[1]!.trim()
       const unquoted = raw.replace(/^['"]|['"]$/g, '')
       return unquoted === '' ? null : unquoted
     }
