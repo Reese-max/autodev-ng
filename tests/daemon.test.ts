@@ -472,7 +472,7 @@ test('⑰ 連續崩潰暫停 ×2：10 輪全崩 → 第 5、10 輪各暫停完�
   expect(crashAlerts).toHaveLength(1)
 })
 
-test('⑱ acquireLock throw（infra 故障，非 lock-busy）→ 送一則「無法啟動」告警並原樣 rethrow 炸給排程器，runOnce 完全不執行', async () => {
+test('⑱ acquireLock throw（infra 故障，非 lock-busy）→ 告警走冷卻閘（key daemon-acquire-throw）並原樣 rethrow 炸給排程器，runOnce 完全不執行；重複啟動撞同一故障不洗版', async () => {
   const engine = new MockEngine([{ ok: true }])
   const d = deps(engine)
   const notifier = new FakeNotifier()
@@ -485,9 +485,16 @@ test('⑱ acquireLock throw（infra 故障，非 lock-busy）→ 送一則「無
 
   expect(engine.calls).toHaveLength(0) // 主迴圈完全沒起跑
   expect(sleepCalls).toHaveLength(0)
-  expect(notifier.sent).toHaveLength(1) // 告警一則（此路徑直送，不經冷卻閘）
+  expect(notifier.sent).toHaveLength(1) // 第一次照發
   expect(notifier.sent[0]).toContain('daemon 無法啟動')
   expect(notifier.sent[0]).toContain('acquireLock')
+
+  // M5 Task 2：模擬 respawn 排程（run-once/daemon 語意）短時間內再啟動、撞同一 infra 故障——
+  // rethrow 行為不變（照樣炸給排程器，不可假活），但告警在 6h 冷卻窗內被抑制，不得送第二則
+  // （冷卻表落地於 dataDir/alert-cooldown.json，跨進程重啟仍有效）。
+  await expect(runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir }))).rejects.toThrow(/ENOENT/)
+  expect(engine.calls).toHaveLength(0)
+  expect(notifier.sent).toHaveLength(1) // 冷卻閘抑制，總數仍 1
 })
 
 test('⑲ 崩潰計數一次成功 cycle 後歸零：4 崩 → 1 成功 → 再崩 2 輪退避從 2^1 重起，不誤觸第 5 次暫停門檻', async () => {

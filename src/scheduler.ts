@@ -4,7 +4,7 @@ import { localDay, type RunDb } from './db.js'
 import type { EventLog } from './events.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
 import type { VerifierCheck } from './verifier.js'
-import { cleanupWorktree, mergeBack, prepareWorktree, type WorktreeHandle } from './worktree.js'
+import { cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError, type WorktreeHandle } from './worktree.js'
 
 export interface Deps {
   cfg: Config
@@ -196,10 +196,19 @@ export async function runOnce({ cfg, store, db, engines, events, verifier }: Dep
     try {
       cleanupWorktree(cfg.projectPath, wt.cwd, wt.branch)
     } catch (err) {
-      // 清理失敗（罕見：檔案鎖住等）保留現場供 debug，不強行二次清除掩蓋問題。
-      quiet(() => events.append('worktree-kept', {
-        taskId: task.id, branch: wt.branch, worktreePath: wt.cwd, error: String(err)
-      }))
+      if (err instanceof WorktreeCleanupPartialError) {
+        // M5 Task 2：rmSync 已成功、僅 git 記錄（prune/branch -d）清理失敗——現場已不在，
+        // 記 partial 而非 kept（kept 會誤導人工去找一個不存在的目錄）。
+        quiet(() => events.append('worktree-cleanup-partial', {
+          taskId: task.id, branch: wt.branch, error: String(err)
+        }))
+      } else {
+        // rmSync 前失敗（marker 驗證不過/dirty/檔案鎖住等）：現場還在，保留供 debug，
+        // 不強行二次清除掩蓋問題。
+        quiet(() => events.append('worktree-kept', {
+          taskId: task.id, branch: wt.branch, worktreePath: wt.cwd, error: String(err)
+        }))
+      }
     }
     return 'done'
   }

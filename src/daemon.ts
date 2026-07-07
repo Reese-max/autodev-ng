@@ -222,7 +222,13 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
   try {
     locked = acquireLock(lockDir)
   } catch (err) {
-    await safeSend(notifier, `daemon 無法啟動：acquireLock 拋出 infra 故障——${String(err)}`)
+    // M5 Task 2：告警納冷卻閘（key 固定 daemon-acquire-throw）——respawn 排程／run-once
+    // 反覆重啟撞同一 infra 故障（EPERM 類）時不洗版通知頻道；rethrow 語意不變
+    // （原樣炸給排程器看，不可假活）。
+    await sendCooldownAlert(
+      notifier, deps.cfg.dataDir, cooldownTable,
+      'daemon-acquire-throw', `daemon 無法啟動：acquireLock 拋出 infra 故障——${String(err)}`
+    )
     throw err
   }
 
