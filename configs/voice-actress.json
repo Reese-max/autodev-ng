@@ -6,6 +6,7 @@
   "verifyCommand": "npm run verify",
   "verifyTimeoutMs": 1500000,
   "judgeUrl": "http://127.0.0.1:8317/v1",
+  "judgeApiKey": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h",
   "discordChannelId": "1523117277527146507",
   "timezoneOffsetHours": 8,
   "failureCostEstimateUsd": 3,
