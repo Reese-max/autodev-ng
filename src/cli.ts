@@ -13,6 +13,7 @@ import { ClaudeCliEngine } from './engines/claude-cli.js'
 import { CodexEngine } from './engines/codex.js'
 import { CopilotEngine } from './engines/copilot.js'
 import { AgyEngine } from './engines/agy.js'
+import { QwenEngine } from './engines/qwen.js'
 import { ConfigSchema, type Config, type Engine, type EngineConfig, type EngineResolver } from './types.js'
 import { runOnce, type CycleResult, type Deps } from './scheduler.js'
 import { runDaemon } from './daemon.js'
@@ -134,6 +135,21 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
           timeoutMs: ec.timeoutMs
         })
+      case 'qwen': {
+        // M5 Task 6：qwen 殼接本機 OpenAI 相容 proxy（規格卡卡 3）。base URL／API key 沿 Task 1
+        // env 機制從 ec.env 取（OPENAI_BASE_URL／OPENAI_API_KEY，值可 {env:VAR}），adapter 以
+        // 規格卡實測旗標顯式帶入；env 同時透傳 runProcess（旗標與 env 同值，行為一致）。
+        const qenv = expandEnvMap(ec.env)
+        return new QwenEngine({
+          id: tag === 'qwen' ? 'qwen' : `qwen:${tag}`,
+          cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
+          env: qenv,
+          baseUrl: qenv?.OPENAI_BASE_URL,
+          apiKey: qenv?.OPENAI_API_KEY,
+          model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
+          timeoutMs: ec.timeoutMs
+        })
+      }
       default:
         throw new Error(`adapter ${ec.adapter} 尚未實作（M5 Task 3-8 逐一落地）`)
     }
