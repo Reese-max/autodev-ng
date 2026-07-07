@@ -15,6 +15,7 @@ import { CopilotEngine } from './engines/copilot.js'
 import { AgyEngine } from './engines/agy.js'
 import { GrokEngine } from './engines/grok.js'
 import { QwenEngine } from './engines/qwen.js'
+import { OpencodeEngine } from './engines/opencode.js'
 import { ConfigSchema, type Config, type Engine, type EngineConfig, type EngineResolver } from './types.js'
 import { runOnce, type CycleResult, type Deps } from './scheduler.js'
 import { runDaemon } from './daemon.js'
@@ -160,6 +161,15 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           timeoutMs: ec.timeoutMs
         })
       }
+      case 'opencode':
+        // M5 Task 8：opencode zen（規格卡 m5-opencode-research.md）。XDG 隔離 profile 落 dataDir；
+        // zen apiKey 由 ec.env 的 OPENCODE_ZEN_KEY 供給（profile 內寫 {env:...} 引用，不落明文）。
+        return new OpencodeEngine({
+          id: tag === 'opencode' ? 'opencode' : `opencode:${tag}`,
+          cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
+          env: expandEnvMap(ec.env), profileDir: join(cfg.dataDir, 'opencode-profile'),
+          model: ec.model === undefined ? undefined : expandEnvValue(ec.model), timeoutMs: ec.timeoutMs
+        })
       default:
         throw new Error(`adapter ${ec.adapter} 尚未實作（M5 Task 3-8 逐一落地）`)
     }
