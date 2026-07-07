@@ -7,6 +7,7 @@ import { ConfigSchema } from '../src/types.js'
 import { MockEngine } from '../src/engines/mock.js'
 import { ClaudeCliEngine } from '../src/engines/claude-cli.js'
 import { CodexEngine } from '../src/engines/codex.js'
+import { GrokEngine } from '../src/engines/grok.js'
 import { KernelVerifier } from '../src/verifier.js'
 import { DiscordNotifier } from '../src/notify.js'
 import { EventLog } from '../src/events.js'
@@ -313,7 +314,7 @@ test('M5：{env:VAR} 引用缺失 → resolve 該 tag 才拋錯（lazy：assembl
   }
 })
 
-test('M5：registry——白名單外 tag 拋錯；未實作 adapter resolve 時拋「尚未實作」；codex/agy 已接線（Task 3/4 合流）', () => {
+test('M5：registry——白名單外 tag 拋錯；未實作 adapter resolve 時拋「尚未實作」；codex/agy/grok 已接線（Task 3/4/7）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-cli-m3-'))
   const cfgPath = writeConfig(dir, {
     engine: 'claude-cli',
@@ -321,6 +322,7 @@ test('M5：registry——白名單外 tag 拋錯；未實作 adapter resolve 時
       claude: { adapter: 'claude-cli' },
       codex: { adapter: 'codex', costPerRunUsd: 1 },
       agy: { adapter: 'agy' },
+      grok: { adapter: 'grok', costPerRunUsd: 0.5 },
       qwen: { adapter: 'qwen', costPerRunUsd: 0.5 }
     }
   })
@@ -332,6 +334,9 @@ test('M5：registry——白名單外 tag 拋錯；未實作 adapter resolve 時
     expect(codex).toBeInstanceOf(CodexEngine)
     expect(codex.id).toBe('codex')
     expect(deps.engines.resolve('agy').id).toBe('agy')
+    const grok = deps.engines.resolve('grok')
+    expect(grok).toBeInstanceOf(GrokEngine)
+    expect(grok.id).toBe('grok')
   } finally {
     deps.db.close()
   }

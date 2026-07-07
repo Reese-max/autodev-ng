@@ -53,4 +53,4 @@ test('M1 閉環：3 任務→2 完成 1 blocked→idle', async () => {
   expect(md).toContain('- [x] 任務C')
   const hb = JSON.parse(readFileSync(join(cfg.dataDir, 'heartbeat.json'), 'utf8'))
   expect(hb.state).toBe('idle')
-})
+}, 30_000) // 6 輪 runOnce 各含 git worktree 進程；全套並行滿載時 wall-time 可破預設 5s（踩雷 §9，M5 Task 7 實錄 5.35s）

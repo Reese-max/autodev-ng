@@ -13,6 +13,7 @@ import { ClaudeCliEngine } from './engines/claude-cli.js'
 import { CodexEngine } from './engines/codex.js'
 import { CopilotEngine } from './engines/copilot.js'
 import { AgyEngine } from './engines/agy.js'
+import { GrokEngine } from './engines/grok.js'
 import { ConfigSchema, type Config, type Engine, type EngineConfig, type EngineResolver } from './types.js'
 import { runOnce, type CycleResult, type Deps } from './scheduler.js'
 import { runDaemon } from './daemon.js'
@@ -131,6 +132,15 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new AgyEngine({
           id: tag === 'agy' ? 'agy' : `agy:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
+          model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
+          timeoutMs: ec.timeoutMs
+        })
+      case 'grok':
+        // M5 Task 7：xAI grok CLI（原生 .exe 直呼；prompt 走 --prompt-file tmp 檔；無 usage 欄位）。
+        return new GrokEngine({
+          id: tag === 'grok' ? 'grok' : `grok:${tag}`,
+          cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
+          env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
           timeoutMs: ec.timeoutMs
         })
