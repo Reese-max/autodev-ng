@@ -164,12 +164,15 @@ export function mergeBack(projectPath: string, branch: string, expectedBaseBranc
 }
 
 /**
- * 合回成功後呼叫：清掉 worktree 目錄 + 分支。刻意用「安全版」`git worktree remove`（非
- * --force）：若 worktree 內還有真正的未提交變更（例如引擎留下的除錯殘留、非預期產物），
- * remove 會如實失敗，呼叫端 catch 後記 `worktree-kept` 事件並保留現場供 debug——不強行
- * 二次清除掩蓋問題。但我們自己寫的 `.adng-worktree` 旗標檔本來就不受 git 追蹤，它的存在
- * 純粹是 kernel 自己的 bookkeeping，不該以「untracked file」的身分擋下這個安全網，所以
- * 先把它刪掉（容忍失敗——清不掉就讓後面的 remove 自然報錯，不吞真正的問題）。
+ * 合回成功後呼叫：清掉 worktree 目錄 + 分支。保留原「安全版 `git worktree remove`（非 --force）」
+ * 的安全網語意：若 worktree 內還有真正的未提交變更/未追蹤檔（例如引擎留下的除錯殘留、非預期產物；判準＝status --porcelain 非空），
+ * 如實上拋，呼叫端 catch 後記 `worktree-kept` 事件並保留現場供 debug——不強行二次清除掩蓋問題（等價原「安全版 remove」拒刪語意）。
+ * 但刪目錄改用 Node 原生 rmSync：實戰中 engine 在 worktree 內跑過 npm install 後，git remove
+ * 要刪含 node_modules 的數百 MB 目錄會超過 execFileSync timeout（ETIMEDOUT → 殘留永久堆積，
+ * done 任務無下輪自癒）；rmSync 無 timeout 問題（force:true 亦涵蓋 Windows 唯讀檔），刪完再
+ * prune 掉 git 的 worktree 登記。而我們自己寫的 `.adng-worktree` 旗標檔本來就不受 git 追蹤，
+ * 純粹是 kernel 自己的 bookkeeping，不該以「untracked file」身分擋下這個安全網，所以先把它
+ * 刪掉（容忍失敗——清不掉就讓後面的 status 自然把它列為 dirty，不吞真正的問題）。
  */
 export function cleanupWorktree(projectPath: string, worktreePath: string, branch: string): void {
   try {
@@ -177,6 +180,9 @@ export function cleanupWorktree(projectPath: string, worktreePath: string, branc
   } catch {
     // 容忍：見上方註解
   }
-  git(['worktree', 'remove', worktreePath], projectPath, ADD_REMOVE_TIMEOUT_MS)
+  const dirty = git(['status', '--porcelain'], worktreePath, ADD_REMOVE_TIMEOUT_MS).trim()
+  if (dirty !== '') throw new Error(`cleanupWorktree: worktree 尚有未提交變更，保留現場 ${worktreePath}：\n${dirty}`)
+  rmSync(worktreePath, { recursive: true, force: true, maxRetries: 5 })
+  git(['worktree', 'prune'], projectPath, QUICK_TIMEOUT_MS)
   git(['branch', '-d', branch], projectPath, QUICK_TIMEOUT_MS)
 }

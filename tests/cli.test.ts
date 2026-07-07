@@ -1,12 +1,14 @@
 import { expect, test } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { assemble, formatStatus, parseArgv, runNotifyTest } from '../src/cli.js'
+import { assemble, finalizeRunOnceHeartbeat, formatStatus, parseArgv, runNotifyTest } from '../src/cli.js'
 import { MockEngine } from '../src/engines/mock.js'
 import { ClaudeCliEngine } from '../src/engines/claude-cli.js'
 import { KernelVerifier } from '../src/verifier.js'
 import { DiscordNotifier } from '../src/notify.js'
+import { EventLog } from '../src/events.js'
+import type { CycleResult, Deps } from '../src/scheduler.js'
 
 function writeConfig(dir: string, over: Record<string, unknown> = {}): string {
   const cfgPath = join(dir, 'config.json')
@@ -197,4 +199,54 @@ test('assemble：config 缺必填欄位 → throw 人話訊息含「設定檔欄
   expect(msg).toContain('backlogFile')
   expect(msg).toContain('dataDir')
   expect(msg).toContain('engine')
+})
+
+// ---------------------------------------------------------------------------
+// MEDIUM 修復回歸測試：cmdRunOnce heartbeat 收尾（Fix 4）——核心邏輯抽為
+// finalizeRunOnceHeartbeat 導出（同 runNotifyTest 模式），mock deps、不打真 API、不碰真 config。
+// ---------------------------------------------------------------------------
+
+function heartbeatDeps(dataDir: string, costUsd: number): { deps: Deps; events: EventLog } {
+  const events = new EventLog(dataDir)
+  const deps = {
+    cfg: { timezoneOffsetHours: 8 },
+    events,
+    db: { costForLocalDay: () => costUsd },
+  } as unknown as Deps
+  return { deps, events }
+}
+
+function readHeartbeatFile(dataDir: string): { state: string; todayCostUsd: number } {
+  return JSON.parse(readFileSync(join(dataDir, 'heartbeat.json'), 'utf8')) as { state: string; todayCostUsd: number }
+}
+
+test('finalizeRunOnceHeartbeat：done/failed/engine-error/blocked 跑完任務 → heartbeat 收尾為 idle、todayCostUsd 為當日值', () => {
+  const results: CycleResult[] = ['done', 'failed', 'engine-error', { kind: 'blocked', taskId: 't1', taskText: '任務', reason: 'merge-conflict' }]
+  for (const result of results) {
+    const dir = mkdtempSync(join(tmpdir(), 'adng-hb-'))
+    const { deps } = heartbeatDeps(dir, 1.23)
+    // 模擬 runOnce 期間任務起跑時寫下的 running heartbeat——收尾必須覆寫掉這個假活狀態
+    deps.events.heartbeat({ state: 'running', currentTask: '任務', todayCostUsd: 0 })
+
+    finalizeRunOnceHeartbeat(deps, result, new Date('2026-07-07T03:00:00.000Z'))
+
+    const hb = readHeartbeatFile(dir)
+    expect(hb.state).toBe('idle')
+    expect(hb.todayCostUsd).toBe(1.23) // 來自 db.costForLocalDay（當日成本），不是寫死 0
+  }
+})
+
+test('finalizeRunOnceHeartbeat：stopped/cost-hard-stop/idle/preflight-failed 自帶收尾路徑 → 不被二次覆寫', () => {
+  for (const result of ['stopped', 'cost-hard-stop', 'idle', 'preflight-failed'] as CycleResult[]) {
+    const dir = mkdtempSync(join(tmpdir(), 'adng-hb-'))
+    const { deps } = heartbeatDeps(dir, 1.23)
+    // runOnce 自帶收尾已寫好的 heartbeat（例如 stopped 語意），finalize 不得動它
+    deps.events.heartbeat({ state: 'stopped', todayCostUsd: 9.99 })
+
+    finalizeRunOnceHeartbeat(deps, result)
+
+    const hb = readHeartbeatFile(dir)
+    expect(hb.state).toBe('stopped') // 沒被覆寫成 idle
+    expect(hb.todayCostUsd).toBe(9.99)
+  }
 })

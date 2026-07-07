@@ -241,21 +241,26 @@ function formatCycleResult(result: CycleResult): string {
   return typeof result === 'string' ? result : `blocked（任務：${result.taskText}）`
 }
 
+/**
+ * Fix 4（首跑實證）：runOnce 對 stopped/cost-stop/idle/preflight-failed 自帶 heartbeat 收尾，
+ * 但任務真的跑起來（running）之後的 done/failed/engine-error/blocked 都不再寫——daemon 靠
+ * 下一輪覆寫無礙；run-once 是單輪進程，不收尾 heartbeat 會永遠停在 running 假活。這裡只對
+ * 「跑過任務」的結果補寫 idle（觀測面故障吞錯，不反殺 CLI）。從 cmdRunOnce 抽出導出
+ * （同 runNotifyTest 模式）：mock deps 即可回歸測試，不必真跑 CLI 進程。
+ */
+export function finalizeRunOnceHeartbeat(deps: Deps, result: CycleResult, now: Date = new Date()): void {
+  if (!(typeof result === 'object' || result === 'done' || result === 'failed' || result === 'engine-error')) return
+  try {
+    const day = localDay(now.toISOString(), deps.cfg.timezoneOffsetHours)
+    deps.events.heartbeat({ state: 'idle', todayCostUsd: deps.db.costForLocalDay(day, deps.cfg.timezoneOffsetHours) })
+  } catch { /* 觀測面故障不可反殺 CLI（鐵律 #4） */ }
+}
+
 async function cmdRunOnce(cfgPath: string): Promise<void> {
   const { deps } = assemble(cfgPath)
   try {
     const result = await runOnce(deps)
-    // Fix 4（首跑實證）：runOnce 對 stopped/cost-stop/idle/preflight-failed 自帶 heartbeat
-    // 收尾，但任務真的跑起來（running）之後的 done/failed/engine-error/blocked 都不再寫——
-    // daemon 靠下一輪覆寫無礙；run-once 是單輪進程，不收尾 heartbeat 會永遠停在 running
-    // 假活。這裡只對「跑過任務」的結果補寫 idle（觀測面故障吞錯，不反殺 CLI）。
-    const ranTask = typeof result === 'object' || result === 'done' || result === 'failed' || result === 'engine-error'
-    if (ranTask) {
-      try {
-        const day = localDay(new Date().toISOString(), deps.cfg.timezoneOffsetHours)
-        deps.events.heartbeat({ state: 'idle', todayCostUsd: deps.db.costForLocalDay(day, deps.cfg.timezoneOffsetHours) })
-      } catch { /* 觀測面故障不可反殺 CLI（鐵律 #4） */ }
-    }
+    finalizeRunOnceHeartbeat(deps, result)
     console.log(`CycleResult: ${formatCycleResult(result)}`)
   } finally {
     deps.db.close()

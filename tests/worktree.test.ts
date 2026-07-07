@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { cleanupWorktree, mergeBack, prepareWorktree } from '../src/worktree.js'
@@ -197,4 +197,46 @@ test('mergeBack：主 repo 於 prepareWorktree 後 detach HEAD → merged:false(
 
   const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
   expect(branches).toContain(wt.branch) // 沒有具名引用被刪掉，成果沒有靜默遺失
+})
+
+// ---------------------------------------------------------------------------
+// MEDIUM 修復：cleanupWorktree 大目錄（node_modules 樣態）超時——改 rmSync + prune，
+// git worktree remove 不再是刪目錄的執行者（execFileSync timeout 打不到 Node 原生 rmSync）。
+// ---------------------------------------------------------------------------
+
+test('cleanupWorktree：含 node_modules 樣態（嵌套多層＋唯讀檔）的 worktree 完整清除，prune 後 worktree list 乾淨、分支已刪', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  // 模擬 engine 在 worktree 內跑過 npm install：node_modules 被 .gitignore 忽略（不算 dirty）
+  commitFile(wt.cwd, '.gitignore', 'node_modules/\n', 'chore: ignore node_modules')
+  for (const pkg of ['pkg-a', 'pkg-b']) {
+    const deep = join(wt.cwd, 'node_modules', pkg, 'dist', 'lib')
+    mkdirSync(deep, { recursive: true })
+    writeFileSync(join(deep, 'index.js'), 'module.exports = {}\n')
+    writeFileSync(join(deep, 'index.d.ts'), 'export {}\n')
+  }
+  const readonly = join(wt.cwd, 'node_modules', 'pkg-a', 'LICENSE')
+  writeFileSync(readonly, 'MIT\n')
+  chmodSync(readonly, 0o444) // Windows 唯讀屬性：rmSync force:true 必須清得掉
+
+  const merge = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead)
+  expect(merge.merged).toBe(true)
+
+  cleanupWorktree(repo, wt.cwd, wt.branch)
+  expect(existsSync(wt.cwd)).toBe(false) // 目錄（含嵌套唯讀檔）完整清除
+  const list = execFileSync('git', ['worktree', 'list'], { cwd: repo, encoding: 'utf8' })
+  expect(list).not.toContain(TASK_ID) // prune 後 git 登記乾淨，無殘留供下輪堆積
+  const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
+  expect(branches.trim()).toBe('')
+})
+
+test('cleanupWorktree：worktree 內有真正未提交變更 → 上拋保留現場（安全網語意不因改 rmSync 而丟失）', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  writeFileSync(join(wt.cwd, 'debug-leftover.txt'), 'engine 留下的殘留\n') // 未追蹤、未被 ignore
+
+  expect(() => cleanupWorktree(repo, wt.cwd, wt.branch)).toThrow(/未提交變更/)
+  expect(existsSync(join(wt.cwd, 'debug-leftover.txt'))).toBe(true) // 現場保留供 debug
+  const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
+  expect(branches).toContain(wt.branch) // 分支也保留
 })
