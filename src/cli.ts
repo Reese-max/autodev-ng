@@ -11,6 +11,7 @@ import { KernelVerifier } from './verifier.js'
 import { MockEngine } from './engines/mock.js'
 import { ClaudeCliEngine } from './engines/claude-cli.js'
 import { CodexEngine } from './engines/codex.js'
+import { CopilotEngine } from './engines/copilot.js'
 import { ConfigSchema, type Config, type Engine, type EngineConfig, type EngineResolver } from './types.js'
 import { runOnce, type CycleResult, type Deps } from './scheduler.js'
 import { runDaemon } from './daemon.js'
@@ -113,6 +114,14 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
+          timeoutMs: ec.timeoutMs
+        })
+      case 'copilot':
+        return new CopilotEngine({
+          id: tag === 'copilot' ? 'copilot' : `copilot:${tag}`,
+          cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
+          env: expandEnvMap(ec.env),
+          model: ec.model === undefined ? undefined : expandEnvValue(ec.model), // 未設鎖 gpt-5-mini（adapter 預設）
           timeoutMs: ec.timeoutMs
         })
       default:
