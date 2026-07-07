@@ -132,7 +132,7 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
 
   if (res.ok) {
     // engine 成功 + verify 通過（或未設 verifier）→ 嘗試把任務分支 ff-only 合回主 repo。
-    const merge = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch)
+    const merge = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead)
     if (!merge.merged) {
       if (merge.reason === 'branch-switched') {
         // HIGH 修復：主 repo 已不在 prepareWorktree 當時記下的分支（切走或 detached）——

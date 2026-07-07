@@ -75,7 +75,7 @@ test('mergeBack：worktree 內 commit 後 ff-only 成功、主 repo HEAD 前進�
   const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
   commitFile(wt.cwd, 'feature.txt', 'done\n', 'feat: 完成任務')
 
-  const result = mergeBack(repo, wt.branch, wt.baseBranch)
+  const result = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead)
   expect(result.merged).toBe(true)
   const after = headOf(repo)
   expect(after).not.toBe(before)
@@ -96,7 +96,7 @@ test('mergeBack：主 repo 被第三方推進且與 worktree 分支分岔 → me
   // 第三方直接在主 repo commit，造成分岔（worktree 分支與 main 互不為對方祖先）
   commitFile(repo, 'thirdparty.txt', 'third party\n', 'chore: 第三方推進')
 
-  const result = mergeBack(repo, wt.branch, wt.baseBranch)
+  const result = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead)
   expect(result.merged).toBe(false)
   expect(result.reason).toBe('merge-conflict')
   expect(result.commitHash).toBeUndefined()
@@ -130,7 +130,7 @@ test('mergeBack：主 repo 於 prepareWorktree 後被切到新分支 → merged:
   // 使用者在任務執行期間切到自己的新分支（非 detached，只是換了分支）
   execFileSync('git', ['checkout', '-b', 'user-side-branch'], { cwd: repo, stdio: 'ignore' })
 
-  const result = mergeBack(repo, wt.branch, wt.baseBranch)
+  const result = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead)
   expect(result.merged).toBe(false)
   expect(result.reason).toBe('branch-switched')
 
@@ -143,6 +143,46 @@ test('mergeBack：主 repo 於 prepareWorktree 後被切到新分支 → merged:
   expect(branches).toContain(wt.branch) // adng 任務分支保留，不硬 merge
 })
 
+test('mergeBack：任務期間主分支被 reset --hard 回退 → merged:false(branch-switched)，被丟棄的 commit 不因 ff-only 復活', () => {
+  const { repo, worktreesDir } = newRepo()
+  // 使用者事後反悔的 commit：任務自這個 HEAD 分出，之後被 reset 丟棄
+  commitFile(repo, 'doomed.txt', 'to be discarded\n', 'feat: 之後會被 reset 丟棄')
+  const doomedHead = headOf(repo)
+
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  expect(wt.baseHead).toBe(doomedHead) // prepareWorktree 當下記錄的 baseHead
+  commitFile(wt.cwd, 'feature.txt', 'from worktree\n', 'feat: worktree 端完成')
+
+  // 任務期間使用者對主分支 reset --hard 回退（分支名不變——舊版分支身分核對看不出來）
+  execFileSync('git', ['reset', '--hard', 'HEAD~1'], { cwd: repo, stdio: 'ignore' })
+  const resetHead = headOf(repo)
+
+  const result = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead)
+  expect(result.merged).toBe(false)
+  expect(result.reason).toBe('branch-switched')
+
+  // 縫的本體：ff-only 會「成功」並把被丟棄的 doomed commit 連同任務 commit 一起復活——
+  // 核對 baseHead 後不執行 merge，主分支停在使用者 reset 後的位置。
+  expect(headOf(repo)).toBe(resetHead)
+  expect(existsSync(join(repo, 'doomed.txt'))).toBe(false) // 被丟棄的內容沒有復活
+  expect(existsSync(join(repo, 'feature.txt'))).toBe(false) // 任務成果也沒有硬合進去
+
+  const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
+  expect(branches).toContain(wt.branch) // 任務分支保留給人工介入
+})
+
+test('mergeBack：主分支僅正常前進（baseHead 為現 HEAD 祖先）→ 不誤擋，仍由 ff-only 自行判定', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  // 任務分支無新 commit，主分支正常前進一格：baseHead 是現 HEAD 的祖先——
+  // 等值核對必須放行（非回退），ff-only 判「已是祖先」no-op 成功，不得誤判 branch-switched。
+  commitFile(repo, 'advance.txt', 'forward\n', 'chore: 主分支正常前進')
+
+  const result = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead)
+  expect(result.merged).toBe(true)
+  expect(result.commitHash).toBe(headOf(repo))
+})
+
 test('mergeBack：主 repo 於 prepareWorktree 後 detach HEAD → merged:false(branch-switched)，任務分支保留', () => {
   const { repo, worktreesDir } = newRepo()
   const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
@@ -150,7 +190,7 @@ test('mergeBack：主 repo 於 prepareWorktree 後 detach HEAD → merged:false(
 
   execFileSync('git', ['checkout', '--detach', headOf(repo)], { cwd: repo, stdio: 'ignore' })
 
-  const result = mergeBack(repo, wt.branch, wt.baseBranch)
+  const result = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead)
   expect(result.merged).toBe(false)
   expect(result.reason).toBe('branch-switched')
   expect(existsSync(join(repo, 'feature.txt'))).toBe(false)

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-export interface WorktreeHandle { cwd: string; branch: string; baseBranch: string }
+export interface WorktreeHandle { cwd: string; branch: string; baseBranch: string; baseHead: string }
 export type MergeBackFailReason = 'branch-switched' | 'merge-conflict'
 export interface MergeBackResult { merged: boolean; commitHash?: string; reason?: MergeBackFailReason }
 
@@ -118,7 +118,10 @@ export function prepareWorktree(projectPath: string, worktreesDir: string, taskI
   ensureMarkerIgnored(projectPath)
   writeFileSync(join(worktreePath, WORKTREE_MARKER), JSON.stringify({ taskId, createdAt: new Date().toISOString() }))
 
-  return { cwd: worktreePath, branch, baseBranch }
+  // M4 Task 6 ledger 縫（reset-backward）：記下開工當時的 HEAD，供 mergeBack 核對回退。
+  const baseHead = git(['rev-parse', 'HEAD'], projectPath, QUICK_TIMEOUT_MS).trim()
+
+  return { cwd: worktreePath, branch, baseBranch, baseHead }
 }
 
 /**
@@ -128,7 +131,7 @@ export function prepareWorktree(projectPath: string, worktreesDir: string, taskI
  * cleanupWorktree 的 branch -d 一併清掉、靜默遺失）。身分不符一律回
  * `{merged:false, reason:'branch-switched'}`，不執行 merge、不拋——呼叫端決定 blocked。
  */
-export function mergeBack(projectPath: string, branch: string, expectedBaseBranch: string): MergeBackResult {
+export function mergeBack(projectPath: string, branch: string, expectedBaseBranch: string, expectedBaseHead: string): MergeBackResult {
   let nowBranch: string
   try {
     nowBranch = currentBranch(projectPath)
@@ -136,6 +139,20 @@ export function mergeBack(projectPath: string, branch: string, expectedBaseBranc
     return { merged: false, reason: 'branch-switched' } // detached HEAD
   }
   if (nowBranch !== expectedBaseBranch) return { merged: false, reason: 'branch-switched' }
+
+  // reset-backward 縫（Task 6 ledger）：任務期間使用者對主分支 reset --hard 回退——分支名
+  // 沒變、身分核對看不出來，而任務分支自 baseHead 分出（含被丟棄段），ff-only 會「成功」
+  // 把使用者剛丟棄的 commit 整段復活。核對現 HEAD 與開工當時 baseHead：正常前進
+  // （baseHead 仍是現 HEAD 祖先）放行，留給 ff-only 自行判定（no-op 快轉或 merge-conflict，
+  // 既有語意不變）；非祖先（回退/歷史改寫）一律拒合，沿用 branch-switched 歸 blocked。
+  const nowHead = git(['rev-parse', 'HEAD'], projectPath, QUICK_TIMEOUT_MS).trim()
+  if (nowHead !== expectedBaseHead) {
+    try {
+      git(['merge-base', '--is-ancestor', expectedBaseHead, nowHead], projectPath, QUICK_TIMEOUT_MS)
+    } catch {
+      return { merged: false, reason: 'branch-switched' }
+    }
+  }
 
   try {
     git(['merge', '--ff-only', branch], projectPath, QUICK_TIMEOUT_MS)
