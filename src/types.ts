@@ -61,6 +61,7 @@ export interface EngineResolver {
  * 未設＝真值引擎（claude），保留真值解析與 costUnknown→failureCostEstimateUsd 語意。 */
 export const EngineConfigSchema = z.object({
   adapter: z.enum(['mock', 'claude-cli', 'codex', 'agy', 'copilot', 'qwen', 'grok', 'opencode']),
+  command: z.string().optional(), // CLI 執行檔覆寫（如 opencode.exe 不在 PATH 時指完整路徑）；Task 8 起 opencode 接線，其餘 adapter 按需跟進
   costPerRunUsd: z.number().nonnegative().optional(),
   env: z.record(z.string(), z.string()).optional(),
   model: z.string().optional(),

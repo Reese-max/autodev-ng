@@ -7,12 +7,10 @@ import type { PreflightCache } from '../preflight.js'
 
 export interface OpencodeOpts {
   id?: string
-  command?: string // opencode.exe 完整路徑（.exe 結尾走 proc.ts 直 spawn 分支，免 cmd shim 層）；config 可覆寫
-  baseArgs?: string[]
+  command?: string // 預設 PATH 裸名 opencode.exe；npm 全域常只有 .cmd shim 在 PATH（真 exe 在 node_modules 深處）→ 解析失敗時 preflight detail 會指引以 config engines.<tag>.command 指定完整路徑
   model?: string // provider/model（預設 zen/big-pickle）。免費陣容輪替快，preflight 必驗三元組
-  timeoutMs?: number; pingTimeoutMs?: number
-  cache: PreflightCache
-  getCommitHash?: (cwd: string) => string | undefined
+  baseArgs?: string[]; timeoutMs?: number; pingTimeoutMs?: number
+  cache: PreflightCache; getCommitHash?: (cwd: string) => string | undefined
   /** 透傳 runProcess；zen apiKey 以 OPENCODE_ZEN_KEY 傳入（profile 內寫 {env:...} 引用，key 不落地）。 */
   env?: Record<string, string>
   /** XDG 隔離 profile 根（<dataDir>/opencode-profile，gitignored）。 */
@@ -20,11 +18,10 @@ export interface OpencodeOpts {
 }
 
 /** M5 Task 8：opencode zen 引擎（規格卡 .superpowers/sdd/m5-opencode-research.md）。
- * stdout＝NDJSON 事件流（step_start/text/tool_use/step_finish/error）；錯誤在 stdout 不在 stderr
- * （與 claude-cli 相反）。costUsd＝Σ step_finish.part.cost 為可信真值（免費模型回報 0 是真 0）
- * ——非 timeout/exit≠0 路徑一律不設 costUnknown，與估計值引擎不同。XDG 雙變數全隔離（唯一殘留：
- * ~/.claude/skills 掃描關不掉，僅 token 底噪）。session/snapshot 堆積實錘（主 data dir 曾至
- * 780MB、snapshot 佔 716MB）→ 每次 exec 後保守只刪 snapshot 子目錄，session db 留供除錯。 */
+ * stdout＝NDJSON 事件流；錯誤在 stdout 不在 stderr（與 claude-cli 相反；stderr 僅 spawn 失敗/樹斬/原生崩潰有料，非空才附加）。
+ * costUsd＝Σ step_finish.part.cost 為可信真值（免費模型回 0 是真 0）——非 timeout/exit≠0 路徑不設 costUnknown。
+ * XDG 雙變數全隔離（唯一殘留：~/.claude/skills 掃描關不掉）；session/snapshot 堆積實錘（主 data
+ * dir 曾至 780MB、snapshot 佔 716MB）→ 每次 exec 後保守只刪 snapshot 子目錄，session db 留供除錯。 */
 export class OpencodeEngine implements Engine {
   readonly id: string
   private readonly command: string; private readonly args: string[]; private readonly model: string
@@ -35,11 +32,10 @@ export class OpencodeEngine implements Engine {
 
   constructor(opts: OpencodeOpts) {
     this.id = opts.id ?? 'opencode'
-    this.command = opts.command ?? 'C:\\Users\\Administrator\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe'
+    this.command = opts.command ?? 'opencode.exe'
     this.model = opts.model ?? 'zen/big-pickle'
     this.args = [...(opts.baseArgs ?? ['run', '--format', 'json', '--pure', '--dangerously-skip-permissions']), '-m', this.model]
-    this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
-    this.pingTimeoutMs = opts.pingTimeoutMs ?? 90 * 1000
+    this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000; this.pingTimeoutMs = opts.pingTimeoutMs ?? 90 * 1000
     this.cache = opts.cache; this.env = opts.env; this.profileDir = opts.profileDir
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
   }
@@ -54,9 +50,10 @@ export class OpencodeEngine implements Engine {
     try {
       const r = await this.exec('Reply with exactly: PONG', this.profileDir, this.pingTimeoutMs)
       const p = parseNdjson(r.stdout)
+      const why = (p.errors.join('; ') || tail(r.stdout, 200) || r.stderr.slice(0, 200) || `exit ${r.exitCode} 零輸出`).slice(0, 200)
       result = r.exitCode === 0 && p.steps > 0 && p.text.includes('PONG')
         ? { ok: true, detail: `PONG ${r.durationMs}ms model=${this.model}` }
-        : { ok: false, detail: r.timedOut ? 'ping timeout' : `model ${this.model} 探針失敗（免費模型可能已下架/輪替）：${(p.errors.join('; ') || tail(r.stdout, 200) || `exit ${r.exitCode} 零輸出`).slice(0, 200)}` }
+        : { ok: false, detail: r.timedOut ? 'ping timeout' : `model ${this.model} 探針失敗（免費模型可能已下架/輪替）：${why}${why.includes('ENOENT') ? '；opencode.exe 不在 PATH——請在 config engines.<tag>.command 指定完整路徑' : ''}` }
     } catch (err) {
       result = { ok: false, detail: String(err).slice(0, 200) }
     }
@@ -76,15 +73,14 @@ export class OpencodeEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const r = await this.exec(prompt, job.projectPath, this.timeoutMs)
     const p = parseNdjson(r.stdout)
-    // 失敗路徑一律取 stdout tail：錯誤在 stdout、stderr 實測全空（與 claude-cli 相反）
-    if (r.timedOut) return { ok: false, output: tail(r.stdout), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
+    if (r.timedOut) return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
-      return { ok: false, output: tail(r.stdout), costUsd: 0, costUnknown: true,
-        failureReason: `exit ${r.exitCode}: ${(p.errors.join('; ') || tail(r.stdout, 200)).slice(0, 200)}` }
+      return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true,
+        failureReason: `exit ${r.exitCode}: ${(p.errors.join('; ') || tail(r.stdout, 200) || r.stderr.slice(0, 200)).slice(0, 200)}` }
     }
     if (p.steps === 0 || p.text.trim() === '') {
       // exit 0 但零文字輸出＝失敗（規格卡 E11 真實案例）；costUsd 取已解析 cost 總和，仍是真值
-      return { ok: false, output: tail(r.stdout), costUsd: p.cost, failureReason: 'empty-output：exit 0 但無 text/step_finish（≠ 成功）' }
+      return { ok: false, output: tailErr(r), costUsd: p.cost, failureReason: 'empty-output：exit 0 但無 text/step_finish（≠ 成功）' }
     }
     const output = tail(p.text)
     const after = this.getCommitHash(job.projectPath)
@@ -115,8 +111,7 @@ export class OpencodeEngine implements Engine {
         options: { baseURL: 'https://opencode.ai/zen/v1', apiKey: '{env:OPENCODE_ZEN_KEY}', timeout: 30000, chunkTimeout: 15000 },
         models: { [modelId]: {} } } } } : {})
     }, null, 2)
-    let cur: string | undefined
-    try { cur = readFileSync(file, 'utf8') } catch { cur = undefined }
+    let cur: string | undefined; try { cur = readFileSync(file, 'utf8') } catch { /* 不存在＝重寫 */ }
     if (cur !== want) { mkdirSync(join(cfgHome, 'opencode'), { recursive: true }); mkdirSync(dataHome, { recursive: true }); writeFileSync(file, want) }
     return { XDG_CONFIG_HOME: cfgHome, XDG_DATA_HOME: dataHome }
   }
@@ -124,7 +119,7 @@ export class OpencodeEngine implements Engine {
 
 interface Parsed { text: string; cost: number; steps: number; errors: string[] }
 
-/** NDJSON 逐行 parse：毒行（opencode 會把 log 直印進 stdout，實測壞 model 場景）靜默跳過；
+/** NDJSON 逐行 parse：毒行（opencode 會把 log 直印 stdout，實測壞 model 場景）靜默跳過；
  * 聚合 text 事件、計 step_finish 數並 Σ part.cost、收 error 事件的 name+message。 */
 function parseNdjson(stdout: string): Parsed {
   const p: Parsed = { text: '', cost: 0, steps: 0, errors: [] }
@@ -141,6 +136,11 @@ function parseNdjson(stdout: string): Parsed {
     }
   }
   return p
+}
+
+/** 失敗路徑輸出：stdout 為主（錯誤實測在 stdout），stderr 非空才附加（鐵律 #7：spawn 失敗/樹斬/原生崩潰時 stderr 才有料，不可吞）。 */
+function tailErr(r: { stdout: string; stderr: string }): string {
+  return tail(r.stdout + (r.stderr.trim() === '' ? '' : '\n[stderr]\n' + r.stderr))
 }
 
 function tail(s: string, n = 2000): string { return s.length > n ? s.slice(-n) : s }

@@ -167,7 +167,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new OpencodeEngine({
           id: tag === 'opencode' ? 'opencode' : `opencode:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
-          env: expandEnvMap(ec.env), profileDir: join(cfg.dataDir, 'opencode-profile'),
+          command: ec.command, env: expandEnvMap(ec.env), profileDir: join(cfg.dataDir, 'opencode-profile'),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model), timeoutMs: ec.timeoutMs
         })
       default:

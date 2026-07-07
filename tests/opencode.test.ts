@@ -75,6 +75,29 @@ test('壞 model：exit 1、錯誤在 stdout（毒行＋error 事件） → failu
   expect(r.costUnknown).toBe(true)
 })
 
+test('stderr fallback：stdout 全空、只有 stderr 的原生崩潰 → stderr 進 output 與 failureReason（鐵律 #7 不吞）', async () => {
+  const { e } = engine('crash-stderr', ['aaa', 'aaa'])
+  const r = await e.run({ task: T, projectPath: process.cwd() })
+  expect(r.ok).toBe(false)
+  expect(r.output).toContain('[stderr]')
+  expect(r.output).toContain('simulated bun segfault')
+  expect(r.failureReason).toContain('simulated bun segfault')
+  expect(r.costUnknown).toBe(true)
+})
+
+test('preflight：command 不在 PATH（ENOENT） → detail 指引 config engines.<tag>.command 指定完整路徑', async () => {
+  process.env.FAKE_OPENCODE_MODE = 'ok'
+  const dir = mkdtempSync(join(tmpdir(), 'adng-oc-'))
+  const e = new OpencodeEngine({
+    command: join(dir, 'no-such-opencode.exe'), timeoutMs: 10_000, pingTimeoutMs: 10_000,
+    cache: new PreflightCache(join(dir, 'pf.json')), profileDir: join(dir, 'opencode-profile')
+  })
+  const r = await e.preflight()
+  expect(r.ok).toBe(false)
+  expect(r.detail).toContain('ENOENT')
+  expect(r.detail).toContain('engines.<tag>.command')
+})
+
 test('hang → timeout、costUnknown=true', async () => {
   const { e } = engine('hang', ['aaa', 'aaa'], { timeoutMs: 1500 })
   const r = await e.run({ task: T, projectPath: process.cwd() })

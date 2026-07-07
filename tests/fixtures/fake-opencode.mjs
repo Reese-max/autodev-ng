@@ -12,6 +12,10 @@ process.stdin.on('end', () => {
     process.exit(1)
   }
   if (mode === 'empty') process.exit(0) // exit 0 零輸出 ≠ 成功（規格卡 E11）
+  if (mode === 'crash-stderr') { // bun runtime 原生崩潰形貌：stdout 全空、只有 stderr（鐵律 #7 不吞 stderr 測試）
+    process.stderr.write('panic: simulated bun segfault at 0xDEADBEEF\n')
+    process.exit(134)
+  }
   if (mode === 'env-echo') { // 回報收到的 XDG/key env，供隔離注入斷言
     emit({ type: 'text', part: { type: 'text', text: `CFG=${process.env.XDG_CONFIG_HOME} DATA=${process.env.XDG_DATA_HOME} KEY=${process.env.OPENCODE_ZEN_KEY ?? 'none'}` } })
     emit({ type: 'step_finish', part: { type: 'step-finish', tokens: { total: 100 }, cost: 0 } })
