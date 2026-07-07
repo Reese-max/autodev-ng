@@ -29,6 +29,18 @@ test('dayStats：跨日與毫秒時戳只算當日 ok/fail/cost', () => {
   db.close()
 })
 
+test('dayStats：offset=8 時本地日界線位移（UTC 16:00 起算次一本地日）', () => {
+  const db = freshDb()
+  db.record({ taskId: 'a', ok: true, costUsd: 1.0, detail: '', ts: '2026-07-04T16:00:00.000Z' }) // 本地 07-05 00:00
+  db.record({ taskId: 'b', ok: false, costUsd: 0.5, detail: '', ts: '2026-07-05T15:59:59.999Z' }) // 本地 07-05 23:59
+  db.record({ taskId: 'c', ok: true, costUsd: 9.9, detail: '', ts: '2026-07-04T15:59:59.999Z' }) // 本地 07-04（排除）
+  const stats = db.dayStats('2026-07-05', 8)
+  expect(stats.ok).toBe(1)
+  expect(stats.fail).toBe(1)
+  expect(stats.costUsd).toBeCloseTo(1.5)
+  db.close()
+})
+
 test('dayStats：當日無資料回全 0', () => {
   const db = freshDb()
   db.record({ taskId: 'x', ok: true, costUsd: 1, detail: '', ts: '2026-01-01T00:00:00Z' })
@@ -109,7 +121,7 @@ test('markDigestSent 原子寫入：寫入後不留 .tmp 殘檔', () => {
   expect(existsSync(join(dataDir, 'digest-stamp.json.tmp'))).toBe(false)
 })
 
-test('buildDigest：當日有 N 筆 verify-alert 事件 → 摘要含「verify 略過」與 N（紅線 4 告警半條）', () => {
+test('buildDigest：verify-alert 事件依 detail 前綴分計——verify-skip 歸 verifySkip、其餘歸 other（M4 Task 4 分計）', () => {
   const db = freshDb()
   const dataDir = freshDataDir()
   writeFileSync(join(dataDir, 'events.jsonl'), [
@@ -119,15 +131,33 @@ test('buildDigest：當日有 N 筆 verify-alert 事件 → 摘要含「verify �
   ].join('\n') + '\n')
 
   const text = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05' })
-  expect(text).toContain('verify 略過 3 次')
+  expect(text).toContain('verify 略過 2 次')
+  expect(text).toContain('驗證鏈其他告警 1 次')
   db.close()
 })
 
-test('buildDigest：N=0（無 verify-alert 事件）不印 verify 略過那行（不加雜訊）', () => {
+test('buildDigest：other 分類涵蓋 judge-skipped/rollback-failed/rollback-exception/verifier-exception（依 detail 前綴，非 verify-skip 一律歸 other）', () => {
+  const db = freshDb()
+  const dataDir = freshDataDir()
+  writeFileSync(join(dataDir, 'events.jsonl'), [
+    JSON.stringify({ type: 'verify-alert', detail: 'judge-skipped: no baseCommitHash/empty diff', ts: '2026-07-05T01:00:00Z' }),
+    JSON.stringify({ type: 'verify-alert', detail: 'rollback-failed: /repo=>abc123', ts: '2026-07-05T02:00:00Z' }),
+    JSON.stringify({ type: 'verify-alert', detail: 'rollback-exception: boom', ts: '2026-07-05T03:00:00Z' }),
+    JSON.stringify({ type: 'verify-alert', detail: 'verifier-exception: boom', ts: '2026-07-05T04:00:00Z' }),
+  ].join('\n') + '\n')
+
+  const text = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05' })
+  expect(text).not.toContain('verify 略過')
+  expect(text).toContain('驗證鏈其他告警 4 次')
+  db.close()
+})
+
+test('buildDigest：N=0（無 verify-alert 事件）verify 略過與其他告警兩行皆不印（不加雜訊）', () => {
   const db = freshDb()
   const dataDir = freshDataDir()
   const text = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05' })
   expect(text).not.toContain('verify 略過')
+  expect(text).not.toContain('驗證鏈其他告警')
   db.close()
 })
 
@@ -136,6 +166,30 @@ test('buildDigest：events.jsonl 內非當日（昨日）的 verify-alert 不計
   const dataDir = freshDataDir()
   writeFileSync(join(dataDir, 'events.jsonl'), [
     JSON.stringify({ type: 'verify-alert', detail: 'verify-skip: x', ts: '2026-07-04T23:59:59.999Z' }),
+  ].join('\n') + '\n')
+
+  const text = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05' })
+  expect(text).not.toContain('verify 略過')
+  db.close()
+})
+
+test('buildDigest：offsetHours=8 時 verify-alert 分計改用本地日（UTC 前一日 16:05 落本地當日）', () => {
+  const db = freshDb()
+  const dataDir = freshDataDir()
+  writeFileSync(join(dataDir, 'events.jsonl'), [
+    JSON.stringify({ type: 'verify-alert', detail: 'verify-skip: x', ts: '2026-07-04T16:05:00Z' }),
+  ].join('\n') + '\n')
+
+  const text = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05', offsetHours: 8 })
+  expect(text).toContain('verify 略過 1 次')
+  db.close()
+})
+
+test('buildDigest：offsetHours 未傳時預設 0（UTC），與舊行為相容——同一筆事件在 offset=0 下落昨日不計入', () => {
+  const db = freshDb()
+  const dataDir = freshDataDir()
+  writeFileSync(join(dataDir, 'events.jsonl'), [
+    JSON.stringify({ type: 'verify-alert', detail: 'verify-skip: x', ts: '2026-07-04T16:05:00Z' }),
   ].join('\n') + '\n')
 
   const text = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05' })

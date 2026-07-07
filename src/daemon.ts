@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { acquireLock, releaseLock } from './lock.js'
+import { localDay } from './db.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
-import { runOnce, type Deps, type CycleResult } from './scheduler.js'
+import { runOnce, type Deps, type CycleResult, type BlockedReason } from './scheduler.js'
 
 export interface Notifier {
   send(text: string): Promise<boolean>
@@ -30,13 +31,16 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10)
+/** M4 Task 3：本地日字串（取代舊版純 UTC 切割）。offsetHours=0 時與舊行為完全一致（相容性錨點）。 */
+function todayLocal(offsetHours: number): string {
+  return localDay(new Date().toISOString(), offsetHours)
 }
 
-/** UTC 日字串減一天（紅線 4 報告窗：digest 要報「已完結的前一天」，不能報「今天才剛開始的幾分鐘」）。
- * 用 Date UTC 運算（減 86400000ms 再取 ISO 前 10 碼）避開時區與月/年界字串拼接的陷阱。 */
-export function yesterdayUtc(day: string): string {
+/** 本地日字串減一天（紅線 4 報告窗：digest 要報「已完結的前一天」，不能報「今天才剛開始的幾分鐘」）。
+ * 用 Date UTC 運算（減 86400000ms 再取 ISO 前 10 碼）避開時區與月/年界字串拼接的陷阱。
+ * 純日曆日減一天，跟 offset 無關（day 本身已經是依 offset 算出的本地日曆日字串——重命名自
+ * 舊版 yesterdayUtc，行為不變，僅語意從「UTC 日」改為「本地日」，M4 Task 3）。 */
+export function yesterdayLocal(day: string): string {
   return new Date(new Date(`${day}T00:00:00Z`).getTime() - 86400000).toISOString().slice(0, 10)
 }
 
@@ -59,27 +63,66 @@ async function safeSend(notifier: Notifier, text: string): Promise<boolean> {
   }
 }
 
-/** blocked 事件本身不帶任務文字，runOnce 內在派工當下已把 currentTask 寫進 heartbeat.json
- * （scheduler.ts 的 'running' heartbeat），blocked 是同一輪任務失敗轉出，heartbeat 尚未被
- * 覆寫，讀出來的 currentTask 正是剛被 blocked 的那個任務。讀檔/解析任何故障一律回 undefined，
- * 不可讓告警文案組裝反殺主迴圈。 */
-function readHeartbeatCurrentTask(dataDir: string): string | undefined {
+/** HIGH-2 告警冷卻去重：同 key 6h 內只送第一次，其後靜默累計抑制次數；冷卻結束後
+ * 下一則帶抑制計數。硬編常數（不進 ConfigSchema——避免設定維度膨脹，鐵律 #8）。 */
+const ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000
+
+interface CooldownEntry { lastSentMs: number; suppressedCount: number }
+type CooldownTable = Record<string, CooldownEntry>
+
+function cooldownFilePath(dataDir: string): string {
+  return join(dataDir, 'alert-cooldown.json')
+}
+
+/** 冷卻表讀取：檔案缺失/損壞一律視同空表（容錯歸零照發——鐵律 #4，fail-open 不可反殺 daemon）。 */
+function loadCooldownTable(dataDir: string): CooldownTable {
   try {
-    const raw: unknown = JSON.parse(readFileSync(join(dataDir, 'heartbeat.json'), 'utf8'))
-    if (typeof raw !== 'object' || raw === null) return undefined
-    const currentTask = (raw as Record<string, unknown>).currentTask
-    return typeof currentTask === 'string' ? currentTask : undefined
+    const raw: unknown = JSON.parse(readFileSync(cooldownFilePath(dataDir), 'utf8'))
+    if (typeof raw !== 'object' || raw === null) return {}
+    return raw as CooldownTable
   } catch {
-    return undefined
+    return {}
   }
 }
 
-function alertMessageFor(result: CycleResult, dataDir: string): string {
+/** tmp+rename 原子寫，鏡像 events.ts appendOnce 風格。呼叫端一律包在 quiet() 內——
+ * 落地失敗不可反殺主迴圈，頂多下次重啟冷卻表退回舊狀態（fail-open 方向安全）。 */
+function saveCooldownTable(dataDir: string, table: CooldownTable): void {
+  const file = cooldownFilePath(dataDir)
+  const tmp = `${file}.tmp`
+  writeFileSync(tmp, JSON.stringify(table))
+  renameSync(tmp, file)
+}
+
+/** key 設計：系統級告警（cost-hard-stop/preflight-failed/lock-busy/daemon-crash/
+ * daemon-crash-pause 等）key=固定字串本身；blocked → key=`blocked:<task.id>`
+ * （修正：舊版用任務文字前 40 字，兩個長任務前 40 字相同會撞出同一個 key、互相吞
+ * 告警——task.id 全域唯一，不會有這問題）。 */
+function cooldownKeyFor(result: CycleResult): string {
+  if (typeof result === 'object') return `blocked:${result.taskId}`
+  return result
+}
+
+function isAlertableResult(result: CycleResult): boolean {
+  return typeof result === 'object' || result === 'cost-hard-stop' || result === 'preflight-failed'
+}
+
+/** MEDIUM 1 修復：blocked 告警文案曾對所有原因統一印「連敗達上限」，但非 git 專案／
+ * merge-conflict／branch-switched 都不是連敗，含糊文案會誤導人工介入的方向。 */
+function blockedReasonText(reason: BlockedReason): string {
+  switch (reason) {
+    case 'max-attempts': return '連敗達上限，需人工介入'
+    case 'not-a-git-repo': return 'worktree 建立失敗（非 git 專案或主 repo 狀態異常），需人工介入'
+    case 'merge-conflict': return '主分支已前進導致無法自動合併，需人工介入合併'
+    case 'branch-switched': return '主 repo 分支已切換或處於 detached HEAD，成果未合回，需人工介入合併'
+  }
+}
+
+export function baseAlertMessage(result: CycleResult): string {
+  if (typeof result === 'object') {
+    return `daemon 告警：任務 blocked（${blockedReasonText(result.reason)}）——任務：${[...result.taskText].slice(0, 80).join('')}`
+  }
   switch (result) {
-    case 'blocked': {
-      const task = readHeartbeatCurrentTask(dataDir) ?? ''
-      return `daemon 告警：任務 blocked（連敗達上限，需人工介入）——任務：${[...task].slice(0, 80).join('')}`
-    }
     case 'cost-hard-stop':
       return 'daemon 告警：cost-hard-stop——今日成本已達硬停上限，暫停派工'
     case 'preflight-failed':
@@ -89,12 +132,45 @@ function alertMessageFor(result: CycleResult, dataDir: string): string {
   }
 }
 
+/** 冷卻閘：同 key 冷卻窗（6h）內只送第一次，其後靜默累計 suppressedCount；冷卻窗過後
+ * 下一則帶「（冷卻期間抑制 N 則）」。table 由呼叫端持有（記憶體 Map，daemon 運行期間
+ * 全程共用同一份，避免每輪重新讀檔）；本函式只在有實際變動（抑制計數 +1／真的送出）
+ * 時才落地寫檔，寫檔故障吞掉不炸（鐵律 #4）——不落地頂多下次重啟冷卻語意退回舊狀態，
+ * 方向永遠是「fail-open 照發」而非「誤壓不發」。
+ * digest 送出路徑（checkAndSendDigest）完全不經過這裡——每日必達（鐵律 #6）走自己的
+ * stamp 機制，不受這裡任何冷卻狀態影響。
+ * 接口採 key/message 而非 CycleResult：lock-busy、daemon-crash、daemon-crash-pause
+ * 三種告警不是 runOnce 的 CycleResult，套不上 cooldownKeyFor/baseAlertMessage，改由
+ * 呼叫端各自準備好 key 與文案（CycleResult 系告警則由呼叫點先呼叫
+ * cooldownKeyFor(result)/baseAlertMessage(result) 算好再傳進來）。 */
+async function sendCooldownAlert(
+  notifier: Notifier, dataDir: string, table: CooldownTable, key: string, message: string
+): Promise<void> {
+  const now = Date.now()
+  const entry = table[key]
+
+  if (entry && now - entry.lastSentMs < ALERT_COOLDOWN_MS) {
+    entry.suppressedCount++
+    quiet(() => saveCooldownTable(dataDir, table))
+    return
+  }
+
+  const suppressed = entry?.suppressedCount ?? 0
+  const suffix = suppressed > 0 ? `（冷卻期間抑制 ${suppressed} 則）` : ''
+  const sent = await safeSend(notifier, message + suffix)
+  if (!sent) return // 沒送達：冷卻表不更新，維持「視同沒送過」語意，下一輪照樣可送
+
+  table[key] = { lastSentMs: now, suppressedCount: 0 }
+  quiet(() => saveCooldownTable(dataDir, table))
+}
+
 /** 每輪必檢：每日必達摘要（鐵律 #6）。送達（notifier.send 回 true）才落 stamp；
  * 送失敗（回 false）stamp 不落，下一輪 shouldSendDigest 仍為 true，自動重送。
  * digest 建置/讀寫 stamp 任何故障都吞掉——通知面故障不可中斷主迴圈。 */
 async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void> {
   const dataDir = deps.cfg.dataDir
-  const day = todayUtc()
+  const offsetHours = deps.cfg.timezoneOffsetHours
+  const day = todayLocal(offsetHours)
 
   let due: boolean
   try {
@@ -104,11 +180,11 @@ async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void>
   }
   if (!due) return
 
-  // stamp 判定仍用 today（重送/stop-day 語意不變）；實際聚合報「已完結的前一 UTC 日」，
+  // stamp 判定仍用 today（重送/stop-day 語意不變）；實際聚合報「已完結的前一本地日」，
   // 否則今天輪首送出時 today 才過幾分鐘，ok/fail/cost/DLQ/verify-skip 全部趨近於 0（紅線 4）。
   let text: string
   try {
-    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayUtc(day) })
+    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayLocal(day), offsetHours })
   } catch {
     return
   }
@@ -128,10 +204,17 @@ async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void>
  * - 紅線 1：每輪 runOnce 全包 try/catch，crash 不死、指數退避、連續 5 次暫停 30 分。
  * - 紅線 2 後半：acquireLock 接線——失敗（false）single-flight 讓步；throw（EPERM 類 infra 故障）
  *   炸給排程器看，不可假活。
+ * - HIGH-2 補強：lock-busy／daemon-crash／daemon-crash-pause 三種告警也都走冷卻閘
+ *   （key 各自獨立），避免 respawn 排程（Task 9，每 15 分嘗試）撞鎖或持續崩潰時
+ *   把通知頻道洗爆。
  */
 export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
   const { deps, notifier, lockDir, cooldownMs, idleSleepMs, maxCycles } = opts
   const sleep = opts.sleepFn ?? defaultSleep
+  // 冷卻表：記憶體常駐 + 檔面持久化（daemon 重啟不歸零轟炸）；載入失敗已於
+  // loadCooldownTable 內部容錯為空表（fail-open 照發，鐵律 #4）。
+  // 挪到鎖檢查之前：lock-busy 告警也要吃得到冷卻閘。
+  const cooldownTable = loadCooldownTable(deps.cfg.dataDir)
 
   let locked: boolean
   try {
@@ -142,7 +225,12 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
   }
 
   if (!locked) {
-    await safeSend(notifier, 'daemon 啟動失敗：lock 被佔用（single-flight，可能已有 instance 在跑）')
+    // lock-busy 進程隨即退出：sendCooldownAlert 內對冷卻表的落地寫入是同步呼叫，
+    // return 之前已完成，不會漏寫（鏡像既有 saveCooldownTable 同步寫慣例）。
+    await sendCooldownAlert(
+      notifier, deps.cfg.dataDir, cooldownTable,
+      'lock-busy', 'daemon 啟動失敗：lock 被佔用（single-flight，可能已有 instance 在跑）'
+    )
     return 'lock-busy'
   }
 
@@ -163,10 +251,16 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       } catch (err) {
         consecutiveCrashes++
         quiet(() => deps.events.append('runonce-crash', { error: String(err), consecutiveCrashes }))
-        await safeSend(notifier, `daemon 告警：runOnce 崩潰（連續第 ${consecutiveCrashes} 次）——${String(err)}`)
+        await sendCooldownAlert(
+          notifier, deps.cfg.dataDir, cooldownTable,
+          'daemon-crash', `daemon 告警：runOnce 崩潰（連續第 ${consecutiveCrashes} 次）——${String(err)}`
+        )
 
         if (consecutiveCrashes >= CONSECUTIVE_CRASH_PAUSE_THRESHOLD) {
-          await safeSend(notifier, 'daemon 告警：連續崩潰暫停——已連續崩潰 5 次，暫停 30 分鐘後重試')
+          await sendCooldownAlert(
+            notifier, deps.cfg.dataDir, cooldownTable,
+            'daemon-crash-pause', 'daemon 告警：連續崩潰暫停——已連續崩潰 5 次，暫停 30 分鐘後重試'
+          )
           await sleep(CRASH_PAUSE_MS)
           consecutiveCrashes = 0
         } else {
@@ -180,8 +274,8 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
 
       if (result === 'stopped') return 'stopped'
 
-      if (result === 'blocked' || result === 'cost-hard-stop' || result === 'preflight-failed') {
-        await safeSend(notifier, alertMessageFor(result, deps.cfg.dataDir))
+      if (isAlertableResult(result)) {
+        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, cooldownKeyFor(result), baseAlertMessage(result))
       }
 
       if (result === 'idle' || result === 'cost-hard-stop') {

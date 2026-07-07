@@ -20,41 +20,73 @@ function engine(mode: string, hashes: (string | undefined)[], timeoutMs = 10_000
   })
 }
 
-test('成功+有新 commit → ok、cost、commitHash', async () => {
+test('成功+有新 commit → ok、cost、commitHash、costUnknown 不設（真值可信，非估計）', async () => {
   const e = engine('ok', ['aaa', 'bbb'])
   const r = await e.run({ task: T, projectPath: process.cwd() })
   expect(r.ok).toBe(true)
   expect(r.costUsd).toBeCloseTo(0.123)
   expect(r.commitHash).toBe('bbb')
+  expect(r.costUnknown).toBeFalsy()
 })
 
-test('成功但無新 commit → 降級 phantom completion', async () => {
+test('成功但無新 commit → 降級 phantom completion，costUnknown 不設（total_cost_usd 已真實解出）', async () => {
   const e = engine('ok', ['aaa', 'aaa'])
   const r = await e.run({ task: T, projectPath: process.cwd() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toContain('no-commit')
+  expect(r.costUnknown).toBeFalsy()
 })
 
-test('exit 非零 → ok:false 且 stderr 進 failureReason', async () => {
+test('exit 非零 → ok:false 且 stderr 進 failureReason、costUnknown=true（真花錢前必修：真實成本未知不可記 0）', async () => {
   const e = engine('fail', ['aaa', 'aaa'])
   const r = await e.run({ task: T, projectPath: process.cwd() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toContain('simulated 429')
+  expect(r.costUsd).toBe(0)
+  expect(r.costUnknown).toBe(true)
 })
 
-test('exit 0 空輸出 → ok:false（踩雷 §13）', async () => {
+test('exit 0 空輸出 → ok:false（踩雷 §13）、costUnknown=true', async () => {
   const e = engine('empty', ['aaa', 'aaa'])
   const r = await e.run({ task: T, projectPath: process.cwd() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toContain('empty')
+  expect(r.costUsd).toBe(0)
+  expect(r.costUnknown).toBe(true)
 })
 
-test('hang → timeout、costUsd 0', async () => {
+test('hang → timeout、costUsd 0、costUnknown=true（timeout 輪其實照樣燒錢，不可記真 0）', async () => {
   const e = engine('hang', ['aaa', 'aaa'], 1500)
   const r = await e.run({ task: T, projectPath: process.cwd() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toBe('timeout')
+  expect(r.costUsd).toBe(0)
+  expect(r.costUnknown).toBe(true)
 }, 15_000)
+
+// Fix 1（M4 run-once 首跑缺陷）：fake-cli 會把收到的 stdin 前段回聲進 result JSON，
+// r.output（stdout tail）因此可用來驗證「prompt 實際含什麼」——不用真打 CLI。
+test('Fix 1：job.directive 有值時 prompt 採用 directive（extraDirective 真的進 prompt）', async () => {
+  const e = engine('ok', ['aaa', 'bbb'])
+  const r = await e.run({
+    task: T, projectPath: process.cwd(),
+    directive: '修好登入頁\n\nDIRECTIVE-MARKER：port 3210 是使用者的進程，不要殺'
+  })
+  expect(r.output).toContain('DIRECTIVE-MARKER')
+})
+
+test('Fix 1：job.directive 未設時 fallback 用 task.text（不退化）', async () => {
+  const e = engine('ok', ['aaa', 'bbb'])
+  const r = await e.run({ task: T, projectPath: process.cwd() })
+  expect(r.output).toContain('修好登入頁')
+})
+
+test('Fix 3：prompt 明示必須自行 git add/commit、沒 commit 整輪作廢', async () => {
+  const e = engine('ok', ['aaa', 'bbb'])
+  const r = await e.run({ task: T, projectPath: process.cwd() })
+  expect(r.output).toContain('git add -A')
+  expect(r.output).toContain('整輪作廢')
+})
 
 test('preflight：PONG 判 ok 且第二次走 cache（fake 只被叫一次）', async () => {
   const e = engine('ok', ['a'])

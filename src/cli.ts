@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { ZodError } from 'zod'
 import { BacklogStore } from './backlog.js'
-import { RunDb } from './db.js'
+import { localDay, RunDb } from './db.js'
 import { EventLog } from './events.js'
 import { DiscordNotifier } from './notify.js'
 import { PreflightCache } from './preflight.js'
@@ -11,7 +11,7 @@ import { KernelVerifier } from './verifier.js'
 import { MockEngine } from './engines/mock.js'
 import { ClaudeCliEngine } from './engines/claude-cli.js'
 import { ConfigSchema, type Config, type Engine } from './types.js'
-import { runOnce, type Deps } from './scheduler.js'
+import { runOnce, type CycleResult, type Deps } from './scheduler.js'
 import { runDaemon } from './daemon.js'
 
 function isEnoent(err: unknown): boolean {
@@ -70,6 +70,7 @@ function expandConfigPaths(baseDir: string, cfg: Config): Config {
     dataDir: expandPath(baseDir, cfg.dataDir),
     stopFile: expandPath(baseDir, cfg.stopFile),
     discordTokenFile: expandPath(baseDir, cfg.discordTokenFile),
+    worktreesDir: expandPath(baseDir, cfg.worktreesDir),
   }
 }
 
@@ -236,11 +237,31 @@ async function cmdStatus(cfgPath: string): Promise<void> {
   }
 }
 
+function formatCycleResult(result: CycleResult): string {
+  return typeof result === 'string' ? result : `blocked（任務：${result.taskText}）`
+}
+
+/**
+ * Fix 4（首跑實證）：runOnce 對 stopped/cost-stop/idle/preflight-failed 自帶 heartbeat 收尾，
+ * 但任務真的跑起來（running）之後的 done/failed/engine-error/blocked 都不再寫——daemon 靠
+ * 下一輪覆寫無礙；run-once 是單輪進程，不收尾 heartbeat 會永遠停在 running 假活。這裡只對
+ * 「跑過任務」的結果補寫 idle（觀測面故障吞錯，不反殺 CLI）。從 cmdRunOnce 抽出導出
+ * （同 runNotifyTest 模式）：mock deps 即可回歸測試，不必真跑 CLI 進程。
+ */
+export function finalizeRunOnceHeartbeat(deps: Deps, result: CycleResult, now: Date = new Date()): void {
+  if (!(typeof result === 'object' || result === 'done' || result === 'failed' || result === 'engine-error')) return
+  try {
+    const day = localDay(now.toISOString(), deps.cfg.timezoneOffsetHours)
+    deps.events.heartbeat({ state: 'idle', todayCostUsd: deps.db.costForLocalDay(day, deps.cfg.timezoneOffsetHours) })
+  } catch { /* 觀測面故障不可反殺 CLI（鐵律 #4） */ }
+}
+
 async function cmdRunOnce(cfgPath: string): Promise<void> {
   const { deps } = assemble(cfgPath)
   try {
     const result = await runOnce(deps)
-    console.log(`CycleResult: ${result}`)
+    finalizeRunOnceHeartbeat(deps, result)
+    console.log(`CycleResult: ${formatCycleResult(result)}`)
   } finally {
     deps.db.close()
   }
@@ -258,6 +279,32 @@ async function cmdDaemon(cfgPath: string): Promise<void> {
       idleSleepMs: IDLE_SLEEP_MS,
     })
     console.log(`daemon result: ${result}`)
+  } finally {
+    deps.db.close()
+  }
+}
+
+/**
+ * M4 Task 7：notify-test 子命令核心——組一則「adng 通道測試 <ISO 時刻>」送出去，回報
+ * 送達與否。notifier 由呼叫端注入（cmdNotifyTest 用 assemble 組出的真 notifier；測試用
+ * mock fetch 建的 notifier），本函數本身不碰檔案/網路，方便單元測試不觸真 API/真 token 檔。
+ */
+export async function runNotifyTest(notifier: DiscordNotifier, now: Date = new Date()): Promise<{ ok: boolean; text: string }> {
+  const text = `adng 通道測試 ${now.toISOString()}`
+  const ok = await notifier.send(text)
+  return { ok, text }
+}
+
+async function cmdNotifyTest(cfgPath: string): Promise<void> {
+  const { deps, notifier } = assemble(cfgPath)
+  try {
+    const { ok, text } = await runNotifyTest(notifier)
+    if (ok) {
+      console.log(`送達成功：${text}`)
+    } else {
+      console.log(`送達失敗（已寫入 DLQ，detail 見 dataDir/notify-dlq.jsonl）：${text}`)
+      process.exitCode = 1
+    }
   } finally {
     deps.db.close()
   }
@@ -282,7 +329,7 @@ async function main(): Promise<void> {
   const { command, configPath } = parseArgv(process.argv.slice(2))
 
   if (!configPath) {
-    console.error('用法：adng <status|run-once|daemon> --config <path>')
+    console.error('用法：adng <status|run-once|daemon|notify-test> --config <path>')
     process.exitCode = 1
     return
   }
@@ -297,8 +344,11 @@ async function main(): Promise<void> {
     case 'daemon':
       await cmdDaemon(configPath)
       break
+    case 'notify-test':
+      await cmdNotifyTest(configPath)
+      break
     default:
-      console.error(`未知子命令：${command}（可用：status | run-once | daemon）`)
+      console.error(`未知子命令：${command}（可用：status | run-once | daemon | notify-test）`)
       process.exitCode = 1
   }
 }

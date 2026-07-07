@@ -1,14 +1,15 @@
 import { expect, test } from 'vitest'
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runDaemon, yesterdayUtc, type DaemonOpts, type Notifier } from '../src/daemon.js'
-import type { Deps } from '../src/scheduler.js'
+import { runDaemon, yesterdayLocal, baseAlertMessage, type DaemonOpts, type Notifier } from '../src/daemon.js'
+import type { CycleResult, Deps } from '../src/scheduler.js'
 import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
 import { MockEngine } from '../src/engines/mock.js'
-import { ConfigSchema } from '../src/types.js'
+import { ConfigSchema, type Disposition, type Task } from '../src/types.js'
 import { acquireLock } from '../src/lock.js'
 import { shouldSendDigest } from '../src/digest.js'
 
@@ -37,13 +38,32 @@ class FakeNotifier implements Notifier {
   }
 }
 
+/** M4 Task 6：scheduler 對每個任務執行 prepareWorktree/mergeBack，projectPath 必須是真 git repo。 */
+function initGitRepo(dir: string): void {
+  execFileSync('git', ['init', '-b', 'main'], { cwd: dir, stdio: 'ignore' })
+  execFileSync('git', ['config', 'user.email', 'adng-test@example.com'], { cwd: dir, stdio: 'ignore' })
+  execFileSync('git', ['config', 'user.name', 'adng-test'], { cwd: dir, stdio: 'ignore' })
+  // Windows 全域 core.autocrlf=true 會讓 checkout 內容 LF→CRLF 而被 git 視為 modified，
+  // 干擾 `git worktree remove`（非 --force）；臨時 repo 內 local 覆寫避免依賴全域設定。
+  execFileSync('git', ['config', 'core.autocrlf', 'false'], { cwd: dir, stdio: 'ignore' })
+  writeFileSync(join(dir, 'README.md'), '# adng test repo\n')
+  execFileSync('git', ['add', '.'], { cwd: dir, stdio: 'ignore' })
+  execFileSync('git', ['commit', '-m', 'chore: init'], { cwd: dir, stdio: 'ignore' })
+}
+
 function deps(engine: MockEngine, backlogMd = '- [ ] 任務一\n'): Deps {
   const dir = mkdtempSync(join(tmpdir(), 'adng-daemon-'))
+  initGitRepo(dir)
   const backlogFile = join(dir, 'BACKLOG.md')
   writeFileSync(backlogFile, backlogMd)
   const cfg = ConfigSchema.parse({
     projectPath: dir, backlogFile, dataDir: join(dir, 'data'),
-    engine: 'mock', stopFile: join(dir, '.adng.stop')
+    engine: 'mock', stopFile: join(dir, '.adng.stop'),
+    worktreesDir: join(dir, 'worktrees'), // 絕對路徑，絕不落在真專案目錄（鐵律 #6）
+    // 本檔既有測試（utcDay 輔助函式、digest 昨日/今日斷言）全部鎖定純 UTC 日界線語意；
+    // ConfigSchema 預設 timezoneOffsetHours=8 會讓日界線在 UTC 16:00 前後偏移、隨執行時刻變動
+    // 而 flaky，這裡明確釘住 offset=0 保持既有語意（相容性錨點——M4 Task 3）。
+    timezoneOffsetHours: 0
   })
   return { cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')), engine, events: new EventLog(cfg.dataDir) }
 }
@@ -77,7 +97,7 @@ test('① lock 被占 → lock-busy，告警一次，runOnce 完全不執行', a
   expect(notifier.sent[0]).toMatch(/lock|佔用/)
 })
 
-test('② runOnce throw → 不死、runonce-crash 事件、告警、指數退避後繼續下一輪', async () => {
+test('② runOnce throw → 不死、runonce-crash 事件每輪都記、告警走冷卻閘（同 key 只送 1 則）、指數退避後繼續下一輪', async () => {
   class ThrowingStore extends BacklogStore {
     nextTask(): never {
       throw new Error('backlog 讀取炸裂（模擬 I/O 故障）')
@@ -92,13 +112,43 @@ test('② runOnce throw → 不死、runonce-crash 事件、告警、指數退�
 
   expect(result).toBe('max-cycles')
   // 3 輪皆 crash：指數退避 cooldownMs*2^1, *2^2, *2^3（皆未達 5 次連續崩潰暫停門檻）
+  // ——冷卻閘只影響「送不送告警」，不影響退避節奏本身。
   expect(sleepCalls).toEqual([2000, 4000, 8000])
 
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events.match(/"type":"runonce-crash"/g)).toHaveLength(3)
 
+  // 修 2（daemon-crash 納冷卻閘）：3 輪同 key，6h 冷卻窗內只送第 1 則，後兩則被抑制吞掉。
   const crashAlerts = notifier.sent.filter(t => t.includes('runOnce 崩潰'))
-  expect(crashAlerts).toHaveLength(3)
+  expect(crashAlerts).toHaveLength(1)
+})
+
+test('②b 冷卻閘：連續 5 次崩潰觸發暫停——daemon-crash 與 daemon-crash-pause 各自 key 互不干擾、皆只送 1 則', async () => {
+  class ThrowingStore extends BacklogStore {
+    nextTask(): never {
+      throw new Error('backlog 讀取炸裂（模擬 I/O 故障）')
+    }
+  }
+  const d = deps(new MockEngine())
+  const throwingStore = new ThrowingStore(d.cfg.backlogFile)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  // 6 輪：前 4 輪指數退避、第 5 輪觸發連續崩潰暫停（sleep CRASH_PAUSE_MS 並歸零計數）、
+  // 第 6 輪 consecutiveCrashes 重新從 1 起算。
+  const result = await runDaemon(baseOpts({ ...d, store: throwingStore }, notifier, sleepCalls, { maxCycles: 6, cooldownMs: 1000 }))
+
+  expect(result).toBe('max-cycles')
+  expect(sleepCalls).toEqual([2000, 4000, 8000, 16000, 30 * 60 * 1000, 2000])
+
+  // daemon-crash 冷卻閘：6 輪全部同 key，只送 1 則。
+  const crashAlerts = notifier.sent.filter(t => t.includes('runOnce 崩潰'))
+  expect(crashAlerts).toHaveLength(1)
+
+  // daemon-crash-pause 是獨立 key，在這 6 輪內只觸發過 1 次（第 5 輪），本就只送 1 則；
+  // 用來確認冷卻閘去重不會誤傷「暫停機制本身」——暫停照樣在第 5 輪發生（見上面 sleepCalls）。
+  const pauseAlerts = notifier.sent.filter(t => t.includes('連續崩潰暫停'))
+  expect(pauseAlerts).toHaveLength(1)
 })
 
 test('③ 一個任務成功、一個任務連敗轉 blocked，其餘輪跑到 idle：digest 一天只送一次、blocked 告警內容含任務文字', async () => {
@@ -214,8 +264,270 @@ test('⑧ 紅線 4 報告窗：db 有昨日 attempts（ok/fail）→ 今日輪�
   expect(digestSends[0]).toContain('失敗 1 筆')
 })
 
-test('yesterdayUtc：純函數月界/年界正確減一天（UTC）', () => {
-  expect(yesterdayUtc('2026-03-01')).toBe('2026-02-28')
-  expect(yesterdayUtc('2026-01-01')).toBe('2025-12-31')
-  expect(yesterdayUtc('2026-07-05')).toBe('2026-07-04')
+test('⑨ 冷卻閘（HIGH-2）：連續 3 輪 cost-hard-stop 只送 1 則告警', async () => {
+  const d = deps(new MockEngine())
+  d.db.record({ taskId: 'z', ok: true, costUsd: 999, detail: 'burn' })
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 3 }))
+
+  expect(result).toBe('max-cycles')
+  const alerts = notifier.sent.filter(t => t.includes('cost-hard-stop'))
+  expect(alerts).toHaveLength(1)
+})
+
+test('⑩ 冷卻閘：冷卻窗（6h）已過的持久化紀錄 → 再送且文案含抑制計數', async () => {
+  const d = deps(new MockEngine())
+  d.db.record({ taskId: 'z', ok: true, costUsd: 999, detail: 'burn' })
+  const sevenHoursAgo = Date.now() - 7 * 60 * 60 * 1000
+  writeFileSync(join(d.cfg.dataDir, 'alert-cooldown.json'), JSON.stringify({
+    'cost-hard-stop': { lastSentMs: sevenHoursAgo, suppressedCount: 3 }
+  }))
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
+
+  expect(result).toBe('max-cycles')
+  const alerts = notifier.sent.filter(t => t.includes('cost-hard-stop'))
+  expect(alerts).toHaveLength(1)
+  expect(alerts[0]).toContain('冷卻期間抑制 3 則')
+})
+
+test('⑪ 冷卻閘：兩個不同任務各自 blocked → 各送一則告警（key 各自獨立）', async () => {
+  const backlog = '- [ ] 任務甲\n- [ ] 任務乙\n'
+  const engine = new MockEngine([
+    { ok: false, reason: 'x' }, { ok: false, reason: 'x' }, // 任務甲連敗 2 次 → blocked
+    { ok: false, reason: 'x' }, { ok: false, reason: 'x' }, // 任務乙連敗 2 次 → blocked
+  ])
+  const d = deps(engine, backlog)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 4 }))
+
+  expect(result).toBe('max-cycles')
+  const blockedAlerts = notifier.sent.filter(t => t.includes('blocked'))
+  expect(blockedAlerts).toHaveLength(2)
+  expect(blockedAlerts[0]).toContain('任務甲')
+  expect(blockedAlerts[1]).toContain('任務乙')
+})
+
+test('⑫ 冷卻閘：同一任務重複轉 blocked（report 未落地）→ 第 2 次起被去重吞掉', async () => {
+  class NeverPersistBlockedStore extends BacklogStore {
+    report(id: string, d: Disposition): void {
+      if (d.kind === 'blocked') return // 模擬「持久化失敗但不 throw」：backlog 仍是 open，下輪重新撿到同任務
+      super.report(id, d)
+    }
+  }
+  const engine = new MockEngine([
+    { ok: false, reason: 'x' }, { ok: false, reason: 'x' },
+    { ok: false, reason: 'x' }, { ok: false, reason: 'x' },
+  ])
+  const d = deps(engine)
+  const neverPersistStore = new NeverPersistBlockedStore(d.cfg.backlogFile)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts({ ...d, store: neverPersistStore }, notifier, sleepCalls, { maxCycles: 4 }))
+
+  expect(result).toBe('max-cycles')
+  const blockedAlerts = notifier.sent.filter(t => t.includes('blocked'))
+  expect(blockedAlerts).toHaveLength(1) // 第 2~4 次同任務（同 key）blocked 被冷卻閘吞掉
+})
+
+test('⑬ 冷卻閘：alert-cooldown.json 損壞 → fail-open 照發不炸 daemon（鐵律 #4）', async () => {
+  const d = deps(new MockEngine())
+  d.db.record({ taskId: 'z', ok: true, costUsd: 999, detail: 'burn' })
+  writeFileSync(join(d.cfg.dataDir, 'alert-cooldown.json'), '{not json')
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
+
+  expect(result).toBe('max-cycles')
+  const alerts = notifier.sent.filter(t => t.includes('cost-hard-stop'))
+  expect(alerts).toHaveLength(1) // 損壞視同無冷卻表 → 正常照發
+})
+
+test('⑭ 冷卻閘不影響 digest：系統告警在冷卻中被吞，每日摘要仍照常送達（鐵律 #6）', async () => {
+  const d = deps(new MockEngine())
+  d.db.record({ taskId: 'z', ok: true, costUsd: 999, detail: 'burn' })
+  writeFileSync(join(d.cfg.dataDir, 'alert-cooldown.json'), JSON.stringify({
+    'cost-hard-stop': { lastSentMs: Date.now(), suppressedCount: 0 }
+  }))
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
+
+  expect(result).toBe('max-cycles')
+  const alerts = notifier.sent.filter(t => t.includes('cost-hard-stop'))
+  expect(alerts).toHaveLength(0) // 冷卻中被吞
+  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  expect(digestSends).toHaveLength(1) // digest 完全不受冷卻表影響，照常送
+})
+
+test('⑮ 冷卻閘（修 1）：lock-busy 連續兩次啟動在冷卻窗內只送 1 則，7h 後第三次再送並帶抑制計數', async () => {
+  const d = deps(new MockEngine())
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+  const lockDir = join(d.cfg.dataDir, '..', 'lock')
+  expect(acquireLock(lockDir)).toBe(true) // 外部持鎖，模擬已有 instance 在跑（lock 全程不釋放）
+
+  const r1 = await runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir }))
+  expect(r1).toBe('lock-busy')
+
+  const r2 = await runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir }))
+  expect(r2).toBe('lock-busy')
+
+  const lockBusyAlerts = notifier.sent.filter(t => /lock|佔用/.test(t))
+  expect(lockBusyAlerts).toHaveLength(1) // 第二次 respawn 在 6h 冷卻窗內被吞（Task 9 每 15 分撞鎖情境）
+
+  // 模擬 7h 後：直接改冷卻表 lastSentMs（鏡像既有測試⑩手法）
+  const cooldownFile = join(d.cfg.dataDir, 'alert-cooldown.json')
+  const table = JSON.parse(readFileSync(cooldownFile, 'utf8'))
+  table['lock-busy'].lastSentMs = Date.now() - 7 * 60 * 60 * 1000
+  writeFileSync(cooldownFile, JSON.stringify(table))
+
+  const r3 = await runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir }))
+  expect(r3).toBe('lock-busy')
+
+  const lockBusyAlertsAfter = notifier.sent.filter(t => /lock|佔用/.test(t))
+  expect(lockBusyAlertsAfter).toHaveLength(2)
+  expect(lockBusyAlertsAfter[1]).toContain('冷卻期間抑制')
+})
+
+test('⑯ 冷卻閘（修 3）：兩個不同 task.id 但任務文字前 40 字相同 → key 各自獨立、各發一則 blocked 告警', async () => {
+  const prefix = 'A'.repeat(40)
+  const backlog = `- [ ] ${prefix}-第一個任務\n- [ ] ${prefix}-第二個任務\n`
+  const engine = new MockEngine([
+    { ok: false, reason: 'x' }, { ok: false, reason: 'x' }, // 第一個任務連敗 2 次 → blocked
+    { ok: false, reason: 'x' }, { ok: false, reason: 'x' }, // 第二個任務連敗 2 次 → blocked
+  ])
+  const d = deps(engine, backlog)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 4 }))
+
+  expect(result).toBe('max-cycles')
+  // 舊版 key = `blocked:<文字前 40 字>` 會讓這兩個任務撞出同一個 key，第二則被冷卻閘誤吞；
+  // 改用 task.id 後兩者 key 不同，各自獨立發送。
+  const blockedAlerts = notifier.sent.filter(t => t.includes('blocked'))
+  expect(blockedAlerts).toHaveLength(2)
+  expect(blockedAlerts[0]).toContain('第一個任務')
+  expect(blockedAlerts[1]).toContain('第二個任務')
+})
+
+test('MEDIUM 1 修復：baseAlertMessage 依 blocked reason 各出對應人話文案（不再全部印「連敗達上限」）', () => {
+  const blocked = (reason: 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'branch-switched'): CycleResult =>
+    ({ kind: 'blocked', taskId: 't1', taskText: '某任務', reason })
+
+  expect(baseAlertMessage(blocked('max-attempts'))).toContain('連敗達上限')
+  expect(baseAlertMessage(blocked('not-a-git-repo'))).toContain('worktree 建立失敗')
+  expect(baseAlertMessage(blocked('merge-conflict'))).toContain('無法自動合併')
+  expect(baseAlertMessage(blocked('branch-switched'))).toContain('分支已切換或處於 detached HEAD')
+
+  // 三個新原因都不該被誤植成舊版的「連敗達上限」文案
+  expect(baseAlertMessage(blocked('not-a-git-repo'))).not.toContain('連敗達上限')
+  expect(baseAlertMessage(blocked('merge-conflict'))).not.toContain('連敗達上限')
+  expect(baseAlertMessage(blocked('branch-switched'))).not.toContain('連敗達上限')
+})
+
+// ---------------------------------------------------------------------------
+// M4 Task 8（soak 前測試補強）：ledger 標記的三個 gap——
+// (a) 連續崩潰暫停跨越兩輪：暫停時長每次都完整 30 分，pause 告警走冷卻閘只送一次；
+// (b) acquireLock throw（EPERM/ENOENT 類 infra 故障，非 lock-busy）→ 告警＋rethrow 炸給排程器；
+// (c) 崩潰計數在一次成功 cycle 後歸零（退避從 2^1 重新起算，不誤觸暫停門檻）。
+// ---------------------------------------------------------------------------
+
+test('⑰ 連續崩潰暫停 ×2：10 輪全崩 → 第 5、10 輪各暫停完整 30 分（機制不受冷卻閘影響），pause 告警只送 1 則', async () => {
+  class ThrowingStore extends BacklogStore {
+    nextTask(): never {
+      throw new Error('backlog 讀取炸裂（模擬 I/O 故障）')
+    }
+  }
+  const d = deps(new MockEngine())
+  const throwingStore = new ThrowingStore(d.cfg.backlogFile)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts({ ...d, store: throwingStore }, notifier, sleepCalls, { maxCycles: 10, cooldownMs: 1000 }))
+
+  expect(result).toBe('max-cycles')
+  // 兩個完整週期：4 輪指數退避 → 第 5 輪暫停 30 分並歸零 → 再 4 輪退避 → 第 10 輪再次暫停 30 分。
+  // 暫停「時長」與「觸發」每次照常發生——冷卻閘只管告警，不得吞掉暫停機制本身。
+  const PAUSE = 30 * 60 * 1000
+  expect(sleepCalls).toEqual([2000, 4000, 8000, 16000, PAUSE, 2000, 4000, 8000, 16000, PAUSE])
+
+  // daemon-crash-pause key 的冷卻閘：第 10 輪的第二次暫停在 6h 冷卻窗內，告警被抑制——只送第 1 則。
+  const pauseAlerts = notifier.sent.filter(t => t.includes('連續崩潰暫停'))
+  expect(pauseAlerts).toHaveLength(1)
+  expect(pauseAlerts[0]).toContain('30 分鐘')
+
+  // daemon-crash key 亦各自獨立去重：10 輪同 key 只送 1 則。
+  const crashAlerts = notifier.sent.filter(t => t.includes('runOnce 崩潰'))
+  expect(crashAlerts).toHaveLength(1)
+})
+
+test('⑱ acquireLock throw（infra 故障，非 lock-busy）→ 送一則「無法啟動」告警並原樣 rethrow 炸給排程器，runOnce 完全不執行', async () => {
+  const engine = new MockEngine([{ ok: true }])
+  const d = deps(engine)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+  // lockDir 的父目錄不存在：mkdirSync(recursive:false) 拋 ENOENT（非 EEXIST）→
+  // acquireLock 依錯誤分類原樣 rethrow（同 tests/lock-errors.test.ts 驗證的 EPERM/EBUSY 類語意）。
+  const lockDir = join(d.cfg.dataDir, '..', 'no-such-parent', 'sub', 'lock')
+
+  await expect(runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir }))).rejects.toThrow(/ENOENT/)
+
+  expect(engine.calls).toHaveLength(0) // 主迴圈完全沒起跑
+  expect(sleepCalls).toHaveLength(0)
+  expect(notifier.sent).toHaveLength(1) // 告警一則（此路徑直送，不經冷卻閘）
+  expect(notifier.sent[0]).toContain('daemon 無法啟動')
+  expect(notifier.sent[0]).toContain('acquireLock')
+})
+
+test('⑲ 崩潰計數一次成功 cycle 後歸零：4 崩 → 1 成功 → 再崩 2 輪退避從 2^1 重起，不誤觸第 5 次暫停門檻', async () => {
+  class FlakyStore extends BacklogStore {
+    private calls = 0
+    nextTask(): Task | null {
+      this.calls++
+      if (this.calls === 5) return super.nextTask() // 第 5 輪放行：正常派工成功
+      throw new Error('backlog 讀取炸裂（模擬陣發性 I/O 故障）')
+    }
+  }
+  const engine = new MockEngine([{ ok: true, costUsd: 0.1 }])
+  const d = deps(engine)
+  const flakyStore = new FlakyStore(d.cfg.backlogFile)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts({ ...d, store: flakyStore }, notifier, sleepCalls, { maxCycles: 7, cooldownMs: 1000 }))
+
+  expect(result).toBe('max-cycles')
+  expect(engine.calls).toHaveLength(1) // 第 5 輪確實成功跑完一個任務
+
+  // 前 4 崩：2^1..2^4 退避；第 5 輪成功 → sleep cooldownMs(1000) 且計數歸零；
+  // 第 6、7 輪再崩：若計數未歸零，第 6 輪即是「連續第 5 次」會誤觸 30 分暫停——
+  // 正確行為是退避從 2^1 重新起算。
+  expect(sleepCalls).toEqual([2000, 4000, 8000, 16000, 1000, 2000, 4000])
+
+  // events 帳面同步驗證：runonce-crash 的 consecutiveCrashes 序列 1,2,3,4 → 成功歸零 → 1,2
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  const crashSeq = events.split('\n').filter(l => l.includes('"type":"runonce-crash"'))
+    .map(l => (JSON.parse(l) as { consecutiveCrashes: number }).consecutiveCrashes)
+  expect(crashSeq).toEqual([1, 2, 3, 4, 1, 2])
+
+  // 未觸發暫停：無 30 分 sleep（上面 toEqual 已保證），也不得出現 pause 告警
+  const pauseAlerts = notifier.sent.filter(t => t.includes('連續崩潰暫停'))
+  expect(pauseAlerts).toHaveLength(0)
+})
+
+test('yesterdayLocal：純函數月界/年界正確減一天（本地日曆日，位移邏輯與 offset 無關）', () => {
+  expect(yesterdayLocal('2026-03-01')).toBe('2026-02-28')
+  expect(yesterdayLocal('2026-01-01')).toBe('2025-12-31')
+  expect(yesterdayLocal('2026-07-05')).toBe('2026-07-04')
 })

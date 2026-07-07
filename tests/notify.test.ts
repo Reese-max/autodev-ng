@@ -75,3 +75,53 @@ test('loadDiscordToken 移除前後空白', () => {
 test('loadDiscordToken 空引號回 null', () => {
   expect(loadDiscordToken(tokenFile('LPBOT_TOKEN=""\n'))).toBeNull()
 })
+
+test('loadDiscordToken 容忍 cmd batch set 前綴（CRLF 行尾）', () => {
+  expect(loadDiscordToken(tokenFile('set LPBOT_TOKEN=abc.fake.token\r\n'))).toBe('abc.fake.token')
+  expect(loadDiscordToken(tokenFile('SET LPBOT_TOKEN=abc.fake.token\r\n'))).toBe('abc.fake.token')
+})
+
+test('loadDiscordToken 容忍 shell export 前綴', () => {
+  expect(loadDiscordToken(tokenFile('export LPBOT_TOKEN=abc.fake.token\n'))).toBe('abc.fake.token')
+})
+
+test('loadDiscordToken set 前綴的其他變數不誤抓', () => {
+  expect(loadDiscordToken(tokenFile('set OTHER_TOKEN=x\nset ANOTHER=y\n'))).toBeNull()
+})
+
+// MEDIUM-4：notify-dlq.jsonl 無界成長治理。行數制門檻（brief：>2000 保尾 1000）。
+function seedDlqFile(dir: string, n: number): string {
+  const file = join(dir, 'notify-dlq.jsonl')
+  const lines: string[] = []
+  for (let i = 1; i <= n; i++) {
+    lines.push(JSON.stringify({ ts: '2026-01-01T00:00:00.000Z', reason: 'seed', textHead: `x${i}` }))
+  }
+  writeFileSync(file, lines.join('\n') + '\n')
+  return file
+}
+
+test('DLQ 超過 2000 行 → 保尾 1000 行，內容為最新且每行合法 JSON', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-nt-'))
+  seedDlqFile(dir, 2000)
+  const bad = (async () => new Response('nope', { status: 500 })) as typeof fetch
+  const n = new DiscordNotifier({ channelId: 'C', tokenFile: tokenFile('LPBOT_TOKEN=t\n'), dataDir: dir, fetchFn: bad })
+  expect(await n.send('新失敗訊息')).toBe(false)
+  const lines = readFileSync(join(dir, 'notify-dlq.jsonl'), 'utf8').trim().split('\n')
+  expect(lines).toHaveLength(1000)
+  for (const line of lines) expect(() => JSON.parse(line)).not.toThrow()
+  // 原 2000 行 + 新 1 行 = 2001 行，保尾 1000 = 原 index 1002..2000（999 行）+ 新事件（1 行）
+  const first = JSON.parse(lines[0]!) as { textHead: string }
+  expect(first.textHead).toBe('x1002')
+  const last = JSON.parse(lines[lines.length - 1]!) as { reason: string }
+  expect(last.reason).toBe('http-500')
+})
+
+test('DLQ 剛好 2000 行（未超過）不觸發保尾', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-nt-'))
+  seedDlqFile(dir, 1999)
+  const bad = (async () => new Response('nope', { status: 500 })) as typeof fetch
+  const n = new DiscordNotifier({ channelId: 'C', tokenFile: tokenFile('LPBOT_TOKEN=t\n'), dataDir: dir, fetchFn: bad })
+  await n.send('x')
+  const lines = readFileSync(join(dir, 'notify-dlq.jsonl'), 'utf8').trim().split('\n')
+  expect(lines).toHaveLength(2000)
+})

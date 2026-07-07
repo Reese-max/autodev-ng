@@ -64,3 +64,50 @@ test('heartbeat 寫入後目錄中無殘留 .tmp 檔', () => {
   expect(tmpFiles).toHaveLength(0)
   expect(existsSync(join(dir, 'heartbeat.json'))).toBe(true)
 })
+
+// MEDIUM-4：events.jsonl 無界成長治理。行數制門檻（>20000 保尾 10000，與 DLQ 對稱）。
+function seedEventsFile(dir: string, n: number): string {
+  const file = join(dir, 'events.jsonl')
+  const lines: string[] = []
+  for (let i = 1; i <= n; i++) {
+    lines.push(JSON.stringify({ ts: '2026-01-01T00:00:00.000Z', type: 'seed', n: i }))
+  }
+  writeFileSync(file, lines.join('\n') + '\n')
+  return file
+}
+
+test('append 使 events.jsonl 超過 20000 行 → 保尾 10000 行，內容為最新且每行合法 JSON', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-ev-'))
+  seedEventsFile(dir, 20000)
+  const ev = new EventLog(dir)
+  ev.append('new-tail-event', { marker: 'tail' }) // 第 20001 行，觸發 >20000 保尾
+  const lines = readFileSync(join(dir, 'events.jsonl'), 'utf8').trim().split('\n')
+  expect(lines).toHaveLength(10000)
+  for (const line of lines) expect(() => JSON.parse(line)).not.toThrow()
+  // 原 20000 行 + 新 1 行 = 20001 行，保尾 10000 = 原 index 10002..20000（9999 行）+ 新事件（1 行）
+  const first = JSON.parse(lines[0]!) as { n: number }
+  expect(first.n).toBe(10002)
+  const last = JSON.parse(lines[lines.length - 1]!) as { type: string; marker: string }
+  expect(last.type).toBe('new-tail-event')
+  expect(last.marker).toBe('tail')
+})
+
+test('events.jsonl 剛好 20000 行（未超過）不觸發保尾', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-ev-'))
+  seedEventsFile(dir, 19999)
+  const ev = new EventLog(dir)
+  ev.append('normal') // 第 20000 行，等於上限、不觸發（>20000 才觸發）
+  const lines = readFileSync(join(dir, 'events.jsonl'), 'utf8').trim().split('\n')
+  expect(lines).toHaveLength(20000)
+})
+
+test('appendOnce 觸發的 append 也計入輪替行數（appendOnce 不繞過保尾機制）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-ev-'))
+  seedEventsFile(dir, 20000)
+  const ev = new EventLog(dir)
+  expect(ev.appendOnce('idle')).toBe(true) // 第 20001 行，觸發保尾
+  const lines = readFileSync(join(dir, 'events.jsonl'), 'utf8').trim().split('\n')
+  expect(lines).toHaveLength(10000)
+  const last = JSON.parse(lines[lines.length - 1]!) as { type: string }
+  expect(last.type).toBe('idle')
+})

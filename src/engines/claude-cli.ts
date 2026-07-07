@@ -51,10 +51,15 @@ export class ClaudeCliEngine implements Engine {
   }
 
   async run(job: Job): Promise<RunResult> {
+    // Fix 3（首跑實證）：模型會做完不 commit → 整輪 $10 白燒。commit 要求必須是硬話。
+    // Fix 1：任務行吃 job.directive（scheduler 已把 task.text+extraDirective 組好），
+    // 未設 directive 時 fallback task.text 不退化。
     const prompt = [
-      `你是自動開發工人。完成以下這一項任務，並在完成後 git commit（conventional commit，zh-TW）。`,
+      `你是自動開發工人。完成以下這一項任務。`,
+      `改動完成後必須自己執行 git add -A 與 git commit（conventional commit，zh-TW）；`,
+      `沒有 commit 的工作會被整輪作廢、視為失敗。`,
       `嚴禁超出任務範圍、嚴禁動 BACKLOG.md、嚴禁自行新增任務。`,
-      `任務：${job.task.text}`
+      `任務：${job.directive ?? job.task.text}`
     ].join('\n')
 
     const before = this.getCommitHash(job.projectPath)
@@ -63,14 +68,23 @@ export class ClaudeCliEngine implements Engine {
       stdinText: prompt, timeoutMs: this.timeoutMs
     })
 
-    if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, failureReason: 'timeout' }
+    // M4 Task 3（真花錢前必修）：以下三種路徑 costUsd 記 0 只是「沒能力解出真值」的佔位，
+    // 不代表真的沒花錢（CLI 進程極可能已實際呼叫並燒 token）——costUnknown:true 讓 scheduler
+    // 記帳層知道該改記 cfg.failureCostEstimateUsd，而非把這個 0 當真值入帳。
+    if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
-      return { ok: false, output: tail(r.stderr), costUsd: 0, failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}` }
+      return {
+        ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true,
+        failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}`
+      }
     }
 
     const parsed = parseResultJson(r.stdout)
     if (!parsed) {
-      return { ok: false, output: tail(r.stdout), costUsd: 0, failureReason: 'empty-or-unparseable output（exit 0 零輸出 ≠ 成功）' }
+      return {
+        ok: false, output: tail(r.stdout), costUsd: 0, costUnknown: true,
+        failureReason: 'empty-or-unparseable output（exit 0 零輸出 ≠ 成功）'
+      }
     }
     const costUsd = typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : 0
     if (parsed.is_error === true) {

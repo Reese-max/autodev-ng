@@ -22,7 +22,8 @@ process.stdin.on('end', async () => {
   const isPing = /PONG/.test(input)
   process.stdout.write(JSON.stringify({
     type: 'result', subtype: 'success', is_error: false,
-    result: isPing ? 'PONG' : 'done: ' + input.slice(0, 40),
+    // 回聲前 800 字：足以覆蓋 engine prompt 全文（含 directive 尾段），供測試驗證 prompt 組裝
+    result: isPing ? 'PONG' : 'done: ' + input.slice(0, 800),
     total_cost_usd: 0.123
   }) + '\n')
   process.exit(0)
