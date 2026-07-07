@@ -9,7 +9,7 @@ import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
 import { MockEngine } from '../src/engines/mock.js'
-import { ConfigSchema, type Disposition } from '../src/types.js'
+import { ConfigSchema, type Disposition, type Task } from '../src/types.js'
 import { acquireLock } from '../src/lock.js'
 import { shouldSendDigest } from '../src/digest.js'
 
@@ -434,6 +434,96 @@ test('MEDIUM 1 修復：baseAlertMessage 依 blocked reason 各出對應人話�
   expect(baseAlertMessage(blocked('not-a-git-repo'))).not.toContain('連敗達上限')
   expect(baseAlertMessage(blocked('merge-conflict'))).not.toContain('連敗達上限')
   expect(baseAlertMessage(blocked('branch-switched'))).not.toContain('連敗達上限')
+})
+
+// ---------------------------------------------------------------------------
+// M4 Task 8（soak 前測試補強）：ledger 標記的三個 gap——
+// (a) 連續崩潰暫停跨越兩輪：暫停時長每次都完整 30 分，pause 告警走冷卻閘只送一次；
+// (b) acquireLock throw（EPERM/ENOENT 類 infra 故障，非 lock-busy）→ 告警＋rethrow 炸給排程器；
+// (c) 崩潰計數在一次成功 cycle 後歸零（退避從 2^1 重新起算，不誤觸暫停門檻）。
+// ---------------------------------------------------------------------------
+
+test('⑰ 連續崩潰暫停 ×2：10 輪全崩 → 第 5、10 輪各暫停完整 30 分（機制不受冷卻閘影響），pause 告警只送 1 則', async () => {
+  class ThrowingStore extends BacklogStore {
+    nextTask(): never {
+      throw new Error('backlog 讀取炸裂（模擬 I/O 故障）')
+    }
+  }
+  const d = deps(new MockEngine())
+  const throwingStore = new ThrowingStore(d.cfg.backlogFile)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts({ ...d, store: throwingStore }, notifier, sleepCalls, { maxCycles: 10, cooldownMs: 1000 }))
+
+  expect(result).toBe('max-cycles')
+  // 兩個完整週期：4 輪指數退避 → 第 5 輪暫停 30 分並歸零 → 再 4 輪退避 → 第 10 輪再次暫停 30 分。
+  // 暫停「時長」與「觸發」每次照常發生——冷卻閘只管告警，不得吞掉暫停機制本身。
+  const PAUSE = 30 * 60 * 1000
+  expect(sleepCalls).toEqual([2000, 4000, 8000, 16000, PAUSE, 2000, 4000, 8000, 16000, PAUSE])
+
+  // daemon-crash-pause key 的冷卻閘：第 10 輪的第二次暫停在 6h 冷卻窗內，告警被抑制——只送第 1 則。
+  const pauseAlerts = notifier.sent.filter(t => t.includes('連續崩潰暫停'))
+  expect(pauseAlerts).toHaveLength(1)
+  expect(pauseAlerts[0]).toContain('30 分鐘')
+
+  // daemon-crash key 亦各自獨立去重：10 輪同 key 只送 1 則。
+  const crashAlerts = notifier.sent.filter(t => t.includes('runOnce 崩潰'))
+  expect(crashAlerts).toHaveLength(1)
+})
+
+test('⑱ acquireLock throw（infra 故障，非 lock-busy）→ 送一則「無法啟動」告警並原樣 rethrow 炸給排程器，runOnce 完全不執行', async () => {
+  const engine = new MockEngine([{ ok: true }])
+  const d = deps(engine)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+  // lockDir 的父目錄不存在：mkdirSync(recursive:false) 拋 ENOENT（非 EEXIST）→
+  // acquireLock 依錯誤分類原樣 rethrow（同 tests/lock-errors.test.ts 驗證的 EPERM/EBUSY 類語意）。
+  const lockDir = join(d.cfg.dataDir, '..', 'no-such-parent', 'sub', 'lock')
+
+  await expect(runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir }))).rejects.toThrow(/ENOENT/)
+
+  expect(engine.calls).toHaveLength(0) // 主迴圈完全沒起跑
+  expect(sleepCalls).toHaveLength(0)
+  expect(notifier.sent).toHaveLength(1) // 告警一則（此路徑直送，不經冷卻閘）
+  expect(notifier.sent[0]).toContain('daemon 無法啟動')
+  expect(notifier.sent[0]).toContain('acquireLock')
+})
+
+test('⑲ 崩潰計數一次成功 cycle 後歸零：4 崩 → 1 成功 → 再崩 2 輪退避從 2^1 重起，不誤觸第 5 次暫停門檻', async () => {
+  class FlakyStore extends BacklogStore {
+    private calls = 0
+    nextTask(): Task | null {
+      this.calls++
+      if (this.calls === 5) return super.nextTask() // 第 5 輪放行：正常派工成功
+      throw new Error('backlog 讀取炸裂（模擬陣發性 I/O 故障）')
+    }
+  }
+  const engine = new MockEngine([{ ok: true, costUsd: 0.1 }])
+  const d = deps(engine)
+  const flakyStore = new FlakyStore(d.cfg.backlogFile)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts({ ...d, store: flakyStore }, notifier, sleepCalls, { maxCycles: 7, cooldownMs: 1000 }))
+
+  expect(result).toBe('max-cycles')
+  expect(engine.calls).toHaveLength(1) // 第 5 輪確實成功跑完一個任務
+
+  // 前 4 崩：2^1..2^4 退避；第 5 輪成功 → sleep cooldownMs(1000) 且計數歸零；
+  // 第 6、7 輪再崩：若計數未歸零，第 6 輪即是「連續第 5 次」會誤觸 30 分暫停——
+  // 正確行為是退避從 2^1 重新起算。
+  expect(sleepCalls).toEqual([2000, 4000, 8000, 16000, 1000, 2000, 4000])
+
+  // events 帳面同步驗證：runonce-crash 的 consecutiveCrashes 序列 1,2,3,4 → 成功歸零 → 1,2
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  const crashSeq = events.split('\n').filter(l => l.includes('"type":"runonce-crash"'))
+    .map(l => (JSON.parse(l) as { consecutiveCrashes: number }).consecutiveCrashes)
+  expect(crashSeq).toEqual([1, 2, 3, 4, 1, 2])
+
+  // 未觸發暫停：無 30 分 sleep（上面 toEqual 已保證），也不得出現 pause 告警
+  const pauseAlerts = notifier.sent.filter(t => t.includes('連續崩潰暫停'))
+  expect(pauseAlerts).toHaveLength(0)
 })
 
 test('yesterdayLocal：純函數月界/年界正確減一天（本地日曆日，位移邏輯與 offset 無關）', () => {
