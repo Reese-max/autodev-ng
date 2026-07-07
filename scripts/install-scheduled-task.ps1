@@ -19,6 +19,12 @@
         runs 24/7.
       - Default principal: current user, Interactive logon (no
         password prompt). Pass -AsSystem to run as SYSTEM instead.
+      - DEPENDENCY: Interactive logon means the AtStartup trigger
+        only fires once the user session exists. This machine has
+        AutoAdminLogon=1 (verified 2026-07-07), so boot implies
+        logon. If auto-logon is ever disabled, the task will
+        silently wait for a manual logon after reboot -- either
+        keep auto-logon on or reinstall with -AsSystem.
 
     READINESS VERIFICATION (pitfall 18):
       Do NOT trust the Task Scheduler state, exit codes, or a live
