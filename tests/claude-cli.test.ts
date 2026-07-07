@@ -64,6 +64,30 @@ test('hang → timeout、costUsd 0、costUnknown=true（timeout 輪其實照樣�
   expect(r.costUnknown).toBe(true)
 }, 15_000)
 
+// Fix 1（M4 run-once 首跑缺陷）：fake-cli 會把收到的 stdin 前段回聲進 result JSON，
+// r.output（stdout tail）因此可用來驗證「prompt 實際含什麼」——不用真打 CLI。
+test('Fix 1：job.directive 有值時 prompt 採用 directive（extraDirective 真的進 prompt）', async () => {
+  const e = engine('ok', ['aaa', 'bbb'])
+  const r = await e.run({
+    task: T, projectPath: process.cwd(),
+    directive: '修好登入頁\n\nDIRECTIVE-MARKER：port 3210 是使用者的進程，不要殺'
+  })
+  expect(r.output).toContain('DIRECTIVE-MARKER')
+})
+
+test('Fix 1：job.directive 未設時 fallback 用 task.text（不退化）', async () => {
+  const e = engine('ok', ['aaa', 'bbb'])
+  const r = await e.run({ task: T, projectPath: process.cwd() })
+  expect(r.output).toContain('修好登入頁')
+})
+
+test('Fix 3：prompt 明示必須自行 git add/commit、沒 commit 整輪作廢', async () => {
+  const e = engine('ok', ['aaa', 'bbb'])
+  const r = await e.run({ task: T, projectPath: process.cwd() })
+  expect(r.output).toContain('git add -A')
+  expect(r.output).toContain('整輪作廢')
+})
+
 test('preflight：PONG 判 ok 且第二次走 cache（fake 只被叫一次）', async () => {
   const e = engine('ok', ['a'])
   const r1 = await e.preflight()

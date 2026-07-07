@@ -51,10 +51,15 @@ export class ClaudeCliEngine implements Engine {
   }
 
   async run(job: Job): Promise<RunResult> {
+    // Fix 3（首跑實證）：模型會做完不 commit → 整輪 $10 白燒。commit 要求必須是硬話。
+    // Fix 1：任務行吃 job.directive（scheduler 已把 task.text+extraDirective 組好），
+    // 未設 directive 時 fallback task.text 不退化。
     const prompt = [
-      `你是自動開發工人。完成以下這一項任務，並在完成後 git commit（conventional commit，zh-TW）。`,
+      `你是自動開發工人。完成以下這一項任務。`,
+      `改動完成後必須自己執行 git add -A 與 git commit（conventional commit，zh-TW）；`,
+      `沒有 commit 的工作會被整輪作廢、視為失敗。`,
       `嚴禁超出任務範圍、嚴禁動 BACKLOG.md、嚴禁自行新增任務。`,
-      `任務：${job.task.text}`
+      `任務：${job.directive ?? job.task.text}`
     ].join('\n')
 
     const before = this.getCommitHash(job.projectPath)

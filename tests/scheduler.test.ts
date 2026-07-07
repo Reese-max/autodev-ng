@@ -212,6 +212,19 @@ test('失敗成本估計：自訂 failureCostEstimateUsd（如 2.5）流動到 d
   expect(spyDb.records[0]!.costUsd).toBeCloseTo(2.5)
 })
 
+test('Fix 2：engine 失敗時 task-failed 事件帶 outputTail（截尾 600 字，$10 的診斷線索不蒸發）', async () => {
+  const longOutput = 'x'.repeat(1000) + 'TAIL-MARKER 最後的診斷線索'
+  const e = new MockEngine([{ ok: false, reason: 'no-commit(phantom completion?)', output: longOutput }])
+  const d = deps(e)
+  expect(await runOnce(d)).toBe('failed')
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  const line = events.split(/\r?\n/).find(l => l.includes('"type":"task-failed"'))
+  expect(line).toBeDefined()
+  const parsed = JSON.parse(line!) as { outputTail?: string }
+  expect(parsed.outputTail).toContain('TAIL-MARKER') // 保尾不保頭：最後輸出才是死因線索
+  expect(parsed.outputTail!.length).toBeLessThanOrEqual(600) // 截尾防 events.jsonl 膨脹
+})
+
 // ---------------------------------------------------------------------------
 // M4 Task 6：worktree 接線（任務級隔離執行環境）
 // ---------------------------------------------------------------------------

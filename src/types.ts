@@ -15,8 +15,8 @@ export interface Job {
   task: Task
   projectPath: string
   /** M4 Task 6（worktree 接線）：cfg.extraDirective 附加在任務文字尾的專案特規指示
-   * （如 voice-actress 的 KPI-impact 標籤要求）。未設定 extraDirective 時維持 undefined，
-   * engine 端沒有義務讀它——現階段僅 scheduler 組裝並傳遞，供未來引擎接線消費。 */
+   * （如 voice-actress 的 port 3210 警告）。未設定 extraDirective 時維持 undefined；
+   * claude-cli engine 的 prompt 任務行以 directive ?? task.text 消費（Fix 1 已接線）。 */
   directive?: string
 }
 

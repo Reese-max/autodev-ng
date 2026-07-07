@@ -83,8 +83,8 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
     return blockTask({ store, events }, task, 'not-a-git-repo', `worktree 建立失敗：${String(err)}`)
   }
 
-  // extraDirective 附加到 job.directive 尾（未設定時維持 undefined）——engine 端現階段
-  // 沒有義務讀它，這裡只負責組裝與傳遞（消費留給引擎接線任務）。
+  // extraDirective 附加到 task.text 尾組成 job.directive（未設定時維持 undefined）——
+  // claude-cli engine 的 prompt 任務行以 job.directive ?? task.text 消費（Fix 1 已接線）。
   const directive = cfg.extraDirective ? `${task.text}\n\n${cfg.extraDirective}` : undefined
 
   // try 只包 engine.run 本身：db.record／store.report／events 的下游 I/O 故障
@@ -170,7 +170,11 @@ export async function runOnce({ cfg, store, db, engine, events, verifier }: Deps
     return 'done'
   }
 
-  quiet(() => events.append('task-failed', { task: task.text, reason: res.failureReason }))
+  // Fix 2：失敗時 engine 最後輸出是唯一的（可能已花真錢的）診斷線索，截尾 600 字持久化
+  // 進 events（保尾不保頭：死因在最後；events.jsonl 有輪替，欄位大小可控即可）。
+  quiet(() => events.append('task-failed', {
+    task: task.text, reason: res.failureReason, outputTail: res.output.slice(-600)
+  }))
   // engine 失敗（res.ok===false，非例外）：既有流程走 resolveFailure，worktree 保留現場。
   quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
   return resolveFailure({ cfg, store, db, events }, task, 'failed')

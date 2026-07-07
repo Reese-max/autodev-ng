@@ -6,7 +6,7 @@ import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 // （void）維持既有行為不變。
 export type MockStep =
   | { ok: true; costUsd?: number; beforeResult?: (job: Job) => string | void }
-  | { ok: false; reason: string; costUsd?: number; costUnknown?: boolean; beforeResult?: (job: Job) => string | void }
+  | { ok: false; reason: string; costUsd?: number; costUnknown?: boolean; output?: string; beforeResult?: (job: Job) => string | void }
   | { throw: string }
 
 export class MockEngine implements Engine {
@@ -36,7 +36,7 @@ export class MockEngine implements Engine {
       return { ok: true, output: 'mock done', costUsd: step.costUsd ?? 0.01, commitHash: 'mock0000', baseCommitHash }
     }
     return {
-      ok: false, output: 'mock fail', costUsd: step.costUsd ?? 0.01,
+      ok: false, output: step.output ?? 'mock fail', costUsd: step.costUsd ?? 0.01,
       failureReason: step.reason, costUnknown: step.costUnknown, baseCommitHash
     }
   }
