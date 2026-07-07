@@ -10,6 +10,7 @@ import { PreflightCache } from './preflight.js'
 import { KernelVerifier } from './verifier.js'
 import { MockEngine } from './engines/mock.js'
 import { ClaudeCliEngine } from './engines/claude-cli.js'
+import { CodexEngine } from './engines/codex.js'
 import { ConfigSchema, type Config, type Engine, type EngineConfig, type EngineResolver } from './types.js'
 import { runOnce, type CycleResult, type Deps } from './scheduler.js'
 import { runDaemon } from './daemon.js'
@@ -102,6 +103,14 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new ClaudeCliEngine({
           id: tag === 'claude' ? 'claude-cli' : `claude-cli:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, tag === 'claude' ? 'preflight-cache.json' : `preflight-cache-${tag}.json`)),
+          env: expandEnvMap(ec.env),
+          model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
+          timeoutMs: ec.timeoutMs
+        })
+      case 'codex':
+        return new CodexEngine({
+          id: tag === 'codex' ? 'codex' : `codex:${tag}`,
+          cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
           timeoutMs: ec.timeoutMs

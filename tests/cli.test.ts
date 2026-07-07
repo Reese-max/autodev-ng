@@ -6,6 +6,7 @@ import { assemble, expandEnvValue, finalizeRunOnceHeartbeat, formatStatus, makeE
 import { ConfigSchema } from '../src/types.js'
 import { MockEngine } from '../src/engines/mock.js'
 import { ClaudeCliEngine } from '../src/engines/claude-cli.js'
+import { CodexEngine } from '../src/engines/codex.js'
 import { KernelVerifier } from '../src/verifier.js'
 import { DiscordNotifier } from '../src/notify.js'
 import { EventLog } from '../src/events.js'
@@ -312,16 +313,23 @@ test('M5：{env:VAR} 引用缺失 → resolve 該 tag 才拋錯（lazy：assembl
   }
 })
 
-test('M5：registry——白名單外 tag 拋錯；未實作 adapter resolve 時拋「尚未實作」', () => {
+test('M5：registry——白名單外 tag 拋錯；未實作 adapter resolve 時拋「尚未實作」；codex 已接線（Task 3）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-cli-m3-'))
   const cfgPath = writeConfig(dir, {
     engine: 'claude-cli',
-    engines: { claude: { adapter: 'claude-cli' }, codex: { adapter: 'codex', costPerRunUsd: 1 } }
+    engines: {
+      claude: { adapter: 'claude-cli' },
+      codex: { adapter: 'codex', costPerRunUsd: 1 },
+      agy: { adapter: 'agy' }
+    }
   })
   const { deps } = assemble(cfgPath)
   try {
     expect(() => deps.engines.resolve('zen')).toThrow(/白名單/)
-    expect(() => deps.engines.resolve('codex')).toThrow(/尚未實作/)
+    expect(() => deps.engines.resolve('agy')).toThrow(/尚未實作/)
+    const codex = deps.engines.resolve('codex')
+    expect(codex).toBeInstanceOf(CodexEngine)
+    expect(codex.id).toBe('codex')
   } finally {
     deps.db.close()
   }
