@@ -8,6 +8,7 @@ import { AgyEngine } from './agy.js'
 import { GrokEngine } from './grok.js'
 import { QwenEngine } from './qwen.js'
 import { OpencodeEngine } from './opencode.js'
+import { DevinEngine } from './devin.js'
 import type { Config, Engine, EngineConfig, EngineResolver } from '../types.js'
 
 /** M5 Task 1：`{env:VAR}` 展開（assemble 層）——config 只寫變數引用，真值從進程環境取，
@@ -99,6 +100,15 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           command: ec.command, env: expandEnvMap(ec.env), profileDir: join(cfg.dataDir, 'opencode-profile'),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model), timeoutMs: ec.timeoutMs
+        })
+      case 'devin':
+        // M5 Task 9：Devin CLI（原生 .exe 直呼；prompt/export 走 tmp 檔；固定鎖 swe-1.6 免費模型）。
+        return new DevinEngine({
+          id: tag === 'devin' ? 'devin' : `devin:${tag}`,
+          cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
+          command: ec.command, env: expandEnvMap(ec.env),
+          model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
+          timeoutMs: ec.timeoutMs
         })
       default:
         throw new Error(`adapter ${ec.adapter} 尚未實作（M5 Task 3-8 逐一落地）`)
