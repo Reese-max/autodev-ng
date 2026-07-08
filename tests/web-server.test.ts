@@ -12,8 +12,11 @@ const mod: any = await import(webServerPath)
 const {
   parseArgs, makeToken, hasValidToken, readHeartbeat, readEventsTail, readDlqCount,
   readRecentAttempts, buildStatusPayload, createChildState, spawnRunOnce, spawnDaemonStart,
-  stopDaemon, createServer, INDEX_HTML,
+  stopDaemon, createServer, readDaemonLockOwner, INDEX_HTML,
 } = mod
+
+// 測試一律關掉 spawn 後的活性等待（waitMs=0 + 立即 resolve 的 sleep），避免真的等 800ms。
+const FAST: any = { waitMs: 0, sleep: async () => {} }
 
 function tmp(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix))
@@ -134,32 +137,82 @@ function fakeSpawn() {
   return { spawnFn, created }
 }
 
-test('spawnRunOnce：同一 child 存活期間第二次呼叫回 already running；child 結束後可再次 spawn', () => {
+test('spawnRunOnce：同一 child 存活期間第二次呼叫回 already running；child 結束後可再次 spawn', async () => {
   const dir = tmp('adng-web-run-')
   const state = createChildState()
   const { spawnFn, created } = fakeSpawn()
-  const r1 = spawnRunOnce(state, spawnFn, 'cfg.json', dir)
+  const r1 = await spawnRunOnce(state, spawnFn, 'cfg.json', dir, FAST)
   expect(r1.alreadyRunning).toBe(false)
-  const r2 = spawnRunOnce(state, spawnFn, 'cfg.json', dir)
+  const r2 = await spawnRunOnce(state, spawnFn, 'cfg.json', dir, FAST)
   expect(r2.alreadyRunning).toBe(true)
   expect(r2.pid).toBe(r1.pid)
   created[0].exitCode = 0 // 模擬 child 結束
-  const r3 = spawnRunOnce(state, spawnFn, 'cfg.json', dir)
+  const r3 = await spawnRunOnce(state, spawnFn, 'cfg.json', dir, FAST)
   expect(r3.alreadyRunning).toBe(false)
   expect(created.length).toBe(2)
 })
 
-test('spawnDaemonStart：先清掉既有 stopFile 再 spawn；同存活期間防重入', () => {
+test('spawnRunOnce：spawn 後 child 立即退出（exitCode 非 null）→ 回 failed 含 exitCode 與 log 路徑，非 started', async () => {
+  const dir = tmp('adng-web-run-fail-')
+  const state = createChildState()
+  const spawnFn = () => ({ pid: 123, exitCode: 1, killed: false, args: ['run-once'] }) // 瞬退
+  const r = await spawnRunOnce(state, spawnFn, 'cfg.json', dir, FAST)
+  expect(r.failed).toBe(true)
+  expect(r.exitCode).toBe(1)
+  expect(String(r.logPath)).toContain('run-once-console.log')
+  expect(r.alreadyRunning).toBeUndefined()
+})
+
+test('spawnDaemonStart：無活 daemon 時先清掉既有 stopFile 再 spawn；同存活期間防重入', async () => {
   const dir = tmp('adng-web-daemon-')
   const stopFile = join(dir, '.adng.stop')
   writeFileSync(stopFile, '')
   const state = createChildState()
   const { spawnFn } = fakeSpawn()
-  const r1 = spawnDaemonStart(state, spawnFn, 'cfg.json', dir, stopFile)
+  const r1 = await spawnDaemonStart(state, spawnFn, 'cfg.json', dir, stopFile, FAST)
   expect(r1.alreadyRunning).toBe(false)
   expect(existsSync(stopFile)).toBe(false)
-  const r2 = spawnDaemonStart(state, spawnFn, 'cfg.json', dir, stopFile)
+  const r2 = await spawnDaemonStart(state, spawnFn, 'cfg.json', dir, stopFile, FAST)
   expect(r2.alreadyRunning).toBe(true)
+})
+
+test('spawnDaemonStart：spawn 後 daemon 立即退出（如 lock-busy）→ 回 failed 非 started', async () => {
+  const dir = tmp('adng-web-daemon-fail-')
+  const stopFile = join(dir, '.adng.stop')
+  const state = createChildState()
+  const spawnFn = () => ({ pid: 456, exitCode: 3, killed: false, unref() {}, args: ['daemon'] })
+  const r = await spawnDaemonStart(state, spawnFn, 'cfg.json', dir, stopFile, FAST)
+  expect(r.failed).toBe(true)
+  expect(r.exitCode).toBe(3)
+  expect(String(r.logPath)).toContain('daemon-console.log')
+})
+
+// ---------- daemon 活性改查真 lock（審查修正 HIGH） ----------
+test('readDaemonLockOwner：讀 dataDir/daemon.lock/pid.json（既有格式）+ 可注入 kill 探測', () => {
+  const dir = tmp('adng-web-lock-')
+  // 缺 pid.json → unknown
+  expect(readDaemonLockOwner(dir, () => true)).toBe('unknown')
+  // 建 daemon.lock 目錄 + pid.json（沿用 src/lock.ts writeOwnPidFile 格式）
+  const { mkdirSync } = require('node:fs')
+  mkdirSync(join(dir, 'daemon.lock'))
+  writeFileSync(join(dir, 'daemon.lock', 'pid.json'), JSON.stringify({ pid: 4321, startedAt: '2026-01-01T00:00:00Z' }))
+  expect(readDaemonLockOwner(dir, () => true)).toBe('alive')   // 探測回活
+  expect(readDaemonLockOwner(dir, () => false)).toBe('dead')   // 探測回死
+  // 壞 pid（非正整數）→ unknown
+  writeFileSync(join(dir, 'daemon.lock', 'pid.json'), JSON.stringify({ pid: 'x' }))
+  expect(readDaemonLockOwner(dir, () => true)).toBe('unknown')
+})
+
+test('spawnDaemonStart：真 lock 判定為 alive（即使 state.daemon=null，如 CLI 直啟／web 重啟）→ 回 already running，不清 stopFile、不 spawn', async () => {
+  const dir = tmp('adng-web-lock-alive-')
+  const stopFile = join(dir, '.adng.stop')
+  writeFileSync(stopFile, 'user-stop') // 使用者稍早寫入的停止令，不可被誤清
+  const state = createChildState() // state.daemon = null（模擬 web 重啟或 daemon 由 CLI 啟動）
+  const { spawnFn, created } = fakeSpawn()
+  const r = await spawnDaemonStart(state, spawnFn, 'cfg.json', dir, stopFile, { ...FAST, lockOwnerFn: () => 'alive' })
+  expect(r.alreadyRunning).toBe(true)
+  expect(existsSync(stopFile)).toBe(true)   // stopFile 未被清
+  expect(created.length).toBe(0)            // 未 spawn
 })
 
 test('stopDaemon：寫入既有 stopFile 機制（scheduler.runOnce 讀取的同一路徑）', () => {
@@ -182,6 +235,7 @@ async function withServer(fn: (base: string, created: any[]) => Promise<void>) {
   const server = createServer({
     cfg, cfgPath: 'cfg.json', store, db, dbPath: join(dir, 'run.db'), token: 'secret-tok',
     spawnFn, childState: createChildState(), indexHtml: '<html>ok</html>', localDayFn: localDay,
+    spawnOpts: { ...FAST, lockOwnerFn: () => 'unknown' },
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()))
   const port = (server.address() as any).port

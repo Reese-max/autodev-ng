@@ -130,25 +130,84 @@ export function createChildState() {
   return { runOnce: null, daemon: null }
 }
 
-export function spawnRunOnce(state, spawnFn, cfgPath, dataDir) {
+/** process.kill(pid, 0)：不拋=活、EPERM=活（存在但無權限）、ESRCH=死。未知例外 fail-safe 視為活。
+ * 鏡像 src/lock.ts 的 isPidAlive（web 層唯讀複製，不 import kernel、不改 kernel）。 */
+function defaultIsPidAlive(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return err && err.code !== 'ESRCH'
+  }
+}
+
+/** 唯讀讀取真 daemon.lock 的持有者存活狀態（審查修正 HIGH）。daemon.lock 目錄與 pid.json 格式
+ * 沿用 src/lock.ts／cli.ts cmdDaemon（lockDir = join(dataDir, 'daemon.lock')，pid.json = { pid, startedAt }）。
+ * 這是「讀狀態」非「搶鎖」——不 mkdir/rename/寫入，只讀 pid.json + process.kill(pid,0) 驗活，符合鐵律 #1
+ * （web 是遙控器）。缺檔/壞檔/pid 非法一律回 'unknown'（fallback：無法判定，交由呼叫端保守處理）。 */
+export function readDaemonLockOwner(dataDir, isPidAliveFn = defaultIsPidAlive) {
+  const pidFile = join(dataDir, 'daemon.lock', 'pid.json')
+  if (!existsSync(pidFile)) return 'unknown'
+  try {
+    const parsed = JSON.parse(readFileSync(pidFile, 'utf8'))
+    const pid = parsed && parsed.pid
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return 'unknown'
+    return isPidAliveFn(pid) ? 'alive' : 'dead'
+  } catch {
+    return 'unknown'
+  }
+}
+
+const DEFAULT_LIVENESS_WAIT_MS = 800
+function defaultSleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/** spawn 後短驗 child 未瞬間退出（審查修正 HIGH：消除誤導性 202）：等 waitMs 後檢查 exitCode，
+ * 非 null＝已退出（lock-busy／dist 缺失／config 錯等），回失敗含 exit code 與 console.log 路徑。 */
+async function verifyChildAlive(child, waitMs, sleep, logPath) {
+  await sleep(waitMs)
+  if (child.exitCode !== null && child.exitCode !== undefined) {
+    return { failed: true, exitCode: child.exitCode, logPath }
+  }
+  return null
+}
+
+export async function spawnRunOnce(state, spawnFn, cfgPath, dataDir, opts = {}) {
+  const sleep = opts.sleep ?? defaultSleep
+  const waitMs = opts.waitMs ?? DEFAULT_LIVENESS_WAIT_MS
   if (isAlive(state.runOnce)) return { alreadyRunning: true, pid: state.runOnce.pid }
-  const logFd = openSync(join(dataDir, 'run-once-console.log'), 'a')
+  const logPath = join(dataDir, 'run-once-console.log')
+  const logFd = openSync(logPath, 'a')
   const child = spawnFn(process.execPath, [DIST_CLI, 'run-once', '--config', cfgPath], { stdio: ['ignore', logFd, logFd] })
   state.runOnce = child
+  const dead = await verifyChildAlive(child, waitMs, sleep, logPath)
+  if (dead) return dead
   return { alreadyRunning: false, pid: child.pid }
 }
 
-export function spawnDaemonStart(state, spawnFn, cfgPath, dataDir, stopFile) {
-  if (isAlive(state.daemon)) return { alreadyRunning: true, pid: state.daemon.pid }
-  // 開關語意：start＝按下「恢復運作」，先清掉既有 stopFile，否則新起的 daemon 第一輪就會
+export async function spawnDaemonStart(state, spawnFn, cfgPath, dataDir, stopFile, opts = {}) {
+  const sleep = opts.sleep ?? defaultSleep
+  const waitMs = opts.waitMs ?? DEFAULT_LIVENESS_WAIT_MS
+  const lockOwnerFn = opts.lockOwnerFn ?? (dd => readDaemonLockOwner(dd))
+  // 活性判定改查真 lock（審查修正 HIGH）：不只信本 web 進程的 in-memory child——daemon 可能被 CLI
+  // 直接啟動、或 web server 重啟過（state.daemon 歸零）。真 daemon.lock 被活著的進程持有 → 直接回
+  // 「已在執行中」，不清 stopFile、不 spawn（否則會誤清使用者的停止令＋新 daemon 撞 lock 瞬退但回假 202）。
+  if (isAlive(state.daemon) || lockOwnerFn(dataDir) === 'alive') {
+    return { alreadyRunning: true, pid: state.daemon?.pid }
+  }
+  // 確認無活 daemon 後才開關語意：start＝「恢復運作」，清掉既有 stopFile，否則新 daemon 第一輪就會
   // 看到 stopFile 立刻回 stopped（既有機制：scheduler.runOnce 開頭 existsSync(cfg.stopFile)）。
   try { if (existsSync(stopFile)) rmSync(stopFile, { force: true }) } catch { /* 觀測/控制面不可反殺 */ }
-  const logFd = openSync(join(dataDir, 'daemon-console.log'), 'a')
+  const logPath = join(dataDir, 'daemon-console.log')
+  const logFd = openSync(logPath, 'a')
   const child = spawnFn(process.execPath, [DIST_CLI, 'daemon', '--config', cfgPath], {
     stdio: ['ignore', logFd, logFd], detached: true,
   })
   if (typeof child.unref === 'function') child.unref() // 測試注入的假 child 可能無此方法
   state.daemon = child
+  const dead = await verifyChildAlive(child, waitMs, sleep, logPath)
+  if (dead) return dead
   return { alreadyRunning: false, pid: child.pid }
 }
 
@@ -189,8 +248,8 @@ function attachLogsSse(req, res, dataDir) {
 
 // ---------- HTTP routing ----------
 export function createRequestHandler(ctx) {
-  const { cfg, cfgPath, store, db, dbPath, token, spawnFn, childState, indexHtml, localDayFn } = ctx
-  return function handle(req, res) {
+  const { cfg, cfgPath, store, db, dbPath, token, spawnFn, childState, indexHtml, localDayFn, spawnOpts } = ctx
+  return async function handle(req, res) {
     const url = new NodeURL(req.url, 'http://127.0.0.1')
     const send = (code, body, headers = {}) => {
       res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...headers })
@@ -219,12 +278,14 @@ export function createRequestHandler(ctx) {
       if (!hasValidToken(req, url, token)) { send(403, { error: 'forbidden：CSRF token 缺失或錯誤' }); return }
 
       if (req.method === 'POST' && url.pathname === '/api/run-once') {
-        const r = spawnRunOnce(childState, spawnFn, cfgPath, cfg.dataDir)
+        const r = await spawnRunOnce(childState, spawnFn, cfgPath, cfg.dataDir, spawnOpts)
+        if (r.failed) { send(502, { status: '啟動後隨即退出', exitCode: r.exitCode, log: r.logPath }); return }
         send(r.alreadyRunning ? 409 : 202, r.alreadyRunning ? { status: '已在執行中', pid: r.pid } : { status: 'started', taskId: r.pid })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/daemon/start') {
-        const r = spawnDaemonStart(childState, spawnFn, cfgPath, cfg.dataDir, cfg.stopFile)
+        const r = await spawnDaemonStart(childState, spawnFn, cfgPath, cfg.dataDir, cfg.stopFile, spawnOpts)
+        if (r.failed) { send(502, { status: '啟動後隨即退出（可能 lock-busy／dist 缺失／config 錯）', exitCode: r.exitCode, log: r.logPath }); return }
         send(r.alreadyRunning ? 409 : 202, r.alreadyRunning ? { status: '已在執行中', pid: r.pid } : { status: 'started', pid: r.pid })
         return
       }
