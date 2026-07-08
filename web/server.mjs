@@ -163,14 +163,19 @@ function defaultSleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-/** spawn 後短驗 child 未瞬間退出（審查修正 HIGH：消除誤導性 202）：等 waitMs 後檢查 exitCode，
- * 非 null＝已退出（lock-busy／dist 缺失／config 錯等），回失敗含 exit code 與 console.log 路徑。 */
-async function verifyChildAlive(child, waitMs, sleep, logPath) {
+/** spawn 後短驗 child 的存活/退出（審查修正 HIGH：消除誤導性 202）。等 waitMs 後看 exitCode，
+ * 依進程類型分三態（B1 覆核回歸修正）：
+ * - exitCode === null（仍在跑，長任務）→ null（呼叫端回 started）
+ * - exitCode === 0 且 treatCleanExitAsSuccess（run-once 語意：單輪進程乾淨退出＝正常完成，如
+ *   idle／快 blocked／快 done）→ { cleanExit: true }（呼叫端回 completed，非失敗）
+ * - 其餘退出（run-once 非 0；daemon 任何值含 0，daemon 本該長命，800ms 內退出＝lock-busy／
+ *   dist 缺失／config 錯）→ { failed, exitCode, logPath } */
+async function verifyChildExit(child, waitMs, sleep, logPath, treatCleanExitAsSuccess) {
   await sleep(waitMs)
-  if (child.exitCode !== null && child.exitCode !== undefined) {
-    return { failed: true, exitCode: child.exitCode, logPath }
-  }
-  return null
+  const ec = child.exitCode
+  if (ec === null || ec === undefined) return null
+  if (treatCleanExitAsSuccess && ec === 0) return { cleanExit: true }
+  return { failed: true, exitCode: ec, logPath }
 }
 
 export async function spawnRunOnce(state, spawnFn, cfgPath, dataDir, opts = {}) {
@@ -181,8 +186,10 @@ export async function spawnRunOnce(state, spawnFn, cfgPath, dataDir, opts = {}) 
   const logFd = openSync(logPath, 'a')
   const child = spawnFn(process.execPath, [DIST_CLI, 'run-once', '--config', cfgPath], { stdio: ['ignore', logFd, logFd] })
   state.runOnce = child
-  const dead = await verifyChildAlive(child, waitMs, sleep, logPath)
-  if (dead) return dead
+  // run-once 三態：treatCleanExitAsSuccess=true——exit 0 快退＝完成，只有 exit≠0 才算失敗。
+  const outcome = await verifyChildExit(child, waitMs, sleep, logPath, true)
+  if (outcome?.failed) return outcome
+  if (outcome?.cleanExit) return { alreadyRunning: false, pid: child.pid, completed: true }
   return { alreadyRunning: false, pid: child.pid }
 }
 
@@ -206,8 +213,9 @@ export async function spawnDaemonStart(state, spawnFn, cfgPath, dataDir, stopFil
   })
   if (typeof child.unref === 'function') child.unref() // 測試注入的假 child 可能無此方法
   state.daemon = child
-  const dead = await verifyChildAlive(child, waitMs, sleep, logPath)
-  if (dead) return dead
+  // daemon 語意：treatCleanExitAsSuccess=false——800ms 內任何退出（含 exit 0）皆算失敗（daemon 本該長命）。
+  const outcome = await verifyChildExit(child, waitMs, sleep, logPath, false)
+  if (outcome?.failed) return outcome
   return { alreadyRunning: false, pid: child.pid }
 }
 
@@ -280,7 +288,9 @@ export function createRequestHandler(ctx) {
       if (req.method === 'POST' && url.pathname === '/api/run-once') {
         const r = await spawnRunOnce(childState, spawnFn, cfgPath, cfg.dataDir, spawnOpts)
         if (r.failed) { send(502, { status: '啟動後隨即退出', exitCode: r.exitCode, log: r.logPath }); return }
-        send(r.alreadyRunning ? 409 : 202, r.alreadyRunning ? { status: '已在執行中', pid: r.pid } : { status: 'started', taskId: r.pid })
+        if (r.alreadyRunning) { send(409, { status: '已在執行中', pid: r.pid }); return }
+        // run-once 三態：completed＝800ms 內 exit 0 乾淨完成（idle／快 blocked／快 done），仍回 202（成功）。
+        send(202, { status: r.completed ? 'completed' : 'started', taskId: r.pid })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/daemon/start') {

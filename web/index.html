@@ -84,7 +84,12 @@
     const body = await res.json().catch(() => ({}))
     if (res.status === 403) { flash('403：token 錯誤或缺失', true); return }
     if (res.status === 409) { flash('已在執行中（pid=' + body.pid + '）', true); return }
-    flash((res.ok ? 'OK：' : '失敗：') + JSON.stringify(body), !res.ok)
+    if (res.ok) {
+      // run-once 三態：completed＝已完成（快退 exit 0），started＝已啟動（長任務仍在跑）。
+      const label = body.status === 'completed' ? '已完成' : body.status === 'started' ? '已啟動' : ('OK：' + JSON.stringify(body))
+      flash(label, false); return
+    }
+    flash('失敗：' + JSON.stringify(body), true)
   }
 
   document.getElementById('btnRunOnce').onclick = () => post('/api/run-once')

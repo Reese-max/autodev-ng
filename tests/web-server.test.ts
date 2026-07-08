@@ -152,15 +152,26 @@ test('spawnRunOnce：同一 child 存活期間第二次呼叫回 already running
   expect(created.length).toBe(2)
 })
 
-test('spawnRunOnce：spawn 後 child 立即退出（exitCode 非 null）→ 回 failed 含 exitCode 與 log 路徑，非 started', async () => {
+test('spawnRunOnce：spawn 後 child 立即退出且 exitCode≠0 → 回 failed 含 exitCode 與 log 路徑，非 started', async () => {
   const dir = tmp('adng-web-run-fail-')
   const state = createChildState()
-  const spawnFn = () => ({ pid: 123, exitCode: 1, killed: false, args: ['run-once'] }) // 瞬退
+  const spawnFn = () => ({ pid: 123, exitCode: 1, killed: false, args: ['run-once'] }) // 瞬退非 0
   const r = await spawnRunOnce(state, spawnFn, 'cfg.json', dir, FAST)
   expect(r.failed).toBe(true)
   expect(r.exitCode).toBe(1)
   expect(String(r.logPath)).toContain('run-once-console.log')
   expect(r.alreadyRunning).toBeUndefined()
+})
+
+// B1 回歸修正：run-once 快退 exit 0（空 backlog→idle／快 blocked／快 done）＝成功，不得誤報 failed。
+test('spawnRunOnce：spawn 後 child 快退 exit 0（<waitMs）→ 回 completed（成功），非 failed', async () => {
+  const dir = tmp('adng-web-run-clean-')
+  const state = createChildState()
+  const spawnFn = () => ({ pid: 321, exitCode: 0, killed: false, args: ['run-once'] }) // 乾淨快退
+  const r = await spawnRunOnce(state, spawnFn, 'cfg.json', dir, FAST)
+  expect(r.failed).toBeUndefined()
+  expect(r.completed).toBe(true)
+  expect(r.pid).toBe(321)
 })
 
 test('spawnDaemonStart：無活 daemon 時先清掉既有 stopFile 再 spawn；同存活期間防重入', async () => {
@@ -185,6 +196,18 @@ test('spawnDaemonStart：spawn 後 daemon 立即退出（如 lock-busy）→ 回
   expect(r.failed).toBe(true)
   expect(r.exitCode).toBe(3)
   expect(String(r.logPath)).toContain('daemon-console.log')
+})
+
+// B1 語意分界：daemon 與 run-once 相反——daemon 本該長命，800ms 內退出（即使 exit 0，如 lock-busy
+// 後乾淨退）一律 failed，不得比照 run-once 當成功。
+test('spawnDaemonStart：spawn 後 daemon 快退 exit 0（800ms 內）→ 仍回 failed（daemon 語意不變）', async () => {
+  const dir = tmp('adng-web-daemon-clean-')
+  const stopFile = join(dir, '.adng.stop')
+  const state = createChildState()
+  const spawnFn = () => ({ pid: 789, exitCode: 0, killed: false, unref() {}, args: ['daemon'] })
+  const r = await spawnDaemonStart(state, spawnFn, 'cfg.json', dir, stopFile, FAST)
+  expect(r.failed).toBe(true)
+  expect(r.exitCode).toBe(0)
 })
 
 // ---------- daemon 活性改查真 lock（審查修正 HIGH） ----------
@@ -225,13 +248,16 @@ test('stopDaemon：寫入既有 stopFile 機制（scheduler.runOnce 讀取的同
 })
 
 // ---------- HTTP 路由 + CSRF（port 0，測完立即關閉；spawn 全 mock） ----------
-async function withServer(fn: (base: string, created: any[]) => Promise<void>) {
+async function withServer(fn: (base: string, created: any[]) => Promise<void>, spawnOverride?: () => any) {
   const dir = tmp('adng-web-http-')
   writeFileSync(join(dir, 'backlog.md'), '- [ ] t1\n')
   const store = new BacklogStore(join(dir, 'backlog.md'))
   const db = new RunDb(join(dir, 'run.db'))
   const cfg: any = { dataDir: dir, timezoneOffsetHours: 8, dailySoftUsd: 40, dailyHardUsd: 100, stopFile: join(dir, '.adng.stop') }
-  const { spawnFn, created } = fakeSpawn()
+  const created: any[] = []
+  const spawnFn = spawnOverride
+    ? () => { const c = spawnOverride(); created.push(c); return c }
+    : (cmd: string, args: string[]) => { const c: any = { pid: 9000 + created.length, exitCode: null, killed: false, cmd, args, unref() {} }; created.push(c); return c }
   const server = createServer({
     cfg, cfgPath: 'cfg.json', store, db, dbPath: join(dir, 'run.db'), token: 'secret-tok',
     spawnFn, childState: createChildState(), indexHtml: '<html>ok</html>', localDayFn: localDay,
@@ -279,6 +305,25 @@ test('POST /api/run-once 無 token → 403；錯 token → 403；對 token → 2
     expect(created.length).toBe(1)
     expect(created[0].args).toContain('run-once')
   })
+})
+
+test('POST /api/run-once：child 快退 exit 0 → 202（status=completed），非 502（B1 回歸修正）', async () => {
+  await withServer(async (base, created) => {
+    const ok = await fetch(base + '/api/run-once', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
+    expect(ok.status).toBe(202)
+    const body = await ok.json()
+    expect(body.status).toBe('completed')
+    expect(created.length).toBe(1)
+  }, () => ({ pid: 555, exitCode: 0, killed: false, unref() {}, args: ['run-once'] }))
+})
+
+test('POST /api/run-once：child 快退 exit≠0 → 502 failed', async () => {
+  await withServer(async base => {
+    const res = await fetch(base + '/api/run-once', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
+    expect(res.status).toBe(502)
+    const body = await res.json()
+    expect(body.exitCode).toBe(2)
+  }, () => ({ pid: 556, exitCode: 2, killed: false, unref() {}, args: ['run-once'] }))
 })
 
 test('POST /api/daemon/start、/api/daemon/stop 對 token 放行（mock spawn）', async () => {
