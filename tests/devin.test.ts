@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,20 +10,25 @@ import type { Task } from '../src/types.js'
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-devin.mjs')
 const T: Task = { id: 'ab12cd34', text: '修好登入頁', line: 0, status: 'open' }
 
-function engine(mode: string, hashes: (string | undefined)[], timeoutMs = 10_000): DevinEngine {
+// devin-serena-fix：run() 的 projectPath 不可再用 process.cwd()（真專案根目錄）——adapter
+// 會在該 cwd 寫 .devin/config.local.json，指向真 repo 會污染這個 kernel repo 本身；改用
+// 各測試自建的隔離 tmp 目錄（getCommitHash 已 mock，不需要真 git repo）。
+function tmpProject(): string { return mkdtempSync(join(tmpdir(), 'adng-dv-project-')) }
+
+function engine(mode: string, hashes: (string | undefined)[], timeoutMs = 10_000, profileDir = mkdtempSync(join(tmpdir(), 'adng-dv-profile-'))): DevinEngine {
   process.env.FAKE_DEVIN_MODE = mode
   const cache = new PreflightCache(join(mkdtempSync(join(tmpdir(), 'adng-dv-')), 'pf.json'))
   let i = 0
   return new DevinEngine({
     // baseArgs 覆寫成 fixture：測 export 解析與判定邏輯，不打真 devin.exe
     command: process.execPath, baseArgs: [FAKE], timeoutMs, pingTimeoutMs: 10_000,
-    cache, getCommitHash: () => hashes[Math.min(i++, hashes.length - 1)]
+    cache, getCommitHash: () => hashes[Math.min(i++, hashes.length - 1)], profileDir
   })
 }
 
 test('export 解析正常流＋有新 commit → ok、commitHash、usage 記錄於 output、costUsd 0＋costUnknown', async () => {
   const e = engine('ok', ['aaa', 'bbb'])
-  const r = await e.run({ task: T, projectPath: process.cwd() })
+  const r = await e.run({ task: T, projectPath: tmpProject() })
   expect(r.ok).toBe(true)
   expect(r.commitHash).toBe('bbb')
   expect(r.baseCommitHash).toBe('aaa')
@@ -35,7 +40,7 @@ test('export 解析正常流＋有新 commit → ok、commitHash、usage 記錄�
 
 test('prompt-file/export 寫入與清理：內容 UTF-8 無 BOM、LF、含硬話（commit＋反 handoff）；用後兩檔皆刪', async () => {
   const e = engine('ok', ['aaa', 'bbb'])
-  const r = await e.run({ task: T, projectPath: process.cwd(), directive: '修好登入頁\r\nDIRECTIVE-MARKER：port 3210 不要殺' })
+  const r = await e.run({ task: T, projectPath: tmpProject(), directive: '修好登入頁\r\nDIRECTIVE-MARKER：port 3210 不要殺' })
   expect(r.ok).toBe(true)
   expect(r.output).toContain('bom=0') // 無 BOM
   expect(r.output).toContain('cr=0') // CRLF 已正規化為 LF
@@ -51,7 +56,7 @@ test('prompt-file/export 寫入與清理：內容 UTF-8 無 BOM、LF、含硬話
 
 test('export 有效但無 exec git commit 步驟＋無新 commit → no-commit 且附加「export 亦無 exec git commit 步驟」提示', async () => {
   const e = engine('no-exec-commit', ['aaa', 'aaa'])
-  const r = await e.run({ task: T, projectPath: process.cwd() })
+  const r = await e.run({ task: T, projectPath: tmpProject() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toContain('no-commit')
   expect(r.failureReason).toContain('export 亦無 exec git commit 步驟')
@@ -59,7 +64,7 @@ test('export 有效但無 exec git commit 步驟＋無新 commit → no-commit �
 
 test('export 有 exec git commit 步驟、但無新 commit → no-commit 失敗且不附加 export 提示（真相仍是 commit hash）', async () => {
   const e = engine('ok', ['aaa', 'aaa'])
-  const r = await e.run({ task: T, projectPath: process.cwd() })
+  const r = await e.run({ task: T, projectPath: tmpProject() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toContain('no-commit')
   expect(r.failureReason).not.toContain('export 亦無')
@@ -67,7 +72,7 @@ test('export 有 exec git commit 步驟、但無新 commit → no-commit 失敗�
 
 test('silent-fail 防呆：exit 0 但沒寫 export 檔 → ok:false（純 stdout 不可信）', async () => {
   const e = engine('no-export', ['aaa', 'aaa'])
-  const r = await e.run({ task: T, projectPath: process.cwd() })
+  const r = await e.run({ task: T, projectPath: tmpProject() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toContain('silent-fail')
   expect(r.failureReason).toContain('無 export JSON')
@@ -76,14 +81,14 @@ test('silent-fail 防呆：exit 0 但沒寫 export 檔 → ok:false（純 stdout
 
 test('silent-fail 防呆：exit 0 但 export 檔內容非 JSON（損毀）→ ok:false', async () => {
   const e = engine('malformed-export', ['aaa', 'aaa'])
-  const r = await e.run({ task: T, projectPath: process.cwd() })
+  const r = await e.run({ task: T, projectPath: tmpProject() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toContain('silent-fail')
 })
 
 test('exit 非零 → ok:false、stderr 走 [stderr] fallback 附進 output（鐵律 #7 不吞 stderr）', async () => {
   const e = engine('fail', ['aaa', 'aaa'])
-  const r = await e.run({ task: T, projectPath: process.cwd() })
+  const r = await e.run({ task: T, projectPath: tmpProject() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toContain('credit exhausted')
   expect(r.output).toContain('[stderr]')
@@ -93,7 +98,7 @@ test('exit 非零 → ok:false、stderr 走 [stderr] fallback 附進 output（�
 
 test('hang → timeout、costUnknown=true（timeout 輪照樣可能已燒配額）', async () => {
   const e = engine('hang', ['aaa', 'aaa'], 1500)
-  const r = await e.run({ task: T, projectPath: process.cwd() })
+  const r = await e.run({ task: T, projectPath: tmpProject() })
   expect(r.ok).toBe(false)
   expect(r.failureReason).toBe('timeout')
   expect(r.costUnknown).toBe(true)
@@ -112,6 +117,30 @@ test('preflight：no PONG（export silent-fail 形貌）→ 判失敗且 cache �
   expect((await e.preflight()).ok).toBe(false)
   process.env.FAKE_DEVIN_MODE = 'ok'
   expect((await e.preflight()).ok).toBe(false) // 仍是 cache 的壞結果
+})
+
+// ---------------------------------------------------------------------------
+// devin-serena-fix：run()/preflight() 前都要在對應 cwd 寫 .devin/config.local.json 關掉
+// read_config_from（claude/cursor/windsurf 全 false）——源頭讓 devin 這一輪不掛載任何 MCP
+// （含 serena），從源頭消除孤兒＋.serena 污染。
+
+test('run()：在 job.projectPath 寫 .devin/config.local.json 關三個 MCP 匯入來源', async () => {
+  const e = engine('ok', ['aaa', 'bbb'])
+  const project = tmpProject()
+  const r = await e.run({ task: T, projectPath: project })
+  expect(r.ok).toBe(true)
+  const cfg = JSON.parse(readFileSync(join(project, '.devin', 'config.local.json'), 'utf8')) as { read_config_from: Record<string, boolean> }
+  expect(cfg.read_config_from).toEqual({ claude: false, cursor: false, windsurf: false })
+})
+
+test('preflight()：在隔離 profileDir（非 process.cwd()）寫同一份關 MCP 設定，不動真專案 cwd', async () => {
+  const profileDir = mkdtempSync(join(tmpdir(), 'adng-dv-profile-'))
+  const e = engine('ok', ['a'], 10_000, profileDir)
+  const r = await e.preflight()
+  expect(r.ok).toBe(true)
+  const cfg = JSON.parse(readFileSync(join(profileDir, '.devin', 'config.local.json'), 'utf8')) as { read_config_from: Record<string, boolean> }
+  expect(cfg.read_config_from).toEqual({ claude: false, cursor: false, windsurf: false })
+  expect(existsSync(join(process.cwd(), '.devin'))).toBe(false) // 沒污染 kernel repo 自己
 })
 
 // ---------------------------------------------------------------------------
