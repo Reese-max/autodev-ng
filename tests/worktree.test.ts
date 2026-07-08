@@ -1,9 +1,9 @@
 import { expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { cleanupWorktree, mergeBack, prepareWorktree } from '../src/worktree.js'
+import { cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError } from '../src/worktree.js'
 
 function initGitRepo(dir: string): void {
   execFileSync('git', ['init', '-b', 'main'], { cwd: dir, stdio: 'ignore' })
@@ -230,13 +230,79 @@ test('cleanupWorktree：含 node_modules 樣態（嵌套多層＋唯讀檔）的
   expect(branches.trim()).toBe('')
 })
 
-test('cleanupWorktree：worktree 內有真正未提交變更 → 上拋保留現場（安全網語意不因改 rmSync 而丟失）', () => {
+test('cleanupWorktree：worktree 內有真正未提交變更 → 上拋保留現場（安全網語意不因改 rmSync 而丟失），且 marker 仍在原地供 defaultRollback 識別', () => {
   const { repo, worktreesDir } = newRepo()
   const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
   writeFileSync(join(wt.cwd, 'debug-leftover.txt'), 'engine 留下的殘留\n') // 未追蹤、未被 ignore
 
   expect(() => cleanupWorktree(repo, wt.cwd, wt.branch)).toThrow(/未提交變更/)
   expect(existsSync(join(wt.cwd, 'debug-leftover.txt'))).toBe(true) // 現場保留供 debug
+  // M5 Task 2 時序修正（M4 審查 LOW#2）：dirty 上拋時 marker 不得已被刪——
+  // 保留的現場要帶著 marker，defaultRollback 才認得這是 adng 管理的 worktree。
+  expect(existsSync(join(wt.cwd, '.adng-worktree'))).toBe(true)
   const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
   expect(branches).toContain(wt.branch) // 分支也保留
+})
+
+// ---------------------------------------------------------------------------
+// M5 Task 2：M4 移交安全修——verify-then-delete、dirty 清單截前 10 行、
+// prune/branch -d 失敗改拋 WorktreeCleanupPartialError（現場已不在）。
+// ---------------------------------------------------------------------------
+
+test('cleanupWorktree：marker 缺失 → 上拋拒刪，絕不 rmSync（目錄與分支原封不動）', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  const merge = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead)
+  expect(merge.merged).toBe(true)
+  rmSync(join(wt.cwd, '.adng-worktree')) // 模擬 marker 被外力清掉／路徑算錯指到非 adng 目錄
+
+  expect(() => cleanupWorktree(repo, wt.cwd, wt.branch)).toThrow(/marker/)
+  expect(existsSync(wt.cwd)).toBe(true) // 目錄原封不動——verify 不過就沒有任何刪除動作
+  const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
+  expect(branches).toContain(wt.branch)
+})
+
+test('cleanupWorktree：marker taskId 與分支不符 → 上拋拒刪（防路徑算錯誤刪別的任務現場）', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  writeFileSync(join(wt.cwd, '.adng-worktree'), JSON.stringify({ taskId: 'other999', createdAt: new Date().toISOString() }))
+
+  expect(() => cleanupWorktree(repo, wt.cwd, wt.branch)).toThrow(/不符/)
+  expect(existsSync(wt.cwd)).toBe(true)
+})
+
+test('cleanupWorktree：dirty porcelain 清單截前 10 行（防 events 單筆膨脹），並註明總行數', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  for (let i = 1; i <= 15; i++) writeFileSync(join(wt.cwd, `leftover-${String(i).padStart(2, '0')}.txt`), 'x\n')
+
+  let message = ''
+  try {
+    cleanupWorktree(repo, wt.cwd, wt.branch)
+    expect.unreachable('dirty worktree 必須上拋')
+  } catch (err) {
+    message = (err as Error).message
+  }
+  const fileLines = message.split('\n').filter(l => l.startsWith('??'))
+  expect(fileLines).toHaveLength(10) // 只列前 10 行
+  expect(message).toContain('15') // 註明總行數，人工介入時知道還有多少沒列出
+  expect(existsSync(wt.cwd)).toBe(true) // 現場照樣保留
+})
+
+test('cleanupWorktree：rmSync 已成功、branch -d 失敗（未合併分支）→ 拋 WorktreeCleanupPartialError（呼叫端據此記 worktree-cleanup-partial 而非 worktree-kept）', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  // 分支有 commit 但「不」合回 main：目錄乾淨（可刪），但 branch -d 會因未合併而失敗
+  commitFile(wt.cwd, 'feature.txt', 'unmerged\n', 'feat: 未合回的成果')
+
+  let caught: unknown
+  try {
+    cleanupWorktree(repo, wt.cwd, wt.branch)
+  } catch (err) {
+    caught = err
+  }
+  expect(caught).toBeInstanceOf(WorktreeCleanupPartialError)
+  expect(existsSync(wt.cwd)).toBe(false) // 目錄確實已刪（現場已不在，不能再叫 worktree-kept）
+  const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
+  expect(branches).toContain(wt.branch) // git 記錄殘留（branch -d 失敗的本體）
 })

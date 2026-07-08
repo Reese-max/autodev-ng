@@ -4,31 +4,43 @@ import { runProcess } from '../proc.js'
 import type { PreflightCache } from '../preflight.js'
 
 export interface ClaudeCliOpts {
+  /** 觀測用引擎識別（events 的 preflight-failed 等）。M5 引擎矩陣下同一 adapter 可有多檔位
+   * （claude/m3），registry 以 tag 帶入區分；未設維持 'claude-cli'。 */
+  id?: string
   command?: string
   baseArgs?: string[]
   timeoutMs?: number
   pingTimeoutMs?: number
   cache: PreflightCache
   getCommitHash?: (cwd: string) => string | undefined
+  /** M5 Task 1（m3 檔位）：附加環境變數，透傳 runProcess（如 ANTHROPIC_BASE_URL /
+   * ANTHROPIC_AUTH_TOKEN 指向 MiniMax 相容端點）。值由 assemble 層展開 {env:VAR}，不落 log。 */
+  env?: Record<string, string>
+  /** 指定 --model 旗標（如 MiniMax-M3）。未設不加旗標，行為不變。 */
+  model?: string
 }
 
 /** 第一顆真引擎。所有子進程細節交給 runProcess（鐵三角），本檔只管組 prompt 與解讀結果。 */
 export class ClaudeCliEngine implements Engine {
-  readonly id = 'claude-cli'
+  readonly id: string
   private readonly command: string
   private readonly baseArgs: string[]
   private readonly timeoutMs: number
   private readonly pingTimeoutMs: number
   private readonly cache: PreflightCache
   private readonly getCommitHash: (cwd: string) => string | undefined
+  private readonly env?: Record<string, string>
 
   constructor(opts: ClaudeCliOpts) {
+    this.id = opts.id ?? 'claude-cli'
     this.command = opts.command ?? 'claude'
-    this.baseArgs = opts.baseArgs ?? ['-p', '--output-format', 'json', '--dangerously-skip-permissions']
+    const base = opts.baseArgs ?? ['-p', '--output-format', 'json', '--dangerously-skip-permissions']
+    this.baseArgs = opts.model ? [...base, '--model', opts.model] : base
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 90 * 1000 // 舊教訓：cold start 可達 40s+
     this.cache = opts.cache
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
+    this.env = opts.env
   }
 
   async preflight(): Promise<PreflightResult> {
@@ -38,7 +50,7 @@ export class ClaudeCliEngine implements Engine {
     try {
       const r = await runProcess({
         command: this.command, args: this.baseArgs, cwd: process.cwd(),
-        stdinText: 'Reply with exactly: PONG', timeoutMs: this.pingTimeoutMs
+        stdinText: 'Reply with exactly: PONG', timeoutMs: this.pingTimeoutMs, env: this.env
       })
       result = r.stdout.includes('PONG')
         ? { ok: true, detail: `PONG ${r.durationMs}ms` }
@@ -65,7 +77,7 @@ export class ClaudeCliEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const r = await runProcess({
       command: this.command, args: this.baseArgs, cwd: job.projectPath,
-      stdinText: prompt, timeoutMs: this.timeoutMs
+      stdinText: prompt, timeoutMs: this.timeoutMs, env: this.env
     })
 
     // M4 Task 3（真花錢前必修）：以下三種路徑 costUsd 記 0 只是「沒能力解出真值」的佔位，

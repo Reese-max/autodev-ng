@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>autodev-ng 控制台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: -apple-system, "Segoe UI", sans-serif; background: #0f1115; color: #e6e6e6; margin: 0; padding: 24px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: #8a8f98; font-size: 12px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card { background: #171a21; border: 1px solid #2a2e37; border-radius: 8px; padding: 14px 16px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #8a8f98; margin: 0 0 8px; }
+  .big { font-size: 22px; font-weight: 600; }
+  .state-running { color: #4caf50; } .state-idle { color: #64b5f6; }
+  .state-stopped, .state-cost-stopped { color: #ef5350; }
+  .bar { height: 6px; border-radius: 3px; background: #2a2e37; overflow: hidden; margin-top: 8px; }
+  .bar > i { display: block; height: 100%; background: #4caf50; }
+  .bar.warn > i { background: #ffb300; } .bar.hard > i { background: #ef5350; }
+  .btns { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+  button { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 10px 16px; font-size: 13px; cursor: pointer; }
+  button.stop { background: #ef5350; } button.ghost { background: #2a2e37; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #23262e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+  th { color: #8a8f98; font-weight: 500; }
+  .ok-true { color: #4caf50; } .ok-false { color: #ef5350; }
+  section { margin-bottom: 24px; }
+  #log { background: #0b0d11; border: 1px solid #2a2e37; border-radius: 8px; padding: 10px; height: 220px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; }
+  #tokenBox { margin-bottom: 16px; font-size: 12px; color: #8a8f98; }
+  #tokenBox input { background: #171a21; border: 1px solid #2a2e37; color: #e6e6e6; padding: 4px 8px; border-radius: 4px; font-size: 12px; width: 260px; }
+  #msg { font-size: 12px; margin-left: 8px; }
+</style>
+</head>
+<body>
+<h1>autodev-ng 控制台</h1>
+<div class="sub">監看 + 一鍵 run-once + daemon 開關（127.0.0.1:3900，純手動操作）</div>
+
+<div id="tokenBox">CSRF token：<input id="tokenInput" placeholder="從啟動 console 印出的 URL 貼上，或帶 ?token= 開這頁"></div>
+
+<div class="btns">
+  <button id="btnRunOnce">▶ Run Once</button>
+  <button id="btnDaemonStart" class="ghost">⏻ Daemon Start</button>
+  <button id="btnDaemonStop" class="stop">■ Daemon Stop</button>
+  <span id="msg"></span>
+</div>
+
+<div class="grid">
+  <div class="card"><h2>Heartbeat</h2><div id="hbState" class="big">—</div><div id="hbDetail" class="sub"></div></div>
+  <div class="card"><h2>今日成本</h2><div id="costLine" class="big">—</div>
+    <div class="bar" id="costBar"><i style="width:0%"></i></div></div>
+  <div class="card"><h2>Backlog</h2><div id="backlogLine" class="big">—</div></div>
+  <div class="card"><h2>DLQ 積壓</h2><div id="dlqLine" class="big">—</div></div>
+</div>
+
+<section>
+  <h2>Attempts（近 10 筆）</h2>
+  <table><thead><tr><th>時間</th><th>task</th><th>結果</th><th>cost</th><th>detail</th></tr></thead>
+  <tbody id="attemptsBody"></tbody></table>
+</section>
+
+<section>
+  <h2>Events 尾段（自動增量 + 每 3s 快照 50 筆）</h2>
+  <div id="log"></div>
+</section>
+
+<script>
+(function () {
+  const qs = new URLSearchParams(location.search)
+  const tokenInput = document.getElementById('tokenInput')
+  tokenInput.value = qs.get('token') || localStorage.getItem('adng_token') || ''
+  tokenInput.addEventListener('change', () => localStorage.setItem('adng_token', tokenInput.value))
+
+  const msg = document.getElementById('msg')
+  function flash(text, isErr) {
+    msg.textContent = text
+    msg.style.color = isErr ? '#ef5350' : '#4caf50'
+    setTimeout(() => { msg.textContent = '' }, 4000)
+  }
+
+  async function post(path) {
+    const res = await fetch(path, { method: 'POST', headers: { 'x-csrf-token': tokenInput.value } })
+    const body = await res.json().catch(() => ({}))
+    if (res.status === 403) { flash('403：token 錯誤或缺失', true); return }
+    if (res.status === 409) { flash('已在執行中（pid=' + body.pid + '）', true); return }
+    if (res.ok) {
+      // run-once 三態：completed＝已完成（快退 exit 0），started＝已啟動（長任務仍在跑）。
+      const label = body.status === 'completed' ? '已完成' : body.status === 'started' ? '已啟動' : ('OK：' + JSON.stringify(body))
+      flash(label, false); return
+    }
+    flash('失敗：' + JSON.stringify(body), true)
+  }
+
+  document.getElementById('btnRunOnce').onclick = () => post('/api/run-once')
+  document.getElementById('btnDaemonStart').onclick = () => post('/api/daemon/start')
+  document.getElementById('btnDaemonStop').onclick = () => post('/api/daemon/stop')
+
+  const fmt = (n) => (typeof n === 'number' ? n.toFixed(4) : '—')
+
+  function renderStatus(s) {
+    const hb = s.heartbeat
+    const hbState = document.getElementById('hbState')
+    hbState.textContent = hb ? hb.state : '(未跑過)'
+    hbState.className = 'big state-' + (hb ? hb.state : 'idle')
+    document.getElementById('hbDetail').textContent = hb
+      ? `ts=${hb.ts}${hb.currentTask ? '｜task=' + hb.currentTask : ''}` : 'heartbeat.json 不存在'
+
+    document.getElementById('costLine').textContent = `$${fmt(s.cost.today)} / 軟 $${s.cost.soft} · 硬 $${s.cost.hard}`
+    const pct = Math.min(100, (s.cost.today / s.cost.hard) * 100)
+    const bar = document.getElementById('costBar')
+    bar.className = 'bar' + (s.cost.today >= s.cost.hard ? ' hard' : s.cost.today >= s.cost.soft ? ' warn' : '')
+    bar.querySelector('i').style.width = pct + '%'
+
+    document.getElementById('backlogLine').textContent = s.backlogError
+      ? s.backlogError
+      : `open=${s.backlog.open}｜blocked=${s.backlog.blocked}｜done=${s.backlog.done}`
+    document.getElementById('dlqLine').textContent = s.dlqCount + ' 筆'
+
+    const body = document.getElementById('attemptsBody')
+    body.innerHTML = s.attempts.map(a => `<tr>
+      <td>${a.ts ?? ''}</td><td>${a.taskId ?? ''}</td>
+      <td class="ok-${a.ok}">${a.ok ? 'ok' : 'fail'}</td>
+      <td>$${fmt(a.costUsd)}</td><td>${(a.detail ?? '').slice(0, 80)}</td></tr>`).join('')
+
+    const log = document.getElementById('log')
+    const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 10
+    log.textContent = s.events.map(e => `[${e.ts}] ${e.type} ${JSON.stringify(e).slice(0, 200)}`).join('\n')
+    if (atBottom) log.scrollTop = log.scrollHeight
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch('/api/status')
+      renderStatus(await res.json())
+    } catch (err) { flash('status 讀取失敗：' + err, true) }
+  }
+  poll()
+  setInterval(poll, 3000)
+
+  // SSE：新事件即時追加到 log 尾端（不等 3s 輪詢）。
+  try {
+    const es = new EventSource('/api/logs')
+    es.onmessage = (ev) => {
+      const log = document.getElementById('log')
+      const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 10
+      log.textContent += '\n[live] ' + ev.data
+      if (atBottom) log.scrollTop = log.scrollHeight
+    }
+  } catch { /* SSE 非必要，輪詢仍可運作 */ }
+})()
+</script>
+</body>
+</html>

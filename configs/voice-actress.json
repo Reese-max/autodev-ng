@@ -11,5 +11,18 @@
   "discordChannelId": "1523117277527146507",
   "timezoneOffsetHours": 8,
   "failureCostEstimateUsd": 3,
+  "defaultEngine": "claude",
+  "engines": {
+    "claude": { "adapter": "claude-cli" },
+    "m3": {
+      "adapter": "claude-cli",
+      "costPerRunUsd": 0.5,
+      "model": "{env:MINIMAX_MODEL}",
+      "env": {
+        "ANTHROPIC_BASE_URL": "{env:MINIMAX_BASE_URL}",
+        "ANTHROPIC_AUTH_TOKEN": "{env:MINIMAX_API_KEY}"
+      }
+    }
+  },
   "extraDirective": "commit 用 conventional commit（feat/fix 優先；repo 有 chore-guard hook 會在 chore 類 commit 比例過高時拒絕 chore/docs/refactor/test 開頭的 commit）。dev server 固定佔用 port 3210，驗證前不要自行啟動 dev server；若 port 3210 被佔用，那是使用者的進程，不要殺它。"
 }

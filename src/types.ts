@@ -5,6 +5,12 @@ export interface Task {
   text: string
   line: number
   status: 'open' | 'done' | 'blocked'
+  /** M5 Task 1：行內 `[engine:xxx]` tag（行首或行尾）。解析時從 text 剝離、不入 taskId 雜湊
+   * ——無 tag 任務的雜湊因此完全不變（硬回歸線：既有 done 行 id 不得漂移）。 */
+  engineTag?: string
+  /** 寫回檔案用的任務原文（含 engine tag、不含 adng 註記）。鐵律 #1：系統只改勾選狀態與
+   * 行尾註記，絕不改寫使用者的任務文字——tag 剝離只發生在解讀層，寫回時必須原樣保留。 */
+  rawText?: string
 }
 
 export type Disposition =
@@ -42,11 +48,33 @@ export interface Engine {
   run(job: Job): Promise<RunResult>
 }
 
+/** M5 Task 1：per-task 引擎解析。scheduler 依任務 tag（或 cfg.defaultEngine）按需取引擎
+ * （registry 按需建、可 cache——實作在 assemble 層 cli.ts）。resolve 拋錯＝引擎無法建立
+ * （adapter 未實作／env 引用缺失），scheduler 歸 blocked(engine-not-allowed)。 */
+export interface EngineResolver {
+  resolve(tag: string): Engine
+}
+
+/** 引擎矩陣單格設定。adapter 列全矩陣（M5 Task 3-8 逐一落地；未實作的 adapter 在
+ * resolve 時報錯而非 schema 擋掉——config 可以先寫好等 adapter 上線）。
+ * costPerRunUsd：非真值引擎的固定成本估計，成功失敗一律入帳此值；未設＝真值引擎。僅 claude-cli/mock/opencode
+ * 可不設（opencode 的 zen NDJSON cost 為可信真值，設 0 會令 scheduler 的 fixedCost ?? 真值恆取 0 變死碼——
+ * spec 矩陣定為不設），其餘 adapter 由 ConfigSchema 的 superRefine 強制必設（免費引擎明確寫 0）。 */
+export const EngineConfigSchema = z.object({
+  adapter: z.enum(['mock', 'claude-cli', 'codex', 'agy', 'copilot', 'qwen', 'grok', 'opencode']),
+  command: z.string().optional(), // CLI 執行檔覆寫（如 opencode.exe 不在 PATH 時指完整路徑）；Task 8 起 opencode 接線，其餘 adapter 按需跟進
+  costPerRunUsd: z.number().nonnegative().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  model: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional()
+})
+export type EngineConfig = z.infer<typeof EngineConfigSchema>
+
 export const ConfigSchema = z.object({
   projectPath: z.string().min(1),
   backlogFile: z.string().min(1),
   dataDir: z.string().min(1),
-  engine: z.enum(['mock', 'claude-cli']),
+  engine: z.enum(['mock', 'claude-cli']).optional(), // legacy 欄位：純新形狀（只寫 engines map）可缺；與 engines 全缺由 superRefine 拒
   maxAttempts: z.number().int().positive().default(2),
   dailySoftUsd: z.number().positive().default(40),
   dailyHardUsd: z.number().positive().default(100),
@@ -66,6 +94,22 @@ export const ConfigSchema = z.object({
   judgeModel: z.string().default('gpt-5.4-mini'),
   judgeApiKey: z.string().default('sk-any'),
   discordChannelId: z.string().optional(),
-  discordTokenFile: z.string().default('C:/Users/Administrator/openab/.env.tokens')
+  discordTokenFile: z.string().default('C:/Users/Administrator/openab/.env.tokens'),
+  // M5 Task 1（引擎矩陣）：engines＝本專案引擎白名單（tag → 引擎設定），defaultEngine＝
+  // 無 tag 任務的預設 tag。engines 未設時於下方 transform 依 legacy engine 欄位補
+  // { claude: { adapter: <engine> } }——既有 config（如 voice-actress.json 不加 engines 段）
+  // 行為完全不變（向後相容硬線）。
+  engines: z.record(z.string(), EngineConfigSchema).optional(),
+  defaultEngine: z.string().default('claude')
 })
+  .superRefine((c, ctx) => {
+    if (!c.engines && !c.engine) ctx.addIssue({ code: 'custom', path: ['engine'], message: 'engines map 與 legacy engine 欄位至少須設一個' })
+    for (const [tag, ec] of Object.entries(c.engines ?? {})) {
+      if (ec.adapter === 'agy' && ec.env) ctx.addIssue({ code: 'custom', path: ['engines', tag, 'env'], message: `engines.${tag}：agy 不消費 env（WSL 邊界不透傳），設了會靜默無效` })
+      if (!['claude-cli', 'mock', 'opencode'].includes(ec.adapter) && ec.costPerRunUsd === undefined)
+        ctx.addIssue({ code: 'custom', path: ['engines', tag, 'costPerRunUsd'], message: `engines.${tag}：adapter ${ec.adapter} 無成本真值，必須設 costPerRunUsd（免費引擎明確寫 0）` })
+    }
+  })
+  .transform(c => ({ ...c, engines: c.engines ?? { claude: { adapter: c.engine ?? 'claude-cli' } } }))
+  .refine(c => c.defaultEngine in c.engines, { message: 'defaultEngine 必須存在於 engines 白名單內', path: ['defaultEngine'] })
 export type Config = z.infer<typeof ConfigSchema>

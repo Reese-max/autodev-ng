@@ -44,7 +44,7 @@ test('saveCooldownTable 寫入失敗（模擬磁碟故障）→ 告警照發、d
     cfg,
     store: new BacklogStore(backlogFile),
     db: new RunDb(join(dir, 'run.db')),
-    engine: new MockEngine(),
+    engines: { resolve: () => new MockEngine() },
     events: new EventLog(cfg.dataDir),
   }
   deps.db.record({ taskId: 'z', ok: true, costUsd: 999, detail: 'burn' }) // 觸發 cost-hard-stop（可告警結果）

@@ -17,6 +17,9 @@ export function runProcess(opts: {
   stdinText: string
   timeoutMs: number
   maxOutputChars?: number
+  /** M5 Task 1：附加環境變數（疊在 process.env 上），供 m3 檔位注入 ANTHROPIC_BASE_URL
+   * 等相容端點設定。未設時不帶 env 參數，行為與舊版完全一致（繼承父進程環境）。 */
+  env?: Record<string, string>
 }): Promise<ProcResult> {
   return new Promise(resolve => {
     const t0 = Date.now()
@@ -25,7 +28,8 @@ export function runProcess(opts: {
       cwd: opts.cwd,
       shell: false,
       windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      ...(opts.env ? { env: { ...process.env, ...opts.env } } : {})
     })
     // Node 內建 StringDecoder 跨 chunk 緩衝多位元組字元，防 zh-TW 輸出腰斬亂碼
     child.stdout.setEncoding('utf8')

@@ -163,6 +163,15 @@ export function mergeBack(projectPath: string, branch: string, expectedBaseBranc
   return { merged: true, commitHash }
 }
 
+/** M5 Task 2：rmSync 成功「之後」的 git 記錄清理（prune／branch -d）失敗專用錯誤型別。
+ * 呼叫端（scheduler）據此分流事件：現場還在（rmSync 前失敗）→ worktree-kept；現場已不在、
+ * 僅 git 記錄殘留 → worktree-cleanup-partial（誤記 kept 會誤導人工介入去找一個不存在的目錄）。 */
+export class WorktreeCleanupPartialError extends Error {}
+
+/** dirty porcelain 清單只帶前 10 行進錯誤訊息（M5 Task 2）：錯誤全文會落 events.jsonl 單筆，
+ * engine 留下上千個未追蹤檔時不可讓單筆事件膨脹。 */
+const DIRTY_LIST_MAX_LINES = 10
+
 /**
  * 合回成功後呼叫：清掉 worktree 目錄 + 分支。保留原「安全版 `git worktree remove`（非 --force）」
  * 的安全網語意：若 worktree 內還有真正的未提交變更/未追蹤檔（例如引擎留下的除錯殘留、非預期產物；判準＝status --porcelain 非空），
@@ -170,19 +179,46 @@ export function mergeBack(projectPath: string, branch: string, expectedBaseBranc
  * 但刪目錄改用 Node 原生 rmSync：實戰中 engine 在 worktree 內跑過 npm install 後，git remove
  * 要刪含 node_modules 的數百 MB 目錄會超過 execFileSync timeout（ETIMEDOUT → 殘留永久堆積，
  * done 任務無下輪自癒）；rmSync 無 timeout 問題（force:true 亦涵蓋 Windows 唯讀檔），刪完再
- * prune 掉 git 的 worktree 登記。而我們自己寫的 `.adng-worktree` 旗標檔本來就不受 git 追蹤，
- * 純粹是 kernel 自己的 bookkeeping，不該以「untracked file」身分擋下這個安全網，所以先把它
- * 刪掉（容忍失敗——清不掉就讓後面的 status 自然把它列為 dirty，不吞真正的問題）。
+ * prune 掉 git 的 worktree 登記。
+ * M5 Task 2（verify-then-delete，對齊 verifier 紅線 3 的 marker 守門精神）：任何刪除動作前
+ * 先驗 `.adng-worktree` marker 存在且 taskId 與分支相符——讀不到或不符即上拋拒刪，絕不對
+ * 來路不明的目錄 rmSync（防路徑算錯誤刪使用者目錄／別的任務現場）。時序修正（M4 審查
+ * LOW#2）：dirty 檢查移到 marker 驗證之後、刪 marker 之前——dirty 上拋保留的現場必須帶著
+ * marker，defaultRollback 才認得這是 adng 管理的 worktree。marker 本就是 kernel bookkeeping
+ * （已寫進 .git/info/exclude），不以 untracked 身分擋安全網——exclude 寫入失敗（fail-open
+ * 殘留）時由 porcelain 過濾兜底。
  */
 export function cleanupWorktree(projectPath: string, worktreePath: string, branch: string): void {
+  const markerPath = join(worktreePath, WORKTREE_MARKER)
+  let markerTaskId: string | undefined
   try {
-    rmSync(join(worktreePath, WORKTREE_MARKER), { force: true })
-  } catch {
-    // 容忍：見上方註解
+    markerTaskId = (JSON.parse(readFileSync(markerPath, 'utf8')) as { taskId?: string }).taskId
+  } catch (err) {
+    throw new Error(`cleanupWorktree: ${worktreePath} 讀不到 ${WORKTREE_MARKER} marker（非 adng 管理的 worktree？），拒絕刪除：${String(err)}`)
   }
-  const dirty = git(['status', '--porcelain'], worktreePath, ADD_REMOVE_TIMEOUT_MS).trim()
-  if (dirty !== '') throw new Error(`cleanupWorktree: worktree 尚有未提交變更，保留現場 ${worktreePath}：\n${dirty}`)
+  const expectedTaskId = branch.startsWith('adng/') ? branch.slice('adng/'.length) : branch
+  if (markerTaskId !== expectedTaskId) {
+    throw new Error(`cleanupWorktree: marker taskId(${String(markerTaskId)}) 與分支 ${branch} 不符，拒絕刪除 ${worktreePath}`)
+  }
+
+  const dirtyLines = git(['status', '--porcelain'], worktreePath, ADD_REMOVE_TIMEOUT_MS)
+    .split('\n').map(l => l.trimEnd()).filter(l => l !== '' && l.slice(3) !== WORKTREE_MARKER)
+  if (dirtyLines.length > 0) {
+    const shown = dirtyLines.slice(0, DIRTY_LIST_MAX_LINES).join('\n')
+    const more = dirtyLines.length > DIRTY_LIST_MAX_LINES ? `\n…（共 ${dirtyLines.length} 行，僅列前 ${DIRTY_LIST_MAX_LINES} 行）` : ''
+    throw new Error(`cleanupWorktree: worktree 尚有未提交變更，保留現場 ${worktreePath}：\n${shown}${more}`)
+  }
+
+  try {
+    rmSync(markerPath, { force: true })
+  } catch {
+    // 容忍：marker 清不掉就隨下面整個目錄的 rmSync 一起被帶走
+  }
   rmSync(worktreePath, { recursive: true, force: true, maxRetries: 5 })
-  git(['worktree', 'prune'], projectPath, QUICK_TIMEOUT_MS)
-  git(['branch', '-d', branch], projectPath, QUICK_TIMEOUT_MS)
+  try {
+    git(['worktree', 'prune'], projectPath, QUICK_TIMEOUT_MS)
+    git(['branch', '-d', branch], projectPath, QUICK_TIMEOUT_MS)
+  } catch (err) {
+    throw new WorktreeCleanupPartialError(`cleanupWorktree: 目錄已刪，僅 git 記錄清理失敗（prune/branch -d）：${String(err)}`)
+  }
 }
