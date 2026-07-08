@@ -166,3 +166,22 @@ test('preflight 失敗也寫 cache（不連環重打死引擎）', async () => {
   process.env.FAKE_MODE = 'ok'
   expect((await e.preflight()).ok).toBe(false)
 })
+
+// ---------------------------------------------------------------------------
+// 統一小修輪：marker hex 白名單校驗（#4）＋print-timeout 地板（#3）
+
+test('小修輪#4：task.id 非 hex → run 拒組 pkill -f marker（防注入 pattern，defense-in-depth）', async () => {
+  const { e } = makeEngine('ok', ['aaa', 'bbb'])
+  const bad: Task = { id: 'evil; rm -rf /', text: 'x', line: 0, status: 'open' }
+  await expect(e.run({ task: bad, projectPath: process.cwd() })).rejects.toThrow(/非 hex/)
+})
+
+test('小修輪#3：print-timeout 地板 1s——wall<30s 時不再被舊 30s 地板頂破「print-timeout ≤ wall」不變式', async () => {
+  // budgetMs = timeoutMs - 30s buffer = 5000-30000 = 負 → 地板生效。新地板 max(1,…)=1s（≤5s wall，守不變式）；
+  // 舊地板 max(30,…) 會給 30s（>5s wall，破不變式）。
+  const { e, logFile } = makeEngine('ok', ['aaa', 'bbb'], { timeoutMs: 5_000 })
+  await e.run({ task: T, projectPath: process.cwd() })
+  const call = loggedCalls(logFile)[0]!
+  const idx = call.indexOf('--print-timeout')
+  expect(call[idx + 1]).toBe('1s')
+})

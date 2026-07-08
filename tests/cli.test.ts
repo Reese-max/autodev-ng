@@ -191,7 +191,7 @@ test('runNotifyTest：送達失敗（非 2xx）→ ok false', async () => {
 test('assemble：config 缺必填欄位 → throw 人話訊息含「設定檔欄位錯誤」、路徑與欄位名', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-cli-'))
   const cfgPath = join(dir, 'config.json')
-  // 缺 backlogFile / dataDir / engine 三個必填欄位
+  // 缺 backlogFile / dataDir 兩個必填 base 欄位
   writeFileSync(cfgPath, JSON.stringify({ projectPath: './project' }))
 
   let caught: unknown
@@ -206,7 +206,41 @@ test('assemble：config 缺必填欄位 → throw 人話訊息含「設定檔欄
   expect(msg).toContain(cfgPath)
   expect(msg).toContain('backlogFile')
   expect(msg).toContain('dataDir')
-  expect(msg).toContain('engine')
+})
+
+test('小修輪#6：legacy engine 改 optional，但 engines 與 engine 全缺（base 欄位齊全）→ superRefine 拒、訊息點名 engine', () => {
+  // engine 不再是無條件必填 base 欄位（純新形狀只寫 engines map 可缺）；「兩者全缺」改由 superRefine 擋。
+  const r = ConfigSchema.safeParse({ projectPath: './p', backlogFile: './p/B.md', dataDir: './d' })
+  expect(r.success).toBe(false)
+  if (!r.success) expect(r.error.issues.some(i => i.path.includes('engine'))).toBe(true)
+})
+
+test('小修輪#6：純新形狀 config（只寫 engines map、無 legacy engine 欄位）→ schema 通過', () => {
+  const r = ConfigSchema.safeParse({
+    projectPath: './p', backlogFile: './p/B.md', dataDir: './d',
+    engines: { claude: { adapter: 'claude-cli' } }, defaultEngine: 'claude',
+  })
+  expect(r.success).toBe(true)
+})
+
+test('小修輪#5：非真值 adapter 未設 costPerRunUsd → 拒（防成功路徑靜默記 $0）；opencode/claude-cli/mock 豁免', () => {
+  const base = { projectPath: './p', backlogFile: './p/B.md', dataDir: './d', engine: 'claude-cli' as const }
+  // qwen 無 costPerRunUsd → 拒，訊息點名該 tag 的 costPerRunUsd
+  const bad = ConfigSchema.safeParse({ ...base, engines: { claude: { adapter: 'claude-cli' }, q: { adapter: 'qwen' } }, defaultEngine: 'claude' })
+  expect(bad.success).toBe(false)
+  if (!bad.success) expect(bad.error.issues.some(i => i.path.join('.') === 'engines.q.costPerRunUsd')).toBe(true)
+  // opencode(zen) 無 costPerRunUsd → 通過（NDJSON cost 為可信真值，設 0 會令 fixedCost ?? 真值恆取 0 變死碼）
+  const ok = ConfigSchema.safeParse({ ...base, engines: { claude: { adapter: 'claude-cli' }, zen: { adapter: 'opencode' } }, defaultEngine: 'claude' })
+  expect(ok.success).toBe(true)
+})
+
+test('小修輪#2：agy 設了 env → 拒（agy 不透傳 env 過 WSL 邊界，設了會靜默無效）', () => {
+  const r = ConfigSchema.safeParse({
+    projectPath: './p', backlogFile: './p/B.md', dataDir: './d', engine: 'claude-cli',
+    engines: { claude: { adapter: 'claude-cli' }, a: { adapter: 'agy', costPerRunUsd: 0, env: { FOO: 'bar' } } }, defaultEngine: 'claude',
+  })
+  expect(r.success).toBe(false)
+  if (!r.success) expect(r.error.issues.some(i => i.path.join('.') === 'engines.a.env')).toBe(true)
 })
 
 // ---------------------------------------------------------------------------
@@ -323,7 +357,7 @@ test('M5：registry——白名單外 tag 拋錯；codex/agy/grok/qwen/opencode 
     engines: {
       claude: { adapter: 'claude-cli' },
       codex: { adapter: 'codex', costPerRunUsd: 1 },
-      agy: { adapter: 'agy' },
+      agy: { adapter: 'agy', costPerRunUsd: 0 },
       grok: { adapter: 'grok', costPerRunUsd: 0.5 },
       qwen: { adapter: 'qwen', costPerRunUsd: 0.5 },
       zen: { adapter: 'opencode', costPerRunUsd: 0 }

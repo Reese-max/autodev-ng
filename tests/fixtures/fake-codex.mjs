@@ -10,6 +10,13 @@ process.stdin.on('end', () => {
   emit({ type: 'thread.started', thread_id: 't-fake' })
   emit({ type: 'turn.started' })
   if (mode === 'no-turn') { process.exit(0) } // silent-fail 形貌 2：exit 0、有事件但無 turn.completed
+  if (mode === 'poison') { // 毒行混流：垃圾行＋半截 JSON 行夾在合法事件之間（M5 小修 7 專測）
+    process.stdout.write('GARBAGE not-json line ###\n')
+    emit({ type: 'item.completed', item: { type: 'agent_message', text: 'done: poison-mode' } })
+    process.stdout.write('{"type":"item.completed","item":{"type":"agent_m\n') // 半截 JSON（截斷殘行）
+    emit({ type: 'turn.completed', usage: { input_tokens: 7, cached_input_tokens: 0, output_tokens: 3 } })
+    process.exit(0)
+  }
   const isPing = /PONG/.test(input)
   // 回聲前 800 字：足以覆蓋 engine prompt 全文（含 directive 尾段），供測試驗證 prompt 組裝
   emit({ type: 'item.completed', item: { type: 'agent_message', text: isPing ? 'PONG' : 'done: ' + input.slice(0, 800) } })

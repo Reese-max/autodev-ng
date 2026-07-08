@@ -62,11 +62,11 @@ export class AgyEngine implements Engine {
     return [...this.argvPrefix, '--cd', toWslPath(winCwd), '-d', this.distro, '-u', 'root', '--', this.agyBin, ...agyTail]
   }
 
-  /** agy 旗標：--print-timeout 預設僅 5m（規格卡陷阱）→ 明確設為略短於 wall timeout，讓 agy 自己
-   * 先退場（首選緩解）。marker 兼作 positional prompt 尾段：進 Linux 側 agy 的 cmdline，超時補刀
-   * pkill -f 才咬得到（主 prompt 仍走 stdin，不吃 argv 上限）。 */
+  /** agy 旗標：--print-timeout 預設僅 5m（規格卡陷阱）→ 明確設為略短於 wall timeout，讓 agy 自己先退場
+   * （首選緩解）；地板 1s——舊地板 30s 在 wall 極小時反破壞「print-timeout ≤ wall」不變式。marker 兼作
+   * positional prompt 尾段：進 Linux 側 agy 的 cmdline，超時補刀 pkill -f 才咬得到（主 prompt 仍走 stdin）。 */
   private agyFlags(budgetMs: number, marker?: string): string[] {
-    const flags = ['-p', '--dangerously-skip-permissions', '--print-timeout', `${Math.max(30, Math.floor(budgetMs / 1000))}s`]
+    const flags = ['-p', '--dangerously-skip-permissions', '--print-timeout', `${Math.max(1, Math.floor(budgetMs / 1000))}s`]
     if (this.model !== undefined) flags.push('--model', this.model)
     if (marker !== undefined) flags.push(marker)
     return flags
@@ -93,6 +93,8 @@ export class AgyEngine implements Engine {
   }
 
   async run(job: Job): Promise<RunResult> {
+    // marker 進 pkill -f pattern（killByMarker）：taskId=hex 的隱性契約改顯性白名單驗證（defense-in-depth）
+    if (!/^[0-9a-f]+$/i.test(job.task.id)) throw new Error(`task.id 非 hex，拒組 pkill marker：${job.task.id.slice(0, 40)}`)
     const marker = `adng-run-${job.task.id}-${randomBytes(4).toString('hex')}`
     const prompt = [
       `你是自動開發工人。完成以下這一項任務。`,
@@ -139,9 +141,7 @@ export class AgyEngine implements Engine {
   }
 }
 
-function tail(s: string, n = 2000): string {
-  return s.length > n ? s.slice(-n) : s
-}
+function tail(s: string, n = 2000): string { return s.length > n ? s.slice(-n) : s }
 function defaultCommitHash(cwd: string): string | undefined {
   try {
     return execFileSync('git', ['-C', cwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 }).trim()

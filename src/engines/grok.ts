@@ -120,12 +120,12 @@ export class GrokEngine implements Engine {
 }
 
 /** 單一 JSON 物件，但真探針實錄：--output-format json 是 **pretty-printed 多行** JSON
- * （非單行）→ 由下往上找「從該行起到文末」可解析的尾段：容前綴毒行、兼容單行 JSON。 */
-function parseResultJson(stdout: string): Record<string, unknown> | null {
+ * （非單行）→ 由下往上找「從該行起到文末」可解析的尾段：容前綴毒行、兼容單行 JSON。導出供測試。 */
+export function parseResultJson(stdout: string): Record<string, unknown> | null {
   const lines = stdout.split(/\r?\n/)
   for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i]!.trimStart().startsWith('{')) continue // 便宜前置檢查：非 { 開頭的雜訊行不進 join+parse（防大量尾隨雜訊 O(n²) 退化，審查實測 640KB→1.3s）
     const s = lines.slice(i).join('\n').trim()
-    if (!s.startsWith('{')) continue
     try {
       const v = JSON.parse(s) as unknown
       if (typeof v === 'object' && v !== null) return v as Record<string, unknown>

@@ -32,6 +32,14 @@ test('JSONL 正常流＋有新 commit → ok、commitHash、tokens 記錄於 out
   expect(r.costUnknown).toBe(true) // scheduler 依 config costPerRunUsd 入帳，此 0 只是佔位
 })
 
+test('JSONL 毒行專測（M5 小修 7）：合法事件＋垃圾行＋半截 JSON 行混流 → 不炸、turn.completed/usage 正常取值、ok', async () => {
+  const e = engine('poison', ['aaa', 'bbb'])
+  const r = await e.run({ task: T, projectPath: process.cwd() })
+  expect(r.ok).toBe(true)
+  expect(r.output).toContain('done: poison-mode') // 毒行被跳過，agent_message 仍被撈到
+  expect(r.output).toContain('in=7') // turn.completed 的 usage 也正常取值
+})
+
 test('silent-fail 防呆：exit 0 零輸出 → ok:false（踩雷 §13＋codex silent-fail 前科）', async () => {
   const e = engine('empty', ['aaa', 'aaa'])
   const r = await e.run({ task: T, projectPath: process.cwd() })

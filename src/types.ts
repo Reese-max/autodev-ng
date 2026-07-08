@@ -57,8 +57,9 @@ export interface EngineResolver {
 
 /** 引擎矩陣單格設定。adapter 列全矩陣（M5 Task 3-8 逐一落地；未實作的 adapter 在
  * resolve 時報錯而非 schema 擋掉——config 可以先寫好等 adapter 上線）。
- * costPerRunUsd：非 claude 真值引擎的固定成本估計，成功失敗一律入帳此值；
- * 未設＝真值引擎（claude），保留真值解析與 costUnknown→failureCostEstimateUsd 語意。 */
+ * costPerRunUsd：非真值引擎的固定成本估計，成功失敗一律入帳此值；未設＝真值引擎。僅 claude-cli/mock/opencode
+ * 可不設（opencode 的 zen NDJSON cost 為可信真值，設 0 會令 scheduler 的 fixedCost ?? 真值恆取 0 變死碼——
+ * spec 矩陣定為不設），其餘 adapter 由 ConfigSchema 的 superRefine 強制必設（免費引擎明確寫 0）。 */
 export const EngineConfigSchema = z.object({
   adapter: z.enum(['mock', 'claude-cli', 'codex', 'agy', 'copilot', 'qwen', 'grok', 'opencode']),
   command: z.string().optional(), // CLI 執行檔覆寫（如 opencode.exe 不在 PATH 時指完整路徑）；Task 8 起 opencode 接線，其餘 adapter 按需跟進
@@ -73,7 +74,7 @@ export const ConfigSchema = z.object({
   projectPath: z.string().min(1),
   backlogFile: z.string().min(1),
   dataDir: z.string().min(1),
-  engine: z.enum(['mock', 'claude-cli']),
+  engine: z.enum(['mock', 'claude-cli']).optional(), // legacy 欄位：純新形狀（只寫 engines map）可缺；與 engines 全缺由 superRefine 拒
   maxAttempts: z.number().int().positive().default(2),
   dailySoftUsd: z.number().positive().default(40),
   dailyHardUsd: z.number().positive().default(100),
@@ -101,9 +102,14 @@ export const ConfigSchema = z.object({
   engines: z.record(z.string(), EngineConfigSchema).optional(),
   defaultEngine: z.string().default('claude')
 })
-  .transform(c => ({ ...c, engines: c.engines ?? { claude: { adapter: c.engine } } }))
-  .refine(c => c.defaultEngine in c.engines, {
-    message: 'defaultEngine 必須存在於 engines 白名單內',
-    path: ['defaultEngine']
+  .superRefine((c, ctx) => {
+    if (!c.engines && !c.engine) ctx.addIssue({ code: 'custom', path: ['engine'], message: 'engines map 與 legacy engine 欄位至少須設一個' })
+    for (const [tag, ec] of Object.entries(c.engines ?? {})) {
+      if (ec.adapter === 'agy' && ec.env) ctx.addIssue({ code: 'custom', path: ['engines', tag, 'env'], message: `engines.${tag}：agy 不消費 env（WSL 邊界不透傳），設了會靜默無效` })
+      if (!['claude-cli', 'mock', 'opencode'].includes(ec.adapter) && ec.costPerRunUsd === undefined)
+        ctx.addIssue({ code: 'custom', path: ['engines', tag, 'costPerRunUsd'], message: `engines.${tag}：adapter ${ec.adapter} 無成本真值，必須設 costPerRunUsd（免費引擎明確寫 0）` })
+    }
   })
+  .transform(c => ({ ...c, engines: c.engines ?? { claude: { adapter: c.engine ?? 'claude-cli' } } }))
+  .refine(c => c.defaultEngine in c.engines, { message: 'defaultEngine 必須存在於 engines 白名單內', path: ['defaultEngine'] })
 export type Config = z.infer<typeof ConfigSchema>

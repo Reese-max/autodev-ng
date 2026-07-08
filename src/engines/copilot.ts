@@ -106,7 +106,9 @@ export function buildPrompt(job: Job): string {
   const full = `${head}\n${hard}`
   if (full.length <= PROMPT_MAX) return full
   const marker = '\n…[adng: prompt 截長]…\n'
-  return `${head.slice(0, PROMPT_MAX - hard.length - marker.length)}${marker}${hard}`
+  const cut = PROMPT_MAX - hard.length - marker.length
+  const cc = head.charCodeAt(cut - 1) // 切點落在 surrogate pair 中間會產生落單 high surrogate → argv 亂碼（審查實測 d83d→U+FFFD）：高位落點退一位
+  return `${head.slice(0, cc >= 0xd800 && cc <= 0xdbff ? cut - 1 : cut)}${marker}${hard}`
 }
 
 interface CopilotResult { exitCode?: number; premiumRequests?: number; codeChanges?: { linesAdded?: number; linesRemoved?: number; filesModified?: string[] } }

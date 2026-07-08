@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { GrokEngine } from '../src/engines/grok.js'
+import { GrokEngine, parseResultJson } from '../src/engines/grok.js'
 import { PreflightCache } from '../src/preflight.js'
 import type { Task } from '../src/types.js'
 
@@ -114,4 +114,19 @@ test('preflight：exit 0 但無可解析 JSON（grok models 謊報類故障形�
   expect((await e.preflight()).ok).toBe(false)
   process.env.FAKE_GROK_MODE = 'ok'
   expect((await e.preflight()).ok).toBe(false) // 仍是 cache 的壞結果
+})
+
+// ---------------------------------------------------------------------------
+// 統一小修輪#8：parseResultJson 前置 startsWith 便宜檢查（防大量尾隨雜訊 O(n²) 退化）
+
+test('小修輪#8：parseResultJson 容前綴毒行、由下往上找到延伸至文末的 pretty JSON', () => {
+  const pretty = '{\n  "ok": true,\n  "n": 42\n}'
+  const out = `telemetry noise 1\nnot json line\n${pretty}` // JSON 延伸到文末
+  const v = parseResultJson(out)
+  expect(v).not.toBeNull()
+  expect(v!.n).toBe(42)
+})
+
+test('小修輪#8：純雜訊（無 { 開頭行）→ null（便宜跳過每行，不進 join+parse）', () => {
+  expect(parseResultJson('noise a\nnoise b\nnoise c')).toBeNull()
 })

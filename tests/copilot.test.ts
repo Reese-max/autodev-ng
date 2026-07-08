@@ -66,6 +66,15 @@ test('argv 截長：directive 超長 → prompt ≤6000、任務開頭保留、c
   expect(r.output).toContain('嚴禁自行新增任務') // argv 尾端硬話真的送達 CLI
 })
 
+test('surrogate pair 切點防呆（M5 小修 1）：截 6000 落在 emoji pair 中間 → 退一位，不產生落單 surrogate', () => {
+  for (const pad of ['', 'x']) { // 兩種奇偶對齊輪流測：切點必有一種落在 pair 正中間
+    const p = buildPrompt({ task: T, projectPath: process.cwd(), directive: `${pad}${'😀'.repeat(8000)}` })
+    expect(p.length).toBeLessThanOrEqual(6000)
+    // u 旗標下 lone surrogate 類別只匹配未成對的 surrogate（成對者是單一 code point 不進此類別）
+    expect(/[\uD800-\uDFFF]/u.test(p)).toBe(false) // 無落單 surrogate（落單→argv 轉碼 U+FFFD 亂碼，審查實測）
+  }
+})
+
 test('argv 無截斷（短 prompt）：全文原樣送達、directive 優先於 task.text', async () => {
   const e = engine('ok', ['aaa', 'bbb'])
   const r = await e.run({ task: T, projectPath: process.cwd(), directive: '修好登入頁\nDIRECTIVE-MARKER：port 3210 不要殺' })

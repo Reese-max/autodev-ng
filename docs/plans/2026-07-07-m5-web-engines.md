@@ -21,7 +21,7 @@
 | copilot | copilot CLI | 0.2 | gpt-5-mini 0x≈免費但慢 |
 | qwen | qwen --auth-type openai → 8317 | 0.5 | 燒 ChatGPT 訂閱 |
 | grok | grok -p --output-format json | 0.5 | 無 usage 欄位 |
-| zen | opencode zen/big-pickle | 0 | 僅非專案雜務 |
+| zen | opencode zen/big-pickle | **不設**（NDJSON cost 真值直用） | 僅非專案雜務；設 0 會令 scheduler `fixedCost ?? 真值` 恆取 0，把 opencode 的 cost 真值設計變死碼——故 schema superRefine 對 opencode 豁免 costPerRunUsd 必填 |
 
 **Architecture:** Task 1（路由+config 骨架，kernel）→ Task 2（M4 移交安全修，kernel）→ Task 3-8（adapter 各一，互相獨立可亂序；每個 adapter 含單測+真探針一發）→ Task 9（web 控制台）→ Task 10（上線驗證輪）。
 
