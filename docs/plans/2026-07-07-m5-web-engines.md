@@ -27,6 +27,7 @@
 
 **Global Constraints:**
 - kernel（`src/*.ts`）≤2500；每 adapter（`src/engines/<name>.ts`）≤150；`web/` ≤800。LF、每 Task commit、SDD 雙判定審查。
+- 引擎工廠 `src/engines/registry.ts` 於 kernel 撞頂後抽出（引擎組裝屬引擎層），不入 kernel 帳；kernel 抽離後恢復餘裕 2500→~2390。
 - 鐵律 #7 引擎鐵三角：所有 adapter 走 `runProcess`（stdin 餵 prompt、timeout、雙層樹斬、不吞 stderr）。agy 例外處理見 Task 4。
 - 鐵律 #8：不做萬用宣告式引擎 config；每 CLI 一個 adapter 檔。
 - 真探針（每 adapter 一發最小任務）由 implementer 在 scratchpad 假 repo 跑，絕不碰 voice-actress；上線驗證輪（Task 10）才動真專案，且先問使用者。
