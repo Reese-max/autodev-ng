@@ -357,7 +357,7 @@ test('M5：{env:VAR} 引用缺失 → resolve 該 tag 才拋錯（lazy：assembl
   }
 })
 
-test('M5：registry——白名單外 tag 拋錯；codex/agy/grok/qwen/opencode/devin 已接線（Task 3/4/6/7/8/9 合流）', () => {
+test('M5：registry——白名單外 tag 拋錯；codex/agy/grok/qwen/opencode/devin 已接線（Task 3/4/6/7/8/9 合流）', async () => {
   process.env.ADNG_TEST_DEVIN_MODEL = 'swe-1.6'
   const dir = mkdtempSync(join(tmpdir(), 'adng-cli-m3-'))
   const cfgPath = writeConfig(dir, {
@@ -374,7 +374,7 @@ test('M5：registry——白名單外 tag 拋錯；codex/agy/grok/qwen/opencode/
       dv: { adapter: 'devin', costPerRunUsd: 0, command: 'C:/fake/devin.exe', model: '{env:ADNG_TEST_DEVIN_MODEL}', env: { FOO: 'bar' }, timeoutMs: 123456 }
     }
   })
-  const { deps } = assemble(cfgPath)
+  const { deps, cfg } = assemble(cfgPath)
   try {
     expect(() => deps.engines.resolve('nonexistent')).toThrow(/白名單/)
     const zen = deps.engines.resolve('zen') // Task 8：opencode 接線，tag zen → id opencode:zen
@@ -394,6 +394,12 @@ test('M5：registry——白名單外 tag 拋錯；codex/agy/grok/qwen/opencode/
     const devin = deps.engines.resolve('dv')
     expect(devin).toBeInstanceOf(DevinEngine)
     expect(devin.id).toBe('devin:dv')
+    // devin-serena-fix：registry 把 profileDir 綁到 <dataDir>/devin-profile——preflight 用它取代
+    // process.cwd()，觸發後該路徑下應出現關 MCP 匯入的 .devin/config.local.json（command 是假路徑
+    // 會 spawn 失敗，但 ensureNoMcpImport 這個副作用發生在 spawn 之前，不受影響）。
+    await devin.preflight()
+    const dvCfg = JSON.parse(readFileSync(join(cfg.dataDir, 'devin-profile', '.devin', 'config.local.json'), 'utf8')) as { read_config_from: Record<string, boolean> }
+    expect(dvCfg.read_config_from).toEqual({ claude: false, cursor: false, windsurf: false })
   } finally {
     deps.db.close()
     delete process.env.ADNG_TEST_DEVIN_MODEL

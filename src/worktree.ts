@@ -66,24 +66,31 @@ function cleanStaleWorktree(projectPath: string, worktreePath: string, branch: s
   }
 }
 
+/** devin-serena-fix 保底：devin adapter 已用 `ensureNoMcpImport` 從源頭關掉 MCP 匯入，
+ * 但萬一仍有殘留（未知匯入路徑／使用者另外手動 `devin mcp add`），這兩行確保 `.serena/`
+ * （serena language server 索引側目錄）與 `.devin/config.local.json`（adapter 自己寫的隔離
+ * 設定檔）不會被引擎的 `git add -A` 誤撈進 commit——同 WORKTREE_MARKER 的道理（M4 Task 6）。 */
+const ADDITIONAL_IGNORED = ['.serena/', '.devin/config.local.json']
+
 /**
- * 防止 `.adng-worktree` 旗標檔被引擎的 `git add -A`/`git add .` 誤撈進 commit——一旦被
- * commit，會隨 ff-only mergeBack 一路合進使用者主分支，永久污染真專案歷史。寫進主 repo
- * 共用的 `.git/info/exclude`（worktree 之間共用同一份，非個別 worktree 私有——git 設計
- * 如此）：這是 git 原生、不進版控的忽略機制，不需要動使用者可能有的 .gitignore（那是
- * 版控檔案，鐵律 #5 不可動使用者共用檔案）。冪等（已存在該行就不重複附加）；任何失敗
- * （權限等）容忍吞掉——防呆機制本身故障不該擋下整個 worktree 準備（fail-open，鐵律 #4），
- * 但已知殘留風險記報告：寫入失敗時該任務的 marker 檔仍有被引擎 add -A 誤撈進 commit 的
- * 機率。
+ * 防止 `.adng-worktree` 旗標檔／上列殘留側檔被引擎的 `git add -A`/`git add .` 誤撈進
+ * commit——一旦被 commit，會隨 ff-only mergeBack 一路合進使用者主分支，永久污染真專案
+ * 歷史。寫進主 repo 共用的 `.git/info/exclude`（worktree 之間共用同一份，非個別 worktree
+ * 私有——git 設計如此）：這是 git 原生、不進版控的忽略機制，不需要動使用者可能有的
+ * .gitignore（那是版控檔案，鐵律 #5 不可動使用者共用檔案）。冪等（已存在的行不重複附加）；
+ * 任何失敗（權限等）容忍吞掉——防呆機制本身故障不該擋下整個 worktree 準備（fail-open，
+ * 鐵律 #4），但已知殘留風險記報告：寫入失敗時這些檔案仍有被引擎 add -A 誤撈進 commit 的機率。
  */
 function ensureMarkerIgnored(projectPath: string): void {
   try {
     const excludeFile = join(projectPath, '.git', 'info', 'exclude')
     const existing = existsSync(excludeFile) ? readFileSync(excludeFile, 'utf8') : ''
-    if (existing.split(/\r?\n/).includes(WORKTREE_MARKER)) return
+    const have = existing.split(/\r?\n/)
+    const missing = [WORKTREE_MARKER, ...ADDITIONAL_IGNORED].filter(l => !have.includes(l))
+    if (missing.length === 0) return
     mkdirSync(dirname(excludeFile), { recursive: true })
     const sep = existing === '' || existing.endsWith('\n') ? '' : '\n'
-    appendFileSync(excludeFile, `${sep}${WORKTREE_MARKER}\n`)
+    appendFileSync(excludeFile, `${sep}${missing.join('\n')}\n`)
   } catch {
     // 容忍：見上方註解
   }

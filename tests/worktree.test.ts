@@ -52,6 +52,15 @@ test('prepareWorktree：建出 worktree 目錄 + 分支 + marker', () => {
   expect(branches).toContain(wt.branch)
 })
 
+test('prepareWorktree：主 repo .git/info/exclude 補上 marker + .serena/ + .devin/config.local.json（devin-serena-fix 保底，跨 worktree 共用同一份）', () => {
+  const { repo, worktreesDir } = newRepo()
+  prepareWorktree(repo, worktreesDir, TASK_ID)
+  const exclude = readFileSync(join(repo, '.git', 'info', 'exclude'), 'utf8').split(/\r?\n/)
+  expect(exclude).toContain('.adng-worktree')
+  expect(exclude).toContain('.serena/')
+  expect(exclude).toContain('.devin/config.local.json')
+})
+
 test('prepareWorktree：殘留（前次崩潰留下未清的 worktree 目錄+分支）重建成功', () => {
   const { repo, worktreesDir } = newRepo()
 

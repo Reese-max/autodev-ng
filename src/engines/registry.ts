@@ -103,12 +103,13 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         })
       case 'devin':
         // M5 Task 9：Devin CLI（原生 .exe 直呼；prompt/export 走 tmp 檔；固定鎖 swe-1.6 免費模型）。
+        // devin-serena-fix：profileDir 落 dataDir（preflight ping 隔離 cwd，關全域 MCP 匯入用）。
         return new DevinEngine({
           id: tag === 'devin' ? 'devin' : `devin:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
-          timeoutMs: ec.timeoutMs
+          timeoutMs: ec.timeoutMs, profileDir: join(cfg.dataDir, 'devin-profile')
         })
       default:
         throw new Error(`adapter ${ec.adapter} 尚未實作（M5 Task 3-8 逐一落地）`)
