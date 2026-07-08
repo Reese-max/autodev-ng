@@ -10,6 +10,7 @@ import { CodexEngine } from '../src/engines/codex.js'
 import { GrokEngine } from '../src/engines/grok.js'
 import { QwenEngine } from '../src/engines/qwen.js'
 import { OpencodeEngine } from '../src/engines/opencode.js'
+import { DevinEngine } from '../src/engines/devin.js'
 import { KernelVerifier } from '../src/verifier.js'
 import { DiscordNotifier } from '../src/notify.js'
 import { EventLog } from '../src/events.js'
@@ -232,6 +233,12 @@ test('小修輪#5：非真值 adapter 未設 costPerRunUsd → 拒（防成功�
   // opencode(zen) 無 costPerRunUsd → 通過（NDJSON cost 為可信真值，設 0 會令 fixedCost ?? 真值恆取 0 變死碼）
   const ok = ConfigSchema.safeParse({ ...base, engines: { claude: { adapter: 'claude-cli' }, zen: { adapter: 'opencode' } }, defaultEngine: 'claude' })
   expect(ok.success).toBe(true)
+  // devin 亦非豁免（swe-1.6 為官方 0 credit multiplier，非 NDJSON cost 真值）→ 無 costPerRunUsd 被拒、設 0 通過
+  const devinBad = ConfigSchema.safeParse({ ...base, engines: { claude: { adapter: 'claude-cli' }, d: { adapter: 'devin' } }, defaultEngine: 'claude' })
+  expect(devinBad.success).toBe(false)
+  if (!devinBad.success) expect(devinBad.error.issues.some(i => i.path.join('.') === 'engines.d.costPerRunUsd')).toBe(true)
+  const devinOk = ConfigSchema.safeParse({ ...base, engines: { claude: { adapter: 'claude-cli' }, d: { adapter: 'devin', costPerRunUsd: 0 } }, defaultEngine: 'claude' })
+  expect(devinOk.success).toBe(true)
 })
 
 test('小修輪#2：agy 設了 env → 拒（agy 不透傳 env 過 WSL 邊界，設了會靜默無效）', () => {
@@ -350,7 +357,8 @@ test('M5：{env:VAR} 引用缺失 → resolve 該 tag 才拋錯（lazy：assembl
   }
 })
 
-test('M5：registry——白名單外 tag 拋錯；codex/agy/grok/qwen/opencode 已接線（Task 3/4/6/7/8 合流）', () => {
+test('M5：registry——白名單外 tag 拋錯；codex/agy/grok/qwen/opencode/devin 已接線（Task 3/4/6/7/8/9 合流）', () => {
+  process.env.ADNG_TEST_DEVIN_MODEL = 'swe-1.6'
   const dir = mkdtempSync(join(tmpdir(), 'adng-cli-m3-'))
   const cfgPath = writeConfig(dir, {
     engine: 'claude-cli',
@@ -360,7 +368,10 @@ test('M5：registry——白名單外 tag 拋錯；codex/agy/grok/qwen/opencode 
       agy: { adapter: 'agy', costPerRunUsd: 0 },
       grok: { adapter: 'grok', costPerRunUsd: 0.5 },
       qwen: { adapter: 'qwen', costPerRunUsd: 0.5 },
-      zen: { adapter: 'opencode', costPerRunUsd: 0 }
+      zen: { adapter: 'opencode', costPerRunUsd: 0 },
+      // Task 9：devin 接線——帶 command/model({env:VAR})/env/timeoutMs 驗 registry:case 'devin'
+      // 的 config→engine 綁定（ec.command 直傳、expandEnvValue(ec.model)、expandEnvMap(ec.env)、ec.timeoutMs）全被跑過
+      dv: { adapter: 'devin', costPerRunUsd: 0, command: 'C:/fake/devin.exe', model: '{env:ADNG_TEST_DEVIN_MODEL}', env: { FOO: 'bar' }, timeoutMs: 123456 }
     }
   })
   const { deps } = assemble(cfgPath)
@@ -379,6 +390,29 @@ test('M5：registry——白名單外 tag 拋錯；codex/agy/grok/qwen/opencode 
     const qwen = deps.engines.resolve('qwen')
     expect(qwen).toBeInstanceOf(QwenEngine)
     expect(qwen.id).toBe('qwen')
+    // Task 9：devin 接線——非 default tag 'dv' → id 'devin:dv'；model {env:VAR} 展開不拋（缺 env 會拋）證明 expandEnvValue 有跑
+    const devin = deps.engines.resolve('dv')
+    expect(devin).toBeInstanceOf(DevinEngine)
+    expect(devin.id).toBe('devin:dv')
+  } finally {
+    deps.db.close()
+    delete process.env.ADNG_TEST_DEVIN_MODEL
+  }
+})
+
+test('M5 Task 9：devin registry——model {env:VAR} 缺失時 resolve 拋（證 expandEnvValue(ec.model) 真的跑在 devin 分支）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cli-dv-'))
+  const cfgPath = writeConfig(dir, {
+    engine: 'claude-cli',
+    engines: {
+      claude: { adapter: 'claude-cli' },
+      dv: { adapter: 'devin', costPerRunUsd: 0, model: '{env:ADNG_TEST_DEVIN_MISSING}' }
+    }
+  })
+  const { deps } = assemble(cfgPath) // lazy：沒 resolve 到 dv 前不炸
+  try {
+    expect(deps.engines.resolve('claude')).toBeInstanceOf(ClaudeCliEngine)
+    expect(() => deps.engines.resolve('dv')).toThrow(/ADNG_TEST_DEVIN_MISSING/)
   } finally {
     deps.db.close()
   }
