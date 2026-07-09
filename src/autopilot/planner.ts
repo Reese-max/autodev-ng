@@ -37,7 +37,7 @@ export async function plan(llm: LlmOpts, input: PlanInput): Promise<PlanResult> 
     const seen = new Set<string>()
     const tasks: string[] = []
     for (const l of lines.slice(1)) {
-      const t = l.replace(/^[-*\d.\s]+/, '').trim()
+      const t = l.replace(/^\s*(?:[-*]|\d+[.)])\s+/, '').trim()
       if (t && !seen.has(t)) { seen.add(t); tasks.push(t) }
     }
     return tasks.length ? { kind: 'tasks', tasks } : { kind: 'stuck', reason: 'planner 未產出任務' }

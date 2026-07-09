@@ -40,4 +40,56 @@ describe('BacklogStore.append (鐵律 #1 受控例外)', () => {
     const store = new BacklogStore(file)
     expect(() => store.report('deadbeef', { kind: 'done', commitHash: 'x' })).toThrow(/鐵律 #1/)
   })
+
+  test('round-trip：autopilot 任務 report(done) 後重讀仍 source:autopilot，goal/round 溯源保留', () => {
+    const store = new BacklogStore(file)
+    store.append('自主子任務甲', { goalId: 'a1b2', round: 3 })
+    const appended = store.read().find(t => t.text === '自主子任務甲')!
+
+    store.report(appended.id, { kind: 'done', commitHash: 'deadbeef' })
+
+    const reread = new BacklogStore(file).read()
+    const found = reread.find(t => t.text === '自主子任務甲')!
+    expect(found.status).toBe('done')
+    expect(found.source).toBe('autopilot')
+
+    const md = readFileSync(file, 'utf8')
+    const line = md.split('\n').find(l => l.includes('自主子任務甲'))!
+    expect(line).toContain('adng:autopilot goal:')
+    expect(line).toContain('adng:done deadbeef')
+  })
+
+  test('round-trip：autopilot 任務 report(blocked) 後重讀仍 source:autopilot，goal/round 溯源保留', () => {
+    const store = new BacklogStore(file)
+    store.append('自主子任務乙', { goalId: 'c3d4', round: 7 })
+    const appended = store.read().find(t => t.text === '自主子任務乙')!
+
+    store.report(appended.id, { kind: 'blocked', reason: 'verify 連敗' })
+
+    const reread = new BacklogStore(file).read()
+    const found = reread.find(t => t.text === '自主子任務乙')!
+    expect(found.status).toBe('blocked')
+    expect(found.source).toBe('autopilot')
+
+    const md = readFileSync(file, 'utf8')
+    const line = md.split('\n').find(l => l.includes('自主子任務乙'))!
+    expect(line).toContain('adng:autopilot goal:')
+    expect(line).toContain('adng:blocked reason=')
+  })
+
+  test('round-trip：純使用者任務 report(done) 後重讀仍 source:user（無回歸）', () => {
+    const store = new BacklogStore(file)
+    const userTask = store.read().find(t => t.text === '使用者手排任務')!
+
+    store.report(userTask.id, { kind: 'done', commitHash: 'cafef00d' })
+
+    const reread = new BacklogStore(file).read()
+    const found = reread.find(t => t.text === '使用者手排任務')!
+    expect(found.status).toBe('done')
+    expect(found.source).toBe('user')
+
+    const md = readFileSync(file, 'utf8')
+    const line = md.split('\n').find(l => l.includes('使用者手排任務'))!
+    expect(line).not.toContain('adng:autopilot')
+  })
 })

@@ -31,4 +31,18 @@ describe('planner.plan', () => {
     const r = await plan(llmReturning('TASKS\n甲\n\n甲\n乙'), { goal, repoSummary: '', history: [] })
     expect(r).toEqual({ kind: 'tasks', tasks: ['甲', '乙'] })
   })
+  test('TASKS 標記剝除不吃任務開頭數字（3D 列印外殼 / 2024 年度報告需完整保留）', async () => {
+    const r = await plan(
+      llmReturning('TASKS\n3D 列印外殼\n2024 年度報告'),
+      { goal, repoSummary: '', history: [] }
+    )
+    expect(r).toEqual({ kind: 'tasks', tasks: ['3D 列印外殼', '2024 年度報告'] })
+  })
+  test('TASKS 真正的清單標記（- / 數字.）仍正確剝除', async () => {
+    const r = await plan(
+      llmReturning('TASKS\n- 甲\n1. 乙'),
+      { goal, repoSummary: '', history: [] }
+    )
+    expect(r).toEqual({ kind: 'tasks', tasks: ['甲', '乙'] })
+  })
 })
