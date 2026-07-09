@@ -19,7 +19,7 @@ export function parseGoal(md: string): Goal {
   let verifyCommand: string | undefined
   const fence = md.match(/```[a-z]*\n([\s\S]*?)```/i)
   if (fence) {
-    const body = fence[1].split(/\r?\n/).map(s => s.trim()).filter(Boolean).join(' && ')
+    const body = (fence[1] ?? '').split(/\r?\n/).map(s => s.trim()).filter(Boolean).join(' && ')
     if (body) verifyCommand = body
   }
   // engine：「引擎：xxx」

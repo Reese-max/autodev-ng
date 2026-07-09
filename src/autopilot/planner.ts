@@ -28,7 +28,7 @@ export async function plan(llm: LlmOpts, input: PlanInput): Promise<PlanResult> 
   const out = (await callAgent(llm, buildPrompt(input))).trim()
   if (!out) return { kind: 'stuck', reason: 'planner 無回應' }
   const lines = out.split(/\r?\n/)
-  const head = lines[0].trim()
+  const head = (lines[0] ?? '').trim()
   if (/^ACHIEVED\b/i.test(head)) return { kind: 'achieved' }
   if (/^STUCK\b/i.test(head)) {
     return { kind: 'stuck', reason: head.replace(/^STUCK\s*:?\s*/i, '').trim() || '未說明' }
