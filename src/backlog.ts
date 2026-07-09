@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import type { Disposition, Task } from './types.js'
 
 export function taskId(text: string): string {
@@ -8,6 +8,9 @@ export function taskId(text: string): string {
 
 const TASK_RE = /^- \[( |x)\] (.*)$/
 const ANNOT_RE = /\s*<!-- adng:[\s\S]*?-->\s*$/
+// report() 寫回 done/blocked 時，若原行帶 adng:autopilot 註記，須原樣保留（鐵律 #1
+// 修訂版 #3：手排/自主永遠可區分）。抓出該註記本體，供寫回時與新註記並存。
+const AUTOPILOT_ANNOT_RE = /<!--\s*adng:autopilot\b[\s\S]*?-->/
 // M5 Task 1：行內引擎 tag，行首或行尾皆可。剝離後不入 taskId 雜湊——無 tag 任務
 // 走不到剝離分支，雜湊與 M4 以前完全一致（既有 done 行 id 不得漂移的硬回歸線）。
 const ENGINE_TAG_HEAD_RE = /^\[engine:([\w-]+)\]\s*/
@@ -27,7 +30,10 @@ export function parseBacklog(md: string): Task[] {
     const m = TASK_RE.exec(line)
     if (!m) return
     const raw = m[2]!
+    const rawLine = line
     const blocked = /<!-- adng:blocked\b/.test(raw)
+    const source: 'user' | 'autopilot' =
+      /<!--\s*adng:autopilot\b/.test(rawLine) ? 'autopilot' : 'user'
     const noAnnot = raw.replace(ANNOT_RE, '')
     const { text, engineTag } = extractEngineTag(noAnnot)
     tasks.push({
@@ -35,6 +41,7 @@ export function parseBacklog(md: string): Task[] {
       text,
       line: i,
       status: m[1] === 'x' ? 'done' : blocked ? 'blocked' : 'open',
+      source,
       // rawText 只在有 tag（寫回時 text 不等於原文）時攜帶——report() 寫回必須保留
       // 使用者行上的 tag 原文（鐵律 #1：絕不改寫任務文字）。
       ...(engineTag !== undefined ? { engineTag, rawText: noAnnot } : {})
@@ -95,6 +102,19 @@ export class BacklogStore {
   }
 
   /**
+   * 鐵律 #1 修訂版：這是唯一允許系統自主新增任務行的方法（受控例外）。寫入的行
+   * 一律帶 adng:autopilot 註記（含 goalId/round，可稽核來源與觸發輪次），parseBacklog
+   * 讀回時標 source:'autopilot'，與人類手排任務（source:'user'）永遠可區分。
+   * report() 對未知 id 的拒絕邏輯不受影響——append 只新增行，不繞過既有行的狀態機。
+   */
+  append(text: string, opts: { goalId: string; round: number }): void {
+    const line = `- [ ] ${text} <!-- adng:autopilot goal:${opts.goalId} round:${opts.round} -->`
+    const cur = readFileSync(this.file, 'utf8')
+    const sep = cur.length === 0 || cur.endsWith('\n') ? '' : '\n'
+    appendFileSync(this.file, `${sep}${line}\n`)
+  }
+
+  /**
    * 只允許改既有任務行的狀態；未知 id = 有人想創造任務 = 鐵律 #1 違規。
    *
    * 2026-07-05 語意變更（M3a 主控裁決）：尋找目標行時跳過 status==='done' 的行，
@@ -132,9 +152,14 @@ export class BacklogStore {
     if (!t) throw new Error(`unknown task id ${id}：系統禁止創造任務（鐵律 #1）`)
     // rawText ?? text：有 engine tag 的行寫回時保留 tag 原文（含原位置），鐵律 #1。
     const lineText = t.rawText ?? t.text
+    // 原行若帶 adng:autopilot 註記，寫回時原樣保留並與新的 done/blocked 註記並存，
+    // 否則 report() 會把來源標記連根拔除，重解析時 source 誤判回 'user'（見上方
+    // AUTOPILOT_ANNOT_RE 註解、鐵律 #1 修訂版 #3）。非 autopilot 行不受影響。
+    const autopilotMatch = AUTOPILOT_ANNOT_RE.exec(lines[t.line] ?? '')
+    const autopilotAnnot = autopilotMatch ? ` ${autopilotMatch[0]}` : ''
     lines[t.line] = d.kind === 'done'
-      ? `- [x] ${lineText} <!-- adng:done ${d.commitHash} -->`
-      : `- [ ] ${lineText} <!-- adng:blocked reason=${JSON.stringify(d.reason)} -->`
+      ? `- [x] ${lineText}${autopilotAnnot} <!-- adng:done ${d.commitHash} -->`
+      : `- [ ] ${lineText}${autopilotAnnot} <!-- adng:blocked reason=${JSON.stringify(d.reason)} -->`
     writeFileSync(this.file, lines.join(eol))
   }
 }

@@ -69,6 +69,7 @@ function expandConfigPaths(baseDir: string, cfg: Config): Config {
     ...cfg,
     projectPath: expandPath(baseDir, cfg.projectPath),
     backlogFile: expandPath(baseDir, cfg.backlogFile),
+    goalFile: cfg.goalFile ? expandPath(baseDir, cfg.goalFile) : undefined,
     dataDir: expandPath(baseDir, cfg.dataDir),
     stopFile: expandPath(baseDir, cfg.stopFile),
     discordTokenFile: expandPath(baseDir, cfg.discordTokenFile),
