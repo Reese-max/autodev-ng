@@ -28,6 +28,7 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
   let round = 0
   let lastScore = -Infinity
   let noProgress = 0
+  const appendedTexts = new Set<string>()
 
   for (;;) {
     if (!deps.isAlive()) return { kind: 'killed', rounds: round }
@@ -40,6 +41,8 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
 
     // tasks：append 進 backlog（autopilot 標記），逐條跑完該批
     for (const t of planResult.tasks) {
+      if (appendedTexts.has(t)) continue // 本 session 已 append 過，跳過（防多輪重複污染 backlog）
+      appendedTexts.add(t)
       deps.kernelDeps.store.append(t, { goalId: deps.goalId, round })
       history.push(`round ${round}: ${t}`)
     }

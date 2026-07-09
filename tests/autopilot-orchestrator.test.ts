@@ -80,4 +80,17 @@ describe('runGoalSession', () => {
     await runGoalSession(deps)
     expect(captured).toContain('寫測試')
   })
+
+  test('append 去重：同 session 相同任務文字只 append 一次', async () => {
+    const appended: string[] = []
+    const deps = base({ objective: 'o', noProgressLimit: 2 }, {
+      planFn: async () => ({ kind: 'tasks', tasks: ['重複任務甲'] }), // 每輪都回同一條
+      evalFn: async () => ({ achieved: false, score: 1, detail: '' })  // 恆不進步 → 多輪
+    })
+    const realAppend = deps.kernelDeps.store.append.bind(deps.kernelDeps.store)
+    deps.kernelDeps.store.append = (t: string, o: { goalId: string; round: number }) => { appended.push(t); realAppend(t, o) }
+    const out = await runGoalSession(deps)
+    expect(out.kind).toBe('no-progress')                 // 仍正常終止
+    expect(appended.filter(t => t === '重複任務甲')).toHaveLength(1) // 只 append 一次
+  })
 })
