@@ -11,6 +11,10 @@ export interface Task {
   /** 寫回檔案用的任務原文（含 engine tag、不含 adng 註記）。鐵律 #1：系統只改勾選狀態與
    * 行尾註記，絕不改寫使用者的任務文字——tag 剝離只發生在解讀層，寫回時必須原樣保留。 */
   rawText?: string
+  /** M6 GOAL autopilot Task 2：行來源。'autopilot' = 經 BacklogStore.append() 受控寫入
+   * （鐵律 #1 修訂版唯一破口，行帶 adng:autopilot 註記）；'user' = 其餘所有行（含無註記的
+   * 手排任務）。純解讀層標記，不影響既有 taskId/report 行為。 */
+  source?: 'user' | 'autopilot'
 }
 
 export type Disposition =

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import type { Disposition, Task } from './types.js'
 
 export function taskId(text: string): string {
@@ -27,7 +27,10 @@ export function parseBacklog(md: string): Task[] {
     const m = TASK_RE.exec(line)
     if (!m) return
     const raw = m[2]!
+    const rawLine = line
     const blocked = /<!-- adng:blocked\b/.test(raw)
+    const source: 'user' | 'autopilot' =
+      /<!--\s*adng:autopilot\b/.test(rawLine) ? 'autopilot' : 'user'
     const noAnnot = raw.replace(ANNOT_RE, '')
     const { text, engineTag } = extractEngineTag(noAnnot)
     tasks.push({
@@ -35,6 +38,7 @@ export function parseBacklog(md: string): Task[] {
       text,
       line: i,
       status: m[1] === 'x' ? 'done' : blocked ? 'blocked' : 'open',
+      source,
       // rawText 只在有 tag（寫回時 text 不等於原文）時攜帶——report() 寫回必須保留
       // 使用者行上的 tag 原文（鐵律 #1：絕不改寫任務文字）。
       ...(engineTag !== undefined ? { engineTag, rawText: noAnnot } : {})
@@ -92,6 +96,19 @@ export class BacklogStore {
 
   nextTask(): Task | null {
     return this.read().find(t => t.status === 'open') ?? null
+  }
+
+  /**
+   * 鐵律 #1 修訂版：這是唯一允許系統自主新增任務行的方法（受控例外）。寫入的行
+   * 一律帶 adng:autopilot 註記（含 goalId/round，可稽核來源與觸發輪次），parseBacklog
+   * 讀回時標 source:'autopilot'，與人類手排任務（source:'user'）永遠可區分。
+   * report() 對未知 id 的拒絕邏輯不受影響——append 只新增行，不繞過既有行的狀態機。
+   */
+  append(text: string, opts: { goalId: string; round: number }): void {
+    const line = `- [ ] ${text} <!-- adng:autopilot goal:${opts.goalId} round:${opts.round} -->`
+    const cur = readFileSync(this.file, 'utf8')
+    const sep = cur.length === 0 || cur.endsWith('\n') ? '' : '\n'
+    appendFileSync(this.file, `${sep}${line}\n`)
   }
 
   /**
