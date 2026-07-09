@@ -6,10 +6,16 @@ import { runOnce } from '../scheduler.js'
 import { parseGoal } from './goal.js'
 import { plan } from './planner.js'
 import { evaluate } from './evaluator.js'
-import { runGoalSession, type OrchestratorDeps } from './orchestrator.js'
+import { runGoalSession, type OrchestratorDeps, type GoalOutcome } from './orchestrator.js'
+
+export function stopAlertMessage(goalId: string, outcome: GoalOutcome): string | null {
+  if (outcome.kind === 'achieved') return null
+  const base = `autopilot GOAL 停機（goal ${goalId}）：${outcome.kind}，共 ${outcome.rounds} 輪`
+  return outcome.kind === 'stuck' ? `${base}——${outcome.reason}` : base
+}
 
 export async function main(cfgPath: string): Promise<void> {
-  const { deps, cfg } = assemble(cfgPath)
+  const { deps, notifier, cfg } = assemble(cfgPath)
   if (!cfg.goalFile || !existsSync(cfg.goalFile)) {
     console.log('no GOAL.md（autopilot 未啟動）'); return
   }
@@ -34,6 +40,8 @@ export async function main(cfgPath: string): Promise<void> {
   const outcome = await runGoalSession(orchDeps)
   appendFileSync(auditFile, JSON.stringify({ outcome }) + '\n') // 停止原因入稽核（spec 段⑤）
   console.log(`GOAL outcome: ${JSON.stringify(outcome)}`)
+  const alert = stopAlertMessage(goalId, outcome)
+  if (alert) await notifier.send(alert) // 一次性停機告警；send 永不 throw（fail-open）
 }
 
 const cfgArg = process.argv.indexOf('--config')
