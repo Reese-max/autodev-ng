@@ -1,7 +1,7 @@
 import { existsSync, appendFileSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import { assemble } from '../cli.js'
+import { assemble, finalizeRunOnceHeartbeat } from '../cli.js'
 import { runOnce } from '../scheduler.js'
 import { parseGoal } from './goal.js'
 import { plan } from './planner.js'
@@ -33,7 +33,7 @@ export async function main(cfgPath: string): Promise<void> {
     goalId, goal, cwd: cfg.projectPath, kernelDeps,
     planFn: (input) => plan(llm, input),
     evalFn: (cwd) => evaluate({ llm }, goal, cwd),
-    runOnceFn: (d) => runOnce(d),
+    runOnceFn: async (d) => { const r = await runOnce(d); finalizeRunOnceHeartbeat(d, r); return r },
     isAlive: () => existsSync(cfg.goalFile!) && !existsSync(cfg.stopFile),
     onRound: (r) => appendFileSync(auditFile, JSON.stringify(r) + '\n')
   }
