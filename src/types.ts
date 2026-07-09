@@ -73,6 +73,7 @@ export type EngineConfig = z.infer<typeof EngineConfigSchema>
 export const ConfigSchema = z.object({
   projectPath: z.string().min(1),
   backlogFile: z.string().min(1),
+  goalFile: z.string().optional(),
   dataDir: z.string().min(1),
   engine: z.enum(['mock', 'claude-cli']).optional(), // legacy 欄位：純新形狀（只寫 engines map）可缺；與 engines 全缺由 superRefine 拒
   maxAttempts: z.number().int().positive().default(2),
