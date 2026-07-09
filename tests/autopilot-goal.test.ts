@@ -38,4 +38,14 @@ describe('parseGoal', () => {
   test('無驗收 code block 時 verifyCommand 為 undefined', () => {
     expect(parseGoal('# GOAL\n只有目標。').verifyCommand).toBeUndefined()
   })
+
+  test('json fence 在 sh fence 之前時，優先取 sh fence 的內容', () => {
+    const mdWithJsonFirst = [
+      '# GOAL', '把覆蓋率拉到 80%。', '',
+      '## 範例', '```json', '{"foo": "bar"}', '```', '',
+      '## 驗收條件（可量測；exit 0 = 達成）', '```sh', 'npm run verify', '```', '',
+      '## 邊界', '- 引擎：devin', '- 連續無進展上限：2'
+    ].join('\n')
+    expect(parseGoal(mdWithJsonFirst).verifyCommand).toBe('npm run verify')
+  })
 })
