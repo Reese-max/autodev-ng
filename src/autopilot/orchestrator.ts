@@ -46,7 +46,11 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
     for (;;) {
       if (!deps.isAlive()) return { kind: 'killed', rounds: round }
       const r = await deps.runOnceFn(deps.kernelDeps)
-      if (r === 'idle' || r === 'stopped' || r === 'cost-hard-stop') break
+      // preflight-failed 不會標記 task done/blocked，task 仍是 open，
+      // 若不中止，下一輪 runOnceFn 會重撿同一個 task、重複同一個 preflight
+      // 失敗，形成無退避的緊迴圈。中止後交還控制權給外層 round 迴圈，
+      // 讓「連續無進展」煞車與 kill switch 接手。
+      if (r === 'idle' || r === 'stopped' || r === 'cost-hard-stop' || r === 'preflight-failed') break
     }
 
     const snapshot = await deps.evalFn(deps.cwd)

@@ -59,6 +59,15 @@ describe('runGoalSession', () => {
     expect(out).toMatchObject({ kind: 'stuck', reason: '沒框架' })
   })
 
+  test('inner loop 不因 preflight-failed 無限緊迴圈：中止交還外層 no-progress 煞車', async () => {
+    const out = await runGoalSession(base({ objective: 'o', noProgressLimit: 2 }, {
+      planFn: async () => ({ kind: 'tasks', tasks: ['甲'] }),
+      runOnceFn: async () => 'preflight-failed', // 任務永遠不被消耗，若不中止會無限重撿同一任務
+      evalFn: async () => ({ achieved: false, score: 1, detail: '' }) // score 恆不升
+    }))
+    expect(out.kind).toBe('no-progress')
+  })
+
   test('tasks 有被 append 進 backlog（帶 autopilot 標記）', async () => {
     const captured: string[] = []
     let done = false
