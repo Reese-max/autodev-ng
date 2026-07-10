@@ -4,9 +4,10 @@ import { assemble } from '../cli.js'
 import { acquireLock, releaseLock } from '../lock.js'
 import { loadBotConfig, loadBotToken } from './config.js'
 import { handleCommand, type BotDeps } from './handlers.js'
+import { buildReplyPayload } from './reply.js'
 import { routeInteraction, type InteractionLike } from './route.js'
 
-// discord.js 只出現在本檔——純路由邏輯住 route.ts（不 import discord.js），
+// discord.js adapter 只放 index.ts / reply.ts；純路由邏輯住 route.ts（不 import discord.js），
 // 讓 tests/bot-route.test.ts 零依賴測路由，不打真 Discord。
 
 /** 無參數指令（查詢/控制）+ 有字串參數指令，各自的中文說明（slash command 註冊用）。 */
@@ -87,7 +88,7 @@ export async function main(cfgPath: string): Promise<void> {
         arg,
         reply: async (text, ephemeral) => {
           try {
-            const payload = { content: text, ephemeral: !!ephemeral }
+            const payload = buildReplyPayload(text, ephemeral)
             if (interaction.replied || interaction.deferred) {
               await interaction.followUp(payload)
             } else {
