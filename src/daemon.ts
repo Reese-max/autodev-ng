@@ -286,6 +286,11 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
         await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, cooldownKeyFor(result), baseAlertMessage(result))
       }
 
+      // M7：失敗驅動 reflect——教訓面故障吞掉,絕不反殺主迴圈(鐵律 #4)
+      if (deps.lessons && (result === 'failed' || typeof result === 'object')) {
+        try { await deps.lessons.reflect(result) } catch { /* fail-open */ }
+      }
+
       if (result === 'idle' || result === 'cost-hard-stop') {
         await sleep(idleSleepMs)
       } else {
