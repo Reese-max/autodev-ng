@@ -177,7 +177,8 @@ test('③ 一個任務成功、一個任務連敗轉 blocked，其餘輪跑到 i
   // digest：每輪都會檢查，但同一天只應該真的送達一次（多輪 idle 不重複灌）
   const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
   expect(digestSends).toHaveLength(1)
-})
+  // 真 git worktree I/O，24/7 機器負載下 5s 不夠（非產品 bug）→ 針對性 timeout 20s
+}, 20000)
 
 test('④ stop 檔 → 回 stopped，且 lock 有被釋放（daemon 結束後可再次 acquire）', async () => {
   const d = deps(new MockEngine())
