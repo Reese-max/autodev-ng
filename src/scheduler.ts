@@ -6,6 +6,13 @@ import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './typ
 import type { VerifierCheck } from './verifier.js'
 import { cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError, type WorktreeHandle } from './worktree.js'
 
+/** M7：教訓注入/反思 port（Task 2 makeLessonsPort 的輸出型別）。inject() 供 scheduler
+ * 附進 job.directive；reflect() 留給 Task 4/5 接線（本 task 只注入 inject）。 */
+export interface LessonsPort {
+  inject(): string
+  reflect(result: CycleResult): Promise<void>
+}
+
 export interface Deps {
   cfg: Config
   store: BacklogStore
@@ -15,6 +22,8 @@ export interface Deps {
   engines: EngineResolver
   events: EventLog
   verifier?: { check(job: Job, res: RunResult): Promise<VerifierCheck> }
+  /** M7：未接線時 undefined，行為與現狀完全一致（fail-open 硬線）。 */
+  lessons?: LessonsPort
 }
 
 /** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
@@ -44,7 +53,8 @@ function quiet(fn: () => void): void {
   }
 }
 
-export async function runOnce({ cfg, store, db, engines, events, verifier }: Deps): Promise<CycleResult> {
+export async function runOnce(deps: Deps): Promise<CycleResult> {
+  const { cfg, store, db, engines, events, verifier } = deps
   if (existsSync(cfg.stopFile)) {
     quiet(() => events.heartbeat({ state: 'stopped', todayCostUsd: todayCost(db, cfg.timezoneOffsetHours) }))
     return 'stopped'
@@ -116,7 +126,11 @@ export async function runOnce({ cfg, store, db, engines, events, verifier }: Dep
 
   // extraDirective 附加到 task.text 尾組成 job.directive（未設定時維持 undefined）——
   // claude-cli engine 的 prompt 任務行以 job.directive ?? task.text 消費（Fix 1 已接線）。
-  const directive = cfg.extraDirective ? `${task.text}\n\n${cfg.extraDirective}` : undefined
+  let directive = cfg.extraDirective ? `${task.text}\n\n${cfg.extraDirective}` : undefined
+  // M7：教訓注入（fail-open：inject 故障視同無教訓，絕不擋派工）
+  let lessonsText = ''
+  try { lessonsText = deps.lessons?.inject() ?? '' } catch { /* 教訓面故障不擋派工 */ }
+  if (lessonsText) directive = `${directive ?? task.text}\n\n${lessonsText}`
 
   // try 只包 engine.run 本身：db.record／store.report／events 的下游 I/O 故障
   // 不該被誤判成「引擎錯誤」而污染 failCount。

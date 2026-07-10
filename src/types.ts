@@ -105,7 +105,11 @@ export const ConfigSchema = z.object({
   // { claude: { adapter: <engine> } }——既有 config（如 voice-actress.json 不加 engines 段）
   // 行為完全不變（向後相容硬線）。
   engines: z.record(z.string(), EngineConfigSchema).optional(),
-  defaultEngine: z.string().default('claude')
+  defaultEngine: z.string().default('claude'),
+  // M7：教訓庫檔路徑。learningsFile 未設時 cli.ts assemble 預設 join(dataDir,'learnings.md')
+  // （功能零設定開啟）；globalLearningsFile 為跨專案共用教訓檔，未設即不注入全局段。
+  learningsFile: z.string().optional(),
+  globalLearningsFile: z.string().optional()
 })
   .superRefine((c, ctx) => {
     if (!c.engines && !c.engine) ctx.addIssue({ code: 'custom', path: ['engine'], message: 'engines map 與 legacy engine 欄位至少須設一個' })

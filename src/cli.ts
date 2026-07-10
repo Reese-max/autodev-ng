@@ -11,6 +11,8 @@ import { makeEngineRegistry } from './engines/registry.js'
 import { ConfigSchema, type Config } from './types.js'
 import { runOnce, type CycleResult, type Deps } from './scheduler.js'
 import { runDaemon } from './daemon.js'
+import { LessonStore } from './learn/store.js'
+import { makeLessonsPort } from './learn/reflect.js'
 
 /** 引擎組裝邏輯（expandEnvValue/makeEngineRegistry）住在 src/engines/registry.ts——
  * 這裡 re-export 讓既有 import 點（tests/cli.test.ts 等）零改動。 */
@@ -74,6 +76,9 @@ function expandConfigPaths(baseDir: string, cfg: Config): Config {
     stopFile: expandPath(baseDir, cfg.stopFile),
     discordTokenFile: expandPath(baseDir, cfg.discordTokenFile),
     worktreesDir: expandPath(baseDir, cfg.worktreesDir),
+    // M7：教訓庫檔路徑，鏡像 goalFile 展開慣例（有值才展開，未設維持 undefined）。
+    learningsFile: cfg.learningsFile ? expandPath(baseDir, cfg.learningsFile) : undefined,
+    globalLearningsFile: cfg.globalLearningsFile ? expandPath(baseDir, cfg.globalLearningsFile) : undefined,
   }
 }
 
@@ -104,7 +109,14 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
     dataDir: cfg.dataDir,
   })
 
-  const deps: Deps = { cfg, store, db, engines, events, verifier }
+  // M7：教訓庫接線（learningsFile 有預設 → 功能零設定開啟；reflect LLM 沿用 judge 同組設定）
+  const lessonStore = new LessonStore(cfg.learningsFile ?? join(cfg.dataDir, 'learnings.md'), cfg.globalLearningsFile)
+  const lessons = makeLessonsPort({
+    lessons: lessonStore, db, backlog: store,
+    llm: { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }, events
+  })
+
+  const deps: Deps = { cfg, store, db, engines, events, verifier, lessons }
   return { deps, notifier, cfg }
 }
 
