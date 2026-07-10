@@ -6,13 +6,14 @@ export type PlanResult =
   | { kind: 'achieved' }
   | { kind: 'stuck'; reason: string }
 
-export interface PlanInput { goal: Goal; repoSummary: string; history: string[] }
+export interface PlanInput { goal: Goal; repoSummary: string; history: string[]; lessonsText?: string }
 
 function buildPrompt(input: PlanInput): string {
-  const { goal, repoSummary, history } = input
+  const { goal, repoSummary, history, lessonsText } = input
+  const goalBlock = `# 目標\n${goal.objective}` + (lessonsText ? `\n\n${lessonsText}` : '')
   return [
     '你是自主開發規劃器。目標如下，判斷為達成目標「下一批」該做哪些具體任務。',
-    `# 目標\n${goal.objective}`,
+    goalBlock,
     goal.verifyCommand ? `# 驗收條件\n${goal.verifyCommand}` : '',
     `# repo 現況\n${repoSummary || '（無摘要）'}`,
     history.length ? `# 已跑過的任務與結果\n${history.join('\n')}` : '',

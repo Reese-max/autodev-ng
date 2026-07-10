@@ -28,9 +28,12 @@ export async function main(cfgPath: string): Promise<void> {
     : deps
   const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }
   const auditFile = join(cfg.dataDir, `goal-${goalId}.jsonl`)
+  // M7 Task 5：session 開始時讀一次教訓（不逐輪重讀），fail-open——教訓面故障不擋 GOAL 啟動
+  let lessonsText = ''
+  try { lessonsText = deps.lessons?.inject() ?? '' } catch { /* fail-open */ }
 
   const orchDeps: OrchestratorDeps = {
-    goalId, goal, cwd: cfg.projectPath, kernelDeps,
+    goalId, goal, cwd: cfg.projectPath, kernelDeps, lessonsText,
     planFn: (input) => plan(llm, input),
     evalFn: (cwd) => evaluate({ llm }, goal, cwd),
     runOnceFn: async (d) => { const r = await runOnce(d); finalizeRunOnceHeartbeat(d, r); return r },

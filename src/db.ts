@@ -47,6 +47,16 @@ export class RunDb {
     ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail)
   }
 
+  /** 取 rowid（seq）最大一筆最近嘗試紀錄；空庫回 null。ok 欄位鏡像既有 record() 寫入慣例
+   * （SQLite 存整數 0/1），讀出後轉回 boolean 供呼叫端使用。 */
+  lastAttempt(): AttemptRecord | null {
+    const row = this.db.prepare(
+      'SELECT task_id, ts, ok, cost_usd, detail FROM attempts ORDER BY seq DESC LIMIT 1'
+    ).get() as { task_id: string; ts: string; ok: number; cost_usd: number; detail: string } | undefined
+    if (!row) return null
+    return { taskId: row.task_id, ts: row.ts, ok: row.ok === 1, costUsd: row.cost_usd, detail: row.detail }
+  }
+
   failCount(taskId: string): number {
     const row = this.db.prepare(
       'SELECT COUNT(*) AS n FROM attempts WHERE task_id=? AND ok=0'
