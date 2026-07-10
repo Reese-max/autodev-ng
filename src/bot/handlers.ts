@@ -138,6 +138,29 @@ async function cmdLog(d: BotDeps): Promise<string> {
   }
 }
 
+/** 讀單一教訓檔，缺檔回 null（fail-open：不存在不算錯誤）。 */
+function readLessonsFile(file: string): string | null {
+  if (!existsSync(file)) return null
+  const text = readFileSync(file, 'utf8').trim()
+  return text.length > 0 ? text : null
+}
+
+/** /lessons：讀專案教訓(learningsFile，未設走 assemble 同款預設)＋全域教訓(globalLearningsFile，有設才讀)，
+ * 兩層原文全輸出、都缺就回「教訓庫尚空」。缺檔/讀檔失敗一律人話（鏡像其餘 cmd* fail-open 慣例）。 */
+async function cmdLessons(d: BotDeps): Promise<string> {
+  try {
+    const learningsFile = d.cfg.learningsFile ?? join(d.cfg.dataDir, 'learnings.md')
+    const project = readLessonsFile(learningsFile)
+    const global = d.cfg.globalLearningsFile ? readLessonsFile(d.cfg.globalLearningsFile) : null
+    const parts: string[] = []
+    if (project) parts.push(`【專案教訓】\n${project}`)
+    if (global) parts.push(`【全域教訓】\n${global}`)
+    return parts.length > 0 ? parts.join('\n\n') : '教訓庫尚空'
+  } catch {
+    return '教訓庫查詢失敗，請稍後再試'
+  }
+}
+
 /** 統一入口：路由到查詢（本檔）與控制（actions.ts）handler。未知指令回人話，
  * 任何 handler 內部意外 throw 一律在此吞掉（鐵律：永不 throw、永不外洩 token）。 */
 export async function handleCommand(name: string, arg: string, d: BotDeps): Promise<string> {
@@ -147,6 +170,7 @@ export async function handleCommand(name: string, arg: string, d: BotDeps): Prom
       case 'cost': return truncate(await cmdCost(d))
       case 'backlog': return truncate(await cmdBacklog(d))
       case 'log': return truncate(await cmdLog(d))
+      case 'lessons': return truncate(await cmdLessons(d))
       case 'pause': return truncate(await doPause(d))
       case 'resume': return truncate(await doResume(d))
       case 'silence': return truncate(await doSilence(d, arg))

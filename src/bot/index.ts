@@ -17,7 +17,8 @@ const NO_ARG_COMMANDS: Record<string, string> = {
   backlog: '查詢 backlog 概況',
   log: '查詢近期事件紀錄',
   pause: '暫停 daemon（寫入 stop 檔）',
-  resume: '恢復 daemon（清除 stop 檔）'
+  resume: '恢復 daemon（清除 stop 檔）',
+  lessons: '查看教訓庫（專案＋全域）'
 }
 
 const ARG_COMMANDS: Record<string, string> = {
@@ -26,7 +27,7 @@ const ARG_COMMANDS: Record<string, string> = {
   ask: '問 LLM 一個問題'
 }
 
-/** 9 個 slash command 定義（6 無參數 + 3 帶字串參數 arg）。 */
+/** 10 個 slash command 定義（7 無參數 + 3 帶字串參數 arg）。 */
 function buildCommandsData(): ReturnType<SlashCommandBuilder['toJSON']>[] {
   const noArg = Object.entries(NO_ARG_COMMANDS).map(([name, desc]) =>
     new SlashCommandBuilder().setName(name).setDescription(desc).toJSON()

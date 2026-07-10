@@ -105,6 +105,43 @@ describe('log', () => {
   })
 })
 
+describe('lessons', () => {
+  test('learningsFile 存在 → 回覆含教訓文字', async () => {
+    const s = setup()
+    mkdirSync(s.cfg.dataDir, { recursive: true })
+    writeFileSync(join(s.cfg.dataDir, 'learnings.md'), '## 教訓一\n別再犯這個錯\n')
+    const out = await handleCommand('lessons', '', toDeps(s))
+    expect(out).toContain('別再犯這個錯')
+  })
+
+  test('learningsFile 與 globalLearningsFile 皆存在 → 兩層都輸出', async () => {
+    const s = setup()
+    mkdirSync(s.cfg.dataDir, { recursive: true })
+    writeFileSync(join(s.cfg.dataDir, 'learnings.md'), '## 專案教訓\nA\n')
+    const globalFile = join(s.dir, 'global-learnings.md')
+    writeFileSync(globalFile, '## 全域教訓\nB\n')
+    const cfgWithGlobal: Config = { ...s.cfg, globalLearningsFile: globalFile }
+    const out = await handleCommand('lessons', '', toDeps({ ...s, cfg: cfgWithGlobal }))
+    expect(out).toContain('A')
+    expect(out).toContain('B')
+  })
+
+  test('教訓檔都不存在 → 人話「教訓庫尚空」', async () => {
+    const s = setup()
+    const out = await handleCommand('lessons', '', toDeps(s))
+    expect(out).toContain('教訓庫尚空')
+  })
+
+  test('內容超長 → 截斷至 1900 字', async () => {
+    const s = setup()
+    mkdirSync(s.cfg.dataDir, { recursive: true })
+    writeFileSync(join(s.cfg.dataDir, 'learnings.md'), 'x'.repeat(3000))
+    const out = await handleCommand('lessons', '', toDeps(s))
+    expect(out.length).toBeLessThanOrEqual(1900 + '…[truncated]'.length)
+    expect(out).toContain('[truncated]')
+  })
+})
+
 describe('未知指令與 handler 內部 throw', () => {
   test('未知指令 → 「未知指令」', async () => {
     const out = await handleCommand('nope', '', toDeps(setup()))
