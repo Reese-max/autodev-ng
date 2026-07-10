@@ -26,7 +26,7 @@ function setup(backlogMd = '- [ ] 任務一\n'): { dir: string; cfg: Config; sto
 const noLlm: LlmOpts = { model: 'm', apiKey: 'k' } // url 未設 → callAgent fail-open，查詢 handler 用不到
 
 function toDeps(s: { cfg: Config; store: BacklogStore; db: RunDb }): BotDeps {
-  return { cfg: s.cfg, store: s.store, db: s.db, llm: noLlm }
+  return { cfg: s.cfg, store: s.store, db: s.db, llm: noLlm, cfgPath: join(s.cfg.projectPath, 'config.json') }
 }
 
 describe('status', () => {
@@ -102,6 +102,43 @@ describe('log', () => {
     const s = setup()
     const out = await handleCommand('log', '', toDeps(s))
     expect(out).toBe('尚無事件紀錄')
+  })
+})
+
+describe('lessons', () => {
+  test('learningsFile 存在 → 回覆含教訓文字', async () => {
+    const s = setup()
+    mkdirSync(s.cfg.dataDir, { recursive: true })
+    writeFileSync(join(s.cfg.dataDir, 'learnings.md'), '## 教訓一\n別再犯這個錯\n')
+    const out = await handleCommand('lessons', '', toDeps(s))
+    expect(out).toContain('別再犯這個錯')
+  })
+
+  test('learningsFile 與 globalLearningsFile 皆存在 → 兩層都輸出', async () => {
+    const s = setup()
+    mkdirSync(s.cfg.dataDir, { recursive: true })
+    writeFileSync(join(s.cfg.dataDir, 'learnings.md'), '## 專案教訓\nA\n')
+    const globalFile = join(s.dir, 'global-learnings.md')
+    writeFileSync(globalFile, '## 全域教訓\nB\n')
+    const cfgWithGlobal: Config = { ...s.cfg, globalLearningsFile: globalFile }
+    const out = await handleCommand('lessons', '', toDeps({ ...s, cfg: cfgWithGlobal }))
+    expect(out).toContain('A')
+    expect(out).toContain('B')
+  })
+
+  test('教訓檔都不存在 → 人話「教訓庫尚空」', async () => {
+    const s = setup()
+    const out = await handleCommand('lessons', '', toDeps(s))
+    expect(out).toContain('教訓庫尚空')
+  })
+
+  test('內容超長 → 截斷至 1900 字', async () => {
+    const s = setup()
+    mkdirSync(s.cfg.dataDir, { recursive: true })
+    writeFileSync(join(s.cfg.dataDir, 'learnings.md'), 'x'.repeat(3000))
+    const out = await handleCommand('lessons', '', toDeps(s))
+    expect(out.length).toBeLessThanOrEqual(1900 + '…[truncated]'.length)
+    expect(out).toContain('[truncated]')
   })
 })
 

@@ -2,6 +2,7 @@
   "projectPath": "D:/Users/Administrator/Desktop/voice-actress",
   "backlogFile": "D:/Users/Administrator/Desktop/voice-actress/BACKLOG-adng.md",
   "dataDir": "../data/voice-actress",
+  "goalFile": "../data/voice-actress/GOAL.md",
   "worktreesDir": "../data/voice-actress/worktrees",
   "engine": "claude-cli",
   "verifyCommand": "npm run verify",

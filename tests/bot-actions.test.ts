@@ -1,14 +1,15 @@
 import { describe, test, expect } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { handleCommand, type BotDeps } from '../src/bot/handlers.js'
-import { appendUserTask } from '../src/bot/actions.js'
+import { appendUserTask, doGoal } from '../src/bot/actions.js'
 import { isSilenced } from '../src/bot/silence.js'
 import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { ConfigSchema, type Config } from '../src/types.js'
 import type { LlmOpts } from '../src/autopilot/llm.js'
+import type { ChildProcess, SpawnOptions } from 'node:child_process'
 
 // 沿用 tests/learn-integration.test.ts 的 ConfigSchema.parse 建 cfg 模式（先讀）。控制 handler
 // 不碰 scheduler/worktree，故不需真 git repo；/task 仍走真檔 round-trip（brief 要求）。
@@ -36,7 +37,7 @@ function fakeLlm(reply: string): LlmOpts {
 }
 
 function toDeps(s: { cfg: Config; store: BacklogStore; db: RunDb }, llm: LlmOpts = noLlm): BotDeps {
-  return { cfg: s.cfg, store: s.store, db: s.db, llm }
+  return { cfg: s.cfg, store: s.store, db: s.db, llm, cfgPath: join(s.cfg.projectPath, 'config.json') }
 }
 
 describe('appendUserTask（純函式，直呼）', () => {
@@ -150,6 +151,152 @@ describe('appendUserTask（鐵律 #1 防禦第二層，繞過 handler 直呼）'
     const before = readFileSync(s.cfg.backlogFile, 'utf8')
     expect(() => appendUserTask(s.cfg.backlogFile, 'x <!-- adng:done x -->')).toThrow('不允許字元')
     expect(readFileSync(s.cfg.backlogFile, 'utf8')).toBe(before)
+  })
+})
+
+function fakeSpawn(): { calls: Array<{ cmd: string; args: readonly string[]; opts: SpawnOptions }>; fn: typeof import('node:child_process').spawn } {
+  const calls: Array<{ cmd: string; args: readonly string[]; opts: SpawnOptions }> = []
+  const fn = ((cmd: string, args: readonly string[], opts: SpawnOptions) => {
+    calls.push({ cmd, args, opts })
+    return { unref: () => {} } as unknown as ChildProcess
+  }) as typeof import('node:child_process').spawn
+  return { calls, fn }
+}
+
+describe('goal', () => {
+  describe('set', () => {
+    test('goalFile 已設 → 寫入 GOAL.md 模板內容，回確認文字', async () => {
+      const s = setup()
+      const goalFile = join(s.dir, 'GOAL.md')
+      const cfg: Config = { ...s.cfg, goalFile }
+      const out = await handleCommand('goal', 'set 把 TTS pipeline 修好', toDeps({ ...s, cfg }))
+      expect(out).toContain('GOAL 已寫入')
+      expect(out).toContain('/goal run')
+      const content = readFileSync(goalFile, 'utf8')
+      expect(content).toBe('# GOAL\n把 TTS pipeline 修好\n\n## 邊界\n- 連續無進展上限:3\n')
+    })
+
+    test('goalFile 未設 config → 回「config 未設 goalFile」', async () => {
+      const s = setup()
+      const out = await handleCommand('goal', 'set 目標文字', toDeps(s))
+      expect(out).toContain('config 未設 goalFile')
+    })
+
+    test('目標文字為空 → 用法說明', async () => {
+      const s = setup()
+      const cfg: Config = { ...s.cfg, goalFile: join(s.dir, 'GOAL.md') }
+      const out = await handleCommand('goal', 'set', toDeps({ ...s, cfg }))
+      expect(out).toContain('用法')
+    })
+
+    test('目標文字含換行 → 拒收（同 /task guard）', async () => {
+      const s = setup()
+      const goalFile = join(s.dir, 'GOAL.md')
+      const cfg: Config = { ...s.cfg, goalFile }
+      const out = await handleCommand('goal', 'set 一行\n二行', toDeps({ ...s, cfg }))
+      expect(out).toContain('換行')
+      expect(existsSync(goalFile)).toBe(false)
+    })
+
+    test('目標文字含 <!-- --> → 拒收', async () => {
+      const s = setup()
+      const goalFile = join(s.dir, 'GOAL.md')
+      const cfg: Config = { ...s.cfg, goalFile }
+      const out = await handleCommand('goal', 'set 目標 <!-- evil -->', toDeps({ ...s, cfg }))
+      expect(out).toContain('不允許字元')
+      expect(existsSync(goalFile)).toBe(false)
+    })
+  })
+
+  describe('run', () => {
+    test('goalFile 未設或檔不存在 → 人話，不呼叫 spawnFn', async () => {
+      const s = setup()
+      const cfg: Config = { ...s.cfg, goalFile: join(s.dir, 'GOAL.md') } // 設了路徑但檔不存在
+      const spy = fakeSpawn()
+      const out = await doGoal(toDeps({ ...s, cfg }), 'run', spy.fn)
+      expect(out).not.toContain('已啟動')
+      expect(spy.calls.length).toBe(0)
+    })
+
+    test('goalFile 存在 → 呼叫 spawnFn 帶 node/run.js/--config cfgPath，detached+windowsHide', async () => {
+      const s = setup()
+      mkdirSync(s.cfg.dataDir, { recursive: true })
+      const goalFile = join(s.dir, 'GOAL.md')
+      writeFileSync(goalFile, '# GOAL\n目標\n')
+      const cfg: Config = { ...s.cfg, goalFile }
+      const d = toDeps({ ...s, cfg })
+      const spy = fakeSpawn()
+      const out = await doGoal(d, 'run', spy.fn)
+      expect(out).toContain('已啟動')
+      expect(out).toContain('/goal stop')
+      expect(spy.calls.length).toBe(1)
+      const call = spy.calls[0]!
+      expect(call.cmd).toBe(process.execPath)
+      expect(call.args[0]).toMatch(/autopilot[\\/]run\.js$/)
+      expect(call.args[1]).toBe('--config')
+      expect(call.args[2]).toBe(d.cfgPath)
+      expect(call.opts.detached).toBe(true)
+      expect(call.opts.windowsHide).toBe(true)
+      expect(Array.isArray(call.opts.stdio)).toBe(true)
+      expect((call.opts.stdio as unknown[])[0]).toBe('ignore')
+    })
+  })
+
+  describe('status', () => {
+    test('goalFile 存在但無 audit 檔 → 含 GOAL 內容 + 「尚無 session 紀錄」', async () => {
+      const s = setup()
+      mkdirSync(s.cfg.dataDir, { recursive: true })
+      const goalFile = join(s.dir, 'GOAL.md')
+      writeFileSync(goalFile, '# GOAL\n測試目標內容\n')
+      const cfg: Config = { ...s.cfg, goalFile }
+      const out = await handleCommand('goal', 'status', toDeps({ ...s, cfg }))
+      expect(out).toContain('測試目標內容')
+      expect(out).toContain('尚無 session 紀錄')
+    })
+
+    test('有 goal-*.jsonl audit 檔 → 含最新一筆尾行', async () => {
+      const s = setup()
+      mkdirSync(s.cfg.dataDir, { recursive: true })
+      const goalFile = join(s.dir, 'GOAL.md')
+      writeFileSync(goalFile, '# GOAL\n測試目標\n')
+      writeFileSync(join(s.cfg.dataDir, 'goal-ab12.jsonl'), '{"round":1}\n{"round":2,"marker":"最新一輪"}\n')
+      const cfg: Config = { ...s.cfg, goalFile }
+      const out = await handleCommand('goal', 'status', toDeps({ ...s, cfg }))
+      expect(out).toContain('最新一輪')
+    })
+
+    test('goalFile 未設 → 人話', async () => {
+      const s = setup()
+      const out = await handleCommand('goal', 'status', toDeps(s))
+      expect(typeof out).toBe('string')
+      expect(out.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('stop', () => {
+    test('刪除 goalFile，回確認文字', async () => {
+      const s = setup()
+      const goalFile = join(s.dir, 'GOAL.md')
+      writeFileSync(goalFile, '# GOAL\nx\n')
+      const cfg: Config = { ...s.cfg, goalFile }
+      const out = await handleCommand('goal', 'stop', toDeps({ ...s, cfg }))
+      expect(existsSync(goalFile)).toBe(false)
+      expect(out.length).toBeGreaterThan(0)
+    })
+
+    test('goalFile 已不存在 → 不炸，仍回確認文字', async () => {
+      const s = setup()
+      const cfg: Config = { ...s.cfg, goalFile: join(s.dir, 'GOAL.md') }
+      const out = await handleCommand('goal', 'stop', toDeps({ ...s, cfg }))
+      expect(typeof out).toBe('string')
+      expect(out.length).toBeGreaterThan(0)
+    })
+  })
+
+  test('未知子指令 → 用法說明', async () => {
+    const s = setup()
+    const out = await handleCommand('goal', 'wat', toDeps(s))
+    expect(out).toContain('用法')
   })
 })
 

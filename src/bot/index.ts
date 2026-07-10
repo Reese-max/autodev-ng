@@ -1,12 +1,13 @@
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { Client, Events, GatewayIntentBits, SlashCommandBuilder } from 'discord.js'
 import { assemble } from '../cli.js'
 import { acquireLock, releaseLock } from '../lock.js'
 import { loadBotConfig, loadBotToken } from './config.js'
 import { handleCommand, type BotDeps } from './handlers.js'
+import { buildReplyPayload } from './reply.js'
 import { routeInteraction, type InteractionLike } from './route.js'
 
-// discord.js 只出現在本檔——純路由邏輯住 route.ts（不 import discord.js），
+// discord.js adapter 只放 index.ts / reply.ts；純路由邏輯住 route.ts（不 import discord.js），
 // 讓 tests/bot-route.test.ts 零依賴測路由，不打真 Discord。
 
 /** 無參數指令（查詢/控制）+ 有字串參數指令，各自的中文說明（slash command 註冊用）。 */
@@ -16,16 +17,18 @@ const NO_ARG_COMMANDS: Record<string, string> = {
   backlog: '查詢 backlog 概況',
   log: '查詢近期事件紀錄',
   pause: '暫停 daemon（寫入 stop 檔）',
-  resume: '恢復 daemon（清除 stop 檔）'
+  resume: '恢復 daemon（清除 stop 檔）',
+  lessons: '查看教訓庫（專案＋全域）'
 }
 
 const ARG_COMMANDS: Record<string, string> = {
   silence: '設定或解除靜音窗（分鐘數，0 解除）',
   task: '新增一筆任務到 backlog',
-  ask: '問 LLM 一個問題'
+  ask: '問 LLM 一個問題',
+  goal: 'GOAL autopilot：set <目標文字>／run／status／stop'
 }
 
-/** 9 個 slash command 定義（6 無參數 + 3 帶字串參數 arg）。 */
+/** 11 個 slash command 定義（7 無參數 + 4 帶字串參數 arg）。 */
 function buildCommandsData(): ReturnType<SlashCommandBuilder['toJSON']>[] {
   const noArg = Object.entries(NO_ARG_COMMANDS).map(([name, desc]) =>
     new SlashCommandBuilder().setName(name).setDescription(desc).toJSON()
@@ -50,7 +53,8 @@ export async function main(cfgPath: string): Promise<void> {
 
   const { deps, cfg } = assemble(cfgPath)
   const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }
-  const botDeps: BotDeps = { cfg, store: deps.store, db: deps.db, llm }
+  // resolve：/goal run spawn 子進程時 cwd 不保證等於這裡，cfgPath 必須是絕對路徑才可靠。
+  const botDeps: BotDeps = { cfg, store: deps.store, db: deps.db, llm, cfgPath: resolve(cfgPath) }
 
   const lockDir = join(cfg.dataDir, 'bot.lock')
   if (!acquireLock(lockDir)) {
@@ -87,7 +91,7 @@ export async function main(cfgPath: string): Promise<void> {
         arg,
         reply: async (text, ephemeral) => {
           try {
-            const payload = { content: text, ephemeral: !!ephemeral }
+            const payload = buildReplyPayload(text, ephemeral)
             if (interaction.replied || interaction.deferred) {
               await interaction.followUp(payload)
             } else {

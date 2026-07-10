@@ -1,4 +1,10 @@
-import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync, closeSync, existsSync, openSync, readdirSync, readFileSync,
+  renameSync, statSync, unlinkSync, writeFileSync
+} from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { spawn } from 'node:child_process'
 import { setSilence, clearSilence } from './silence.js'
 import { callAgent } from '../autopilot/llm.js'
 import type { BotDeps } from './handlers.js'
@@ -97,5 +103,98 @@ export async function doAsk(d: BotDeps, arg: string): Promise<string> {
     return reply.trim() ? reply : 'LLM 未回應'
   } catch {
     return 'LLM 呼叫失敗，請稍後再試'
+  }
+}
+
+// ── /goal 指令組（set/run/status/stop）：手機下目標給 GOAL autopilot ──
+
+const GOAL_USAGE = '用法：/goal set <目標文字> ｜ /goal run ｜ /goal status ｜ /goal stop'
+const GOAL_NOT_SET = '尚未設定 GOAL（先 /goal set <目標文字>）'
+
+function writeFileAtomic(file: string, content: string): void {
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`
+  writeFileSync(tmp, content)
+  renameSync(tmp, file)
+}
+
+/** dist/bot/actions.js 相對位置推回 dist/autopilot/run.js（無論安裝路徑/cwd 為何都能算對，比硬編路徑穩）。 */
+function autopilotRunScript(): string {
+  const here = dirname(fileURLToPath(import.meta.url))
+  return join(here, '..', 'autopilot', 'run.js')
+}
+
+function splitGoalArg(arg: string): { sub: string; rest: string } {
+  const trimmed = arg.trim()
+  const sp = trimmed.indexOf(' ')
+  return sp < 0 ? { sub: trimmed, rest: '' } : { sub: trimmed.slice(0, sp), rest: trimmed.slice(sp + 1).trim() }
+}
+
+async function goalSet(d: BotDeps, text: string): Promise<string> {
+  if (!text) return '用法：/goal set <目標文字>'
+  const violation = findTaskTextViolation(text)
+  if (violation) return violation
+  if (!d.cfg.goalFile) return 'config 未設 goalFile'
+  const content = `# GOAL\n${text}\n\n## 邊界\n- 連續無進展上限:3\n`
+  writeFileAtomic(d.cfg.goalFile, content)
+  return 'GOAL 已寫入,/goal run 啟動'
+}
+
+/** spawnFn 可注入（測試絕不真 spawn）；雙跑防護不在此處——鎖在 autopilot/run.ts main()（Item 2），這裡只負責啟動。 */
+async function goalRun(d: BotDeps, spawnFn: typeof spawn): Promise<string> {
+  if (!d.cfg.goalFile || !existsSync(d.cfg.goalFile)) return GOAL_NOT_SET
+  const logFile = join(d.cfg.dataDir, 'autopilot-console.log')
+  const outFd = openSync(logFile, 'a')
+  try {
+    // 改用 process.execPath(與 bot 同一顆 node)，避免 PATH 漂移導致多版本切換的不穩定
+    spawnFn(process.execPath, [autopilotRunScript(), '--config', d.cfgPath], {
+      detached: true,
+      stdio: ['ignore', outFd, outFd],
+      windowsHide: true // 踩雷 §25：detached spawn 不補這個會冒黑窗
+    }).unref()
+  } finally {
+    closeSync(outFd) // spawn 已把 fd dup 進子進程，父行程這份可放心關閉
+  }
+  return 'autopilot 已啟動(cost 閘與無進展煞車由 kernel 管),停止:/goal stop'
+}
+
+/** 掃 dataDir 找 goal-*.jsonl，取 mtime 最新一份的最後一行；缺檔/掃描失敗一律回「尚無 session 紀錄」。 */
+function latestAuditTail(dataDir: string): string {
+  try {
+    const files = readdirSync(dataDir).filter(f => /^goal-.*\.jsonl$/.test(f))
+    if (files.length === 0) return '尚無 session 紀錄'
+    const newest = files
+      .map(f => ({ f, mtime: statSync(join(dataDir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime)[0]!.f
+    const lines = readFileSync(join(dataDir, newest), 'utf8').split(/\r?\n/).filter(l => l.length > 0)
+    return lines.length > 0 ? lines[lines.length - 1]! : '尚無 session 紀錄'
+  } catch {
+    return '尚無 session 紀錄'
+  }
+}
+
+async function goalStatus(d: BotDeps): Promise<string> {
+  if (!d.cfg.goalFile || !existsSync(d.cfg.goalFile)) return GOAL_NOT_SET
+  const head = readFileSync(d.cfg.goalFile, 'utf8').slice(0, 200)
+  return `${head}\n\n${latestAuditTail(d.cfg.dataDir)}`
+}
+
+/** kill-switch：刪 goalFile，autopilot 每輪 isAlive 檢查會自停；檔本不存在也視為成功。 */
+async function goalStop(d: BotDeps): Promise<string> {
+  if (d.cfg.goalFile && existsSync(d.cfg.goalFile)) unlinkSync(d.cfg.goalFile)
+  return '已刪除 GOAL，autopilot 將於下一輪偵測到並停止'
+}
+
+export async function doGoal(d: BotDeps, arg: string, spawnFn: typeof spawn = spawn): Promise<string> {
+  try {
+    const { sub, rest } = splitGoalArg(arg)
+    switch (sub) {
+      case 'set': return await goalSet(d, rest)
+      case 'run': return await goalRun(d, spawnFn)
+      case 'status': return await goalStatus(d)
+      case 'stop': return await goalStop(d)
+      default: return GOAL_USAGE
+    }
+  } catch {
+    return 'goal 指令執行失敗，請稍後再試'
   }
 }
