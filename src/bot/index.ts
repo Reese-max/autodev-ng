@@ -95,7 +95,13 @@ export async function main(cfgPath: string): Promise<void> {
         }
       }
     }
-    await routeInteraction(iLike, botCfg.allowedUserIds, botDeps, handleCommand)
+    // async EventEmitter listener 內未捕獲的 throw 在 Node 22 = unhandled rejection，
+    // 會直接殺掉整個 bot 進程（全分支審查 follow-up）。最外層兜底，錯誤只印訊息絕不含 token。
+    try {
+      await routeInteraction(iLike, botCfg.allowedUserIds, botDeps, handleCommand)
+    } catch (err) {
+      console.error('interaction 處理失敗:', err instanceof Error ? err.message : String(err))
+    }
   })
 
   const shutdown = (signal: string): void => {
