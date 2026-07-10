@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setSilence, clearSilence, isSilenced } from '../src/bot/silence.js'
@@ -133,6 +133,19 @@ describe('daemon 整合：silence 窗內告警靜默，digest 不受影響', () 
     expect(result2).toBe('max-cycles')
     const idleAlerts2 = notifier2.sent.filter(t => t.includes('backlog 已耗盡'))
     expect(idleAlerts2).toHaveLength(1)
+  })
+
+  test('silence 中告警被吞時，events.jsonl 留痕 alert-silenced（Fix 1：不可零痕跡消失）', async () => {
+    const engine = new MockEngine([])
+    const d = deps(engine)
+    setSilence(d.cfg.dataDir, 60)
+    const notifier = new FakeNotifier()
+    const sleepCalls: number[] = []
+
+    await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 2 }))
+
+    const eventsRaw = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+    expect(eventsRaw).toContain('alert-silenced')
   })
 
   test('silence 中 digest 照送(鐵律 #6：digest 不經 sendCooldownAlert，天然不受影響)', async () => {

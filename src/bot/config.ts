@@ -24,8 +24,21 @@ export function loadBotConfig(cfgPath: string): BotConfig {
     // Resolve relative paths based on config directory
     const configDir = dirname(cfgPath)
 
+    // Fix 3：JSON 裡若寫 botAllowedUserIds: [111]（數字，非字串），include 比對會與
+    // Discord SDK 給的字串 userId 永遠對不上 → allowlist 全員靜默鎖死、毫無回饋。
+    // .map(String) 統一轉字串消解。欄位存在但型別不是陣列（如寫成單一字串）維持
+    // fail-closed 空陣列，另外 console.warn 一行供人工發現設定錯誤（不含任何 secret）。
+    const rawIds: unknown = cfg.botAllowedUserIds
+    let allowedUserIds: string[]
+    if (Array.isArray(rawIds)) {
+      allowedUserIds = rawIds.map(String)
+    } else {
+      allowedUserIds = []
+      if (rawIds !== undefined) console.warn('[bot/config] botAllowedUserIds 存在但非陣列，已忽略（fail-closed，全員鎖死）')
+    }
+
     return {
-      allowedUserIds: Array.isArray(cfg.botAllowedUserIds) ? cfg.botAllowedUserIds : [],
+      allowedUserIds,
       guildId: cfg.botGuildId,
       botTokenFile: cfg.botTokenFile ? resolve(configDir, cfg.botTokenFile) : undefined
     }

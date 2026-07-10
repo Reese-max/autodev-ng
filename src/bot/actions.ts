@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { setSilence, clearSilence } from './silence.js'
 import { callAgent } from '../autopilot/llm.js'
 import type { BotDeps } from './handlers.js'
@@ -16,16 +16,25 @@ function findTaskTextViolation(text: string): string | null {
   return null
 }
 
-/** /task 內部寫入：讀現檔（缺檔視為空）+ 確保結尾換行 + append 純 `- [ ] text` 行
- * （無 adng:autopilot 註記，parseBacklog 讀回 source:'user'，鐵律 #1：不冒充系統自主任務）。
+/** /task 內部寫入：讀現檔（缺檔視為空，僅為算分隔符，不再整檔重寫）+ 確保結尾換行 +
+ * appendFileSync 原子 append 純 `- [ ] text` 行（無 adng:autopilot 註記，parseBacklog
+ * 讀回 source:'user'，鐵律 #1：不冒充系統自主任務）。
  * 防禦第二層：即使呼叫端（doTask）漏檢，此處仍 throw 擋下換行/HTML 註解，防未來別的
- * 呼叫端繞過 handler 直接注入 backlog 檔。 */
+ * 呼叫端繞過 handler 直接注入 backlog 檔。
+ * Fix 2（撕裂寫緩解）：改前是 read-then-writeFileSync 全檔重寫，與 daemon report() 的
+ * 全檔重寫同時發生會互撞撕裂 backlog 檔。appendFileSync 是單一 syscall 級 append，
+ * 不重寫既有內容，消除撕裂視窗。鏡像 src/backlog.ts BacklogStore.append 的
+ * 讀檔取分隔符 + appendFileSync 慣例。
+ * 已知殘餘取捨：仍有極窄 lost-update 窗——若 daemon report() 的整檔重寫恰好夾在這裡
+ * 「讀 cur 判斷分隔符」與「appendFileSync 落地」之間開始並完成，report() 用的是舊內容
+ * 重寫覆蓋，會蓋掉這次 append 的新行。此窗口極窄（兩次 syscall 之間）且低機率，
+ * 不在本次修復範圍內；根治需 backlog 檔級別鎖或改為 append-only 格式（未來工作）。 */
 export function appendUserTask(backlogFile: string, text: string): void {
   const violation = findTaskTextViolation(text)
   if (violation) throw new Error(violation)
   const cur = existsSync(backlogFile) ? readFileSync(backlogFile, 'utf8') : ''
   const sep = cur.length === 0 || cur.endsWith('\n') ? '' : '\n'
-  writeFileSync(backlogFile, `${cur}${sep}- [ ] ${text}\n`)
+  appendFileSync(backlogFile, `${sep}- [ ] ${text}\n`)
 }
 
 export async function doPause(d: BotDeps): Promise<string> {

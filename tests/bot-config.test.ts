@@ -33,6 +33,20 @@ describe('loadBotConfig', () => {
     writeFileSync(p, '{broken')
     expect(loadBotConfig(p).allowedUserIds).toEqual([])
   })
+
+  test('Fix 3：botAllowedUserIds 陣列含數字元素 → 全部轉字串（避免與 include 比對永遠失敗、全員鎖死）', () => {
+    const d = dir()
+    const p = join(d, 'config.json')
+    writeFileSync(p, JSON.stringify({ botAllowedUserIds: [111, '222'] }))
+    expect(loadBotConfig(p).allowedUserIds).toEqual(['111', '222'])
+  })
+
+  test('Fix 3：botAllowedUserIds 存在但非陣列 → fail-closed 空陣列，不炸', () => {
+    const d = dir()
+    const p = join(d, 'config.json')
+    writeFileSync(p, JSON.stringify({ botAllowedUserIds: 'x' }))
+    expect(loadBotConfig(p).allowedUserIds).toEqual([])
+  })
 })
 
 describe('loadBotToken', () => {
