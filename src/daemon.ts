@@ -5,6 +5,7 @@ import { acquireLock, releaseLock } from './lock.js'
 import { localDay } from './db.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
 import { runOnce, type Deps, type CycleResult, type BlockedReason } from './scheduler.js'
+import { isSilenced } from './bot/silence.js'
 
 export interface Notifier {
   send(text: string): Promise<boolean>
@@ -152,6 +153,7 @@ export function baseAlertMessage(result: CycleResult): string {
 async function sendCooldownAlert(
   notifier: Notifier, dataDir: string, table: CooldownTable, key: string, message: string
 ): Promise<void> {
+  if (isSilenced(dataDir)) return // bot /silence 靜音窗:告警靜默(digest 不走此路,鐵律 #6 不受影響)
   const now = Date.now()
   const entry = table[key]
 
