@@ -126,3 +126,34 @@ test('M7.5 ③ idle 要任務通知：backlog 空 → result idle → notifier �
   // 兩輪都 sleep idleSleepMs（5000）
   expect(sleepCalls).toEqual([5000, 5000])
 })
+
+test('M7.5 ④ stopFile 優先於 OOM 跳輪：memFreeRatioFn 回 0.10（低記憶體）且 stopFile 已存在 → runDaemon 回 stopped（非 max-cycles）、engine 從未被呼叫', async () => {
+  const engine = new MockEngine([{ ok: true }])
+  const d = deps(engine)
+  writeFileSync(d.cfg.stopFile, '')
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, {
+    memFreeRatioFn: () => 0.10,
+    maxCycles: 10
+  }))
+
+  expect(result).toBe('stopped')
+  expect(engine.calls).toHaveLength(0)
+})
+
+test('M7.5 ⑤ memFreeRatioFn fail-open：memFreeRatioFn throw → 不炸主迴圈，視同記憶體充足正常派工（engine 有被呼叫）', async () => {
+  const engine = new MockEngine([{ ok: true }])
+  const d = deps(engine)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, {
+    memFreeRatioFn: () => { throw new Error('boom') },
+    maxCycles: 1
+  }))
+
+  expect(result).toBe('max-cycles')
+  expect(engine.calls).toHaveLength(1)
+})

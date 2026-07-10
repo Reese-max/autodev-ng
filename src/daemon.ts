@@ -1,4 +1,4 @@
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { freemem, totalmem } from 'node:os'
 import { join } from 'node:path'
 import { acquireLock, releaseLock } from './lock.js'
@@ -258,8 +258,11 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       await checkAndSendDigest(deps, notifier)
 
       // M7.5:OOM 閘——可用記憶體 <15% 跳過本輪派工(舊系統教訓:高壓下 spawn 只會雪崩)
+      // stop 優先於 OOM 跳輪——否則低記憶體期間操作者停不下 daemon(全分支審查 IMPORTANT)
       const memFree = opts.memFreeRatioFn ?? (() => freemem() / totalmem())
-      if (memFree() < OOM_FREE_RATIO) {
+      let memFreeRatio = 1 // memFreeRatioFn 故障 fail-open（鐵律 #4）：視同記憶體充足
+      try { memFreeRatio = memFree() } catch { /* fail-open */ }
+      if (memFreeRatio < OOM_FREE_RATIO && !existsSync(deps.cfg.stopFile)) {
         await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable,
           'oom-gate', 'daemon 告警:記憶體可用 <15%,本輪跳過派工')
         await sleep(idleSleepMs)
