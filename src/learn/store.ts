@@ -1,7 +1,5 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, dirname } from 'node:path'
-import { randomBytes } from 'node:crypto'
+import { dirname } from 'node:path'
 
 export const MAX_LESSONS = 30
 export const MAX_LESSON_LEN = 200
@@ -74,11 +72,12 @@ export class LessonStore {
       const content = lines.join('\n')
 
       const dir = dirname(this.projectFile)
-      try {
-        mkdirSync(dir, { recursive: true })
-      } catch {}
+      // 保證目錄存在；fail-open（故障不影響主流程）
+      mkdirSync(dir, { recursive: true })
 
-      const tmp = join(tmpdir(), `.adng-${randomBytes(6).toString('hex')}`)
+      // tmp 與目標檔同目錄：避免跨磁碟機 EXDEV（e.g., C:/tmp + D:/projectFile）
+      // tmp+rename 是不可部分的寫入，原子交付
+      const tmp = this.projectFile + '.tmp'
       writeFileSync(tmp, content, 'utf8')
       renameSync(tmp, this.projectFile)
 
