@@ -45,4 +45,28 @@ describe('planner.plan', () => {
     )
     expect(r).toEqual({ kind: 'tasks', tasks: ['甲', '乙'] })
   })
+
+  function capturingLlm(): [LlmOpts, () => string] {
+    let captured = ''
+    const fetchFn = (async (_url: string, init: { body: string }) => {
+      captured = (JSON.parse(init.body) as { messages: Array<{ content: string }> }).messages[0]!.content
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'ACHIEVED' } }] }) }
+    }) as unknown as typeof fetch
+    return [{ url: 'http://x/v1', model: 'm', apiKey: 'k', fetchFn }, () => captured]
+  }
+
+  test('lessonsText 有值 → 傳給 llm 的 prompt 包含教訓文字', async () => {
+    const [llm, getPrompt] = capturingLlm()
+    await plan(llm, { goal, repoSummary: '', history: [], lessonsText: '# Learnings\n- L001 [2026-07-10] 教訓內容' })
+    expect(getPrompt()).toContain('L001 [2026-07-10] 教訓內容')
+  })
+
+  test('lessonsText 未設 → prompt 與空字串時位元級相同（現狀不變）', async () => {
+    const [llmA, getA] = capturingLlm()
+    await plan(llmA, { goal, repoSummary: '', history: [] })
+    const [llmB, getB] = capturingLlm()
+    await plan(llmB, { goal, repoSummary: '', history: [], lessonsText: '' })
+    expect(getA()).toBe(getB())
+    expect(getA()).not.toContain('Learnings')
+  })
 })

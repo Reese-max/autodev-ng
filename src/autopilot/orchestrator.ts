@@ -16,6 +16,8 @@ export interface OrchestratorDeps {
   goal: Goal
   cwd: string
   kernelDeps: Deps
+  /** M7 Task 5：session 開始時讀一次的教訓文字，逐輪附進 planFn 的 prompt（fail-open，undefined 時行為與現狀一致）。 */
+  lessonsText?: string
   planFn: (input: PlanInput) => Promise<PlanResult>
   evalFn: (cwd: string) => Promise<ProgressSnapshot>
   runOnceFn: (d: Deps) => Promise<CycleResult>
@@ -35,7 +37,7 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
     round++
 
     const repoSummary = `round ${round}`
-    const planResult = await deps.planFn({ goal: deps.goal, repoSummary, history })
+    const planResult = await deps.planFn({ goal: deps.goal, repoSummary, history, lessonsText: deps.lessonsText })
     if (planResult.kind === 'achieved') return { kind: 'achieved', rounds: round }
     if (planResult.kind === 'stuck') return { kind: 'stuck', rounds: round, reason: planResult.reason }
 
