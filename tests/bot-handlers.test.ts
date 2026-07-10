@@ -26,7 +26,7 @@ function setup(backlogMd = '- [ ] 任務一\n'): { dir: string; cfg: Config; sto
 const noLlm: LlmOpts = { model: 'm', apiKey: 'k' } // url 未設 → callAgent fail-open，查詢 handler 用不到
 
 function toDeps(s: { cfg: Config; store: BacklogStore; db: RunDb }): BotDeps {
-  return { cfg: s.cfg, store: s.store, db: s.db, llm: noLlm }
+  return { cfg: s.cfg, store: s.store, db: s.db, llm: noLlm, cfgPath: join(s.cfg.projectPath, 'config.json') }
 }
 
 describe('status', () => {

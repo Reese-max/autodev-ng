@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { Client, Events, GatewayIntentBits, SlashCommandBuilder } from 'discord.js'
 import { assemble } from '../cli.js'
 import { acquireLock, releaseLock } from '../lock.js'
@@ -24,10 +24,11 @@ const NO_ARG_COMMANDS: Record<string, string> = {
 const ARG_COMMANDS: Record<string, string> = {
   silence: '設定或解除靜音窗（分鐘數，0 解除）',
   task: '新增一筆任務到 backlog',
-  ask: '問 LLM 一個問題'
+  ask: '問 LLM 一個問題',
+  goal: 'GOAL autopilot：set <目標文字>／run／status／stop'
 }
 
-/** 10 個 slash command 定義（7 無參數 + 3 帶字串參數 arg）。 */
+/** 11 個 slash command 定義（7 無參數 + 4 帶字串參數 arg）。 */
 function buildCommandsData(): ReturnType<SlashCommandBuilder['toJSON']>[] {
   const noArg = Object.entries(NO_ARG_COMMANDS).map(([name, desc]) =>
     new SlashCommandBuilder().setName(name).setDescription(desc).toJSON()
@@ -52,7 +53,8 @@ export async function main(cfgPath: string): Promise<void> {
 
   const { deps, cfg } = assemble(cfgPath)
   const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }
-  const botDeps: BotDeps = { cfg, store: deps.store, db: deps.db, llm }
+  // resolve：/goal run spawn 子進程時 cwd 不保證等於這裡，cfgPath 必須是絕對路徑才可靠。
+  const botDeps: BotDeps = { cfg, store: deps.store, db: deps.db, llm, cfgPath: resolve(cfgPath) }
 
   const lockDir = join(cfg.dataDir, 'bot.lock')
   if (!acquireLock(lockDir)) {

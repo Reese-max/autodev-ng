@@ -6,13 +6,14 @@ import { localDay, type RunDb } from '../db.js'
 import { yesterdayLocal } from '../daemon.js'
 import type { LlmOpts } from '../autopilot/llm.js'
 import { isSilenced } from './silence.js'
-import { doPause, doResume, doSilence, doTask, doAsk } from './actions.js'
+import { doPause, doResume, doSilence, doTask, doAsk, doGoal } from './actions.js'
 
 export interface BotDeps {
   cfg: Config
   store: BacklogStore
   db: RunDb
   llm: LlmOpts
+  cfgPath: string // /goal run 需要轉傳給 spawn 的 autopilot run.js --config 參數
 }
 
 // Discord 單訊息上限鏡像 src/notify.ts:82（同一份截斷邏輯，避免兩處漂移）。
@@ -176,6 +177,7 @@ export async function handleCommand(name: string, arg: string, d: BotDeps): Prom
       case 'silence': return truncate(await doSilence(d, arg))
       case 'task': return truncate(await doTask(d, arg))
       case 'ask': return truncate(await doAsk(d, arg))
+      case 'goal': return truncate(await doGoal(d, arg))
       default: return '未知指令'
     }
   } catch {
