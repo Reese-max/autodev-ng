@@ -1,4 +1,5 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { freemem, totalmem } from 'node:os'
 import { join } from 'node:path'
 import { acquireLock, releaseLock } from './lock.js'
 import { localDay } from './db.js'
@@ -19,10 +20,13 @@ export interface DaemonOpts {
   sleepFn?: (ms: number) => Promise<void>
   /** 供測試注入：限制主迴圈跑幾輪就停（供測試不掛在 while(true) 上）。生產不設。 */
   maxCycles?: number
+  /** 供測試注入：可用記憶體比例。生產預設 os.freemem()/os.totalmem()。 */
+  memFreeRatioFn?: () => number
 }
 
 export type DaemonResult = 'lock-busy' | 'stopped' | 'max-cycles'
 
+const OOM_FREE_RATIO = 0.15
 const MAX_BACKOFF_MS = 10 * 60 * 1000
 const CONSECUTIVE_CRASH_PAUSE_THRESHOLD = 5
 const CRASH_PAUSE_MS = 30 * 60 * 1000
@@ -253,6 +257,15 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       // 每輪迴圈開頭檢查每日摘要（鐵律 #6）——stop 當天也必達
       await checkAndSendDigest(deps, notifier)
 
+      // M7.5:OOM 閘——可用記憶體 <15% 跳過本輪派工(舊系統教訓:高壓下 spawn 只會雪崩)
+      const memFree = opts.memFreeRatioFn ?? (() => freemem() / totalmem())
+      if (memFree() < OOM_FREE_RATIO) {
+        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable,
+          'oom-gate', 'daemon 告警:記憶體可用 <15%,本輪跳過派工')
+        await sleep(idleSleepMs)
+        continue
+      }
+
       let result: CycleResult
       try {
         result = await runOnce(deps)
@@ -289,6 +302,12 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       // M7：失敗驅動 reflect——教訓面故障吞掉,絕不反殺主迴圈(鐵律 #4)
       if (deps.lessons && (result === 'failed' || typeof result === 'object')) {
         try { await deps.lessons.reflect(result) } catch { /* fail-open */ }
+      }
+
+      // M7.5:idle 要任務通知(6h 冷卻=持續 idle 每 6h 至多提醒一次,不洗版)
+      if (result === 'idle') {
+        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable,
+          'idle', 'daemon 提醒:backlog 已耗盡,請補任務')
       }
 
       if (result === 'idle' || result === 'cost-hard-stop') {
