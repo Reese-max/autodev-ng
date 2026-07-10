@@ -47,6 +47,22 @@ describe('loadBotConfig', () => {
     writeFileSync(p, JSON.stringify({ botAllowedUserIds: 'x' }))
     expect(loadBotConfig(p).allowedUserIds).toEqual([])
   })
+
+  test('botGuildId 為數字型別 → 轉為字串（避免 discord.js API 型別不符）', () => {
+    const d = dir()
+    const p = join(d, 'config.json')
+    writeFileSync(p, JSON.stringify({ botGuildId: 123456 }))
+    const c = loadBotConfig(p)
+    expect(c.guildId).toBe('123456')
+    expect(typeof c.guildId).toBe('string')
+  })
+
+  test('botGuildId 缺欄位 → undefined（不轉成字串 "undefined"）', () => {
+    const d = dir()
+    const p = join(d, 'config.json')
+    writeFileSync(p, JSON.stringify({}))
+    expect(loadBotConfig(p).guildId).toBeUndefined()
+  })
 })
 
 describe('loadBotToken', () => {
@@ -59,6 +75,18 @@ describe('loadBotToken', () => {
     const f = join(dir(), 'bot.env')
     writeFileSync(f, '# comment\nset ADNG_BOT_TOKEN="file-tok"\n')
     expect(loadBotToken(f)).toBe('file-tok')
+  })
+  test('env ADNG_BOT_TOKEN 存在但空字串 → fallback 讀檔', () => {
+    process.env.ADNG_BOT_TOKEN = ''
+    const f = join(dir(), 'bot.env')
+    writeFileSync(f, 'export ADNG_BOT_TOKEN=file-tok-2\n')
+    expect(loadBotToken(f)).toBe('file-tok-2')
+  })
+  test('env ADNG_BOT_TOKEN 存在但全空白 → fallback 讀檔', () => {
+    process.env.ADNG_BOT_TOKEN = '   '
+    const f = join(dir(), 'bot.env')
+    writeFileSync(f, 'export ADNG_BOT_TOKEN=file-tok-3\n')
+    expect(loadBotToken(f)).toBe('file-tok-3')
   })
   test('皆無 → null;檔案缺失不炸', () => {
     delete process.env.ADNG_BOT_TOKEN

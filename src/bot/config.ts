@@ -37,9 +37,15 @@ export function loadBotConfig(cfgPath: string): BotConfig {
       if (rawIds !== undefined) console.warn('[bot/config] botAllowedUserIds 存在但非陣列，已忽略（fail-closed，全員鎖死）')
     }
 
+    // botGuildId 若在 JSON 裡寫成數字（如 123456 非 "123456"），discord.js API 期待 string；
+    // 沿用 Fix 3 同款寬容轉型（非 undefined 一律 String()），避免型別不符導致 guild-scoped
+    // 指令註冊靜默失敗。
+    const rawGuildId: unknown = cfg.botGuildId
+    const guildId = rawGuildId !== undefined ? String(rawGuildId) : undefined
+
     return {
       allowedUserIds,
-      guildId: cfg.botGuildId,
+      guildId,
       botTokenFile: cfg.botTokenFile ? resolve(configDir, cfg.botTokenFile) : undefined
     }
   } catch {
