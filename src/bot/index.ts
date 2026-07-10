@@ -76,26 +76,32 @@ export async function main(cfgPath: string): Promise<void> {
   })
 
   client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand()) return
-    const arg = interaction.options.getString('arg', false) ?? ''
-    const iLike: InteractionLike = {
-      commandName: interaction.commandName,
-      userId: interaction.user.id,
-      arg,
-      reply: async (text, ephemeral) => {
-        try {
-          const payload = { content: text, ephemeral: !!ephemeral }
-          if (interaction.replied || interaction.deferred) {
-            await interaction.followUp(payload)
-          } else {
-            await interaction.reply(payload)
+    // async EventEmitter listener 內未捕獲的 throw 在 Node 22 = unhandled rejection，
+    // 會直接殺掉整個 bot 進程（全分支審查 follow-up）。最外層兜底，錯誤只印訊息絕不含 token。
+    try {
+      if (!interaction.isChatInputCommand()) return
+      const arg = interaction.options.getString('arg', false) ?? ''
+      const iLike: InteractionLike = {
+        commandName: interaction.commandName,
+        userId: interaction.user.id,
+        arg,
+        reply: async (text, ephemeral) => {
+          try {
+            const payload = { content: text, ephemeral: !!ephemeral }
+            if (interaction.replied || interaction.deferred) {
+              await interaction.followUp(payload)
+            } else {
+              await interaction.reply(payload)
+            }
+          } catch {
+            // discord.js 自身重連/回覆失敗即失敗——不做 bot 端 DLQ（YAGNI，brief 明文）。
           }
-        } catch {
-          // discord.js 自身重連/回覆失敗即失敗——不做 bot 端 DLQ（YAGNI，brief 明文）。
         }
       }
+      await routeInteraction(iLike, botCfg.allowedUserIds, botDeps, handleCommand)
+    } catch (err) {
+      console.error('interaction 處理失敗:', err instanceof Error ? err.message : String(err))
     }
-    await routeInteraction(iLike, botCfg.allowedUserIds, botDeps, handleCommand)
   })
 
   const shutdown = (signal: string): void => {

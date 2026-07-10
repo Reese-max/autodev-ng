@@ -81,7 +81,8 @@ test('M7.5 ① OOM 閘：memFreeRatioFn: () => 0.10（10% 可用）+ maxCycles=2
   // engine 從未被呼叫（被 OOM 閘攔截了）
   expect(engine.calls).toHaveLength(0)
   // 兩輪皆觸發 OOM，但冷卻閘只送第一則
-  const oomAlerts = notifier.sent.filter(t => t.includes('oom-gate') || t.includes('記憶體可用'))
+  // 'oom-gate' 只是冷卻 key,不在告警文案裡,原斷言條件半邊死;只留實際文案字串
+  const oomAlerts = notifier.sent.filter(t => t.includes('記憶體可用'))
   expect(oomAlerts).toHaveLength(1)
   // 兩輪都 sleep idleSleepMs（5000）
   expect(sleepCalls).toEqual([5000, 5000])
@@ -101,8 +102,8 @@ test('M7.5 ② 正常記憶體：memFreeRatioFn: () => 0.50（50% 可用）→ �
   expect(result).toBe('max-cycles')
   // engine 被呼叫（未被 OOM 閘攔截）
   expect(engine.calls).toHaveLength(1)
-  // 無 oom-gate 告警
-  const oomAlerts = notifier.sent.filter(t => t.includes('oom-gate') || t.includes('記憶體可用'))
+  // 無 oom-gate 告警（只驗實際文案字串,'oom-gate' 只是冷卻 key 不會出現在文案）
+  const oomAlerts = notifier.sent.filter(t => t.includes('記憶體可用'))
   expect(oomAlerts).toHaveLength(0)
   // 派工成功後 sleep cooldownMs（1000）
   expect(sleepCalls).toEqual([1000])

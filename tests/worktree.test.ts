@@ -75,7 +75,8 @@ test('prepareWorktree：殘留（前次崩潰留下未清的 worktree 目錄+分
   expect(existsSync(join(second.cwd, 'stale.txt'))).toBe(false) // 殘留內容已被清掉重建
   const list = execFileSync('git', ['worktree', 'list'], { cwd: repo, encoding: 'utf8' })
   expect(list.split('\n').filter(l => l.includes(TASK_ID))).toHaveLength(1) // 沒有重複登記
-})
+  // 真 git worktree I/O，24/7 機器負載下 5s 不夠（非產品 bug）→ 針對性 timeout 20s
+}, 20000)
 
 test('mergeBack：worktree 內 commit 後 ff-only 成功、主 repo HEAD 前進；cleanupWorktree 清掉現場', () => {
   const { repo, worktreesDir } = newRepo()
