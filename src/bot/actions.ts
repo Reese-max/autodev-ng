@@ -145,7 +145,8 @@ async function goalRun(d: BotDeps, spawnFn: typeof spawn): Promise<string> {
   const logFile = join(d.cfg.dataDir, 'autopilot-console.log')
   const outFd = openSync(logFile, 'a')
   try {
-    spawnFn('node', [autopilotRunScript(), '--config', d.cfgPath], {
+    // 改用 process.execPath(與 bot 同一顆 node)，避免 PATH 漂移導致多版本切換的不穩定
+    spawnFn(process.execPath, [autopilotRunScript(), '--config', d.cfgPath], {
       detached: true,
       stdio: ['ignore', outFd, outFd],
       windowsHide: true // 踩雷 §25：detached spawn 不補這個會冒黑窗

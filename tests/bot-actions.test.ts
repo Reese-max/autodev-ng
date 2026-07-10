@@ -231,7 +231,7 @@ describe('goal', () => {
       expect(out).toContain('/goal stop')
       expect(spy.calls.length).toBe(1)
       const call = spy.calls[0]!
-      expect(call.cmd).toBe('node')
+      expect(call.cmd).toBe(process.execPath)
       expect(call.args[0]).toMatch(/autopilot[\\/]run\.js$/)
       expect(call.args[1]).toBe('--config')
       expect(call.args[2]).toBe(d.cfgPath)
