@@ -3,9 +3,26 @@ import { setSilence, clearSilence } from './silence.js'
 import { callAgent } from '../autopilot/llm.js'
 import type { BotDeps } from './handlers.js'
 
+const TASK_TEXT_NEWLINE_ERR = '任務內容不可含換行'
+const TASK_TEXT_COMMENT_ERR = '任務內容含不允許字元(<!-- -->)'
+
+/** 鐵律 #1：使用者輸入是不受信任的注入面。換行會讓一行使用者文字在 backlog 檔裡
+ * 憑空多生出偽任務行（含偽 `<!-- adng:done ... -->` 狀態註記）；`<!--`/`-->` 會讓
+ * parseBacklog 把整個 rawLine 誤判為 adng 註記（偽冒 source:'autopilot' 或偽造狀態）。
+ * 拒收優先，不做逃逸/轉義魔法——回 null 表合法，否則回人話錯誤訊息。 */
+function findTaskTextViolation(text: string): string | null {
+  if (/[\r\n]/.test(text)) return TASK_TEXT_NEWLINE_ERR
+  if (text.includes('<!--') || text.includes('-->')) return TASK_TEXT_COMMENT_ERR
+  return null
+}
+
 /** /task 內部寫入：讀現檔（缺檔視為空）+ 確保結尾換行 + append 純 `- [ ] text` 行
- * （無 adng:autopilot 註記，parseBacklog 讀回 source:'user'，鐵律 #1：不冒充系統自主任務）。 */
+ * （無 adng:autopilot 註記，parseBacklog 讀回 source:'user'，鐵律 #1：不冒充系統自主任務）。
+ * 防禦第二層：即使呼叫端（doTask）漏檢，此處仍 throw 擋下換行/HTML 註解，防未來別的
+ * 呼叫端繞過 handler 直接注入 backlog 檔。 */
 export function appendUserTask(backlogFile: string, text: string): void {
+  const violation = findTaskTextViolation(text)
+  if (violation) throw new Error(violation)
   const cur = existsSync(backlogFile) ? readFileSync(backlogFile, 'utf8') : ''
   const sep = cur.length === 0 || cur.endsWith('\n') ? '' : '\n'
   writeFileSync(backlogFile, `${cur}${sep}- [ ] ${text}\n`)
@@ -53,6 +70,8 @@ export async function doTask(d: BotDeps, arg: string): Promise<string> {
   try {
     const text = arg.trim()
     if (!text) return '用法：/task <任務內容>'
+    const violation = findTaskTextViolation(text)
+    if (violation) return violation
     appendUserTask(d.cfg.backlogFile, text)
     return '已加入 backlog'
   } catch {
