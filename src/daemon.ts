@@ -5,6 +5,8 @@ import { acquireLock, releaseLock } from './lock.js'
 import { localDay } from './db.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
 import { runOnce, type Deps, type CycleResult, type BlockedReason } from './scheduler.js'
+import { isSilenced } from './bot/silence.js'
+import type { EventLog } from './events.js'
 
 export interface Notifier {
   send(text: string): Promise<boolean>
@@ -150,8 +152,10 @@ export function baseAlertMessage(result: CycleResult): string {
  * 呼叫端各自準備好 key 與文案（CycleResult 系告警則由呼叫點先呼叫
  * cooldownKeyFor(result)/baseAlertMessage(result) 算好再傳進來）。 */
 async function sendCooldownAlert(
-  notifier: Notifier, dataDir: string, table: CooldownTable, key: string, message: string
+  notifier: Notifier, dataDir: string, table: CooldownTable, events: EventLog, key: string, message: string
 ): Promise<void> {
+  // 靜音窗:告警靜默但留痕(舊系統 L076 教訓:一次性告警在靜音窗內曾永久消失、無紀錄)；digest 不走此路(鐵律 #6 不受影響)。
+  if (isSilenced(dataDir)) { quiet(() => events.append('alert-silenced', { key })); return }
   const now = Date.now()
   const entry = table[key]
 
@@ -230,7 +234,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
     // 反覆重啟撞同一 infra 故障（EPERM 類）時不洗版通知頻道；rethrow 語意不變
     // （原樣炸給排程器看，不可假活）。
     await sendCooldownAlert(
-      notifier, deps.cfg.dataDir, cooldownTable,
+      notifier, deps.cfg.dataDir, cooldownTable, deps.events,
       'daemon-acquire-throw', `daemon 無法啟動：acquireLock 拋出 infra 故障——${String(err)}`
     )
     throw err
@@ -240,7 +244,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
     // lock-busy 進程隨即退出：sendCooldownAlert 內對冷卻表的落地寫入是同步呼叫，
     // return 之前已完成，不會漏寫（鏡像既有 saveCooldownTable 同步寫慣例）。
     await sendCooldownAlert(
-      notifier, deps.cfg.dataDir, cooldownTable,
+      notifier, deps.cfg.dataDir, cooldownTable, deps.events,
       'lock-busy', 'daemon 啟動失敗：lock 被佔用（single-flight，可能已有 instance 在跑）'
     )
     return 'lock-busy'
@@ -263,7 +267,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       let memFreeRatio = 1 // memFreeRatioFn 故障 fail-open（鐵律 #4）：視同記憶體充足
       try { memFreeRatio = memFree() } catch { /* fail-open */ }
       if (memFreeRatio < OOM_FREE_RATIO && !existsSync(deps.cfg.stopFile)) {
-        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable,
+        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, deps.events,
           'oom-gate', 'daemon 告警:記憶體可用 <15%,本輪跳過派工')
         await sleep(idleSleepMs)
         continue
@@ -276,13 +280,13 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
         consecutiveCrashes++
         quiet(() => deps.events.append('runonce-crash', { error: String(err), consecutiveCrashes }))
         await sendCooldownAlert(
-          notifier, deps.cfg.dataDir, cooldownTable,
+          notifier, deps.cfg.dataDir, cooldownTable, deps.events,
           'daemon-crash', `daemon 告警：runOnce 崩潰（連續第 ${consecutiveCrashes} 次）——${String(err)}`
         )
 
         if (consecutiveCrashes >= CONSECUTIVE_CRASH_PAUSE_THRESHOLD) {
           await sendCooldownAlert(
-            notifier, deps.cfg.dataDir, cooldownTable,
+            notifier, deps.cfg.dataDir, cooldownTable, deps.events,
             'daemon-crash-pause', 'daemon 告警：連續崩潰暫停——已連續崩潰 5 次，暫停 30 分鐘後重試'
           )
           await sleep(CRASH_PAUSE_MS)
@@ -299,7 +303,9 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       if (result === 'stopped') return 'stopped'
 
       if (isAlertableResult(result)) {
-        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, cooldownKeyFor(result), baseAlertMessage(result))
+        await sendCooldownAlert(
+          notifier, deps.cfg.dataDir, cooldownTable, deps.events, cooldownKeyFor(result), baseAlertMessage(result)
+        )
       }
 
       // M7：失敗驅動 reflect——教訓面故障吞掉,絕不反殺主迴圈(鐵律 #4)
@@ -309,7 +315,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
 
       // M7.5:idle 要任務通知(6h 冷卻=持續 idle 每 6h 至多提醒一次,不洗版)
       if (result === 'idle') {
-        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable,
+        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, deps.events,
           'idle', 'daemon 提醒:backlog 已耗盡,請補任務')
       }
 
