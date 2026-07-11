@@ -31,11 +31,16 @@
   #tokenBox { margin-bottom: 16px; font-size: 12px; color: #8a8f98; }
   #tokenBox input { background: #171a21; border: 1px solid #2a2e37; color: #e6e6e6; padding: 4px 8px; border-radius: 4px; font-size: 12px; width: 260px; }
   #msg { font-size: 12px; margin-left: 8px; }
+  .panelgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .panelText { background: #0b0d11; border: 1px solid #23262e; border-radius: 6px; padding: 8px; margin: 0; height: 120px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; }
+  .card input[type="text"], .card input[type="number"] { width: 100%; box-sizing: border-box; background: #0b0d11; border: 1px solid #2a2e37; color: #e6e6e6; padding: 6px 8px; border-radius: 4px; font-size: 12px; margin: 8px 0; }
+  .card .btns { margin-bottom: 0; }
+  .card button { padding: 6px 10px; font-size: 12px; }
 </style>
 </head>
 <body>
 <h1>autodev-ng 控制台</h1>
-<div class="sub">監看 + 一鍵 run-once + daemon 開關（127.0.0.1:3900，純手動操作）</div>
+<div class="sub">監看 + 一鍵 run-once + daemon 開關 + 教訓庫／GOAL／靜音遙控（127.0.0.1:3900，純手動操作）</div>
 
 <div id="tokenBox">CSRF token：<input id="tokenInput" placeholder="從啟動 console 印出的 URL 貼上，或帶 ?token= 開這頁"></div>
 
@@ -63,6 +68,32 @@
 <section>
   <h2>Events 尾段（自動增量 + 每 3s 快照 50 筆）</h2>
   <div id="log"></div>
+</section>
+
+<section>
+  <h2>面板（每 10s 自動輪詢；複用 bot 指令輸出）</h2>
+  <div class="panelgrid">
+    <div class="card" data-panel="status"><h2>Status</h2><pre class="panelText">—</pre></div>
+    <div class="card" data-panel="cost"><h2>Cost</h2><pre class="panelText">—</pre></div>
+    <div class="card" data-panel="backlog"><h2>Backlog</h2><pre class="panelText">—</pre></div>
+    <div class="card" data-panel="log"><h2>Log</h2><pre class="panelText">—</pre></div>
+    <div class="card" data-panel="lessons"><h2>Lessons</h2><pre class="panelText">—</pre></div>
+    <div class="card" data-panel="goal">
+      <h2>Goal</h2><pre class="panelText">—</pre>
+      <input id="goalInput" type="text" placeholder="設定 GOAL 文字">
+      <div class="btns">
+        <button id="btnGoalSet" class="ghost">設定</button>
+        <button id="btnGoalRun">▶ Run</button>
+        <button id="btnGoalStop" class="stop">■ Stop</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Silence</h2>
+      <div class="sub">1-1440 分鐘設定靜音窗，0 解除靜音</div>
+      <input id="silenceInput" type="number" placeholder="分鐘（0=解除）">
+      <div class="btns"><button id="btnSilenceSet" class="ghost">套用</button></div>
+    </div>
+  </div>
 </section>
 
 <script>
@@ -95,6 +126,40 @@
   document.getElementById('btnRunOnce').onclick = () => post('/api/run-once')
   document.getElementById('btnDaemonStart').onclick = () => post('/api/daemon/start')
   document.getElementById('btnDaemonStop').onclick = () => post('/api/daemon/stop')
+
+  // ---- M9：panel 輪詢 + goal/silence 控制（複用既有 bot handler 輸出，web 只是另一張皮） ----
+  async function postJson(path, payload) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'x-csrf-token': tokenInput.value, 'content-type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (res.status === 403) { flash('403：token 錯誤或缺失', true); return }
+    flash(body.text ? String(body.text).slice(0, 80) : JSON.stringify(body), !res.ok)
+    pollPanels()
+  }
+
+  document.getElementById('btnGoalSet').onclick = () =>
+    postJson('/api/goal/set', { text: document.getElementById('goalInput').value })
+  document.getElementById('btnGoalRun').onclick = () => postJson('/api/goal/run')
+  document.getElementById('btnGoalStop').onclick = () => postJson('/api/goal/stop')
+  document.getElementById('btnSilenceSet').onclick = () =>
+    postJson('/api/silence', { minutes: Number(document.getElementById('silenceInput').value || 0) })
+
+  const PANELS = ['status', 'cost', 'backlog', 'log', 'lessons', 'goal']
+  async function pollPanels() {
+    for (const name of PANELS) {
+      try {
+        const res = await fetch('/api/panel/' + name)
+        const body = await res.json()
+        const el = document.querySelector('[data-panel="' + name + '"] .panelText')
+        if (el) el.textContent = res.ok ? (body.text ?? '') : JSON.stringify(body)
+      } catch { /* 單一面板暫時讀不到，不擋其他面板 */ }
+    }
+  }
+  pollPanels()
+  setInterval(pollPanels, 10000)
 
   const fmt = (n) => (typeof n === 'number' ? n.toFixed(4) : '—')
 
