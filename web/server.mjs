@@ -32,6 +32,20 @@ export function makeToken() {
   return randomBytes(24).toString('hex')
 }
 
+// token 持久化（M9.3 Task 6）：常駐排程每 15 分鐘可能 respawn，若每次都重生 token 使用者分頁
+// 會被 403 卡住。啟動時先讀 <dataDir>/web-console.token（單行 hex），存在且非空即沿用；
+// 不存在（或讀檔失敗）才 makeToken() 新生並落地，供下次 respawn 沿用。
+export function loadOrCreateToken(dataDir) {
+  const file = join(dataDir, 'web-console.token')
+  try {
+    const t = readFileSync(file, 'utf8').trim()
+    if (t) return t
+  } catch { /* 不存在則新生 */ }
+  const t = makeToken()
+  try { writeFileSync(file, t + '\n') } catch (e) { console.error('[web] token 檔寫入失敗,本次用暫時 token:', String(e)) }
+  return t
+}
+
 export function hasValidToken(req, url, token) {
   const header = req.headers['x-csrf-token']
   const q = url.searchParams.get('token')
@@ -367,8 +381,8 @@ export function createRequestHandler(ctx) {
       if (!PANEL_NAMES.has(name)) { send(404, { error: 'not found' }); return }
       try {
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand(name, name === 'goal' ? 'status' : '', botDeps)
-        send(200, { text })
+        const r = await handleCommand(name, name === 'goal' ? 'status' : '', botDeps)
+        send(200, { ok: r.ok, text: r.text })
       } catch (err) {
         send(500, { error: String(err) })
       }
@@ -401,48 +415,48 @@ export function createRequestHandler(ctx) {
       // handleCommand（注入防護／換行拒收皆在 handler 內建，此處原樣透傳拒收文案）。
       if (req.method === 'POST' && url.pathname === '/api/pause') {
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('pause', '', botDeps)
-        send(200, { text })
+        const r = await handleCommand('pause', '', botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/resume') {
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('resume', '', botDeps)
-        send(200, { text })
+        const r = await handleCommand('resume', '', botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/task') {
         const body = await readJsonBody(req)
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('task', String(body.text ?? ''), botDeps)
-        send(200, { text })
+        const r = await handleCommand('task', String(body.text ?? ''), botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
       // M9 控制端點：零重複業務邏輯，全部轉呼叫既有 handleCommand（注入防護／lock 防雙跑皆在 handler 內建）。
       if (req.method === 'POST' && url.pathname === '/api/goal/set') {
         const body = await readJsonBody(req)
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('goal', 'set ' + String(body.text ?? ''), botDeps)
-        send(200, { text })
+        const r = await handleCommand('goal', 'set ' + String(body.text ?? ''), botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/goal/run') {
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('goal', 'run', botDeps)
-        send(200, { text })
+        const r = await handleCommand('goal', 'run', botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/goal/stop') {
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('goal', 'stop', botDeps)
-        send(200, { text })
+        const r = await handleCommand('goal', 'stop', botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/silence') {
         const body = await readJsonBody(req)
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('silence', String(body.minutes ?? ''), botDeps)
-        send(200, { text })
+        const r = await handleCommand('silence', String(body.minutes ?? ''), botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
     }
@@ -469,7 +483,7 @@ async function main() {
   const cfgPath = resolve(configPath) // 供 spawn 端點沿用同一份 config（僅路徑，非 secret）
 
   const indexHtml = readFileSync(INDEX_HTML, 'utf8')
-  const token = makeToken()
+  const token = loadOrCreateToken(cfg.dataDir)
   const childState = createChildState()
   const botDeps = buildBotDeps({ cfg, store: deps.store, db: deps.db, cfgPath })
   const server = createServer({

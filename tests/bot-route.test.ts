@@ -24,7 +24,7 @@ const fakeDeps = {} as BotDeps
 describe('routeInteraction', () => {
   test('白名單外 → 回未授權(ephemeral) 且 handle 未被呼叫', async () => {
     const { i, replies } = fakeInteraction({ userId: 'stranger' })
-    const handle = vi.fn(async () => 'should-not-be-called')
+    const handle = vi.fn(async () => ({ ok: true, text: 'should-not-be-called' }))
     await routeInteraction(i, ['u1'], fakeDeps, handle)
     expect(handle).not.toHaveBeenCalled()
     expect(replies).toEqual([{ text: '未授權', ephemeral: true }])
@@ -32,7 +32,7 @@ describe('routeInteraction', () => {
 
   test('白名單內 → reply 收到 handle 回傳文字', async () => {
     const { i, replies } = fakeInteraction({ userId: 'u1', commandName: 'status', arg: '' })
-    const handle = vi.fn(async () => '狀態:running')
+    const handle = vi.fn(async () => ({ ok: true, text: '狀態:running' }))
     await routeInteraction(i, ['u1'], fakeDeps, handle)
     expect(handle).toHaveBeenCalledWith('status', '', fakeDeps)
     expect(replies).toEqual([{ text: '狀態:running', ephemeral: undefined }])
@@ -47,7 +47,7 @@ describe('routeInteraction', () => {
 
   test('allowed 空陣列 → 一律未授權(即使 userId 命中空表也不可能)', async () => {
     const { i, replies } = fakeInteraction({ userId: 'u1' })
-    const handle = vi.fn(async () => 'x')
+    const handle = vi.fn(async () => ({ ok: true, text: 'x' }))
     await routeInteraction(i, [], fakeDeps, handle)
     expect(handle).not.toHaveBeenCalled()
     expect(replies).toEqual([{ text: '未授權', ephemeral: true }])

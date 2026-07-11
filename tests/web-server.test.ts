@@ -13,6 +13,7 @@ const {
   parseArgs, makeToken, hasValidToken, readHeartbeat, readEventsTail, readDlqCount,
   readRecentAttempts, buildStatusPayload, createChildState, spawnRunOnce, spawnDaemonStart,
   stopDaemon, createServer, readDaemonLockOwner, readBotAlive, readSilencedUntil, INDEX_HTML,
+  loadOrCreateToken,
 } = mod
 
 // 測試一律關掉 spawn 後的活性等待（waitMs=0 + 立即 resolve 的 sleep），避免真的等 800ms。
@@ -43,6 +44,50 @@ test('hasValidToken：header 或 query 對上任一即通過，都不對則拒�
   const url3 = new URL('http://x/api/run-once?token=wrong')
   expect(hasValidToken({ headers: {} }, url3, 'tok')).toBe(false)
   expect(hasValidToken({ headers: {} }, url2, 'tok')).toBe(false)
+})
+
+// ---------- token 持久化（常駐 respawn 不換 token，M9.3 Task 6） ----------
+test('loadOrCreateToken：token 檔已存在時沿用其值(常駐 respawn 不換 token)', async () => {
+  const dir = tmp('adng-web-token-reuse-')
+  const fixedToken = 'a'.repeat(48)
+  writeFileSync(join(dir, 'web-console.token'), fixedToken + '\n')
+  const token = loadOrCreateToken(dir)
+  expect(token).toBe(fixedToken)
+
+  writeFileSync(join(dir, 'backlog.md'), '- [ ] t1\n')
+  const store = new BacklogStore(join(dir, 'backlog.md'))
+  const db = new RunDb(join(dir, 'run.db'))
+  const cfg: any = {
+    dataDir: dir, timezoneOffsetHours: 8, dailySoftUsd: 40, dailyHardUsd: 100,
+    stopFile: join(dir, '.adng.stop'), backlogFile: join(dir, 'backlog.md'),
+  }
+  const server = createServer({
+    cfg, cfgPath: 'cfg.json', store, db, dbPath: join(dir, 'run.db'), token,
+    spawnFn: () => ({ pid: 1, exitCode: null, killed: false, unref() {} }),
+    childState: createChildState(), indexHtml: '<html>ok</html>', localDayFn: localDay,
+    spawnOpts: { ...FAST, lockOwnerFn: () => 'unknown' },
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()))
+  const port = (server.address() as any).port
+  try {
+    const ok = await fetch(`http://127.0.0.1:${port}/api/pause`, { method: 'POST', headers: { 'x-csrf-token': fixedToken } })
+    expect(ok.status).not.toBe(403)
+    const wrong = await fetch(`http://127.0.0.1:${port}/api/pause`, { method: 'POST', headers: { 'x-csrf-token': 'wrong' } })
+    expect(wrong.status).toBe(403)
+  } finally {
+    db.close()
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  }
+})
+
+test('loadOrCreateToken：token 檔不存在時生成並落地', () => {
+  const dir = tmp('adng-web-token-new-')
+  const file = join(dir, 'web-console.token')
+  expect(existsSync(file)).toBe(false)
+  const token = loadOrCreateToken(dir)
+  expect(token).toMatch(/^[0-9a-f]{48}$/)
+  expect(existsSync(file)).toBe(true)
+  expect(readFileSync(file, 'utf8').trim()).toBe(token)
 })
 
 // ---------- 純讀取層 ----------
@@ -409,6 +454,7 @@ test('GET /api/panel/backlog 回 200 + text（複用 bot cmdBacklog 輸出，不
     const res = await fetch(base + '/api/panel/backlog')
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.ok).toBe(true)
     expect(typeof body.text).toBe('string')
     expect(body.text).toContain('open 1')
   })
@@ -426,6 +472,7 @@ test('GET /api/panel/goal：goalFile 未設 → 人話（未真 spawn autopilot�
     const res = await fetch(base + '/api/panel/goal')
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.ok).toBe(false)
     expect(body.text).toBe('尚未設定 GOAL（先 /goal set <目標文字>）')
   })
 })
@@ -451,6 +498,7 @@ test('POST /api/goal/set 對 token；含換行的注入文字被 handler 拒 →
     })
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.ok).toBe(false)
     expect(body.text).toBe('任務內容不可含換行')
   })
 })
@@ -464,6 +512,7 @@ test('POST /api/goal/set 對 token；合法文字但 config 未設 goalFile → 
     })
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.ok).toBe(false)
     expect(body.text).toBe('config 未設 goalFile')
   })
 })
@@ -475,6 +524,7 @@ test('POST /api/goal/run 無 token → 403；對 token 時 goalFile 不存在 �
     const res = await fetch(base + '/api/goal/run', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.ok).toBe(false)
     expect(body.text).toBe('尚未設定 GOAL（先 /goal set <目標文字>）')
     expect(created.length).toBe(0) // 未真 spawn autopilot（goalFile 不存在時 goalRun 提早回傳）
   })
@@ -487,6 +537,7 @@ test('POST /api/goal/stop 無 token → 403；對 token → 200 + text（goalFil
     const res = await fetch(base + '/api/goal/stop', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.ok).toBe(true)
     expect(body.text).toBe('已刪除 GOAL，autopilot 將於下一輪偵測到並停止')
   })
 })
@@ -504,6 +555,7 @@ test('POST /api/silence 無 token → 403；對 token 帶 minutes=0 → 解除�
     })
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.ok).toBe(true)
     expect(body.text).toBe('已解除靜音')
   })
 })
@@ -516,6 +568,7 @@ test('POST /api/pause 無 token → 403；對 token → 寫入 stopFile（daemon
     const res = await fetch(base + '/api/pause', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.ok).toBe(true)
     expect(typeof body.text).toBe('string')
     expect(existsSync(join(dir, '.adng.stop'))).toBe(true)
   })
@@ -529,6 +582,7 @@ test('POST /api/resume 無 token → 403；對 token → 清除既有 stopFile',
     const res = await fetch(base + '/api/resume', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.ok).toBe(true)
     expect(typeof body.text).toBe('string')
     expect(existsSync(join(dir, '.adng.stop'))).toBe(false)
   })
@@ -547,6 +601,7 @@ test('POST /api/task 無 token → 403；含換行的注入文字 → 拒收文�
     })
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.ok).toBe(false)
     expect(body.text).toBe('任務內容不可含換行')
   })
 })
@@ -560,6 +615,7 @@ test('POST /api/task 對 token；合法文字 → 已加入 backlog，backlog.md
     })
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.ok).toBe(true)
     expect(body.text).toBe('已加入 backlog')
     expect(readFileSync(join(dir, 'backlog.md'), 'utf8')).toContain('新任務 A')
   })

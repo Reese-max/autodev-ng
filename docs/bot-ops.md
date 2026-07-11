@@ -76,16 +76,17 @@ powershell -File scripts\install-bot-task.ps1 -WhatIf      # 預覽
 node web/server.mjs --config configs/voice-actress.json
 ```
 
-只 bind `127.0.0.1:3900`；啟動時終端機印出的 URL 帶一次性 CSRF token（`http://127.0.0.1:3900/?token=...`），之後每個 POST 控制端點（`/api/run-once`、`/api/daemon/start|stop`、`/api/pause`、`/api/resume`、`/api/task`、`/api/goal/set|run|stop`、`/api/silence`）都要帶同一個 token（header `x-csrf-token` 或 query `?token=`），GET 監看端點（`/api/status`、`/api/logs` SSE、`/api/panel/:name`）不驗 token。
+只 bind `127.0.0.1:3900`；啟動時終端機印出的 URL 帶一次性 CSRF token（`http://127.0.0.1:3900/?token=...`），之後每個 POST 控制端點（`/api/run-once`、`/api/daemon/start|stop`、`/api/pause`、`/api/resume`、`/api/task`、`/api/goal/set|run|stop`、`/api/silence`）都要帶同一個 token（header `x-csrf-token` 或 query `?token=`），GET 監看端點（`/api/status`、`/api/logs` SSE、`/api/panel/:name`）不驗 token。**token 持久化**（M9.3）：啟動時先讀 `<dataDir>/web-console.token`（單行 hex），存在且非空即沿用；不存在才新生並寫入。常駐排程 respawn 後 token 不變，使用者分頁不會被 403 卡住；log 仍照舊印帶 token 的 URL 供撈取。
 
-面板/控制邏輯**與 bot 同一套**：`GET /api/panel/:name`（`status`/`cost`/`backlog`/`log`/`lessons`/`goal` 白名單）與 `/api/goal/*`、`/api/silence`、`/api/pause`、`/api/resume`、`/api/task` 全部直接呼叫 `dist/bot/handlers.js` 的 `handleCommand`，零重複業務邏輯——web 只是 bot handler 的另一張皮。`/api/run-once`、`/api/daemon/start|stop` 則是 spawn 既有 `dist/cli.js`（單一事實來源，web 不 import scheduler）。控制台目前以背景進程方式隨用隨開，常駐化需另排 Windows 排程（尚未做）。
+面板/控制邏輯**與 bot 同一套**：`GET /api/panel/:name`（`status`/`cost`/`backlog`/`log`/`lessons`/`goal` 白名單）與 `/api/goal/*`、`/api/silence`、`/api/pause`、`/api/resume`、`/api/task` 全部直接呼叫 `dist/bot/handlers.js` 的 `handleCommand`，零重複業務邏輯——web 只是 bot handler 的另一張皮。`/api/run-once`、`/api/daemon/start|stop` 則是 spawn 既有 `dist/cli.js`（單一事實來源，web 不 import scheduler）。
 
 ## 排程現況
 
 | 任務 | 排程名稱 | 狀態 |
 |---|---|---|
 | Discord bot | `\adng-bot`（`scripts\install-bot-task.ps1`，開機自啟 + 每 15 分鐘重複觸發） | **已註冊**，常駐運行中（bot 靠 `bot.lock` 防重複，重複觸發等同 auto-respawn） |
-| daemon | `\adng-daemon`（`scripts\install-scheduled-task.ps1`） | **已註冊**，運行中（`schtasks /Query /TN adng-daemon` 實測驗證，2026-07-11）。⚠️ 與 ledger 記錄不符：M5 收官時使用者曾拍板「不註冊排程，純手動網頁控制台啟動」，但本次文件撰寫時實測發現此排程已被註冊（很可能是同日稍早的產線測試/並行 session 所為，ledger 未補記）——此表格反映**實測現況**，若要恢復純手動模式需 `powershell -File scripts\install-scheduled-task.ps1 -Uninstall` |
+| daemon | `\adng-daemon`（`scripts\install-scheduled-task.ps1`） | **已註冊**，常駐運行中（使用者 2026-07-11 拍板保留常駐化，取代 M5「不註冊、純手動啟動」原決策；恢復純手動用 `powershell -File scripts\install-scheduled-task.ps1 -Uninstall`） |
+| web 控制台 | `\adng-web`（`scripts\install-web-task.ps1`，開機自啟 + 每 15 分鐘重複觸發） | 腳本已備（M9.3），**註冊待使用者親跑**；web server 無自帶 lock，雙開靠 port 3900 EADDRINUSE 退出等效單例 |
 
 ## 教訓庫維運（M7）
 

@@ -37,15 +37,17 @@ describe('status', () => {
       ts: '2026-07-10T00:00:00.000Z', state: 'running', currentTask: '任務一', todayCostUsd: 1.23
     }))
     const out = await handleCommand('status', '', toDeps(s))
-    expect(out).toContain('state=running')
-    expect(out).toContain('任務一')
+    expect(out.ok).toBe(true)
+    expect(out.text).toContain('state=running')
+    expect(out.text).toContain('任務一')
   })
 
   test('無 heartbeat 檔（全新 dataDir）→ 回人話不炸', async () => {
     const s = setup()
     const out = await handleCommand('status', '', toDeps(s))
-    expect(out).toContain('尚無 heartbeat')
-    expect(out).not.toContain('undefined')
+    expect(out.ok).toBe(true)
+    expect(out.text).toContain('尚無 heartbeat')
+    expect(out.text).not.toContain('undefined')
   })
 })
 
@@ -54,15 +56,17 @@ describe('cost', () => {
     const s = setup()
     s.db.record({ taskId: 't1', ok: true, costUsd: 2.5, detail: 'ok' })
     const out = await handleCommand('cost', '', toDeps(s))
-    expect(out).toContain('今日')
-    expect(out).toContain('2.5000')
+    expect(out.ok).toBe(true)
+    expect(out.text).toContain('今日')
+    expect(out.text).toContain('2.5000')
   })
 
-  test('db 已關閉（模擬檔鎖故障）→ 不外拋，回人話', async () => {
+  test('db 已關閉（模擬檔鎖故障）→ 不外拋，回人話（查詢類恆 ok:true）', async () => {
     const s = setup()
     s.db.close()
     const out = await handleCommand('cost', '', toDeps(s))
-    expect(out).toBe('成本查詢失敗，請稍後再試')
+    expect(out.ok).toBe(true)
+    expect(out.text).toBe('成本查詢失敗，請稍後再試')
   })
 })
 
@@ -70,17 +74,19 @@ describe('backlog', () => {
   test('open/done/blocked 統計 + 前 5 條 open', async () => {
     const s = setup('- [ ] 開放一\n- [x] 完成一 <!-- adng:done abc -->\n- [ ] 開放二 <!-- adng:blocked reason="x" -->\n')
     const out = await handleCommand('backlog', '', toDeps(s))
-    expect(out).toContain('open 1')
-    expect(out).toContain('done 1')
-    expect(out).toContain('blocked 1')
-    expect(out).toContain('開放一')
+    expect(out.ok).toBe(true)
+    expect(out.text).toContain('open 1')
+    expect(out.text).toContain('done 1')
+    expect(out.text).toContain('blocked 1')
+    expect(out.text).toContain('開放一')
   })
 
-  test('backlogFile 不存在 → 不外拋，回人話', async () => {
+  test('backlogFile 不存在 → 不外拋，回人話（查詢類恆 ok:true）', async () => {
     const s = setup()
     const badStore = new BacklogStore(join(s.dir, 'no-such-file.md'))
     const out = await handleCommand('backlog', '', toDeps({ cfg: s.cfg, store: badStore, db: s.db }))
-    expect(out).toBe('backlog 讀取失敗，請稍後再試')
+    expect(out.ok).toBe(true)
+    expect(out.text).toBe('backlog 讀取失敗，請稍後再試')
   })
 })
 
@@ -92,16 +98,18 @@ describe('log', () => {
       JSON.stringify({ type: `evt-${i}`, ts: `2026-07-10T00:00:0${i % 10}.000Z` }))
     writeFileSync(join(s.cfg.dataDir, 'events.jsonl'), lines.join('\n') + '\n')
     const out = await handleCommand('log', '', toDeps(s))
-    expect(out).toContain('evt-11')
-    expect(out).toContain('evt-2')
-    expect(out).not.toContain('evt-0')
-    expect(out).not.toContain('evt-1\n')
+    expect(out.ok).toBe(true)
+    expect(out.text).toContain('evt-11')
+    expect(out.text).toContain('evt-2')
+    expect(out.text).not.toContain('evt-0')
+    expect(out.text).not.toContain('evt-1\n')
   })
 
   test('events.jsonl 不存在 → 回人話不炸', async () => {
     const s = setup()
     const out = await handleCommand('log', '', toDeps(s))
-    expect(out).toBe('尚無事件紀錄')
+    expect(out.ok).toBe(true)
+    expect(out.text).toBe('尚無事件紀錄')
   })
 })
 
@@ -111,7 +119,8 @@ describe('lessons', () => {
     mkdirSync(s.cfg.dataDir, { recursive: true })
     writeFileSync(join(s.cfg.dataDir, 'learnings.md'), '## 教訓一\n別再犯這個錯\n')
     const out = await handleCommand('lessons', '', toDeps(s))
-    expect(out).toContain('別再犯這個錯')
+    expect(out.ok).toBe(true)
+    expect(out.text).toContain('別再犯這個錯')
   })
 
   test('learningsFile 與 globalLearningsFile 皆存在 → 兩層都輸出', async () => {
@@ -122,14 +131,16 @@ describe('lessons', () => {
     writeFileSync(globalFile, '## 全域教訓\nB\n')
     const cfgWithGlobal: Config = { ...s.cfg, globalLearningsFile: globalFile }
     const out = await handleCommand('lessons', '', toDeps({ ...s, cfg: cfgWithGlobal }))
-    expect(out).toContain('A')
-    expect(out).toContain('B')
+    expect(out.ok).toBe(true)
+    expect(out.text).toContain('A')
+    expect(out.text).toContain('B')
   })
 
   test('教訓檔都不存在 → 人話「教訓庫尚空」', async () => {
     const s = setup()
     const out = await handleCommand('lessons', '', toDeps(s))
-    expect(out).toContain('教訓庫尚空')
+    expect(out.ok).toBe(true)
+    expect(out.text).toContain('教訓庫尚空')
   })
 
   test('內容超長 → 截斷至 1900 字', async () => {
@@ -137,22 +148,25 @@ describe('lessons', () => {
     mkdirSync(s.cfg.dataDir, { recursive: true })
     writeFileSync(join(s.cfg.dataDir, 'learnings.md'), 'x'.repeat(3000))
     const out = await handleCommand('lessons', '', toDeps(s))
-    expect(out.length).toBeLessThanOrEqual(1900 + '…[truncated]'.length)
-    expect(out).toContain('[truncated]')
+    expect(out.ok).toBe(true)
+    expect(out.text.length).toBeLessThanOrEqual(1900 + '…[truncated]'.length)
+    expect(out.text).toContain('[truncated]')
   })
 })
 
 describe('未知指令與 handler 內部 throw', () => {
-  test('未知指令 → 「未知指令」', async () => {
+  test('未知指令 → ok:false「未知指令」', async () => {
     const out = await handleCommand('nope', '', toDeps(setup()))
-    expect(out).toBe('未知指令')
+    expect(out.ok).toBe(false)
+    expect(out.text).toBe('未知指令')
   })
 
-  test('handler 內部 throw（db 已關閉）不外拋，handleCommand 仍回字串', async () => {
+  test('handler 內部 throw（db 已關閉）不外拋，handleCommand 仍回結構化結果（查詢類恆 ok:true）', async () => {
     const s = setup()
     s.db.close()
     const out = await handleCommand('cost', '', toDeps(s))
-    expect(typeof out).toBe('string')
-    expect(out.length).toBeGreaterThan(0)
+    expect(out.ok).toBe(true)
+    expect(typeof out.text).toBe('string')
+    expect(out.text.length).toBeGreaterThan(0)
   })
 })

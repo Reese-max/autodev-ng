@@ -113,3 +113,12 @@ export class EventLog {
     this.writeFileAtomic(this.heartbeatFile, JSON.stringify({ ts: new Date().toISOString(), ...state }, null, 2))
   }
 }
+
+/** 觀測/通知面自身故障絕不可反殺主迴圈——統一吞錯（鐵律 #4 精神）。 */
+export function quiet(fn: () => void): void {
+  try {
+    fn()
+  } catch {
+    // events 模組自身壞掉不該中斷閉環
+  }
+}

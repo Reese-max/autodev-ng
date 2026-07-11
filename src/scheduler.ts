@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
 import { localDay, type RunDb } from './db.js'
-import type { EventLog } from './events.js'
+import { quiet, type EventLog } from './events.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
 import type { VerifierCheck } from './verifier.js'
 import { cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError, type WorktreeHandle } from './worktree.js'
@@ -33,6 +33,8 @@ export type BlockedReason =
   // M5 Task 1：任務 tag 不在本專案 engines 白名單（或引擎無法建立）。直接 blocked，
   // 系統不自作主張換引擎（鐵律 #1 精神；zen 不派 voice-actress 即靠白名單落地）。
   | 'engine-not-allowed'
+  // Task 2：worktree 殘留鎖定失敗（cleanStaleWorktree 掛 code==='worktree-locked'），獨立於 not-a-git-repo，避免人工誤判方向。
+  | 'worktree-locked'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
@@ -43,15 +45,6 @@ export type CycleResult =
   // taskId 供 daemon 冷卻閘 key 使用（修正：舊版 key 用任務文字前 40 字，兩個長任務
   // 前 40 字相同會撞出同一個 key、互相吞告警；taskId 全域唯一不會有這問題）。
   | { kind: 'blocked'; taskId: string; taskText: string; reason: BlockedReason }
-
-/** 觀測（events）故障絕不可反殺主迴圈——統一吞錯（鐵律 #4 精神）。 */
-function quiet(fn: () => void): void {
-  try {
-    fn()
-  } catch {
-    // events 模組自身壞掉不該中斷閉環
-  }
-}
 
 export async function runOnce(deps: Deps): Promise<CycleResult> {
   const { cfg, store, db, engines, events, verifier } = deps
@@ -121,7 +114,8 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     wt = prepareWorktree(cfg.projectPath, cfg.worktreesDir, task.id)
   } catch (err) {
     quiet(() => events.append('worktree-prepare-failed', { task: task.text, error: String(err) }))
-    return blockTask({ store, events }, task, 'not-a-git-repo', `worktree 建立失敗：${String(err)}`)
+    const reason: BlockedReason = (err as { code?: string })?.code === 'worktree-locked' ? 'worktree-locked' : 'not-a-git-repo'
+    return blockTask({ store, events }, task, reason, `worktree 建立失敗：${String(err)}`)
   }
 
   // extraDirective 附加到 task.text 尾組成 job.directive（未設定時維持 undefined）——

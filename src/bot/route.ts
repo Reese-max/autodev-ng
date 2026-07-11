@@ -23,8 +23,8 @@ export async function routeInteraction(
     return
   }
   try {
-    const text = await handle(i.commandName, i.arg, d)
-    await i.reply(text)
+    const r = await handle(i.commandName, i.arg, d)
+    await i.reply(r.text)
   } catch {
     await i.reply('內部錯誤')
   }

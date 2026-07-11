@@ -62,7 +62,8 @@ function cleanStaleWorktree(projectPath: string, worktreePath: string, branch: s
   } catch {
     // 容忍：清不掉交給下面 existsSync 判定是否真的殘留(被鎖)
   }
-  if (existsSync(worktreePath)) throw new Error(`prepareWorktree: 殘留 worktree 目錄無法移除(可能有前次中斷的進程仍佔用):${worktreePath}——成果分支 ${branch} 已保留,待進程退出後下次重試/人工介入`)
+  // Task 2：掛 code='worktree-locked' 供 scheduler 分流（唯一判準，不用字串比對）。
+  if (existsSync(worktreePath)) throw Object.assign(new Error(`prepareWorktree: 殘留 worktree 目錄無法移除(可能有前次中斷的進程仍佔用):${worktreePath}——成果分支 ${branch} 已保留,待進程退出後下次重試/人工介入`), { code: 'worktree-locked' })
   gitTolerant(['branch', '-D', branch], projectPath, QUICK_TIMEOUT_MS)
 }
 

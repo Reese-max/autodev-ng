@@ -33,7 +33,7 @@ export async function evaluate(deps: EvalDeps, goal: Goal, cwd: string): Promise
   }
   // 無可量測條件：agent 補判（fail-open：空回應 = 未達成）
   const out = (await callAgent(deps.llm,
-    `目標：${goal.objective}\n判斷是否已達成，達成回 ACHIEVED，否則回 NOT-YET 並簡述缺口。`)).trim()
+    `目標：${goal.objective}\n判斷是否已達成，達成回 ACHIEVED，否則回 NOT-YET 並簡述缺口。`)).text.trim()
   const achieved = /ACHIEVED/i.test(out.slice(0, 20))
   return { achieved, score: achieved ? 1 : 0, detail: out.slice(0, 200) || 'agent 無回應' }
 }

@@ -112,7 +112,16 @@ test('prepareWorktree：殘留目錄被鎖住(前次中斷進程未退)時上拋
   try {
     await waitForWriteLockState(lockedFile, true, 10000) // 輪詢等鎖真的生效，不賭固定時間（機器負載會抖動）
 
-    expect(() => prepareWorktree(repo, worktreesDir, TASK_ID)).toThrow(/無法移除/)
+    // Task 2：判準是掛載的 err.code（scheduler 據此分流 worktree-locked，不用字串比對訊息）。
+    let caught: unknown
+    try {
+      prepareWorktree(repo, worktreesDir, TASK_ID)
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error).message).toMatch(/無法移除/)
+    expect((caught as { code?: string }).code).toBe('worktree-locked')
 
     // 核心斷言：分支完好保留，且 HEAD 仍是那個成果 commit——沒有被舊順序（先砍分支）遺失
     const branches = execFileSync('git', ['branch', '--list', first.branch], { cwd: repo, encoding: 'utf8' })
