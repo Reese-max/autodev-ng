@@ -32,6 +32,20 @@ export function makeToken() {
   return randomBytes(24).toString('hex')
 }
 
+// token 持久化（M9.3 Task 6）：常駐排程每 15 分鐘可能 respawn，若每次都重生 token 使用者分頁
+// 會被 403 卡住。啟動時先讀 <dataDir>/web-console.token（單行 hex），存在且非空即沿用；
+// 不存在（或讀檔失敗）才 makeToken() 新生並落地，供下次 respawn 沿用。
+export function loadOrCreateToken(dataDir) {
+  const file = join(dataDir, 'web-console.token')
+  try {
+    const t = readFileSync(file, 'utf8').trim()
+    if (t) return t
+  } catch { /* 不存在則新生 */ }
+  const t = makeToken()
+  try { writeFileSync(file, t + '\n') } catch (e) { console.error('[web] token 檔寫入失敗,本次用暫時 token:', String(e)) }
+  return t
+}
+
 export function hasValidToken(req, url, token) {
   const header = req.headers['x-csrf-token']
   const q = url.searchParams.get('token')
@@ -469,7 +483,7 @@ async function main() {
   const cfgPath = resolve(configPath) // 供 spawn 端點沿用同一份 config（僅路徑，非 secret）
 
   const indexHtml = readFileSync(INDEX_HTML, 'utf8')
-  const token = makeToken()
+  const token = loadOrCreateToken(cfg.dataDir)
   const childState = createChildState()
   const botDeps = buildBotDeps({ cfg, store: deps.store, db: deps.db, cfgPath })
   const server = createServer({
