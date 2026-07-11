@@ -54,3 +54,42 @@ powershell -File scripts\install-bot-task.ps1 -WhatIf      # 預覽
 
 - 軟停：Discord 送 `/pause`（寫入 `stopFile`，daemon 端跳過派工；bot 本體仍在線可回應查詢）。
 - 硬停：`scripts\install-bot-task.ps1 -Uninstall` 解除排程 + 手動終止進程（釋放 `bot.lock`）。
+
+## `/goal` 指令組（M8.2，遙控 GOAL autopilot）
+
+`/goal set|run|status|stop`，實作於 `src/bot/actions.ts doGoal`：
+
+- `/goal set <目標文字>`：寫入 `config.goalFile`（未設此欄位會回「config 未設 goalFile」），內容含預設邊界「連續無進展上限:3」。文字沿用 `/task` 同款注入防護（拒收換行與 `<!-- -->`）。
+- `/goal run`：**真 spawn 子進程**跑 `node dist/autopilot/run.js --config <path>`（`process.execPath`、`detached`+`windowsHide`，log 寫 `dataDir/autopilot-console.log`）。autopilot 內建 session lock，重複 `/goal run` 不會雙跑。
+- `/goal status`：印 GOAL 檔頭 200 字 + 最新一份 `dataDir/goal-*.jsonl` 稽核紀錄的最後一行。
+- `/goal stop`：**kill-switch**——刪除 `goalFile`，autopilot 下一輪偵測到檔案消失即自行停止（非強殺進程）。
+
+⚠️ **花錢警告**：`/goal run` 啟動的是會自己拆任務、自己派工、自己驗證的自主迴圈，每輪都可能真的呼叫引擎燒錢（成本閘與日軟/硬頂在 kernel 端管，但不代表零成本）。唯一自動煞車是「連續無進展達上限」；人工要停用 `/goal stop`（kill-switch）或直接 `/pause`（停整個 daemon）。GOAL 自主任務在 backlog 檔裡帶 `<!-- adng:autopilot -->` 標記，與使用者手排任務可區分（鐵律 #1 受控例外，非系統任意自生）。
+
+## `/lessons` 指令（M7 教訓庫查詢）
+
+`/lessons` 讀兩層教訓檔原文全文輸出：專案層（`config.learningsFile`，未設時預設 `dataDir/learnings.md`）+ 全域層（`config.globalLearningsFile`，有設才讀）。兩層都缺回「教訓庫尚空」。
+
+## Web 控制台（M9–M9.1）
+
+```
+node web/server.mjs --config configs/voice-actress.json
+```
+
+只 bind `127.0.0.1:3900`；啟動時終端機印出的 URL 帶一次性 CSRF token（`http://127.0.0.1:3900/?token=...`），之後每個 POST 控制端點（`/api/run-once`、`/api/daemon/start|stop`、`/api/pause`、`/api/resume`、`/api/task`、`/api/goal/set|run|stop`、`/api/silence`）都要帶同一個 token（header `x-csrf-token` 或 query `?token=`），GET 監看端點（`/api/status`、`/api/logs` SSE、`/api/panel/:name`）不驗 token。
+
+面板/控制邏輯**與 bot 同一套**：`GET /api/panel/:name`（`status`/`cost`/`backlog`/`log`/`lessons`/`goal` 白名單）與 `/api/goal/*`、`/api/silence`、`/api/pause`、`/api/resume`、`/api/task` 全部直接呼叫 `dist/bot/handlers.js` 的 `handleCommand`，零重複業務邏輯——web 只是 bot handler 的另一張皮。`/api/run-once`、`/api/daemon/start|stop` 則是 spawn 既有 `dist/cli.js`（單一事實來源，web 不 import scheduler）。控制台目前以背景進程方式隨用隨開，常駐化需另排 Windows 排程（尚未做）。
+
+## 排程現況
+
+| 任務 | 排程名稱 | 狀態 |
+|---|---|---|
+| Discord bot | `\adng-bot`（`scripts\install-bot-task.ps1`，開機自啟 + 每 15 分鐘重複觸發） | **已註冊**，常駐運行中（bot 靠 `bot.lock` 防重複，重複觸發等同 auto-respawn） |
+| daemon | `\adng-daemon`（`scripts\install-scheduled-task.ps1`） | **已註冊**，運行中（`schtasks /Query /TN adng-daemon` 實測驗證，2026-07-11）。⚠️ 與 ledger 記錄不符：M5 收官時使用者曾拍板「不註冊排程，純手動網頁控制台啟動」，但本次文件撰寫時實測發現此排程已被註冊（很可能是同日稍早的產線測試/並行 session 所為，ledger 未補記）——此表格反映**實測現況**，若要恢復純手動模式需 `powershell -File scripts\install-scheduled-task.ps1 -Uninstall` |
+
+## 教訓庫維運（M7）
+
+- **專案層**（`config.learningsFile`，未設預設 `dataDir/learnings.md`）：**自動寫**。daemon 每輪 cycle 結果為 `failed` 或 `blocked` 時（`engine-error`/`preflight-failed` 視為 infra 噪音，不觸發）才呼叫 reflect，用 ProxyPilot LLM 從失敗證據（最近一次 attempt 的敗因、verify 輸出尾段）提煉一條可泛化教訓；LLM 回 `NONE`、空字串或逾時一律不寫（寧缺勿濫，反 Goodhart）。
+- **全域層**（`config.globalLearningsFile`，選配）：**只讀不自動寫**。晉升教訓到全域由人工策展——自動寫全域必膨脹污染，是舊系統的教訓。
+- **上限**：每層最多 30 條、單條 ≤200 字（超長截斷）；滿 30 條時 FIFO 淘汰最舊一條再寫新的；新教訓與既有任一條正規化文字互為包含則跳過（去重）。
+- **注入**：派工 prompt（`extraDirective` 之後）與 GOAL autopilot 的 planner prompt 都會附上兩層合併全文；兩層皆空則不附任何字（prompt 零污染）。
