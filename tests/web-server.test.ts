@@ -340,3 +340,108 @@ test('INDEX_HTML 路徑存在（真實前端檔）', () => {
   expect(existsSync(INDEX_HTML)).toBe(true)
   expect(readFileSync(INDEX_HTML, 'utf8').length).toBeGreaterThan(0)
 })
+
+// ---------- M9：GET /api/panel/:name（複用 dist/bot/handlers.js handleCommand，零重複業務邏輯） ----------
+test('GET /api/panel/backlog 回 200 + text（複用 bot cmdBacklog 輸出，不需 CSRF）', async () => {
+  await withServer(async base => {
+    const res = await fetch(base + '/api/panel/backlog')
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(typeof body.text).toBe('string')
+    expect(body.text).toContain('open 1')
+  })
+})
+
+test('GET /api/panel/nope（白名單外 name）→ 404', async () => {
+  await withServer(async base => {
+    const res = await fetch(base + '/api/panel/nope')
+    expect(res.status).toBe(404)
+  })
+})
+
+test('GET /api/panel/goal：goalFile 未設 → 人話（未真 spawn autopilot）', async () => {
+  await withServer(async base => {
+    const res = await fetch(base + '/api/panel/goal')
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.text).toBe('尚未設定 GOAL（先 /goal set <目標文字>）')
+  })
+})
+
+// ---------- M9：POST /api/goal/set|run|stop、/api/silence（走既有 CSRF 機制） ----------
+test('POST /api/goal/set 無 token → 403', async () => {
+  await withServer(async base => {
+    const res = await fetch(base + '/api/goal/set', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'x' }),
+    })
+    expect(res.status).toBe(403)
+  })
+})
+
+// 誠實記錄：doGoal 未被注入 spawnFn（handleCommand 呼叫 doGoal 時用預設值），
+// 這裡驗證的是「注入防護」與「傳輸層」——不驗 goalFile 存在後的真 spawn 路徑。
+test('POST /api/goal/set 對 token；含換行的注入文字被 handler 拒 → 拒絕文案原樣透傳', async () => {
+  await withServer(async base => {
+    const res = await fetch(base + '/api/goal/set', {
+      method: 'POST',
+      headers: { 'x-csrf-token': 'secret-tok', 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'line1\nline2' }),
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.text).toBe('任務內容不可含換行')
+  })
+})
+
+test('POST /api/goal/set 對 token；合法文字但 config 未設 goalFile → 人話', async () => {
+  await withServer(async base => {
+    const res = await fetch(base + '/api/goal/set', {
+      method: 'POST',
+      headers: { 'x-csrf-token': 'secret-tok', 'content-type': 'application/json' },
+      body: JSON.stringify({ text: '完成 M9' }),
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.text).toBe('config 未設 goalFile')
+  })
+})
+
+test('POST /api/goal/run 無 token → 403；對 token 時 goalFile 不存在 → 人話（未真 spawn autopilot）', async () => {
+  await withServer(async (base, created) => {
+    const noTok = await fetch(base + '/api/goal/run', { method: 'POST' })
+    expect(noTok.status).toBe(403)
+    const res = await fetch(base + '/api/goal/run', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.text).toBe('尚未設定 GOAL（先 /goal set <目標文字>）')
+    expect(created.length).toBe(0) // 未真 spawn autopilot（goalFile 不存在時 goalRun 提早回傳）
+  })
+})
+
+test('POST /api/goal/stop 無 token → 403；對 token → 200 + text（goalFile 不存在也視為成功）', async () => {
+  await withServer(async base => {
+    const noTok = await fetch(base + '/api/goal/stop', { method: 'POST' })
+    expect(noTok.status).toBe(403)
+    const res = await fetch(base + '/api/goal/stop', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.text).toBe('已刪除 GOAL，autopilot 將於下一輪偵測到並停止')
+  })
+})
+
+test('POST /api/silence 無 token → 403；對 token 帶 minutes=0 → 解除靜音', async () => {
+  await withServer(async base => {
+    const noTok = await fetch(base + '/api/silence', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ minutes: 5 }),
+    })
+    expect(noTok.status).toBe(403)
+    const res = await fetch(base + '/api/silence', {
+      method: 'POST',
+      headers: { 'x-csrf-token': 'secret-tok', 'content-type': 'application/json' },
+      body: JSON.stringify({ minutes: 0 }),
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.text).toBe('已解除靜音')
+  })
+})

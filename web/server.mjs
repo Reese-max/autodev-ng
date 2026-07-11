@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-// web/server.mjs — M5 Task 9：極簡本機網頁控制台（零框架、只用 Node 內建模組 + 既有專案依賴）。
-// 監看（GET /api/status、GET /api/logs SSE）+ 控制（POST /api/run-once、/api/daemon/start、/api/daemon/stop）。
-// 不入 kernel 帳（≤800 行，server.mjs+index.html 合計）；不 import 跑 scheduler，控制端點一律 spawn
+// web/server.mjs — M5 Task 9 + M9：極簡本機網頁控制台（零框架、只用 Node 內建模組 + 既有專案依賴）。
+// 監看（GET /api/status、GET /api/logs SSE、GET /api/panel/:name）
+// + 控制（POST /api/run-once、/api/daemon/start、/api/daemon/stop、/api/goal/set|run|stop、/api/silence）。
+// 不入 kernel 帳（≤900 行，M9：server.mjs+index.html 合計）；不 import 跑 scheduler，控制端點一律 spawn
 // 既有 dist/cli.js（單一事實來源，web 只是遙控器）。bind 127.0.0.1 only。
+// M9：panel/goal/silence 端點零重複業務邏輯——直接呼叫既有 dist/bot/handlers.js 的 handleCommand
+// （鏡像 src/bot/index.ts 組 BotDeps 的方式），web 只是 bot handler 的另一張皮。
 import { createServer as httpCreateServer } from 'node:http'
 import { spawn as nodeSpawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
@@ -229,6 +232,42 @@ export function stopDaemon(stopFile) {
   }
 }
 
+// ---------- M9：bot handler 複用（panel 查詢 + goal/silence 控制） ----------
+// 延遲載入：模組載入當下不強制 dist/bot/handlers.js 存在，只在真的打到 panel/goal/silence
+// 端點時才 import（鏡像既有 main() 對 dist/cli.js 的延遲載入慣例）。快取 promise 避免重複 import。
+let handleCommandPromise
+function getHandleCommand() {
+  if (!handleCommandPromise) {
+    handleCommandPromise = import(new NodeURL('../dist/bot/handlers.js', import.meta.url).href)
+      .then(m => m.handleCommand)
+  }
+  return handleCommandPromise
+}
+
+/** server 啟動時用既有 config 組一份 BotDeps，鏡像 src/bot/index.ts 的組法：llm 用 cfg.judge*、
+ * cfgPath 就是 --config 參數。每請求共用同一份（不重複 assemble，sqlite 連線沿用既有 deps.db）。 */
+export function buildBotDeps({ cfg, store, db, cfgPath }) {
+  return { cfg, store, db, llm: { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }, cfgPath }
+}
+
+const PANEL_NAMES = new Set(['status', 'cost', 'backlog', 'log', 'lessons', 'goal'])
+
+/** 讀 POST body 並解析 JSON；缺 body／壞 JSON 一律回 {}（沿用專案 fail-open 慣例，不 throw）。
+ * 1MB 上限防禦性截斷（本機控制台不預期大 body）。 */
+function readJsonBody(req) {
+  return new Promise(resolveBody => {
+    let data = ''
+    req.on('data', chunk => {
+      data += chunk
+      if (data.length > 1_000_000) req.destroy()
+    })
+    req.on('end', () => {
+      try { resolveBody(JSON.parse(data || '{}')) } catch { resolveBody({}) }
+    })
+    req.on('error', () => resolveBody({}))
+  })
+}
+
 // ---------- SSE tail ----------
 function attachLogsSse(req, res, dataDir) {
   res.writeHead(200, {
@@ -257,6 +296,7 @@ function attachLogsSse(req, res, dataDir) {
 // ---------- HTTP routing ----------
 export function createRequestHandler(ctx) {
   const { cfg, cfgPath, store, db, dbPath, token, spawnFn, childState, indexHtml, localDayFn, spawnOpts } = ctx
+  const botDeps = ctx.botDeps ?? buildBotDeps({ cfg, store, db, cfgPath })
   return async function handle(req, res) {
     const url = new NodeURL(req.url, 'http://127.0.0.1')
     const send = (code, body, headers = {}) => {
@@ -281,6 +321,19 @@ export function createRequestHandler(ctx) {
       attachLogsSse(req, res, cfg.dataDir)
       return
     }
+    // 讀取層，鏡像 /api/status 不設 CSRF（GET 無副作用）。name 白名單外一律 404。
+    if (req.method === 'GET' && url.pathname.startsWith('/api/panel/')) {
+      const name = url.pathname.slice('/api/panel/'.length)
+      if (!PANEL_NAMES.has(name)) { send(404, { error: 'not found' }); return }
+      try {
+        const handleCommand = await getHandleCommand()
+        const text = await handleCommand(name, name === 'goal' ? 'status' : '', botDeps)
+        send(200, { text })
+      } catch (err) {
+        send(500, { error: String(err) })
+      }
+      return
+    }
 
     if (url.pathname.startsWith('/api/')) {
       if (!hasValidToken(req, url, token)) { send(403, { error: 'forbidden：CSRF token 缺失或錯誤' }); return }
@@ -302,6 +355,33 @@ export function createRequestHandler(ctx) {
       if (req.method === 'POST' && url.pathname === '/api/daemon/stop') {
         const r = stopDaemon(cfg.stopFile)
         send(r.ok ? 200 : 500, r)
+        return
+      }
+      // M9 控制端點：零重複業務邏輯，全部轉呼叫既有 handleCommand（注入防護／lock 防雙跑皆在 handler 內建）。
+      if (req.method === 'POST' && url.pathname === '/api/goal/set') {
+        const body = await readJsonBody(req)
+        const handleCommand = await getHandleCommand()
+        const text = await handleCommand('goal', 'set ' + String(body.text ?? ''), botDeps)
+        send(200, { text })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/api/goal/run') {
+        const handleCommand = await getHandleCommand()
+        const text = await handleCommand('goal', 'run', botDeps)
+        send(200, { text })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/api/goal/stop') {
+        const handleCommand = await getHandleCommand()
+        const text = await handleCommand('goal', 'stop', botDeps)
+        send(200, { text })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/api/silence') {
+        const body = await readJsonBody(req)
+        const handleCommand = await getHandleCommand()
+        const text = await handleCommand('silence', String(body.minutes ?? ''), botDeps)
+        send(200, { text })
         return
       }
     }
@@ -330,9 +410,10 @@ async function main() {
   const indexHtml = readFileSync(INDEX_HTML, 'utf8')
   const token = makeToken()
   const childState = createChildState()
+  const botDeps = buildBotDeps({ cfg, store: deps.store, db: deps.db, cfgPath })
   const server = createServer({
     cfg, cfgPath, store: deps.store, db: deps.db, dbPath: join(cfg.dataDir, 'run.db'),
-    token, spawnFn: nodeSpawn, childState, indexHtml, localDayFn: localDay,
+    token, spawnFn: nodeSpawn, childState, indexHtml, localDayFn: localDay, botDeps,
   })
 
   const PORT = 3900
