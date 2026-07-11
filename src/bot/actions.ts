@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process'
 import { setSilence, clearSilence } from './silence.js'
 import { callAgent } from '../autopilot/llm.js'
 import { withBacklogLock } from '../backlog.js'
-import type { BotDeps } from './handlers.js'
+import type { BotDeps, CmdResult } from './handlers.js'
 
 const TASK_TEXT_NEWLINE_ERR = '任務內容不可含換行'
 const TASK_TEXT_COMMENT_ERR = '任務內容含不允許字元(<!-- -->)'
@@ -45,66 +45,66 @@ export function appendUserTask(backlogFile: string, text: string): void {
   })
 }
 
-export async function doPause(d: BotDeps): Promise<string> {
+export async function doPause(d: BotDeps): Promise<CmdResult> {
   try {
     writeFileSync(d.cfg.stopFile, 'bot /pause\n')
-    return '已寫入 stop 檔，daemon 將優雅停止'
+    return { ok: true, text: '已寫入 stop 檔，daemon 將優雅停止' }
   } catch {
-    return '暫停失敗，請檢查 stop 檔權限'
+    return { ok: false, text: '暫停失敗，請檢查 stop 檔權限' }
   }
 }
 
 /** 缺 stopFile 也回成功文字——resume 的語意是「確保處於運作狀態」，不是「一定有檔可刪」。 */
-export async function doResume(d: BotDeps): Promise<string> {
+export async function doResume(d: BotDeps): Promise<CmdResult> {
   try {
     if (existsSync(d.cfg.stopFile)) unlinkSync(d.cfg.stopFile)
-    return '已恢復，daemon 將繼續運作'
+    return { ok: true, text: '已恢復，daemon 將繼續運作' }
   } catch {
-    return '恢復失敗，請檢查 stop 檔權限'
+    return { ok: false, text: '恢復失敗，請檢查 stop 檔權限' }
   }
 }
 
 const SILENCE_USAGE = '用法：/silence <分鐘>（1-1440 設定靜音窗，0 解除靜音）'
 
 /** setSilence 寫檔失敗會 throw，此處必須包 try/catch（鐵律：永不外拋）。 */
-export async function doSilence(d: BotDeps, arg: string): Promise<string> {
+export async function doSilence(d: BotDeps, arg: string): Promise<CmdResult> {
   try {
     const minutes = parseInt(arg.trim(), 10)
-    if (Number.isNaN(minutes)) return SILENCE_USAGE
+    if (Number.isNaN(minutes)) return { ok: false, text: SILENCE_USAGE }
     if (minutes === 0) {
       clearSilence(d.cfg.dataDir)
-      return '已解除靜音'
+      return { ok: true, text: '已解除靜音' }
     }
-    if (minutes < 1 || minutes > 1440) return SILENCE_USAGE
+    if (minutes < 1 || minutes > 1440) return { ok: false, text: SILENCE_USAGE }
     const untilIso = setSilence(d.cfg.dataDir, minutes)
-    return `已靜音至 ${untilIso}`
+    return { ok: true, text: `已靜音至 ${untilIso}` }
   } catch {
-    return '靜音設定失敗，請稍後再試'
+    return { ok: false, text: '靜音設定失敗，請稍後再試' }
   }
 }
 
-export async function doTask(d: BotDeps, arg: string): Promise<string> {
+export async function doTask(d: BotDeps, arg: string): Promise<CmdResult> {
   try {
     const text = arg.trim()
-    if (!text) return '用法：/task <任務內容>'
+    if (!text) return { ok: false, text: '用法：/task <任務內容>' }
     const violation = findTaskTextViolation(text)
-    if (violation) return violation
+    if (violation) return { ok: false, text: violation }
     appendUserTask(d.cfg.backlogFile, text)
-    return '已加入 backlog'
+    return { ok: true, text: '已加入 backlog' }
   } catch {
-    return '寫入 backlog 失敗，請稍後再試'
+    return { ok: false, text: '寫入 backlog 失敗，請稍後再試' }
   }
 }
 
 /** callAgent 本身 fail-open（無 url 或 fetch 失敗一律回空字串），這裡把空字串轉成人話。 */
-export async function doAsk(d: BotDeps, arg: string): Promise<string> {
+export async function doAsk(d: BotDeps, arg: string): Promise<CmdResult> {
   try {
     const question = arg.trim()
-    if (!question) return '用法：/ask <問題>'
+    if (!question) return { ok: false, text: '用法：/ask <問題>' }
     const reply = await callAgent(d.llm, question)
-    return reply.trim() ? reply : 'LLM 未回應'
+    return reply.trim() ? { ok: true, text: reply } : { ok: false, text: 'LLM 未回應' }
   } catch {
-    return 'LLM 呼叫失敗，請稍後再試'
+    return { ok: false, text: 'LLM 呼叫失敗，請稍後再試' }
   }
 }
 
@@ -131,19 +131,19 @@ function splitGoalArg(arg: string): { sub: string; rest: string } {
   return sp < 0 ? { sub: trimmed, rest: '' } : { sub: trimmed.slice(0, sp), rest: trimmed.slice(sp + 1).trim() }
 }
 
-async function goalSet(d: BotDeps, text: string): Promise<string> {
-  if (!text) return '用法：/goal set <目標文字>'
+async function goalSet(d: BotDeps, text: string): Promise<CmdResult> {
+  if (!text) return { ok: false, text: '用法：/goal set <目標文字>' }
   const violation = findTaskTextViolation(text)
-  if (violation) return violation
-  if (!d.cfg.goalFile) return 'config 未設 goalFile'
+  if (violation) return { ok: false, text: violation }
+  if (!d.cfg.goalFile) return { ok: false, text: 'config 未設 goalFile' }
   const content = `# GOAL\n${text}\n\n## 邊界\n- 連續無進展上限:3\n`
   writeFileAtomic(d.cfg.goalFile, content)
-  return 'GOAL 已寫入,/goal run 啟動'
+  return { ok: true, text: 'GOAL 已寫入,/goal run 啟動' }
 }
 
 /** spawnFn 可注入（測試絕不真 spawn）；雙跑防護不在此處——鎖在 autopilot/run.ts main()（Item 2），這裡只負責啟動。 */
-async function goalRun(d: BotDeps, spawnFn: typeof spawn): Promise<string> {
-  if (!d.cfg.goalFile || !existsSync(d.cfg.goalFile)) return GOAL_NOT_SET
+async function goalRun(d: BotDeps, spawnFn: typeof spawn): Promise<CmdResult> {
+  if (!d.cfg.goalFile || !existsSync(d.cfg.goalFile)) return { ok: false, text: GOAL_NOT_SET }
   const logFile = join(d.cfg.dataDir, 'autopilot-console.log')
   const outFd = openSync(logFile, 'a')
   try {
@@ -156,7 +156,7 @@ async function goalRun(d: BotDeps, spawnFn: typeof spawn): Promise<string> {
   } finally {
     closeSync(outFd) // spawn 已把 fd dup 進子進程，父行程這份可放心關閉
   }
-  return 'autopilot 已啟動(cost 閘與無進展煞車由 kernel 管),停止:/goal stop'
+  return { ok: true, text: 'autopilot 已啟動(cost 閘與無進展煞車由 kernel 管),停止:/goal stop' }
 }
 
 /** 掃 dataDir 找 goal-*.jsonl，取 mtime 最新一份的最後一行；缺檔/掃描失敗一律回「尚無 session 紀錄」。 */
@@ -174,19 +174,19 @@ function latestAuditTail(dataDir: string): string {
   }
 }
 
-async function goalStatus(d: BotDeps): Promise<string> {
-  if (!d.cfg.goalFile || !existsSync(d.cfg.goalFile)) return GOAL_NOT_SET
+async function goalStatus(d: BotDeps): Promise<CmdResult> {
+  if (!d.cfg.goalFile || !existsSync(d.cfg.goalFile)) return { ok: false, text: GOAL_NOT_SET }
   const head = readFileSync(d.cfg.goalFile, 'utf8').slice(0, 200)
-  return `${head}\n\n${latestAuditTail(d.cfg.dataDir)}`
+  return { ok: true, text: `${head}\n\n${latestAuditTail(d.cfg.dataDir)}` }
 }
 
 /** kill-switch：刪 goalFile，autopilot 每輪 isAlive 檢查會自停；檔本不存在也視為成功。 */
-async function goalStop(d: BotDeps): Promise<string> {
+async function goalStop(d: BotDeps): Promise<CmdResult> {
   if (d.cfg.goalFile && existsSync(d.cfg.goalFile)) unlinkSync(d.cfg.goalFile)
-  return '已刪除 GOAL，autopilot 將於下一輪偵測到並停止'
+  return { ok: true, text: '已刪除 GOAL，autopilot 將於下一輪偵測到並停止' }
 }
 
-export async function doGoal(d: BotDeps, arg: string, spawnFn: typeof spawn = spawn): Promise<string> {
+export async function doGoal(d: BotDeps, arg: string, spawnFn: typeof spawn = spawn): Promise<CmdResult> {
   try {
     const { sub, rest } = splitGoalArg(arg)
     switch (sub) {
@@ -194,9 +194,9 @@ export async function doGoal(d: BotDeps, arg: string, spawnFn: typeof spawn = sp
       case 'run': return await goalRun(d, spawnFn)
       case 'status': return await goalStatus(d)
       case 'stop': return await goalStop(d)
-      default: return GOAL_USAGE
+      default: return { ok: false, text: GOAL_USAGE }
     }
   } catch {
-    return 'goal 指令執行失敗，請稍後再試'
+    return { ok: false, text: 'goal 指令執行失敗，請稍後再試' }
   }
 }

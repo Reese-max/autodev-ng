@@ -367,8 +367,8 @@ export function createRequestHandler(ctx) {
       if (!PANEL_NAMES.has(name)) { send(404, { error: 'not found' }); return }
       try {
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand(name, name === 'goal' ? 'status' : '', botDeps)
-        send(200, { text })
+        const r = await handleCommand(name, name === 'goal' ? 'status' : '', botDeps)
+        send(200, { ok: r.ok, text: r.text })
       } catch (err) {
         send(500, { error: String(err) })
       }
@@ -401,48 +401,48 @@ export function createRequestHandler(ctx) {
       // handleCommand（注入防護／換行拒收皆在 handler 內建，此處原樣透傳拒收文案）。
       if (req.method === 'POST' && url.pathname === '/api/pause') {
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('pause', '', botDeps)
-        send(200, { text })
+        const r = await handleCommand('pause', '', botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/resume') {
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('resume', '', botDeps)
-        send(200, { text })
+        const r = await handleCommand('resume', '', botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/task') {
         const body = await readJsonBody(req)
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('task', String(body.text ?? ''), botDeps)
-        send(200, { text })
+        const r = await handleCommand('task', String(body.text ?? ''), botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
       // M9 控制端點：零重複業務邏輯，全部轉呼叫既有 handleCommand（注入防護／lock 防雙跑皆在 handler 內建）。
       if (req.method === 'POST' && url.pathname === '/api/goal/set') {
         const body = await readJsonBody(req)
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('goal', 'set ' + String(body.text ?? ''), botDeps)
-        send(200, { text })
+        const r = await handleCommand('goal', 'set ' + String(body.text ?? ''), botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/goal/run') {
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('goal', 'run', botDeps)
-        send(200, { text })
+        const r = await handleCommand('goal', 'run', botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/goal/stop') {
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('goal', 'stop', botDeps)
-        send(200, { text })
+        const r = await handleCommand('goal', 'stop', botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/silence') {
         const body = await readJsonBody(req)
         const handleCommand = await getHandleCommand()
-        const text = await handleCommand('silence', String(body.minutes ?? ''), botDeps)
-        send(200, { text })
+        const r = await handleCommand('silence', String(body.minutes ?? ''), botDeps)
+        send(200, { ok: r.ok, text: r.text })
         return
       }
     }

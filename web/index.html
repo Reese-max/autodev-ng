@@ -175,7 +175,7 @@
     })
     const body = await res.json().catch(() => ({}))
     if (res.status === 403) { flash('403：token 錯誤或缺失', true); return }
-    flash(body.text ? String(body.text).slice(0, 80) : JSON.stringify(body), !res.ok)
+    flash(body.text ? String(body.text).slice(0, 80) : (res.ok ? '完成' : '失敗 ' + res.status), !res.ok || body.ok === false)
     pollPanels()
     return body
   }

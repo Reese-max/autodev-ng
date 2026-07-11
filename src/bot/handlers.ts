@@ -24,6 +24,8 @@ function truncate(text: string): string {
   return [...text].slice(0, MAX_LEN).join('') + '…[truncated]'
 }
 
+export interface CmdResult { ok: boolean; text: string }
+
 interface Heartbeat {
   ts: string
   state: string
@@ -163,24 +165,28 @@ async function cmdLessons(d: BotDeps): Promise<string> {
 }
 
 /** 統一入口：路由到查詢（本檔）與控制（actions.ts）handler。未知指令回人話，
- * 任何 handler 內部意外 throw 一律在此吞掉（鐵律：永不 throw、永不外洩 token）。 */
-export async function handleCommand(name: string, arg: string, d: BotDeps): Promise<string> {
+ * 任何 handler 內部意外 throw 一律在此吞掉（鐵律：永不 throw、永不外洩 token）。
+ * 回傳結構化 {ok,text}：查詢類（status/cost/backlog/log/lessons）恆 ok:true；
+ * 控制類（actions.ts）拒收/失敗回 ok:false，讓 web 前端據此紅顯（M9.1 追蹤票）。 */
+export async function handleCommand(name: string, arg: string, d: BotDeps): Promise<CmdResult> {
+  const wrap = (text: string): CmdResult => ({ ok: true, text: truncate(text) })
+  const pass = (r: CmdResult): CmdResult => ({ ok: r.ok, text: truncate(r.text) })
   try {
     switch (name) {
-      case 'status': return truncate(await cmdStatus(d))
-      case 'cost': return truncate(await cmdCost(d))
-      case 'backlog': return truncate(await cmdBacklog(d))
-      case 'log': return truncate(await cmdLog(d))
-      case 'lessons': return truncate(await cmdLessons(d))
-      case 'pause': return truncate(await doPause(d))
-      case 'resume': return truncate(await doResume(d))
-      case 'silence': return truncate(await doSilence(d, arg))
-      case 'task': return truncate(await doTask(d, arg))
-      case 'ask': return truncate(await doAsk(d, arg))
-      case 'goal': return truncate(await doGoal(d, arg))
-      default: return '未知指令'
+      case 'status': return wrap(await cmdStatus(d))
+      case 'cost': return wrap(await cmdCost(d))
+      case 'backlog': return wrap(await cmdBacklog(d))
+      case 'log': return wrap(await cmdLog(d))
+      case 'lessons': return wrap(await cmdLessons(d))
+      case 'pause': return pass(await doPause(d))
+      case 'resume': return pass(await doResume(d))
+      case 'silence': return pass(await doSilence(d, arg))
+      case 'task': return pass(await doTask(d, arg))
+      case 'ask': return pass(await doAsk(d, arg))
+      case 'goal': return pass(await doGoal(d, arg))
+      default: return { ok: false, text: '未知指令' }
     }
   } catch {
-    return '指令執行失敗，請稍後再試'
+    return { ok: false, text: '指令執行失敗，請稍後再試' }
   }
 }
