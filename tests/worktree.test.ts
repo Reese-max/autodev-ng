@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
-import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn } from 'node:child_process'
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError } from '../src/worktree.js'
@@ -31,6 +31,22 @@ function newRepo(): { repo: string; worktreesDir: string } {
   const repo = mkdtempSync(join(tmpdir(), 'adng-wt-'))
   initGitRepo(repo)
   return { repo, worktreesDir: join(repo, 'worktrees') }
+}
+
+// 這台機器背景負載重、PowerShell 子行程實際拿到/放掉鎖的時間點都會抖動——不用固定 sleep
+// 賭時機，改輪詢「開寫入 handle 是否被拒」直到達到目標狀態(或逾時)，避免全套跑法下的假 flaky。
+async function waitForWriteLockState(file: string, wantLocked: boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    let isLocked = true
+    try {
+      closeSync(openSync(file, 'r+'))
+      isLocked = false
+    } catch { /* 開不了＝鎖著 */ }
+    if (isLocked === wantLocked) return
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error(`waitForWriteLockState: ${file} 在 ${timeoutMs}ms 內未達到 locked=${wantLocked}`)
 }
 
 const TASK_ID = 'abc12345'
@@ -77,6 +93,46 @@ test('prepareWorktree：殘留（前次崩潰留下未清的 worktree 目錄+分
   expect(list.split('\n').filter(l => l.includes(TASK_ID))).toHaveLength(1) // 沒有重複登記
   // 真 git worktree I/O，24/7 機器負載下 5s 不夠（非產品 bug）→ 針對性 timeout 20s
 }, 20000)
+
+test('prepareWorktree：殘留目錄被鎖住(前次中斷進程未退)時上拋且不砍分支——成果分支與 HEAD 完好保留；解鎖後重試自癒成功（2a929ec9 產線事故回歸測試）', async () => {
+  const { repo, worktreesDir } = newRepo()
+
+  const first = prepareWorktree(repo, worktreesDir, TASK_ID)
+  commitFile(first.cwd, 'result.txt', 'feature result\n', 'feat: 領先 base 的成果 commit')
+  const resultCommit = headOf(first.cwd)
+
+  // 模擬 Windows 上被中斷進程還沒退出、對 worktree 內某檔案持有 open handle 擋 rmSync：
+  // Node fs.openSync 預設會帶 FILE_SHARE_DELETE（同進程 rmSync 不受擋），故意改用 .NET
+  // FileStream（FileShare 不含 Delete）在獨立 PowerShell 子行程開檔，才是 Windows 上真會擋
+  // 刪除的鎖法，貼近實際「前次中斷進程仍佔用」的場景。
+  const lockedFile = join(first.cwd, 'result.txt')
+  const locker = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    `$fs = [System.IO.File]::Open('${lockedFile}', 'Open', 'ReadWrite', 'Read'); Start-Sleep -Seconds 30`],
+    { stdio: 'ignore', windowsHide: true })
+  try {
+    await waitForWriteLockState(lockedFile, true, 10000) // 輪詢等鎖真的生效，不賭固定時間（機器負載會抖動）
+
+    expect(() => prepareWorktree(repo, worktreesDir, TASK_ID)).toThrow(/無法移除/)
+
+    // 核心斷言：分支完好保留，且 HEAD 仍是那個成果 commit——沒有被舊順序（先砍分支）遺失
+    const branches = execFileSync('git', ['branch', '--list', first.branch], { cwd: repo, encoding: 'utf8' })
+    expect(branches).toContain(first.branch)
+    const branchHead = execFileSync('git', ['rev-parse', first.branch], { cwd: repo, encoding: 'utf8' }).trim()
+    expect(branchHead).toBe(resultCommit)
+  } finally {
+    // 防測試殘留：無論斷言成功與否都要釋放鎖。實測 child.kill()（SIGTERM）在這台機器上
+    // 常常「行程已回報 exit 但 handle 遲遲不放」，改用 taskkill /F 才會立刻真釋放。
+    if (locker.pid !== undefined) {
+      try { execFileSync('taskkill', ['/F', '/T', '/PID', String(locker.pid)], { stdio: 'ignore' }) } catch { /* 行程可能已自然結束 */ }
+    }
+    await waitForWriteLockState(lockedFile, false, 10000) // 輪詢等 handle 真的釋放
+  }
+
+  // 解鎖後重試：完整自癒——殘留清掉、分支重建、成果 commit 不復存在（正常覆蓋語意）
+  const second = prepareWorktree(repo, worktreesDir, TASK_ID)
+  expect(second.cwd).toBe(first.cwd)
+  expect(existsSync(join(second.cwd, 'result.txt'))).toBe(false)
+}, 40000)
 
 test('mergeBack：worktree 內 commit 後 ff-only 成功、主 repo HEAD 前進；cleanupWorktree 清掉現場', () => {
   const { repo, worktreesDir } = newRepo()
