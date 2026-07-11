@@ -142,7 +142,10 @@
 
   document.getElementById('btnGoalSet').onclick = () =>
     postJson('/api/goal/set', { text: document.getElementById('goalInput').value })
-  document.getElementById('btnGoalRun').onclick = () => postJson('/api/goal/run')
+  document.getElementById('btnGoalRun').onclick = () => {
+    if (!confirm('確定啟動 autopilot？這會真的派工並產生費用。')) return
+    postJson('/api/goal/run')
+  }
   document.getElementById('btnGoalStop').onclick = () => postJson('/api/goal/stop')
   document.getElementById('btnSilenceSet').onclick = () =>
     postJson('/api/silence', { minutes: Number(document.getElementById('silenceInput').value || 0) })

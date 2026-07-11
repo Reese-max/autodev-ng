@@ -253,7 +253,8 @@ export function buildBotDeps({ cfg, store, db, cfgPath }) {
 const PANEL_NAMES = new Set(['status', 'cost', 'backlog', 'log', 'lessons', 'goal'])
 
 /** 讀 POST body 並解析 JSON；缺 body／壞 JSON 一律回 {}（沿用專案 fail-open 慣例，不 throw）。
- * 1MB 上限防禦性截斷（本機控制台不預期大 body）。 */
+ * 1MB 上限防禦性截斷（本機控制台不預期大 body）。
+ * destroy() 後加 close 兜底以防 promise 永不 resolve。 */
 function readJsonBody(req) {
   return new Promise(resolveBody => {
     let data = ''
@@ -265,6 +266,7 @@ function readJsonBody(req) {
       try { resolveBody(JSON.parse(data || '{}')) } catch { resolveBody({}) }
     })
     req.on('error', () => resolveBody({}))
+    req.on('close', () => resolveBody({}))
   })
 }
 
