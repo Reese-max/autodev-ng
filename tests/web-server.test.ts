@@ -12,7 +12,7 @@ const mod: any = await import(webServerPath)
 const {
   parseArgs, makeToken, hasValidToken, readHeartbeat, readEventsTail, readDlqCount,
   readRecentAttempts, buildStatusPayload, createChildState, spawnRunOnce, spawnDaemonStart,
-  stopDaemon, createServer, readDaemonLockOwner, INDEX_HTML,
+  stopDaemon, createServer, readDaemonLockOwner, readBotAlive, readSilencedUntil, INDEX_HTML,
 } = mod
 
 // 測試一律關掉 spawn 後的活性等待（waitMs=0 + 立即 resolve 的 sleep），避免真的等 800ms。
@@ -238,6 +238,54 @@ test('spawnDaemonStart：真 lock 判定為 alive（即使 state.daemon=null，�
   expect(created.length).toBe(0)            // 未 spawn
 })
 
+// ---------- M9.1：總覽徽章三欄的純讀取層 ----------
+test('readBotAlive：缺檔回 false；探測活/死；壞 pid 回 false', () => {
+  const dir = tmp('adng-web-botalive-')
+  expect(readBotAlive(dir, () => true)).toBe(false) // 缺 bot.lock/pid.json
+  const { mkdirSync } = require('node:fs')
+  mkdirSync(join(dir, 'bot.lock'))
+  writeFileSync(join(dir, 'bot.lock', 'pid.json'), JSON.stringify({ pid: 4321, startedAt: '2026-01-01T00:00:00Z' }))
+  expect(readBotAlive(dir, () => true)).toBe(true)
+  expect(readBotAlive(dir, () => false)).toBe(false)
+  writeFileSync(join(dir, 'bot.lock', 'pid.json'), JSON.stringify({ pid: 'x' }))
+  expect(readBotAlive(dir, () => true)).toBe(false) // 壞 pid → fail-close
+})
+
+test('readSilencedUntil：缺檔回 null；未過期回 untilIso；已過期回 null', () => {
+  const dir = tmp('adng-web-silenced-')
+  expect(readSilencedUntil(dir)).toBeNull()
+  const future = new Date(Date.now() + 60_000).toISOString()
+  writeFileSync(join(dir, 'silence.json'), JSON.stringify({ untilIso: future }))
+  expect(readSilencedUntil(dir)).toBe(future)
+  const past = new Date(Date.now() - 60_000).toISOString()
+  writeFileSync(join(dir, 'silence.json'), JSON.stringify({ untilIso: past }))
+  expect(readSilencedUntil(dir)).toBeNull()
+})
+
+test('buildStatusPayload：新增 botAlive/silencedUntil/stopFilePresent 三欄，缺 stopFile 也不炸', () => {
+  const dir = tmp('adng-web-status-badges-')
+  const store = new BacklogStore(join(dir, 'missing.md'))
+  const db = new RunDb(join(dir, 'run.db'))
+  const cfg: any = { dataDir: dir, timezoneOffsetHours: 0, dailySoftUsd: 1, dailyHardUsd: 2 } // 無 stopFile 欄位
+  const payload = buildStatusPayload({ cfg, store, db, dbPath: join(dir, 'run.db'), localDayFn: localDay })
+  db.close()
+  expect(payload.botAlive).toBe(false)
+  expect(payload.silencedUntil).toBeNull()
+  expect(payload.stopFilePresent).toBe(false)
+})
+
+test('buildStatusPayload：stopFile 存在時 stopFilePresent=true', () => {
+  const dir = tmp('adng-web-status-stop-')
+  const stopFile = join(dir, '.adng.stop')
+  writeFileSync(stopFile, '')
+  const store = new BacklogStore(join(dir, 'missing.md'))
+  const db = new RunDb(join(dir, 'run.db'))
+  const cfg: any = { dataDir: dir, timezoneOffsetHours: 0, dailySoftUsd: 1, dailyHardUsd: 2, stopFile }
+  const payload = buildStatusPayload({ cfg, store, db, dbPath: join(dir, 'run.db'), localDayFn: localDay })
+  db.close()
+  expect(payload.stopFilePresent).toBe(true)
+})
+
 test('stopDaemon：寫入既有 stopFile 機制（scheduler.runOnce 讀取的同一路徑）', () => {
   const dir = tmp('adng-web-stop-')
   const stopFile = join(dir, '.adng.stop')
@@ -248,12 +296,15 @@ test('stopDaemon：寫入既有 stopFile 機制（scheduler.runOnce 讀取的同
 })
 
 // ---------- HTTP 路由 + CSRF（port 0，測完立即關閉；spawn 全 mock） ----------
-async function withServer(fn: (base: string, created: any[]) => Promise<void>, spawnOverride?: () => any) {
+async function withServer(fn: (base: string, created: any[], dir: string) => Promise<void>, spawnOverride?: () => any) {
   const dir = tmp('adng-web-http-')
   writeFileSync(join(dir, 'backlog.md'), '- [ ] t1\n')
   const store = new BacklogStore(join(dir, 'backlog.md'))
   const db = new RunDb(join(dir, 'run.db'))
-  const cfg: any = { dataDir: dir, timezoneOffsetHours: 8, dailySoftUsd: 40, dailyHardUsd: 100, stopFile: join(dir, '.adng.stop') }
+  const cfg: any = {
+    dataDir: dir, timezoneOffsetHours: 8, dailySoftUsd: 40, dailyHardUsd: 100,
+    stopFile: join(dir, '.adng.stop'), backlogFile: join(dir, 'backlog.md'),
+  }
   const created: any[] = []
   const spawnFn = spawnOverride
     ? () => { const c = spawnOverride(); created.push(c); return c }
@@ -266,7 +317,7 @@ async function withServer(fn: (base: string, created: any[]) => Promise<void>, s
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()))
   const port = (server.address() as any).port
   try {
-    await fn(`http://127.0.0.1:${port}`, created)
+    await fn(`http://127.0.0.1:${port}`, created, dir)
   } finally {
     db.close()
     await new Promise<void>(resolve => server.close(() => resolve()))
@@ -289,6 +340,17 @@ test('GET /api/status 回 200 JSON', async () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.backlog.open).toBe(1)
+  })
+})
+
+// M9.1：/api/status 總覽徽章三欄結構化形狀（不走 panel 文字）。
+test('GET /api/status 回傳含 botAlive/silencedUntil/stopFilePresent 三欄', async () => {
+  await withServer(async base => {
+    const res = await fetch(base + '/api/status')
+    const body = await res.json()
+    expect(typeof body.botAlive).toBe('boolean')
+    expect(body.silencedUntil === null || typeof body.silencedUntil === 'string').toBe(true)
+    expect(typeof body.stopFilePresent).toBe('boolean')
   })
 })
 
@@ -443,5 +505,62 @@ test('POST /api/silence 無 token → 403；對 token 帶 minutes=0 → 解除�
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.text).toBe('已解除靜音')
+  })
+})
+
+// ---------- M9.1：POST /api/pause、/api/resume、/api/task（handleCommand 透傳，CSRF 沿用） ----------
+test('POST /api/pause 無 token → 403；對 token → 寫入 stopFile（daemon 語意暫停），200 + text', async () => {
+  await withServer(async (base, _created, dir) => {
+    const noTok = await fetch(base + '/api/pause', { method: 'POST' })
+    expect(noTok.status).toBe(403)
+    const res = await fetch(base + '/api/pause', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(typeof body.text).toBe('string')
+    expect(existsSync(join(dir, '.adng.stop'))).toBe(true)
+  })
+})
+
+test('POST /api/resume 無 token → 403；對 token → 清除既有 stopFile', async () => {
+  await withServer(async (base, _created, dir) => {
+    writeFileSync(join(dir, '.adng.stop'), 'bot /pause\n')
+    const noTok = await fetch(base + '/api/resume', { method: 'POST' })
+    expect(noTok.status).toBe(403)
+    const res = await fetch(base + '/api/resume', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(typeof body.text).toBe('string')
+    expect(existsSync(join(dir, '.adng.stop'))).toBe(false)
+  })
+})
+
+test('POST /api/task 無 token → 403；含換行的注入文字 → 拒收文案原樣透傳', async () => {
+  await withServer(async base => {
+    const noTok = await fetch(base + '/api/task', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'x' }),
+    })
+    expect(noTok.status).toBe(403)
+    const res = await fetch(base + '/api/task', {
+      method: 'POST',
+      headers: { 'x-csrf-token': 'secret-tok', 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'line1\nline2' }),
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.text).toBe('任務內容不可含換行')
+  })
+})
+
+test('POST /api/task 對 token；合法文字 → 已加入 backlog，backlog.md 實際多一行', async () => {
+  await withServer(async (base, _created, dir) => {
+    const res = await fetch(base + '/api/task', {
+      method: 'POST',
+      headers: { 'x-csrf-token': 'secret-tok', 'content-type': 'application/json' },
+      body: JSON.stringify({ text: '新任務 A' }),
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.text).toBe('已加入 backlog')
+    expect(readFileSync(join(dir, 'backlog.md'), 'utf8')).toContain('新任務 A')
   })
 })
