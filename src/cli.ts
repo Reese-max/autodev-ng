@@ -227,9 +227,14 @@ function safeBacklogCounts(store: BacklogStore, backlogFile: string): { counts: 
   }
 }
 
+/** 四個 cmd 子命令共用樣板：assemble 組裝 → 執行 → 收尾 db.close（不論成功/例外都要收）。 */
+async function withAssembled(cfgPath: string, fn: (a: ReturnType<typeof assemble>) => Promise<void>): Promise<void> {
+  const a = assemble(cfgPath)
+  try { await fn(a) } finally { a.deps.db.close() }
+}
+
 async function cmdStatus(cfgPath: string): Promise<void> {
-  const { deps } = assemble(cfgPath)
-  try {
+  await withAssembled(cfgPath, async ({ deps }) => {
     const heartbeat = readHeartbeat(deps.cfg.dataDir)
     if (!heartbeat) {
       console.log('daemon 未跑過')
@@ -245,9 +250,7 @@ async function cmdStatus(cfgPath: string): Promise<void> {
       dlqCount: countDlqLines(deps.cfg.dataDir),
       lastDigestDay: readLastDigestDay(deps.cfg.dataDir),
     }))
-  } finally {
-    deps.db.close()
-  }
+  })
 }
 
 function formatCycleResult(result: CycleResult): string {
@@ -270,19 +273,15 @@ export function finalizeRunOnceHeartbeat(deps: Deps, result: CycleResult, now: D
 }
 
 async function cmdRunOnce(cfgPath: string): Promise<void> {
-  const { deps } = assemble(cfgPath)
-  try {
+  await withAssembled(cfgPath, async ({ deps }) => {
     const result = await runOnce(deps)
     finalizeRunOnceHeartbeat(deps, result)
     console.log(`CycleResult: ${formatCycleResult(result)}`)
-  } finally {
-    deps.db.close()
-  }
+  })
 }
 
 async function cmdDaemon(cfgPath: string): Promise<void> {
-  const { deps, notifier } = assemble(cfgPath)
-  try {
+  await withAssembled(cfgPath, async ({ deps, notifier }) => {
     const lockDir = join(deps.cfg.dataDir, 'daemon.lock')
     const result = await runDaemon({
       deps,
@@ -292,9 +291,7 @@ async function cmdDaemon(cfgPath: string): Promise<void> {
       idleSleepMs: IDLE_SLEEP_MS,
     })
     console.log(`daemon result: ${result}`)
-  } finally {
-    deps.db.close()
-  }
+  })
 }
 
 /**
@@ -309,8 +306,7 @@ export async function runNotifyTest(notifier: DiscordNotifier, now: Date = new D
 }
 
 async function cmdNotifyTest(cfgPath: string): Promise<void> {
-  const { deps, notifier } = assemble(cfgPath)
-  try {
+  await withAssembled(cfgPath, async ({ notifier }) => {
     const { ok, text } = await runNotifyTest(notifier)
     if (ok) {
       console.log(`送達成功：${text}`)
@@ -318,9 +314,7 @@ async function cmdNotifyTest(cfgPath: string): Promise<void> {
       console.log(`送達失敗（已寫入 DLQ，detail 見 dataDir/notify-dlq.jsonl）：${text}`)
       process.exitCode = 1
     }
-  } finally {
-    deps.db.close()
-  }
+  })
 }
 
 export interface ParsedArgv { command: string; configPath?: string }

@@ -6,7 +6,7 @@ import { localDay } from './db.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
 import { runOnce, type Deps, type CycleResult, type BlockedReason } from './scheduler.js'
 import { isSilenced } from './bot/silence.js'
-import type { EventLog } from './events.js'
+import { quiet, type EventLog } from './events.js'
 
 export interface Notifier {
   send(text: string): Promise<boolean>
@@ -48,15 +48,6 @@ function todayLocal(offsetHours: number): string {
  * 舊版 yesterdayUtc，行為不變，僅語意從「UTC 日」改為「本地日」，M4 Task 3）。 */
 export function yesterdayLocal(day: string): string {
   return new Date(new Date(`${day}T00:00:00Z`).getTime() - 86400000).toISOString().slice(0, 10)
-}
-
-/** daemon 觀測/通知面自身故障絕不可反殺主迴圈——統一吞錯（鐵律 #4 精神，同 scheduler.ts 的 quiet）。 */
-function quiet(fn: () => void): void {
-  try {
-    fn()
-  } catch {
-    // events 模組自身壞掉不該中斷 24/7 閉環
-  }
 }
 
 /** notifier.send 依契約不該 throw（DiscordNotifier 內部已自吞），這裡再包一層防呆：
@@ -225,6 +216,8 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
   // loadCooldownTable 內部容錯為空表（fail-open 照發，鐵律 #4）。
   // 挪到鎖檢查之前：lock-busy 告警也要吃得到冷卻閘。
   const cooldownTable = loadCooldownTable(deps.cfg.dataDir)
+  const alert = (key: string, message: string) =>
+    sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, deps.events, key, message)
 
   let locked: boolean
   try {
@@ -233,20 +226,14 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
     // M5 Task 2：告警納冷卻閘（key 固定 daemon-acquire-throw）——respawn 排程／run-once
     // 反覆重啟撞同一 infra 故障（EPERM 類）時不洗版通知頻道；rethrow 語意不變
     // （原樣炸給排程器看，不可假活）。
-    await sendCooldownAlert(
-      notifier, deps.cfg.dataDir, cooldownTable, deps.events,
-      'daemon-acquire-throw', `daemon 無法啟動：acquireLock 拋出 infra 故障——${String(err)}`
-    )
+    await alert('daemon-acquire-throw', `daemon 無法啟動：acquireLock 拋出 infra 故障——${String(err)}`)
     throw err
   }
 
   if (!locked) {
     // lock-busy 進程隨即退出：sendCooldownAlert 內對冷卻表的落地寫入是同步呼叫，
     // return 之前已完成，不會漏寫（鏡像既有 saveCooldownTable 同步寫慣例）。
-    await sendCooldownAlert(
-      notifier, deps.cfg.dataDir, cooldownTable, deps.events,
-      'lock-busy', 'daemon 啟動失敗：lock 被佔用（single-flight，可能已有 instance 在跑）'
-    )
+    await alert('lock-busy', 'daemon 啟動失敗：lock 被佔用（single-flight，可能已有 instance 在跑）')
     return 'lock-busy'
   }
 
@@ -267,8 +254,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       let memFreeRatio = 1 // memFreeRatioFn 故障 fail-open（鐵律 #4）：視同記憶體充足
       try { memFreeRatio = memFree() } catch { /* fail-open */ }
       if (memFreeRatio < OOM_FREE_RATIO && !existsSync(deps.cfg.stopFile)) {
-        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, deps.events,
-          'oom-gate', 'daemon 告警:記憶體可用 <15%,本輪跳過派工')
+        await alert('oom-gate', 'daemon 告警:記憶體可用 <15%,本輪跳過派工')
         await sleep(idleSleepMs)
         continue
       }
@@ -279,16 +265,10 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       } catch (err) {
         consecutiveCrashes++
         quiet(() => deps.events.append('runonce-crash', { error: String(err), consecutiveCrashes }))
-        await sendCooldownAlert(
-          notifier, deps.cfg.dataDir, cooldownTable, deps.events,
-          'daemon-crash', `daemon 告警：runOnce 崩潰（連續第 ${consecutiveCrashes} 次）——${String(err)}`
-        )
+        await alert('daemon-crash', `daemon 告警：runOnce 崩潰（連續第 ${consecutiveCrashes} 次）——${String(err)}`)
 
         if (consecutiveCrashes >= CONSECUTIVE_CRASH_PAUSE_THRESHOLD) {
-          await sendCooldownAlert(
-            notifier, deps.cfg.dataDir, cooldownTable, deps.events,
-            'daemon-crash-pause', 'daemon 告警：連續崩潰暫停——已連續崩潰 5 次，暫停 30 分鐘後重試'
-          )
+          await alert('daemon-crash-pause', 'daemon 告警：連續崩潰暫停——已連續崩潰 5 次，暫停 30 分鐘後重試')
           await sleep(CRASH_PAUSE_MS)
           consecutiveCrashes = 0
         } else {
@@ -303,9 +283,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       if (result === 'stopped') return 'stopped'
 
       if (isAlertableResult(result)) {
-        await sendCooldownAlert(
-          notifier, deps.cfg.dataDir, cooldownTable, deps.events, cooldownKeyFor(result), baseAlertMessage(result)
-        )
+        await alert(cooldownKeyFor(result), baseAlertMessage(result))
       }
 
       // M7：失敗驅動 reflect——教訓面故障吞掉,絕不反殺主迴圈(鐵律 #4)
@@ -315,8 +293,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
 
       // M7.5:idle 要任務通知(6h 冷卻=持續 idle 每 6h 至多提醒一次,不洗版)
       if (result === 'idle') {
-        await sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, deps.events,
-          'idle', 'daemon 提醒:backlog 已耗盡,請補任務')
+        await alert('idle', 'daemon 提醒:backlog 已耗盡,請補任務')
       }
 
       if (result === 'idle' || result === 'cost-hard-stop') {
