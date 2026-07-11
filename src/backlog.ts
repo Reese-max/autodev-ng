@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { appendFileSync, mkdirSync, readFileSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import type { Disposition, Task } from './types.js'
 
 export function taskId(text: string): string {
@@ -78,17 +78,19 @@ function dedupeDuplicateIds(tasks: Task[]): Task[] {
   })
 }
 
-/** backlog 檔級跨進程互斥鎖（mkdirSync 原子性）：等待上限 5s，殘留鎖(mtime>10s)強拆，協議全文見 report.md。 */
-export function withBacklogLock<T>(file: string, fn: () => T): T {
+/** backlog 檔級跨進程互斥鎖（mkdirSync 原子性）：等待上限 waitMs，殘留鎖(mtime>10s)以 rename 原子搶拆權後強拆，協議全文見 task-3-report.md。 */
+export function withBacklogLock<T>(file: string, fn: () => T, waitMs = 5000): T {
   const dir = `${file}.lockdir`
-  const deadline = Date.now() + 5000
+  const deadline = Date.now() + waitMs
   const buf = new Int32Array(new SharedArrayBuffer(4))
   for (;;) {
-    try { mkdirSync(dir); break } catch {
-      try { if (Date.now() - statSync(dir).mtimeMs > 10_000) { rmdirSync(dir); continue } } catch { continue }
-      if (Date.now() > deadline) throw new Error(`backlog 鎖等待逾時：${dir}`)
-      Atomics.wait(buf, 0, 0, 10)
-    }
+    if (Date.now() > deadline) throw new Error(`backlog 鎖等待逾時：${dir}`)
+    try { mkdirSync(dir); break } catch { /* 鎖被持有，往下走 stale 檢查與退避 */ }
+    try {
+      const reap = `${dir}.reap-${process.pid}-${Date.now()}` // rename 原子搶拆權：同 stale 只一人成功
+      if (Date.now() - statSync(dir).mtimeMs > 10_000) { renameSync(dir, reap); rmSync(reap, { recursive: true }); continue }
+    } catch { /* 別人搶先拆/鎖已消失，回退避 */ }
+    Atomics.wait(buf, 0, 0, 10)
   }
   try { return fn() } finally { try { rmdirSync(dir) } catch { /* 已被 stale 強拆屬可容忍 */ } }
 }

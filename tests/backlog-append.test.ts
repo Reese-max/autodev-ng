@@ -96,14 +96,15 @@ describe('BacklogStore.append (鐵律 #1 受控例外)', () => {
 })
 
 describe('withBacklogLock', () => {
-  it('持鎖期間第二個 acquire 需等待釋放後才進入', () => {
-    const order: string[] = []
-    withBacklogLock(file, () => {
-      order.push('a-in')
-      // 同步單執行緒下模擬「已有他人持鎖」：手動預建 lockdir 再驗證等待/強拆走 stale 路徑
-    })
-    order.push('a-out')
-    expect(order).toEqual(['a-in', 'a-out'])
+  it('鎖被他人持有(fresh mtime，非 stale)時等待至逾時拋錯，fn 不執行、不動別人的鎖', () => {
+    // 單執行緒 sync 阻塞下 timer 不會 fire，「等待後成功」場景無法單進程測——
+    // 預建 fresh lockdir 模擬活鎖持有者，waitMs=50 真正驗 wait+deadline 路徑（毫秒級，不違反禁 sleep）。
+    const lockDir = `${file}.lockdir`
+    mkdirSync(lockDir, { recursive: true })
+    let ran = false
+    expect(() => withBacklogLock(file, () => { ran = true }, 50)).toThrow('鎖等待逾時')
+    expect(ran).toBe(false)
+    expect(existsSync(lockDir)).toBe(true) // 逾時方不得拆活鎖
   })
   it('殘留鎖(舊 mtime)會被強拆而非死等', () => {
     const lockDir = `${file}.lockdir`
