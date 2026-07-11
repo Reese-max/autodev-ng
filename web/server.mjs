@@ -119,6 +119,10 @@ export function buildStatusPayload({ cfg, store, db, dbPath, localDayFn }) {
     attempts: readRecentAttempts(dbPath, 10),
     events: readEventsTail(cfg.dataDir, 50),
     dlqCount: readDlqCount(cfg.dataDir),
+    // M9.1：總覽徽章三欄（結構化，不走 panel 文字）。
+    botAlive: readBotAlive(cfg.dataDir),
+    silencedUntil: readSilencedUntil(cfg.dataDir),
+    stopFilePresent: cfg.stopFile ? existsSync(cfg.stopFile) : false,
   }
 }
 
@@ -158,6 +162,40 @@ export function readDaemonLockOwner(dataDir, isPidAliveFn = defaultIsPidAlive) {
     return isPidAliveFn(pid) ? 'alive' : 'dead'
   } catch {
     return 'unknown'
+  }
+}
+
+/** 讀 dataDir/bot.lock/pid.json 判斷 bot 進程是否存活（M9.1 總覽徽章）。缺檔/壞檔/pid 非法一律回
+ * false——鏡像 src/lock.ts checkLockOwner／src/bot/handlers.ts isDaemonAlive 的 process.kill(pid,0)
+ * 慣例，但刻意 fail-close（非 fail-open）：徽章寧可低估存活也不誤報綠燈。唯讀，不搶鎖。 */
+export function readBotAlive(dataDir, isPidAliveFn = defaultIsPidAlive) {
+  const pidFile = join(dataDir, 'bot.lock', 'pid.json')
+  if (!existsSync(pidFile)) return false
+  try {
+    const parsed = JSON.parse(readFileSync(pidFile, 'utf8'))
+    const pid = parsed && parsed.pid
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return false
+    return isPidAliveFn(pid)
+  } catch {
+    return false
+  }
+}
+
+/** 讀 dataDir/silence.json 的 untilIso；缺檔/壞檔/已過期一律回 null（鏡像 src/bot/silence.ts isSilenced，
+ * 唯讀複製其判定邏輯，不 import kernel）。 */
+export function readSilencedUntil(dataDir, now = new Date()) {
+  const file = join(dataDir, 'silence.json')
+  if (!existsSync(file)) return null
+  try {
+    const raw = JSON.parse(readFileSync(file, 'utf8'))
+    if (typeof raw !== 'object' || raw === null) return null
+    const untilIso = raw.untilIso
+    if (typeof untilIso !== 'string') return null
+    const untilMs = new Date(untilIso).getTime()
+    if (Number.isNaN(untilMs)) return null
+    return untilMs > now.getTime() ? untilIso : null
+  } catch {
+    return null
   }
 }
 
@@ -357,6 +395,27 @@ export function createRequestHandler(ctx) {
       if (req.method === 'POST' && url.pathname === '/api/daemon/stop') {
         const r = stopDaemon(cfg.stopFile)
         send(r.ok ? 200 : 500, r)
+        return
+      }
+      // M9.1 控制端點：pause/resume/task 比照 goal/silence 慣例，零重複業務邏輯全部轉呼叫既有
+      // handleCommand（注入防護／換行拒收皆在 handler 內建，此處原樣透傳拒收文案）。
+      if (req.method === 'POST' && url.pathname === '/api/pause') {
+        const handleCommand = await getHandleCommand()
+        const text = await handleCommand('pause', '', botDeps)
+        send(200, { text })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/api/resume') {
+        const handleCommand = await getHandleCommand()
+        const text = await handleCommand('resume', '', botDeps)
+        send(200, { text })
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/api/task') {
+        const body = await readJsonBody(req)
+        const handleCommand = await getHandleCommand()
+        const text = await handleCommand('task', String(body.text ?? ''), botDeps)
+        send(200, { text })
         return
       }
       // M9 控制端點：零重複業務邏輯，全部轉呼叫既有 handleCommand（注入防護／lock 防雙跑皆在 handler 內建）。

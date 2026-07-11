@@ -36,6 +36,15 @@
   .card input[type="text"], .card input[type="number"] { width: 100%; box-sizing: border-box; background: #0b0d11; border: 1px solid #2a2e37; color: #e6e6e6; padding: 6px 8px; border-radius: 4px; font-size: 12px; margin: 8px 0; }
   .card .btns { margin-bottom: 0; }
   .card button { padding: 6px 10px; font-size: 12px; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .badge-green { background: #16301f; color: #4caf50; }
+  .badge-red { background: #331414; color: #ef5350; }
+  .badge-yellow { background: #332c14; color: #ffb300; }
+  .panelHead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .panelHead h2 { margin: 0; }
+  .refreshBtn { background: transparent; border: 1px solid #2a2e37; color: #8a8f98; padding: 2px 7px; font-size: 12px; border-radius: 4px; cursor: pointer; line-height: 1.4; }
+  .updatedAt { font-size: 10px; color: #5a5f68; margin-left: 6px; }
+  .panelErr { color: #ef5350; font-size: 11px; margin: 6px 0 0; }
 </style>
 </head>
 <body>
@@ -45,9 +54,17 @@
 <div id="tokenBox">CSRF token：<input id="tokenInput" placeholder="從啟動 console 印出的 URL 貼上，或帶 ?token= 開這頁"></div>
 
 <div class="btns">
+  <span id="badgeBot" class="badge badge-red">bot —</span>
+  <span id="badgeSilence" class="badge badge-yellow" style="display:none"></span>
+  <span id="badgePaused" class="badge badge-red" style="display:none">已暫停</span>
+</div>
+
+<div class="btns">
   <button id="btnRunOnce">▶ Run Once</button>
   <button id="btnDaemonStart" class="ghost">⏻ Daemon Start</button>
   <button id="btnDaemonStop" class="stop">■ Daemon Stop</button>
+  <button id="btnPause" class="stop">⏸ 暫停</button>
+  <button id="btnResume" class="ghost">▶ 恢復</button>
   <span id="msg"></span>
 </div>
 
@@ -73,19 +90,41 @@
 <section>
   <h2>面板（每 10s 自動輪詢；複用 bot 指令輸出）</h2>
   <div class="panelgrid">
-    <div class="card" data-panel="status"><h2>Status</h2><pre class="panelText">—</pre></div>
-    <div class="card" data-panel="cost"><h2>Cost</h2><pre class="panelText">—</pre></div>
-    <div class="card" data-panel="backlog"><h2>Backlog</h2><pre class="panelText">—</pre></div>
-    <div class="card" data-panel="log"><h2>Log</h2><pre class="panelText">—</pre></div>
-    <div class="card" data-panel="lessons"><h2>Lessons</h2><pre class="panelText">—</pre></div>
+    <div class="card" data-panel="status">
+      <div class="panelHead"><h2>Status</h2><span><button class="refreshBtn" data-refresh="status">↻</button><span class="updatedAt" data-updated="status"></span></span></div>
+      <pre class="panelText">—</pre><div class="panelErr" data-err="status" style="display:none"></div>
+    </div>
+    <div class="card" data-panel="cost">
+      <div class="panelHead"><h2>Cost</h2><span><button class="refreshBtn" data-refresh="cost">↻</button><span class="updatedAt" data-updated="cost"></span></span></div>
+      <pre class="panelText">—</pre><div class="panelErr" data-err="cost" style="display:none"></div>
+    </div>
+    <div class="card" data-panel="backlog">
+      <div class="panelHead"><h2>Backlog</h2><span><button class="refreshBtn" data-refresh="backlog">↻</button><span class="updatedAt" data-updated="backlog"></span></span></div>
+      <pre class="panelText">—</pre><div class="panelErr" data-err="backlog" style="display:none"></div>
+    </div>
+    <div class="card" data-panel="log">
+      <div class="panelHead"><h2>Log</h2><span><button class="refreshBtn" data-refresh="log">↻</button><span class="updatedAt" data-updated="log"></span></span></div>
+      <pre class="panelText">—</pre><div class="panelErr" data-err="log" style="display:none"></div>
+    </div>
+    <div class="card" data-panel="lessons">
+      <div class="panelHead"><h2>Lessons</h2><span><button class="refreshBtn" data-refresh="lessons">↻</button><span class="updatedAt" data-updated="lessons"></span></span></div>
+      <pre class="panelText">—</pre><div class="panelErr" data-err="lessons" style="display:none"></div>
+    </div>
     <div class="card" data-panel="goal">
-      <h2>Goal</h2><pre class="panelText">—</pre>
+      <div class="panelHead"><h2>Goal</h2><span><button class="refreshBtn" data-refresh="goal">↻</button><span class="updatedAt" data-updated="goal"></span></span></div>
+      <pre class="panelText">—</pre><div class="panelErr" data-err="goal" style="display:none"></div>
       <input id="goalInput" type="text" placeholder="設定 GOAL 文字">
       <div class="btns">
         <button id="btnGoalSet" class="ghost">設定</button>
         <button id="btnGoalRun">▶ Run</button>
         <button id="btnGoalStop" class="stop">■ Stop</button>
       </div>
+    </div>
+    <div class="card">
+      <h2>投任務</h2>
+      <div class="sub">送入 backlog，成功後自動刷新 Backlog 面板</div>
+      <input id="taskInput" type="text" placeholder="任務內容">
+      <div class="btns"><button id="btnTaskSubmit" class="ghost">送出</button></div>
     </div>
     <div class="card">
       <h2>Silence</h2>
@@ -138,6 +177,7 @@
     if (res.status === 403) { flash('403：token 錯誤或缺失', true); return }
     flash(body.text ? String(body.text).slice(0, 80) : JSON.stringify(body), !res.ok)
     pollPanels()
+    return body
   }
 
   document.getElementById('btnGoalSet').onclick = () =>
@@ -150,17 +190,40 @@
   document.getElementById('btnSilenceSet').onclick = () =>
     postJson('/api/silence', { minutes: Number(document.getElementById('silenceInput').value || 0) })
 
+  // ---- M9.1：暫停/恢復/投任務——比照 goal/silence，透傳 handleCommand 回應文案 ----
+  document.getElementById('btnPause').onclick = () => postJson('/api/pause')
+  document.getElementById('btnResume').onclick = () => postJson('/api/resume')
+  document.getElementById('btnTaskSubmit').onclick = async () => {
+    const input = document.getElementById('taskInput')
+    await postJson('/api/task', { text: input.value })
+    input.value = ''
+  }
+
+  // ---- M9.1：面板卡片單獨刷新鈕 + 最後更新時間 + fetch 失敗顯示紅字（不默默停更） ----
   const PANELS = ['status', 'cost', 'backlog', 'log', 'lessons', 'goal']
-  async function pollPanels() {
-    for (const name of PANELS) {
-      try {
-        const res = await fetch('/api/panel/' + name)
-        const body = await res.json()
-        const el = document.querySelector('[data-panel="' + name + '"] .panelText')
-        if (el) el.textContent = res.ok ? (body.text ?? '') : JSON.stringify(body)
-      } catch { /* 單一面板暫時讀不到，不擋其他面板 */ }
+  function hhmmss() { return new Date().toLocaleTimeString('zh-TW', { hour12: false }) }
+  async function loadPanel(name) {
+    const errEl = document.querySelector('[data-err="' + name + '"]')
+    const updEl = document.querySelector('[data-updated="' + name + '"]')
+    try {
+      const res = await fetch('/api/panel/' + name)
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status))
+      const el = document.querySelector('[data-panel="' + name + '"] .panelText')
+      if (el) el.textContent = body.text ?? ''
+      if (errEl) { errEl.style.display = 'none'; errEl.textContent = '' }
+    } catch (err) {
+      if (errEl) { errEl.style.display = ''; errEl.textContent = '讀取失敗：' + err }
+    } finally {
+      if (updEl) updEl.textContent = hhmmss()
     }
   }
+  async function pollPanels() {
+    for (const name of PANELS) await loadPanel(name)
+  }
+  document.querySelectorAll('[data-refresh]').forEach(btn => {
+    btn.addEventListener('click', () => loadPanel(btn.getAttribute('data-refresh')))
+  })
   pollPanels()
   setInterval(pollPanels, 10000)
 
@@ -184,6 +247,22 @@
       ? s.backlogError
       : `open=${s.backlog.open}｜blocked=${s.backlog.blocked}｜done=${s.backlog.done}`
     document.getElementById('dlqLine').textContent = s.dlqCount + ' 筆'
+
+    // M9.1：總覽徽章——bot 存活恆顯示，靜音/暫停僅在有狀態時顯示。
+    const badgeBot = document.getElementById('badgeBot')
+    badgeBot.textContent = 'bot ' + (s.botAlive ? '存活' : '未偵測到')
+    badgeBot.className = 'badge ' + (s.botAlive ? 'badge-green' : 'badge-red')
+
+    const badgeSilence = document.getElementById('badgeSilence')
+    if (s.silencedUntil) {
+      badgeSilence.style.display = ''
+      badgeSilence.textContent = '靜音中至 ' + new Date(s.silencedUntil).toLocaleTimeString('zh-TW', { hour12: false })
+    } else {
+      badgeSilence.style.display = 'none'
+    }
+
+    const badgePaused = document.getElementById('badgePaused')
+    badgePaused.style.display = s.stopFilePresent ? '' : 'none'
 
     const body = document.getElementById('attemptsBody')
     body.innerHTML = s.attempts.map(a => `<tr>
