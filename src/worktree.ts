@@ -52,18 +52,18 @@ function assertGitRepo(projectPath: string): void {
   }
 }
 
-/** 殘留自癒（前次崩潰留下的 worktree 目錄/分支未清）：worktree remove --force + prune +
- * branch -D + 目錄殘骸 rmSync，全部容忍失敗——目的只是讓後面的 `git worktree add` 乾淨
- * 重來；真正清不掉的殘留讓 add 自然報錯上拋（這裡不吞真正的問題，只吞「本來就沒有殘留」）。 */
+/** 殘留自癒：worktree remove --force + prune + rmSync 容忍失敗；branch -D 移到「確認目錄已消失」之後才執行——
+ * 2a929ec9 產線事故：目錄被鎖(Windows,前次中斷進程未退)時舊順序先砍分支致成果懸空；仍在就上拋保留分支,待重試/人工介入。 */
 function cleanStaleWorktree(projectPath: string, worktreePath: string, branch: string): void {
   gitTolerant(['worktree', 'remove', '--force', worktreePath], projectPath, ADD_REMOVE_TIMEOUT_MS)
   gitTolerant(['worktree', 'prune'], projectPath, QUICK_TIMEOUT_MS)
-  gitTolerant(['branch', '-D', branch], projectPath, QUICK_TIMEOUT_MS)
   try {
     rmSync(worktreePath, { recursive: true, force: true })
   } catch {
-    // 容忍：目錄殘骸清不掉就讓後面 git worktree add 自然報錯上拋（不是這裡吞真正的問題）
+    // 容忍：清不掉交給下面 existsSync 判定是否真的殘留(被鎖)
   }
+  if (existsSync(worktreePath)) throw new Error(`prepareWorktree: 殘留 worktree 目錄無法移除(可能有前次中斷的進程仍佔用):${worktreePath}——成果分支 ${branch} 已保留,待進程退出後下次重試/人工介入`)
+  gitTolerant(['branch', '-D', branch], projectPath, QUICK_TIMEOUT_MS)
 }
 
 /** devin-serena-fix 保底：devin adapter 已用 `ensureNoMcpImport` 從源頭關掉 MCP 匯入，
