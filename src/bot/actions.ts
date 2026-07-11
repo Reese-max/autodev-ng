@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process'
 import { setSilence, clearSilence } from './silence.js'
 import { callAgent } from '../autopilot/llm.js'
 import { withBacklogLock } from '../backlog.js'
+import { EventLog } from '../events.js'
 import type { BotDeps, CmdResult } from './handlers.js'
 
 const TASK_TEXT_NEWLINE_ERR = '任務內容不可含換行'
@@ -96,13 +97,25 @@ export async function doTask(d: BotDeps, arg: string): Promise<CmdResult> {
   }
 }
 
-/** callAgent 本身 fail-open（無 url 或 fetch 失敗一律回空字串），這裡把空字串轉成人話。 */
+/** callAgent 本身 fail-open（無 url 或 fetch 失敗一律回空字串），這裡把空字串轉成人話。
+ *
+ * 入帳決策（M9.3 Task 5 Step 1 核對後裁定）：不寫 d.db.record()。db.ts 的 dayStats()/
+ * digest.ts 的「完成 N 筆／失敗 M 筆」與 bot /cost 的「成功／失敗」，都是對 attempts 表
+ * 不分 taskId 全表加總（SELECT SUM(ok)... WHERE ts >= ? AND ts < ?，無 task_id 篩選）。
+ * 若在此以 taskId:'ask' 寫入 ok:true 的 attempts 列，會直接灌水這兩處面向使用者的「今日
+ * 完成任務數」headline 指標——/ask 只是問答，不是 autopilot 任務，計入「完成」會誤導。
+ * db.ts 是 kernel 頂層檔（本 task 不得動），無法用改 SQL 篩 taskId 的方式排污，因此改記
+ * events.jsonl（審計可見、不進 dayStats 加總）留痕 token 用量，不記 db。 */
 export async function doAsk(d: BotDeps, arg: string): Promise<CmdResult> {
   try {
     const question = arg.trim()
     if (!question) return { ok: false, text: '用法：/ask <問題>' }
-    const reply = await callAgent(d.llm, question)
-    return reply.trim() ? { ok: true, text: reply } : { ok: false, text: 'LLM 未回應' }
+    const r = await callAgent(d.llm, question)
+    const text = r.text.trim() ? r.text : 'LLM 未回應'
+    try {
+      new EventLog(d.cfg.dataDir).append('ask', { tokens: r.totalTokens, q: question.slice(0, 80) })
+    } catch { /* 記帳失敗不影響回覆 */ }
+    return { ok: r.text.trim() ? true : false, text }
   } catch {
     return { ok: false, text: 'LLM 呼叫失敗，請稍後再試' }
   }

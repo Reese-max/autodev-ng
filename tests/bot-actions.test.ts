@@ -28,12 +28,23 @@ function setup(backlogMd = '- [ ] 任務一\n'): { dir: string; cfg: Config; sto
 
 const noLlm: LlmOpts = { model: 'm', apiKey: 'k' }
 
-function fakeLlm(reply: string): LlmOpts {
+function fakeLlm(reply: string, totalTokens?: number): LlmOpts {
   const fetchFn = (async () => ({
     ok: true,
-    json: async () => ({ choices: [{ message: { content: reply } }] })
+    json: async () => ({
+      choices: [{ message: { content: reply } }],
+      ...(totalTokens === undefined ? {} : { usage: { total_tokens: totalTokens } })
+    })
   })) as unknown as typeof fetch
   return { url: 'http://fake', model: 'm', apiKey: 'k', fetchFn }
+}
+
+/** /ask 的入帳落在 events.jsonl（不進 attempts db，見 actions.ts doAsk 頂部註解），
+ * 讀最後一行解析供斷言。 */
+function lastEvent(dataDir: string): Record<string, unknown> {
+  const raw = readFileSync(join(dataDir, 'events.jsonl'), 'utf8')
+  const lines = raw.split(/\r?\n/).filter(l => l.length > 0)
+  return JSON.parse(lines[lines.length - 1]!)
 }
 
 function toDeps(s: { cfg: Config; store: BacklogStore; db: RunDb }, llm: LlmOpts = noLlm): BotDeps {
@@ -344,5 +355,26 @@ describe('ask', () => {
     const out = await handleCommand('ask', '', toDeps(s, fakeLlm('不該被呼叫')))
     expect(out.ok).toBe(false)
     expect(out.text).toContain('用法')
+  })
+
+  test('ask 成功 → events.jsonl 新增一筆 type:ask，帶 tokens 與問題前 80 字；不寫入 db attempts（避免污染 dayStats 完成數）', async () => {
+    const s = setup()
+    const out = await handleCommand('ask', '今天天氣如何', toDeps(s, fakeLlm('今天晴天', 123)))
+    expect(out.ok).toBe(true)
+    const ev = lastEvent(s.cfg.dataDir)
+    expect(ev.type).toBe('ask')
+    expect(ev.tokens).toBe(123)
+    expect(ev.q).toBe('今天天氣如何')
+    expect(s.db.lastAttempt()).toBeNull()
+  })
+
+  test('ask 未回應仍記 events（tokens=0，無 usage 欄位時 fail-open）', async () => {
+    const s = setup()
+    await handleCommand('ask', '問題', toDeps(s, noLlm))
+    // noLlm 無 url，callAgent 提早回傳，仍應落一筆 events 供審計（tokens=0）
+    const ev = lastEvent(s.cfg.dataDir)
+    expect(ev.type).toBe('ask')
+    expect(ev.tokens).toBe(0)
+    expect(s.db.lastAttempt()).toBeNull()
   })
 })

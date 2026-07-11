@@ -49,7 +49,7 @@ export async function reflectOnFailure(d: LessonsDeps, result: CycleResult): Pro
       return
     }
 
-    const reply = (await callAgent(d.llm, buildPrompt(taskText, context))).trim()
+    const reply = (await callAgent(d.llm, buildPrompt(taskText, context))).text.trim()
 
     if (!reply || /^NONE\b/i.test(reply)) {
       d.events?.append('reflect-skip', { reason: 'none-or-empty' })
