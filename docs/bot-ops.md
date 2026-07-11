@@ -85,7 +85,7 @@ node web/server.mjs --config configs/voice-actress.json
 | 任務 | 排程名稱 | 狀態 |
 |---|---|---|
 | Discord bot | `\adng-bot`（`scripts\install-bot-task.ps1`，開機自啟 + 每 15 分鐘重複觸發） | **已註冊**，常駐運行中（bot 靠 `bot.lock` 防重複，重複觸發等同 auto-respawn） |
-| daemon | `\adng-daemon`（`scripts\install-scheduled-task.ps1`） | **已註冊**，運行中（`schtasks /Query /TN adng-daemon` 實測驗證，2026-07-11）。⚠️ 與 ledger 記錄不符：M5 收官時使用者曾拍板「不註冊排程，純手動網頁控制台啟動」，但本次文件撰寫時實測發現此排程已被註冊（很可能是同日稍早的產線測試/並行 session 所為，ledger 未補記）——此表格反映**實測現況**，若要恢復純手動模式需 `powershell -File scripts\install-scheduled-task.ps1 -Uninstall` |
+| daemon | `\adng-daemon`（`scripts\install-scheduled-task.ps1`） | **已註冊**，常駐運行中（使用者 2026-07-11 拍板保留常駐化，取代 M5「不註冊、純手動啟動」原決策；恢復純手動用 `powershell -File scripts\install-scheduled-task.ps1 -Uninstall`） |
 
 ## 教訓庫維運（M7）
 
