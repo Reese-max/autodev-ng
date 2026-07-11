@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
 import type { Disposition, Task } from './types.js'
 
 export function taskId(text: string): string {
@@ -78,6 +78,21 @@ function dedupeDuplicateIds(tasks: Task[]): Task[] {
   })
 }
 
+/** backlog 檔級跨進程互斥鎖（mkdirSync 原子性）：等待上限 5s，殘留鎖(mtime>10s)強拆，協議全文見 report.md。 */
+export function withBacklogLock<T>(file: string, fn: () => T): T {
+  const dir = `${file}.lockdir`
+  const deadline = Date.now() + 5000
+  const buf = new Int32Array(new SharedArrayBuffer(4))
+  for (;;) {
+    try { mkdirSync(dir); break } catch {
+      try { if (Date.now() - statSync(dir).mtimeMs > 10_000) { rmdirSync(dir); continue } } catch { continue }
+      if (Date.now() > deadline) throw new Error(`backlog 鎖等待逾時：${dir}`)
+      Atomics.wait(buf, 0, 0, 10)
+    }
+  }
+  try { return fn() } finally { try { rmdirSync(dir) } catch { /* 已被 stale 強拆屬可容忍 */ } }
+}
+
 export class BacklogStore {
   constructor(private readonly file: string) {}
 
@@ -108,10 +123,12 @@ export class BacklogStore {
    * report() 對未知 id 的拒絕邏輯不受影響——append 只新增行，不繞過既有行的狀態機。
    */
   append(text: string, opts: { goalId: string; round: number }): void {
-    const line = `- [ ] ${text} <!-- adng:autopilot goal:${opts.goalId} round:${opts.round} -->`
-    const cur = readFileSync(this.file, 'utf8')
-    const sep = cur.length === 0 || cur.endsWith('\n') ? '' : '\n'
-    appendFileSync(this.file, `${sep}${line}\n`)
+    return withBacklogLock(this.file, () => {
+      const line = `- [ ] ${text} <!-- adng:autopilot goal:${opts.goalId} round:${opts.round} -->`
+      const cur = readFileSync(this.file, 'utf8')
+      const sep = cur.length === 0 || cur.endsWith('\n') ? '' : '\n'
+      appendFileSync(this.file, `${sep}${line}\n`)
+    })
   }
 
   /**
@@ -144,22 +161,24 @@ export class BacklogStore {
    * maxAttempts 次重試才轉 blocked，總成本上界為 N × maxAttempts 輪，仍然有界收斂。
    */
   report(id: string, d: Disposition): void {
-    const content = readFileSync(this.file, 'utf8')
-    const eol = content.includes('\r\n') ? '\r\n' : '\n'
-    const lines = content.split(/\r?\n/)
-    const matches = parseBacklog(content).filter(t => t.id === id && t.status !== 'done')
-    const t = matches.find(t => t.status === 'open') ?? matches[0]
-    if (!t) throw new Error(`unknown task id ${id}：系統禁止創造任務（鐵律 #1）`)
-    // rawText ?? text：有 engine tag 的行寫回時保留 tag 原文（含原位置），鐵律 #1。
-    const lineText = t.rawText ?? t.text
-    // 原行若帶 adng:autopilot 註記，寫回時原樣保留並與新的 done/blocked 註記並存，
-    // 否則 report() 會把來源標記連根拔除，重解析時 source 誤判回 'user'（見上方
-    // AUTOPILOT_ANNOT_RE 註解、鐵律 #1 修訂版 #3）。非 autopilot 行不受影響。
-    const autopilotMatch = AUTOPILOT_ANNOT_RE.exec(lines[t.line] ?? '')
-    const autopilotAnnot = autopilotMatch ? ` ${autopilotMatch[0]}` : ''
-    lines[t.line] = d.kind === 'done'
-      ? `- [x] ${lineText}${autopilotAnnot} <!-- adng:done ${d.commitHash} -->`
-      : `- [ ] ${lineText}${autopilotAnnot} <!-- adng:blocked reason=${JSON.stringify(d.reason)} -->`
-    writeFileSync(this.file, lines.join(eol))
+    return withBacklogLock(this.file, () => {
+      const content = readFileSync(this.file, 'utf8')
+      const eol = content.includes('\r\n') ? '\r\n' : '\n'
+      const lines = content.split(/\r?\n/)
+      const matches = parseBacklog(content).filter(t => t.id === id && t.status !== 'done')
+      const t = matches.find(t => t.status === 'open') ?? matches[0]
+      if (!t) throw new Error(`unknown task id ${id}：系統禁止創造任務（鐵律 #1）`)
+      // rawText ?? text：有 engine tag 的行寫回時保留 tag 原文（含原位置），鐵律 #1。
+      const lineText = t.rawText ?? t.text
+      // 原行若帶 adng:autopilot 註記，寫回時原樣保留並與新的 done/blocked 註記並存，
+      // 否則 report() 會把來源標記連根拔除，重解析時 source 誤判回 'user'（見上方
+      // AUTOPILOT_ANNOT_RE 註解、鐵律 #1 修訂版 #3）。非 autopilot 行不受影響。
+      const autopilotMatch = AUTOPILOT_ANNOT_RE.exec(lines[t.line] ?? '')
+      const autopilotAnnot = autopilotMatch ? ` ${autopilotMatch[0]}` : ''
+      lines[t.line] = d.kind === 'done'
+        ? `- [x] ${lineText}${autopilotAnnot} <!-- adng:done ${d.commitHash} -->`
+        : `- [ ] ${lineText}${autopilotAnnot} <!-- adng:blocked reason=${JSON.stringify(d.reason)} -->`
+      writeFileSync(this.file, lines.join(eol))
+    })
   }
 }

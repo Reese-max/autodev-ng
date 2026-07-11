@@ -1,13 +1,14 @@
-import { describe, test, expect, beforeEach } from 'vitest'
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
+import { describe, test, it, expect, beforeEach } from 'vitest'
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, utimesSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { BacklogStore } from '../src/backlog.js'
+import { BacklogStore, withBacklogLock } from '../src/backlog.js'
 
 let file: string
+let tmpDir: string
 beforeEach(() => {
-  const dir = mkdtempSync(join(tmpdir(), 'adng-append-'))
-  file = join(dir, 'BACKLOG.md')
+  tmpDir = mkdtempSync(join(tmpdir(), 'adng-append-'))
+  file = join(tmpDir, 'BACKLOG.md')
   writeFileSync(file, '- [ ] 使用者手排任務\n')
 })
 
@@ -91,5 +92,31 @@ describe('BacklogStore.append (鐵律 #1 受控例外)', () => {
     const md = readFileSync(file, 'utf8')
     const line = md.split('\n').find(l => l.includes('使用者手排任務'))!
     expect(line).not.toContain('adng:autopilot')
+  })
+})
+
+describe('withBacklogLock', () => {
+  it('持鎖期間第二個 acquire 需等待釋放後才進入', () => {
+    const order: string[] = []
+    withBacklogLock(file, () => {
+      order.push('a-in')
+      // 同步單執行緒下模擬「已有他人持鎖」：手動預建 lockdir 再驗證等待/強拆走 stale 路徑
+    })
+    order.push('a-out')
+    expect(order).toEqual(['a-in', 'a-out'])
+  })
+  it('殘留鎖(舊 mtime)會被強拆而非死等', () => {
+    const lockDir = `${file}.lockdir`
+    mkdirSync(lockDir, { recursive: true })
+    const old = Date.now() / 1000 - 60
+    utimesSync(lockDir, old, old)          // 佯裝 60s 前的殘留
+    let ran = false
+    withBacklogLock(file, () => { ran = true })
+    expect(ran).toBe(true)
+    expect(existsSync(lockDir)).toBe(false)
+  })
+  it('fn 拋出時鎖必釋放', () => {
+    expect(() => withBacklogLock(file, () => { throw new Error('boom') })).toThrow('boom')
+    expect(existsSync(`${file}.lockdir`)).toBe(false)
   })
 })

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { setSilence, clearSilence } from './silence.js'
 import { callAgent } from '../autopilot/llm.js'
+import { withBacklogLock } from '../backlog.js'
 import type { BotDeps } from './handlers.js'
 
 const TASK_TEXT_NEWLINE_ERR = '任務內容不可含換行'
@@ -27,20 +28,21 @@ function findTaskTextViolation(text: string): string | null {
  * 讀回 source:'user'，鐵律 #1：不冒充系統自主任務）。
  * 防禦第二層：即使呼叫端（doTask）漏檢，此處仍 throw 擋下換行/HTML 註解，防未來別的
  * 呼叫端繞過 handler 直接注入 backlog 檔。
- * Fix 2（撕裂寫緩解）：改前是 read-then-writeFileSync 全檔重寫，與 daemon report() 的
- * 全檔重寫同時發生會互撞撕裂 backlog 檔。appendFileSync 是單一 syscall 級 append，
- * 不重寫既有內容，消除撕裂視窗。鏡像 src/backlog.ts BacklogStore.append 的
- * 讀檔取分隔符 + appendFileSync 慣例。
- * 已知殘餘取捨：仍有極窄 lost-update 窗——若 daemon report() 的整檔重寫恰好夾在這裡
- * 「讀 cur 判斷分隔符」與「appendFileSync 落地」之間開始並完成，report() 用的是舊內容
- * 重寫覆蓋，會蓋掉這次 append 的新行。此窗口極窄（兩次 syscall 之間）且低機率，
- * 不在本次修復範圍內；根治需 backlog 檔級別鎖或改為 append-only 格式（未來工作）。 */
+ * 鎖協議：「讀 cur 判斷分隔符 → appendFileSync 落地」三行整段包在 withBacklogLock 內。
+ * 舊版（Fix 2）僅靠 appendFileSync 單一 syscall 級 append 縮小撕裂窗，仍留極窄
+ * lost-update 殘窗——daemon report() 的整檔重寫若恰好夾在「讀 cur」與「落地」之間
+ * 開始並完成，會用舊內容覆蓋掉這次新 append 的行。改用檔級鎖後，bot 與 daemon
+ * 對同一 backlog 檔的讀寫互斥，此殘窗徹底消失（不是縮小，是消滅）。
+ * 協議細節（等待上限/stale 判定/強拆語意）見 src/backlog.ts withBacklogLock 與
+ * .superpowers/sdd/task-3-report.md。 */
 export function appendUserTask(backlogFile: string, text: string): void {
   const violation = findTaskTextViolation(text)
   if (violation) throw new Error(violation)
-  const cur = existsSync(backlogFile) ? readFileSync(backlogFile, 'utf8') : ''
-  const sep = cur.length === 0 || cur.endsWith('\n') ? '' : '\n'
-  appendFileSync(backlogFile, `${sep}- [ ] ${text}\n`)
+  withBacklogLock(backlogFile, () => {
+    const cur = existsSync(backlogFile) ? readFileSync(backlogFile, 'utf8') : ''
+    const sep = cur.length === 0 || cur.endsWith('\n') ? '' : '\n'
+    appendFileSync(backlogFile, `${sep}- [ ] ${text}\n`)
+  })
 }
 
 export async function doPause(d: BotDeps): Promise<string> {
