@@ -33,6 +33,8 @@ export type BlockedReason =
   // M5 Task 1：任務 tag 不在本專案 engines 白名單（或引擎無法建立）。直接 blocked，
   // 系統不自作主張換引擎（鐵律 #1 精神；zen 不派 voice-actress 即靠白名單落地）。
   | 'engine-not-allowed'
+  // Task 2：worktree 殘留鎖定失敗（cleanStaleWorktree 掛 code==='worktree-locked'），獨立於 not-a-git-repo，避免人工誤判方向。
+  | 'worktree-locked'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
@@ -112,7 +114,8 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     wt = prepareWorktree(cfg.projectPath, cfg.worktreesDir, task.id)
   } catch (err) {
     quiet(() => events.append('worktree-prepare-failed', { task: task.text, error: String(err) }))
-    return blockTask({ store, events }, task, 'not-a-git-repo', `worktree 建立失敗：${String(err)}`)
+    const reason: BlockedReason = (err as { code?: string })?.code === 'worktree-locked' ? 'worktree-locked' : 'not-a-git-repo'
+    return blockTask({ store, events }, task, reason, `worktree 建立失敗：${String(err)}`)
   }
 
   // extraDirective 附加到 task.text 尾組成 job.directive（未設定時維持 undefined）——

@@ -114,6 +114,8 @@ function blockedReasonText(reason: BlockedReason): string {
     case 'branch-switched': return '主 repo 分支已切換或處於 detached HEAD，成果未合回，需人工介入合併'
     // M5 Task 1：任務 tag 不在本專案 engines 白名單，或引擎無法建立（adapter 未實作／env 缺）
     case 'engine-not-allowed': return '任務指定引擎不在本專案 engines 白名單（或引擎無法建立），需人工修 tag 或 config'
+    // Task 2：worktree 殘留鎖定失敗獨立文案，不誤植 not-a-git-repo 的「非 git 專案」字樣。
+    case 'worktree-locked': return 'worktree 殘留目錄被佔用無法清理（前次中斷進程未放手）'
   }
 }
 

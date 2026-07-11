@@ -545,3 +545,10 @@ test('M5 Task 1：baseAlertMessage 對 engine-not-allowed 出對應人話文案�
   expect(msg).toContain('白名單')
   expect(msg).toContain('daemon 告警')
 })
+
+test('Task 2：baseAlertMessage 對 worktree-locked 出對應人話文案，不誤植 not-a-git-repo 的文案', () => {
+  const msg = baseAlertMessage({ kind: 'blocked', taskId: 't10', taskText: '整理 worktree', reason: 'worktree-locked' })
+  expect(msg).toContain('daemon 告警')
+  expect(msg).toContain('佔用')
+  expect(msg).not.toContain('非 git 專案')
+})
