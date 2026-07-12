@@ -1,3 +1,7 @@
+import type { Goal } from './goal.js'
+import { callAgent, type LlmOpts } from './llm.js'
+import { gatherEvidence } from './evaluator.js'
+
 export interface Candidate { lens: string; title: string; detail: string }
 export interface RankedProblem { title: string; lens: string; value: number; rationale: string }
 
@@ -21,4 +25,45 @@ export function parseRanked(out: string): RankedProblem[] {
     ranked.push({ value: Math.min(10, Math.max(0, Number(m[1]))), title: m[2]!.trim(), lens: m[3]!.trim(), rationale: m[4]!.trim() })
   }
   return ranked
+}
+
+export interface DiscoverDeps {
+  finderLlm: LlmOpts
+  criticLlm: LlmOpts
+  runSurvey?: (cmd: string, cwd: string) => { output: string }
+  readEvidence?: (absPath: string) => string
+  lenses: string[]
+}
+export interface DiscoverResult { survey: string; ranked: RankedProblem[] }
+
+function finderPrompt(lens: string, survey: string, evidence: string): string {
+  return [
+    `你是「${lens}」視角的問題發現者。只從「${lens}」角度，找出專案的具體問題（0~5 條，沒有回 NONE）。`,
+    '每行一問題：<簡短標題>｜<一句證據/理由>',
+    `\n# 勘查訊號\n${survey || '（無）'}`,
+    `\n# 佐證檔案\n${evidence || '（無）'}`
+  ].join('\n')
+}
+function criticPrompt(cands: Candidate[]): string {
+  const body = cands.map(c => `[${c.lens}] ${c.title}｜${c.detail}`).join('\n')
+  return [
+    '你是對抗式問題評審。以下是多視角候選問題。去重、挑戰每個（真問題嗎？夠高價值嗎？漏了更重要的嗎？），按修復價值排序。',
+    '嚴格照格式，每行一問題（高價值在前）：VALUE:<0~10> | <標題> | <lens> | <一句理由>',
+    `\n候選：\n${body || '（無）'}`
+  ].join('\n')
+}
+
+export async function discoverProblems(deps: DiscoverDeps, goal: Goal, cwd: string): Promise<DiscoverResult> {
+  let survey = ''
+  if (deps.runSurvey) { try { survey = deps.runSurvey('', cwd).output.slice(0, 8000) } catch { survey = '' } }
+  const evidence = gatherEvidence(goal.evidenceFiles, cwd, deps.readEvidence)
+  const found = await Promise.all(deps.lenses.map(async (lens) => {
+    try { return parseCandidates(lens, (await callAgent(deps.finderLlm, finderPrompt(lens, survey, evidence))).text.trim()) }
+    catch { return [] as Candidate[] }
+  }))
+  const candidates = found.flat()
+  let ranked: RankedProblem[] = []
+  try { ranked = parseRanked((await callAgent(deps.criticLlm, criticPrompt(candidates))).text.trim()) }
+  catch { ranked = [] }
+  return { survey, ranked }
 }
