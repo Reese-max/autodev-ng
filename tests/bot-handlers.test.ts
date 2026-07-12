@@ -54,6 +54,18 @@ describe('status', () => {
     expect(out.text).toContain('尚無 heartbeat')
     expect(out.text).not.toContain('undefined')
   })
+
+  test('cfg.stopFile 存取即 throw（模擬設定損毀）→ 不外拋，回 ok:false（M9.4 fast-follow #3：查詢類內部錯誤改回 ok:false）', async () => {
+    const s = setup()
+    const badCfg = { ...s.cfg } as Config
+    // existsSync 對非法型別 fail-open 吞例外（不會炸），故用 getter 直接讓存取 cfg.stopFile 本身 throw，
+    // 才能真的命中 cmdStatus 自己的 try/catch（其餘讀檔輔助函式 readHeartbeat/isDaemonAlive/isSilenced
+    // 皆自帶 fail-open，不會把錯誤冒泡出來）。
+    Object.defineProperty(badCfg, 'stopFile', { get() { throw new Error('boom：模擬設定存取故障') } })
+    const out = await handleCommand('status', '', toDeps({ ...s, cfg: badCfg }))
+    expect(out.ok).toBe(false)
+    expect(out.text).toBe('狀態查詢失敗，請稍後再試')
+  })
 })
 
 describe('cost', () => {
@@ -66,11 +78,11 @@ describe('cost', () => {
     expect(out.text).toContain('2.5000')
   })
 
-  test('db 已關閉（模擬檔鎖故障）→ 不外拋，回人話（查詢類恆 ok:true）', async () => {
+  test('db 已關閉（模擬檔鎖故障）→ 不外拋，回 ok:false（M9.4 fast-follow #3：查詢類內部錯誤改回 ok:false，讓 web 面板可紅顯）', async () => {
     const s = setup()
     s.db.close()
     const out = await handleCommand('cost', '', toDeps(s))
-    expect(out.ok).toBe(true)
+    expect(out.ok).toBe(false)
     expect(out.text).toBe('成本查詢失敗，請稍後再試')
   })
 })
@@ -86,11 +98,11 @@ describe('backlog', () => {
     expect(out.text).toContain('開放一')
   })
 
-  test('backlogFile 不存在 → 不外拋，回人話（查詢類恆 ok:true）', async () => {
+  test('backlogFile 不存在 → 不外拋，回 ok:false（M9.4 fast-follow #3：查詢類內部錯誤改回 ok:false）', async () => {
     const s = setup()
     const badStore = new BacklogStore(join(s.dir, 'no-such-file.md'))
     const out = await handleCommand('backlog', '', toDeps({ cfg: s.cfg, store: badStore, db: s.db }))
-    expect(out.ok).toBe(true)
+    expect(out.ok).toBe(false)
     expect(out.text).toBe('backlog 讀取失敗，請稍後再試')
   })
 })
@@ -166,11 +178,11 @@ describe('未知指令與 handler 內部 throw', () => {
     expect(out.text).toBe('未知指令')
   })
 
-  test('handler 內部 throw（db 已關閉）不外拋，handleCommand 仍回結構化結果（查詢類恆 ok:true）', async () => {
+  test('handler 內部 throw（db 已關閉）不外拋，handleCommand 仍回結構化結果 ok:false（M9.4 fast-follow #3）', async () => {
     const s = setup()
     s.db.close()
     const out = await handleCommand('cost', '', toDeps(s))
-    expect(out.ok).toBe(true)
+    expect(out.ok).toBe(false)
     expect(typeof out.text).toBe('string')
     expect(out.text.length).toBeGreaterThan(0)
   })
