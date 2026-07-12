@@ -72,6 +72,22 @@ describe('evaluate', () => {
     const s = await evaluate({ llm: judge('SCORE: 3\nNOT ACHIEVED\nheader 沒驗'), readEvidence: () => 'x' }, evGoal, '/proj')
     expect(s.achieved).toBe(false)
   })
+  test('informed：judge 回 NOT  ACHIEVED（雙空格）→ 仍保守判未達成', async () => {
+    const s = await evaluate({ llm: judge('SCORE: 3\nNOT  ACHIEVED\n缺'), readEvidence: () => 'x' }, evGoal, '/proj')
+    expect(s.achieved).toBe(false)
+  })
+  test('informed：多檔累加觸總量上限，其餘檔略過（24000 硬上限分支）', async () => {
+    const files = ['a', 'b', 'c', 'd'].map(x => `lib/${x}.py`)
+    const g: Goal = { objective: 'o', noProgressLimit: 3, evidenceFiles: files }
+    const read: string[] = []
+    let captured = ''
+    const fetchFn = (async (_u: unknown, init: { body: string }) => { captured = init.body; return { ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: 'SCORE: 5\nNOT-YET\nx' } }] }) } }) as unknown as typeof fetch
+    await evaluate({ llm: { url: 'http://x/v1', model: 'm', apiKey: 'k', fetchFn },
+      readEvidence: (p) => { read.push(p); return 'z'.repeat(10000) } }, g, '/proj')
+    expect(captured).toContain('其餘佐證檔略過') // 觸頂後其餘檔被略過
+    expect(read.length).toBeLessThan(4)         // 第 4 檔未被讀
+  })
   test('informed：路徑逃出 cwd（../）被擋、不讀取（防穿越外洩）', async () => {
     const seen: string[] = []
     const g: Goal = { objective: 'o', noProgressLimit: 3, evidenceFiles: ['../../secret.env', 'lib/ok.py'] }

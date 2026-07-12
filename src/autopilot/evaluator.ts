@@ -58,7 +58,7 @@ export async function evaluate(deps: EvalDeps, goal: Goal, cwd: string): Promise
   const scoreM = out.match(/SCORE[：:]\s*(\d+)/i)
   const score = scoreM ? Math.min(10, Math.max(0, Number(scoreM[1]))) : 0
   // 保守判達成：出現 ACHIEVED 且無任何否定式（NOT-YET / NOT YET / NOT ACHIEVED …）。
-  const achieved = /\bACHIEVED\b/i.test(out) && !/NOT[\s-]?(?:YET|ACHIEVED)/i.test(out)
+  const achieved = /\bACHIEVED\b/i.test(out) && !/NOT[\s-]*(?:YET|ACHIEVED)/i.test(out)
   return { achieved, score, detail: out.slice(0, 200) || 'agent 無回應' }
 }
 
