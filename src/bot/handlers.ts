@@ -5,6 +5,7 @@ import type { BacklogStore } from '../backlog.js'
 import { localDay, type RunDb } from '../db.js'
 import { yesterdayLocal } from '../daemon.js'
 import type { LlmOpts } from '../autopilot/llm.js'
+import type { EventLog } from '../events.js'
 import { isSilenced } from './silence.js'
 import { doPause, doResume, doSilence, doTask, doAsk, doGoal } from './actions.js'
 
@@ -14,6 +15,9 @@ export interface BotDeps {
   db: RunDb
   llm: LlmOpts
   cfgPath: string // /goal run 需要轉傳給 spawn 的 autopilot run.js --config 參數
+  // M9.4 fast-follow #2：長壽 EventLog 實例（doAsk 用），避免每呼叫 new EventLog()
+  // 造成 O(n) 全檔讀行數。與 autopilot Deps.events 同款單例慣例（見 src/cli.ts assemble()）。
+  events: EventLog
 }
 
 // Discord 單訊息上限鏡像 src/notify.ts:82（同一份截斷邏輯，避免兩處漂移）。
@@ -70,7 +74,7 @@ function isDaemonAlive(dataDir: string): boolean {
   }
 }
 
-async function cmdStatus(d: BotDeps): Promise<string> {
+async function cmdStatus(d: BotDeps): Promise<CmdResult> {
   try {
     const hb = readHeartbeat(d.cfg.dataDir)
     const lines: string[] = ['adng 狀態']
@@ -80,51 +84,55 @@ async function cmdStatus(d: BotDeps): Promise<string> {
     lines.push(`daemon 進程：${isDaemonAlive(d.cfg.dataDir) ? '存活' : '未偵測到'}`)
     if (existsSync(d.cfg.stopFile)) lines.push('已暫停')
     if (isSilenced(d.cfg.dataDir)) lines.push('靜音中')
-    return lines.join('\n')
+    return { ok: true, text: lines.join('\n') }
   } catch {
-    return '狀態查詢失敗，請稍後再試'
+    return { ok: false, text: '狀態查詢失敗，請稍後再試' }
   }
 }
 
-async function cmdCost(d: BotDeps): Promise<string> {
+async function cmdCost(d: BotDeps): Promise<CmdResult> {
   try {
     const off = d.cfg.timezoneOffsetHours
     const today = localDay(new Date().toISOString(), off)
     const yesterday = yesterdayLocal(today)
     const stats = d.db.dayStats(today, off)
     const yesterdayCost = d.db.costForLocalDay(yesterday, off)
-    return [
-      'adng 成本',
-      `今日：$${stats.costUsd.toFixed(4)}（成功 ${stats.ok}／失敗 ${stats.fail}）`,
-      `昨日：$${yesterdayCost.toFixed(4)}`
-    ].join('\n')
+    return {
+      ok: true, text: [
+        'adng 成本',
+        `今日：$${stats.costUsd.toFixed(4)}（成功 ${stats.ok}／失敗 ${stats.fail}）`,
+        `昨日：$${yesterdayCost.toFixed(4)}`
+      ].join('\n')
+    }
   } catch {
-    return '成本查詢失敗，請稍後再試'
+    return { ok: false, text: '成本查詢失敗，請稍後再試' }
   }
 }
 
-async function cmdBacklog(d: BotDeps): Promise<string> {
+async function cmdBacklog(d: BotDeps): Promise<CmdResult> {
   try {
     const tasks = d.store.read()
     const open = tasks.filter(t => t.status === 'open')
     const done = tasks.filter(t => t.status === 'done')
     const blocked = tasks.filter(t => t.status === 'blocked')
-    return [
-      `adng backlog：open ${open.length}｜done ${done.length}｜blocked ${blocked.length}`,
-      ...open.slice(0, 5).map(t => `- ${t.text}`)
-    ].join('\n')
+    return {
+      ok: true, text: [
+        `adng backlog：open ${open.length}｜done ${done.length}｜blocked ${blocked.length}`,
+        ...open.slice(0, 5).map(t => `- ${t.text}`)
+      ].join('\n')
+    }
   } catch {
-    return 'backlog 讀取失敗，請稍後再試'
+    return { ok: false, text: 'backlog 讀取失敗，請稍後再試' }
   }
 }
 
-async function cmdLog(d: BotDeps): Promise<string> {
+async function cmdLog(d: BotDeps): Promise<CmdResult> {
   try {
     const file = join(d.cfg.dataDir, 'events.jsonl')
-    if (!existsSync(file)) return '尚無事件紀錄'
+    if (!existsSync(file)) return { ok: true, text: '尚無事件紀錄' }
     const lines = readFileSync(file, 'utf8').split(/\r?\n/).filter(l => l.length > 0)
     const last = lines.slice(-10)
-    if (last.length === 0) return '尚無事件紀錄'
+    if (last.length === 0) return { ok: true, text: '尚無事件紀錄' }
     const summary = last.map(l => {
       try {
         const ev = JSON.parse(l) as Record<string, unknown>
@@ -135,9 +143,9 @@ async function cmdLog(d: BotDeps): Promise<string> {
         return '（無法解析的一行）'
       }
     })
-    return ['adng 近期事件', ...summary].join('\n')
+    return { ok: true, text: ['adng 近期事件', ...summary].join('\n') }
   } catch {
-    return 'log 讀取失敗，請稍後再試'
+    return { ok: false, text: 'log 讀取失敗，請稍後再試' }
   }
 }
 
@@ -150,7 +158,7 @@ function readLessonsFile(file: string): string | null {
 
 /** /lessons：讀專案教訓(learningsFile，未設走 assemble 同款預設)＋全域教訓(globalLearningsFile，有設才讀)，
  * 兩層原文全輸出、都缺就回「教訓庫尚空」。缺檔/讀檔失敗一律人話（鏡像其餘 cmd* fail-open 慣例）。 */
-async function cmdLessons(d: BotDeps): Promise<string> {
+async function cmdLessons(d: BotDeps): Promise<CmdResult> {
   try {
     const learningsFile = d.cfg.learningsFile ?? join(d.cfg.dataDir, 'learnings.md')
     const project = readLessonsFile(learningsFile)
@@ -158,26 +166,27 @@ async function cmdLessons(d: BotDeps): Promise<string> {
     const parts: string[] = []
     if (project) parts.push(`【專案教訓】\n${project}`)
     if (global) parts.push(`【全域教訓】\n${global}`)
-    return parts.length > 0 ? parts.join('\n\n') : '教訓庫尚空'
+    // 教訓庫尚空不是錯誤——兩層皆缺屬合法狀態（查詢成功、資料為空），維持 ok:true。
+    return { ok: true, text: parts.length > 0 ? parts.join('\n\n') : '教訓庫尚空' }
   } catch {
-    return '教訓庫查詢失敗，請稍後再試'
+    return { ok: false, text: '教訓庫查詢失敗，請稍後再試' }
   }
 }
 
 /** 統一入口：路由到查詢（本檔）與控制（actions.ts）handler。未知指令回人話，
  * 任何 handler 內部意外 throw 一律在此吞掉（鐵律：永不 throw、永不外洩 token）。
- * 回傳結構化 {ok,text}：查詢類（status/cost/backlog/log/lessons）恆 ok:true；
- * 控制類（actions.ts）拒收/失敗回 ok:false，讓 web 前端據此紅顯（M9.1 追蹤票）。 */
+ * 回傳結構化 {ok,text}：查詢類（status/cost/backlog/log/lessons）與控制類（actions.ts）
+ * 皆據內部實際成敗回 ok（M9.4 fast-follow #3：查詢類 catch 到的內部錯誤現在也回 ok:false，
+ * 讓 web 查詢面板故障可紅顯——「空資料但查詢成功」如教訓庫尚空不是錯誤，仍 ok:true）。 */
 export async function handleCommand(name: string, arg: string, d: BotDeps): Promise<CmdResult> {
-  const wrap = (text: string): CmdResult => ({ ok: true, text: truncate(text) })
   const pass = (r: CmdResult): CmdResult => ({ ok: r.ok, text: truncate(r.text) })
   try {
     switch (name) {
-      case 'status': return wrap(await cmdStatus(d))
-      case 'cost': return wrap(await cmdCost(d))
-      case 'backlog': return wrap(await cmdBacklog(d))
-      case 'log': return wrap(await cmdLog(d))
-      case 'lessons': return wrap(await cmdLessons(d))
+      case 'status': return pass(await cmdStatus(d))
+      case 'cost': return pass(await cmdCost(d))
+      case 'backlog': return pass(await cmdBacklog(d))
+      case 'log': return pass(await cmdLog(d))
+      case 'lessons': return pass(await cmdLessons(d))
       case 'pause': return pass(await doPause(d))
       case 'resume': return pass(await doResume(d))
       case 'silence': return pass(await doSilence(d, arg))

@@ -78,8 +78,10 @@ function dedupeDuplicateIds(tasks: Task[]): Task[] {
   })
 }
 
-/** backlog 檔級跨進程互斥鎖（mkdirSync 原子性）：等待上限 waitMs，殘留鎖(mtime>10s)以 rename 原子搶拆權後強拆，協議全文見 task-3-report.md。 */
-export function withBacklogLock<T>(file: string, fn: () => T, waitMs = 5000): T {
+/** stale 鎖判定門檻：殘留鎖 mtime 超過此值視為過期可強拆。waitMs 預設須 > 此值，否則正常等待者會在鎖尚未被判 stale 前逾時。 */
+const BACKLOG_STALE_MS = 10_000
+/** backlog 檔級跨進程互斥鎖（mkdirSync 原子性）：等待上限 waitMs，殘留鎖(mtime>BACKLOG_STALE_MS)以 rename 原子搶拆權後強拆，協議全文見 task-3-report.md。 */
+export function withBacklogLock<T>(file: string, fn: () => T, waitMs = BACKLOG_STALE_MS + 5_000): T {
   const dir = `${file}.lockdir`
   const deadline = Date.now() + waitMs
   const buf = new Int32Array(new SharedArrayBuffer(4))
@@ -88,7 +90,7 @@ export function withBacklogLock<T>(file: string, fn: () => T, waitMs = 5000): T 
     try { mkdirSync(dir); break } catch { /* 鎖被持有，往下走 stale 檢查與退避 */ }
     try {
       const reap = `${dir}.reap-${process.pid}-${Date.now()}` // rename 原子搶拆權：同 stale 只一人成功
-      if (Date.now() - statSync(dir).mtimeMs > 10_000) { renameSync(dir, reap); rmSync(reap, { recursive: true }); continue }
+      if (Date.now() - statSync(dir).mtimeMs > BACKLOG_STALE_MS) { renameSync(dir, reap); rmSync(reap, { recursive: true }); continue }
     } catch { /* 別人搶先拆/鎖已消失，回退避 */ }
     Atomics.wait(buf, 0, 0, 10)
   }
