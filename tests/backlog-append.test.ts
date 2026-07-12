@@ -96,6 +96,13 @@ describe('BacklogStore.append (鐵律 #1 受控例外)', () => {
 })
 
 describe('withBacklogLock', () => {
+  // 設計關係（M9.4 fast-follow #1）：waitMs 預設 15_000 必須 > stale 門檻 10_000。
+  // 若 waitMs < stale 門檻，死鎖持有者的殘留鎖在前 10s 窗內，等待者會先觸發
+  // deadline 逾時拋錯，而不是等到 stale 檢查生效去強拆——daemon done-path report()
+  // 若剛好在此窗內被呼叫，會誤判失敗、可能重派已完成任務。15s > 10s 保證等待者
+  // 一定會撐過 stale 門檻，讓強拆路徑而非逾時路徑接手（15s 真等違反禁 sleep，
+  // 這裡不新增計時測試，只記載此設計關係；下方三案例分別以 waitMs=50 或
+  // 預建 stale mtime 繞開真等待，驗證行為不受此次改值影響）。
   it('鎖被他人持有(fresh mtime，非 stale)時等待至逾時拋錯，fn 不執行、不動別人的鎖', () => {
     // 單執行緒 sync 阻塞下 timer 不會 fire，「等待後成功」場景無法單進程測——
     // 預建 fresh lockdir 模擬活鎖持有者，waitMs=50 真正驗 wait+deadline 路徑（毫秒級，不違反禁 sleep）。

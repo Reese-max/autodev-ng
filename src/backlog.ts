@@ -79,7 +79,7 @@ function dedupeDuplicateIds(tasks: Task[]): Task[] {
 }
 
 /** backlog 檔級跨進程互斥鎖（mkdirSync 原子性）：等待上限 waitMs，殘留鎖(mtime>10s)以 rename 原子搶拆權後強拆，協議全文見 task-3-report.md。 */
-export function withBacklogLock<T>(file: string, fn: () => T, waitMs = 5000): T {
+export function withBacklogLock<T>(file: string, fn: () => T, waitMs = 15_000): T {
   const dir = `${file}.lockdir`
   const deadline = Date.now() + waitMs
   const buf = new Int32Array(new SharedArrayBuffer(4))
