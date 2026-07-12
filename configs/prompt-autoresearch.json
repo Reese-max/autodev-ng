@@ -9,15 +9,19 @@
   "judgeUrl": "http://127.0.0.1:8317/v1",
   "judgeModel": "gpt-5.4-mini",
   "judgeApiKey": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h",
-  "dailySoftUsd": 20,
-  "dailyHardUsd": 25,
+  "auditModel": "gpt-5.5",
+  "surveyCommand": "python -m pytest tests/ -q --cov=lib --cov=scripts --cov=api --cov-report=term-missing --deselect tests/test_architecture_surface.py::ArchitectureSurfaceTests::test_experiment_report_snapshot_contract",
+  "dailySoftUsd": 45,
+  "dailyHardUsd": 50,
   "defaultEngine": "claude",
   "engines": {
-    "claude": { "adapter": "claude-cli" },
+    "claude": {
+      "adapter": "claude-cli"
+    },
     "codex-spark": {
       "adapter": "codex",
       "model": "gpt-5.3-codex-spark",
-      "costPerRunUsd": 1.0
+      "costPerRunUsd": 1
     }
   },
   "extraDirective": "這是 autodev-ng 引擎端到端測試。只做任務明確要求的最小改動，不要動任何現有程式碼（app.js/index.html/lib/api/*.py 等一律不碰）。"
