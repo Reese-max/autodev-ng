@@ -9,7 +9,7 @@ import { DiscordNotifier } from './notify.js'
 import { KernelVerifier } from './verifier.js'
 import { makeEngineRegistry } from './engines/registry.js'
 import { ConfigSchema, type Config } from './types.js'
-import { runOnce, type CycleResult, type Deps } from './scheduler.js'
+import { runOnce, subscriptionTags, type CycleResult, type Deps } from './scheduler.js'
 import { runDaemon } from './daemon.js'
 import { LessonStore } from './learn/store.js'
 import { makeLessonsPort } from './learn/reflect.js'
@@ -268,7 +268,9 @@ export function finalizeRunOnceHeartbeat(deps: Deps, result: CycleResult, now: D
   if (!(typeof result === 'object' || result === 'done' || result === 'failed' || result === 'engine-error')) return
   try {
     const day = localDay(now.toISOString(), deps.cfg.timezoneOffsetHours)
-    deps.events.heartbeat({ state: 'idle', todayCostUsd: deps.db.costForLocalDay(day, deps.cfg.timezoneOffsetHours) })
+    // M9.9：heartbeat todayCostUsd 語意＝billed（真金帳，與 scheduler todayCost 的踩頂數字一致），
+    // 排除訂閱引擎的名義估值——顯示與日頂閘看同一個數字，不因寫入路徑不同而語意漂移。
+    deps.events.heartbeat({ state: 'idle', todayCostUsd: deps.db.billedCostForLocalDay(day, deps.cfg.timezoneOffsetHours, subscriptionTags(deps.cfg)) })
   } catch { /* 觀測面故障不可反殺 CLI（鐵律 #4） */ }
 }
 

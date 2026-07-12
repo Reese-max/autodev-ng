@@ -68,6 +68,7 @@ export const EngineConfigSchema = z.object({
   adapter: z.enum(['mock', 'claude-cli', 'codex', 'agy', 'copilot', 'qwen', 'grok', 'opencode', 'devin']),
   command: z.string().optional(), // CLI 執行檔覆寫（如 opencode.exe 不在 PATH 時指完整路徑）；Task 8 起 opencode 接線，其餘 adapter 按需跟進
   costPerRunUsd: z.number().nonnegative().optional(),
+  subscription: z.boolean().optional(), // M9.9：訂閱制引擎（邊際成本≈0）——估值照記帳但不踩日頂
   env: z.record(z.string(), z.string()).optional(),
   model: z.string().optional(),
   timeoutMs: z.number().int().positive().optional()

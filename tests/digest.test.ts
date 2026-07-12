@@ -45,7 +45,7 @@ test('dayStats：當日無資料回全 0', () => {
   const db = freshDb()
   db.record({ taskId: 'x', ok: true, costUsd: 1, detail: '', ts: '2026-01-01T00:00:00Z' })
   const stats = db.dayStats('2026-07-05')
-  expect(stats).toEqual({ ok: 0, fail: 0, costUsd: 0 })
+  expect(stats).toEqual({ ok: 0, fail: 0, costUsd: 0, billedUsd: 0 })
   db.close()
 })
 

@@ -49,11 +49,11 @@ export type CycleResult =
 export async function runOnce(deps: Deps): Promise<CycleResult> {
   const { cfg, store, db, engines, events, verifier } = deps
   if (existsSync(cfg.stopFile)) {
-    quiet(() => events.heartbeat({ state: 'stopped', todayCostUsd: todayCost(db, cfg.timezoneOffsetHours) }))
+    quiet(() => events.heartbeat({ state: 'stopped', todayCostUsd: todayCost(db, cfg) }))
     return 'stopped'
   }
 
-  const spent = todayCost(db, cfg.timezoneOffsetHours)
+  const spent = todayCost(db, cfg)
   if (spent >= cfg.dailyHardUsd) {
     quiet(() => events.appendOnce('cost-hard-stop', { spent }))
     quiet(() => events.heartbeat({ state: 'cost-stopped', todayCostUsd: spent }))
@@ -133,7 +133,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     res = await engine.run({ task, projectPath: wt.cwd, directive })
   } catch (err) {
     // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
-    db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err) })
+    db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag })
     quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
     return resolveFailure({ cfg, store, db, events }, task, 'engine-error')
@@ -150,7 +150,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   const recordedCostUsd = fixedCost ?? (costEstimated ? cfg.failureCostEstimateUsd : res.costUsd)
   const baseDetail = res.failureReason ?? res.commitHash ?? ''
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
-  db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail })
+  db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag })
 
   if (res.ok && verifier) {
     // verifier 本身故障（非 verify-fail / judge-mismatch 的明確拒絕）一律 pass-with-alert（鐵律 #4）：
@@ -164,7 +164,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     for (const a of vc.alerts) quiet(() => events.append('verify-alert', { task: task.text, detail: a }))
     if (!vc.pass) {
       // 引擎那筆已記 ok:true+真實 cost（成本不可造假）；這裡多記一筆 ok:false 讓失敗計數靠這筆走。
-      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected' })
+      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected', engine: engineTag })
       quiet(() => events.append('task-verify-failed', { task: task.text, reason: vc.reason }))
       // engine 失敗/verify 拒：rollback 已在 worktree 內安全跑過，保留現場供 debug（不清理）。
       quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
@@ -266,8 +266,17 @@ function resolveFailure(
   return blockTask({ store, events }, task, 'max-attempts', `連敗 ${cfg.maxAttempts} 次，人工介入`)
 }
 
+/** M9.9：cfg.engines 中標了 subscription:true 的引擎 tag 清單（訂閱制，邊際成本≈0，
+ * 估值照記帳但不踩日頂）。digest/handlers 各自需要同一份清單，故導出供 import。 */
+export function subscriptionTags(cfg: Config): string[] {
+  return Object.entries(cfg.engines ?? {}).filter(([, e]) => e.subscription).map(([t]) => t)
+}
+
 /** M4 Task 3：本地日成本（取代舊版 UTC 字串切割）。offsetHours=0 時與舊行為完全一致
- * （相容性錨點）；生產路徑一律帶入 cfg.timezoneOffsetHours。 */
-function todayCost(db: RunDb, offsetHours: number): number {
-  return db.costForLocalDay(localDay(new Date().toISOString(), offsetHours), offsetHours)
+ * （相容性錨點）；生產路徑一律帶入 cfg.timezoneOffsetHours。
+ * M9.9：日頂閘改踩真金帳（billedCostForLocalDay 排除訂閱引擎）——訂閱引擎的名義估值
+ * 不該誤觸日頂，真花錢的引擎才觸。 */
+function todayCost(db: RunDb, cfg: Config): number {
+  const offsetHours = cfg.timezoneOffsetHours
+  return db.billedCostForLocalDay(localDay(new Date().toISOString(), offsetHours), offsetHours, subscriptionTags(cfg))
 }

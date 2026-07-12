@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { acquireLock, releaseLock } from './lock.js'
 import { localDay } from './db.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
-import { runOnce, type Deps, type CycleResult, type BlockedReason } from './scheduler.js'
+import { runOnce, subscriptionTags, type Deps, type CycleResult, type BlockedReason } from './scheduler.js'
 import { isSilenced } from './bot/silence.js'
 import { quiet, type EventLog } from './events.js'
 
@@ -187,7 +187,7 @@ async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void>
   // 否則今天輪首送出時 today 才過幾分鐘，ok/fail/cost/DLQ/verify-skip 全部趨近於 0（紅線 4）。
   let text: string
   try {
-    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayLocal(day), offsetHours })
+    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayLocal(day), offsetHours, subscriptionEngines: subscriptionTags(deps.cfg) })
   } catch {
     return
   }

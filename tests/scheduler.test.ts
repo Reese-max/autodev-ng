@@ -114,6 +114,30 @@ test('成本硬停：超過 dailyHardUsd 不再派工', async () => {
   expect(e.calls).toHaveLength(0)
 })
 
+test('M9.9：訂閱引擎花費不觸日頂，真金引擎照觸', async () => {
+  const engines = {
+    claude: { adapter: 'mock' as const },
+    'codex-spark': { adapter: 'mock' as const, costPerRunUsd: 1, subscription: true }
+  }
+
+  // 對照：真金 claude $100（達硬頂 $100）→ 照觸日頂，訂閱設定不赦免真金引擎的花費
+  {
+    const d = deps(new MockEngine())
+    const cfg = { ...d.cfg, engines }
+    d.db.record({ taskId: 'z-real', ok: true, costUsd: 100, detail: 'real-burn', engine: 'claude' })
+    expect(await runOnce({ ...d, cfg })).toBe('cost-hard-stop')
+  }
+
+  // 訂閱 codex-spark $100（超硬頂，名義帳）＋ 真金 claude $1 → 不觸日頂（billed=$1 < 硬頂 $100）
+  {
+    const d = deps(new MockEngine(), '# 空\n') // backlog 空，避免真的派工到 mock engine
+    const cfg = { ...d.cfg, engines }
+    d.db.record({ taskId: 'z-sub', ok: true, costUsd: 100, detail: 'subscription-burn', engine: 'codex-spark' })
+    d.db.record({ taskId: 'z-real2', ok: true, costUsd: 1, detail: 'real-burn', engine: 'claude' })
+    expect(await runOnce({ ...d, cfg })).not.toBe('cost-hard-stop')
+  }
+})
+
 test('engine 丟例外：計一次失敗、不打勾、回 engine-error', async () => {
   const d = deps(new MockEngine([{ throw: 'ECONNRESET' }]))
   expect(await runOnce(d)).toBe('engine-error')
