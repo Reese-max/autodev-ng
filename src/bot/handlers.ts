@@ -8,6 +8,7 @@ import type { LlmOpts } from '../autopilot/llm.js'
 import type { EventLog } from '../events.js'
 import { isSilenced } from './silence.js'
 import { doPause, doResume, doSilence, doTask, doAsk, doGoal } from './actions.js'
+import { subscriptionTags } from '../scheduler.js'
 
 export interface BotDeps {
   cfg: Config
@@ -95,12 +96,13 @@ async function cmdCost(d: BotDeps): Promise<CmdResult> {
     const off = d.cfg.timezoneOffsetHours
     const today = localDay(new Date().toISOString(), off)
     const yesterday = yesterdayLocal(today)
-    const stats = d.db.dayStats(today, off)
+    const tags = subscriptionTags(d.cfg)
+    const stats = d.db.dayStats(today, off, tags)
     const yesterdayCost = d.db.costForLocalDay(yesterday, off)
     return {
       ok: true, text: [
         'adng 成本',
-        `今日：$${stats.costUsd.toFixed(4)}（成功 ${stats.ok}／失敗 ${stats.fail}）`,
+        `今日成本：真金 $${stats.billedUsd.toFixed(4)}｜訂閱名義 $${(stats.costUsd - stats.billedUsd).toFixed(4)}（成功 ${stats.ok}／失敗 ${stats.fail}）`,
         `昨日：$${yesterdayCost.toFixed(4)}`
       ].join('\n')
     }

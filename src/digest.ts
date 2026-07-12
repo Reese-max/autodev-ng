@@ -9,6 +9,9 @@ export interface BuildDigestOpts {
   /** M4 Task 3：本地日界線 offset（小時）。預設 0（UTC，等價舊行為，相容性錨點）；
    * 呼叫端（daemon checkAndSendDigest）一律帶入 cfg.timezoneOffsetHours。 */
   offsetHours?: number
+  /** M9.9：訂閱制引擎 tag 清單（scheduler.subscriptionTags(cfg) 產出）。未傳＝視同無訂閱引擎
+   * （billedUsd===costUsd，向後相容）。 */
+  subscriptionEngines?: string[]
 }
 
 function dlqPath(dataDir: string): string {
@@ -76,13 +79,13 @@ function countVerifyAlertsToday(dataDir: string, isoDayUtc: string, offsetHours:
 export function buildDigest(opts: BuildDigestOpts): string {
   const { db, dataDir, isoDayUtc } = opts
   const offsetHours = opts.offsetHours ?? 0
-  const stats = db.dayStats(isoDayUtc, offsetHours)
+  const stats = db.dayStats(isoDayUtc, offsetHours, opts.subscriptionEngines ?? [])
   const dlqCount = countDlqLines(dataDir)
   const { verifySkip, other } = countVerifyAlertsToday(dataDir, isoDayUtc, offsetHours)
   const lines = [
     `adng 每日摘要 ${isoDayUtc}`,
     `完成 ${stats.ok} 筆／失敗 ${stats.fail} 筆`,
-    `今日成本：$${stats.costUsd.toFixed(4)}`,
+    `今日成本：真金 $${stats.billedUsd.toFixed(4)}｜訂閱名義 $${(stats.costUsd - stats.billedUsd).toFixed(4)}`,
     `DLQ 積壓：${dlqCount} 筆`,
   ]
   // N=0 不印，避免雜訊；N>0 才浮出（鐵律 #4：fail-open-with-alert，不能只落 events.jsonl 沒人看）。

@@ -21,7 +21,8 @@
     "codex-spark": {
       "adapter": "codex",
       "model": "gpt-5.3-codex-spark",
-      "costPerRunUsd": 1
+      "costPerRunUsd": 1,
+      "subscription": true
     }
   },
   "extraDirective": "這是 autodev-ng 引擎端到端測試。只做任務明確要求的最小改動，不要動任何現有程式碼（app.js/index.html/lib/api/*.py 等一律不碰）。"
