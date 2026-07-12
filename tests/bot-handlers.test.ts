@@ -85,6 +85,22 @@ describe('cost', () => {
     expect(out.ok).toBe(false)
     expect(out.text).toBe('成本查詢失敗，請稍後再試')
   })
+
+  test('M9.9：今日/昨日行都是雙數字，昨日的訂閱名義帳被排除出真金', async () => {
+    const s = setup()
+    const cfg = {
+      ...s.cfg,
+      engines: { claude: { adapter: 'mock' as const }, 'codex-spark': { adapter: 'mock' as const, costPerRunUsd: 1, subscription: true } }
+    }
+    // 昨日（setup 的 offset=0，24h 前必落昨日 UTC 日）：真金 claude $2 + 訂閱 codex-spark $100
+    const yesterdayTs = new Date(Date.now() - 24 * 3600_000).toISOString()
+    s.db.record({ taskId: 'y-real', ok: true, costUsd: 2, detail: '', engine: 'claude', ts: yesterdayTs })
+    s.db.record({ taskId: 'y-sub', ok: true, costUsd: 100, detail: '', engine: 'codex-spark', ts: yesterdayTs })
+    const out = await handleCommand('cost', '', toDeps({ ...s, cfg }))
+    expect(out.ok).toBe(true)
+    expect(out.text).toContain('今日成本：真金 $0.0000｜訂閱名義 $0.0000')
+    expect(out.text).toContain('昨日：真金 $2.0000｜訂閱名義 $100.0000')
+  })
 })
 
 describe('backlog', () => {

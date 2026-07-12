@@ -2,6 +2,7 @@ import { expect, test } from 'vitest'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import Database from 'better-sqlite3'
 import { RunDb, localDay, localDayUtcRange } from '../src/db.js'
 
 function freshDb(): RunDb {
@@ -92,6 +93,29 @@ test('M9.9：migration 冪等——對既有庫開兩次 RunDb 不炸，engine �
   const db = new RunDb(f) // 第二次開＝migration 重入，不應炸
   db.record({ taskId: 't1', ok: true, costUsd: 1, detail: '', engine: 'codex-spark' })
   expect(db.lastAttempt()!.engine).toBe('codex-spark')
+  db.close()
+})
+
+test('M9.9 硬化：雙進程首開競態容錯——ALTER 撞 duplicate column 被吞，constructor 不炸', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-db-'))
+  const f = join(dir, 'run.db')
+  // 重現競態輸家的處境：「PRAGMA 檢查說欄位不在，ALTER 執行當下欄位卻已在」。
+  // 用大寫 ENGINE 建欄——RunDb 的 PRAGMA 檢查嚴格比對小寫 'engine' 看不到它、照跑 ALTER；
+  // SQLite 欄名不分大小寫，ALTER 拋 duplicate column name——與雙進程首開時輸家撞到的
+  // 同一個錯，必須被吞掉（欄位已在＝等價冪等），constructor 不得炸。
+  const raw = new Database(f)
+  raw.exec(`CREATE TABLE attempts(
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL, ts TEXT NOT NULL, ok INTEGER NOT NULL,
+    cost_usd REAL NOT NULL, detail TEXT NOT NULL, ENGINE TEXT NOT NULL DEFAULT '')`)
+  raw.close()
+  const db = new RunDb(f) // 不應炸（duplicate column 被吞＝等價冪等）
+  // 讀寫仍要正常（SQLite 欄名不分大小寫，INSERT/WHERE 都打得到 ENGINE 欄；
+  // 不用 lastAttempt 斷言——其結果鍵名跟隨表定義的大小寫，那是本合成觸發手法的
+  // 人造痕跡，非 migration 容錯要驗的行為）
+  db.record({ taskId: 't1', ok: true, costUsd: 1, detail: '', engine: 'codex-spark', ts: '2026-07-05T01:00:00Z' })
+  expect(db.costForLocalDay('2026-07-05', 0)).toBeCloseTo(1)
+  expect(db.billedCostForLocalDay('2026-07-05', 0, ['codex-spark'])).toBeCloseTo(0) // engine 值真的落了欄
   db.close()
 })
 

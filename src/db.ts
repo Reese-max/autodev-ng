@@ -40,9 +40,17 @@ export class RunDb {
       cost_usd REAL NOT NULL,
       detail TEXT NOT NULL
     )`)
-    // M9.9 分離帳 migration：舊庫補 engine 欄（冪等；空值＝歷史列，billed 端 fail-safe 算真金）
+    // M9.9 分離帳 migration：舊庫補 engine 欄（冪等；空值＝歷史列，billed 端 fail-safe 算真金）。
+    // try/catch 防雙進程首開競態：兩進程同時通過 PRAGMA 檢查、都跑 ALTER，輸家拋
+    // duplicate column name——欄位已在，吞掉即等價冪等；其他錯誤照拋（不掩蓋真故障）。
     const cols = this.db.prepare(`PRAGMA table_info(attempts)`).all() as { name: string }[]
-    if (!cols.some(c => c.name === 'engine')) this.db.exec(`ALTER TABLE attempts ADD COLUMN engine TEXT NOT NULL DEFAULT ''`)
+    if (!cols.some(c => c.name === 'engine')) {
+      try {
+        this.db.exec(`ALTER TABLE attempts ADD COLUMN engine TEXT NOT NULL DEFAULT ''`)
+      } catch (err) {
+        if (!String(err).includes('duplicate column')) throw err
+      }
+    }
   }
 
   record(r: AttemptRecord): void {
