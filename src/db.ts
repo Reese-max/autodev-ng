@@ -6,6 +6,7 @@ export interface AttemptRecord {
   costUsd: number
   detail: string
   ts?: string
+  engine?: string
 }
 
 /** M4 Task 3（成本記帳本地日界線）：純函數，把一個 UTC ISO 時戳依 offsetHours 平移後取
@@ -39,22 +40,25 @@ export class RunDb {
       cost_usd REAL NOT NULL,
       detail TEXT NOT NULL
     )`)
+    // M9.9 分離帳 migration：舊庫補 engine 欄（冪等；空值＝歷史列，billed 端 fail-safe 算真金）
+    const cols = this.db.prepare(`PRAGMA table_info(attempts)`).all() as { name: string }[]
+    if (!cols.some(c => c.name === 'engine')) this.db.exec(`ALTER TABLE attempts ADD COLUMN engine TEXT NOT NULL DEFAULT ''`)
   }
 
   record(r: AttemptRecord): void {
     this.db.prepare(
-      'INSERT INTO attempts(task_id, ts, ok, cost_usd, detail) VALUES (?,?,?,?,?)'
-    ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail)
+      'INSERT INTO attempts(task_id, ts, ok, cost_usd, detail, engine) VALUES (?,?,?,?,?,?)'
+    ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail, r.engine ?? '')
   }
 
   /** 取 rowid（seq）最大一筆最近嘗試紀錄；空庫回 null。ok 欄位鏡像既有 record() 寫入慣例
    * （SQLite 存整數 0/1），讀出後轉回 boolean 供呼叫端使用。 */
   lastAttempt(): AttemptRecord | null {
     const row = this.db.prepare(
-      'SELECT task_id, ts, ok, cost_usd, detail FROM attempts ORDER BY seq DESC LIMIT 1'
-    ).get() as { task_id: string; ts: string; ok: number; cost_usd: number; detail: string } | undefined
+      'SELECT task_id, ts, ok, cost_usd, detail, engine FROM attempts ORDER BY seq DESC LIMIT 1'
+    ).get() as { task_id: string; ts: string; ok: number; cost_usd: number; detail: string; engine: string } | undefined
     if (!row) return null
-    return { taskId: row.task_id, ts: row.ts, ok: row.ok === 1, costUsd: row.cost_usd, detail: row.detail }
+    return { taskId: row.task_id, ts: row.ts, ok: row.ok === 1, costUsd: row.cost_usd, detail: row.detail, engine: row.engine }
   }
 
   failCount(taskId: string): number {
@@ -76,15 +80,30 @@ export class RunDb {
     return row.c
   }
 
+  /** M9.9：真金帳（踩日頂用）。排除訂閱引擎；engine 空（歷史列）或未知一律計入
+   * （fail-safe 寧誤煞不漏煞）。清單空時＝costForLocalDay 同值。 */
+  billedCostForLocalDay(day: string, offsetHours = 0, subscriptionEngines: string[] = []): number {
+    if (subscriptionEngines.length === 0) return this.costForLocalDay(day, offsetHours)
+    const { startIso, endIso } = localDayUtcRange(day, offsetHours)
+    const ph = subscriptionEngines.map(() => '?').join(',')
+    const row = this.db.prepare(
+      `SELECT COALESCE(SUM(cost_usd),0) AS c FROM attempts WHERE ts >= ? AND ts < ? AND engine NOT IN (${ph})`
+    ).get(startIso, endIso, ...subscriptionEngines) as { c: number }
+    return row.c
+  }
+
   /** 每日必達摘要用（M3b）＋本地日界線（M4 Task 3）：offsetHours 預設 0（UTC，等價舊行為）。
    * 改半開區間範圍查詢，淘汰 substr(ts,1,10) 前綴比對——原理相同（只算落在該日曆日的記錄），
-   * 差別是現在日曆日依 offsetHours 而非死板的 UTC 切割。 */
-  dayStats(day: string, offsetHours = 0): { ok: number; fail: number; costUsd: number } {
+   * 差別是現在日曆日依 offsetHours 而非死板的 UTC 切割。
+   * M9.9：加第三參數 subscriptionEngines，回傳補 billedUsd（真金帳）；預設空陣列向後相容
+   * （既有呼叫端不改也能編譯，billedUsd===costUsd）。 */
+  dayStats(day: string, offsetHours = 0, subscriptionEngines: string[] = []): { ok: number; fail: number; costUsd: number; billedUsd: number } {
     const { startIso, endIso } = localDayUtcRange(day, offsetHours)
     const row = this.db.prepare(
       'SELECT COALESCE(SUM(ok),0) AS ok, COALESCE(SUM(1-ok),0) AS fail, COALESCE(SUM(cost_usd),0) AS cost FROM attempts WHERE ts >= ? AND ts < ?'
     ).get(startIso, endIso) as { ok: number; fail: number; cost: number }
-    return { ok: row.ok, fail: row.fail, costUsd: row.cost }
+    const billedUsd = this.billedCostForLocalDay(day, offsetHours, subscriptionEngines)
+    return { ok: row.ok, fail: row.fail, costUsd: row.cost, billedUsd }
   }
 
   close(): void { this.db.close() }

@@ -84,3 +84,29 @@ test('costForLocalDay：offset=8 時，本地日界線由 UTC 前一日 16:00 �
   expect(db.costForLocalDay('2026-07-05', 8)).toBeCloseTo(3.0)
   db.close()
 })
+
+test('M9.9：migration 冪等——對既有庫開兩次 RunDb 不炸，engine 欄存在', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-db-'))
+  const f = join(dir, 'run.db')
+  new RunDb(f).close() // 第一次開＝建表
+  const db = new RunDb(f) // 第二次開＝migration 重入，不應炸
+  db.record({ taskId: 't1', ok: true, costUsd: 1, detail: '', engine: 'codex-spark' })
+  expect(db.lastAttempt()!.engine).toBe('codex-spark')
+  db.close()
+})
+
+test('M9.9：billedCostForLocalDay 排除訂閱引擎；空 engine 歷史列算真金（fail-safe）', () => {
+  const db = freshDb()
+  const ts = '2026-07-05T01:00:00Z'
+  const day = '2026-07-05'
+  db.record({ taskId: 'a', ok: true, costUsd: 5, detail: '', engine: 'claude', ts })
+  db.record({ taskId: 'b', ok: true, costUsd: 3, detail: '', engine: 'codex-spark', ts })
+  db.record({ taskId: 'c', ok: true, costUsd: 2, detail: '', ts }) // 無 engine＝歷史列
+  expect(db.costForLocalDay(day, 0)).toBeCloseTo(10) // 名義總帳
+  expect(db.billedCostForLocalDay(day, 0, ['codex-spark'])).toBeCloseTo(7) // 排除訂閱
+  expect(db.billedCostForLocalDay(day, 0, [])).toBeCloseTo(10) // 清單空＝同名義
+  const s = db.dayStats(day, 0, ['codex-spark'])
+  expect(s.costUsd).toBeCloseTo(10)
+  expect(s.billedUsd).toBeCloseTo(7)
+  db.close()
+})
