@@ -28,4 +28,88 @@ describe('evaluate', () => {
     const s = await evaluate({ llm: { url: 'http://x/v1', model: 'm', apiKey: 'k', fetchFn } }, noVerify, '/tmp')
     expect(s.achieved).toBe(true)
   })
+
+  // informed judge（品質類目標）：讀佐證檔內容餵 judge，回 0~10 分 + 達成與否
+  const evGoal: Goal = { objective: 'o', noProgressLimit: 3, evidenceFiles: ['tests/a.py', 'lib/b.py'] }
+  const judge = (content: string) => ({ url: 'http://x/v1', model: 'm', apiKey: 'k',
+    fetchFn: (async () => ({ ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content } }] }) })) as unknown as typeof fetch })
+
+  test('informed：佐證檔讀入 + judge 回 SCORE 7 NOT-YET → score 7 未達成', async () => {
+    const seen: string[] = []
+    const s = await evaluate({ llm: judge('SCORE: 7\nNOT-YET\n缺口：header 沒驗'),
+      readEvidence: (p) => { seen.push(p); return 'def f(): pass' } }, evGoal, '/proj')
+    expect(s.score).toBe(7)
+    expect(s.achieved).toBe(false)
+    expect(seen.length).toBe(2) // 兩個佐證檔都讀了
+  })
+  test('informed：judge 回 SCORE 9 ACHIEVED → achieved', async () => {
+    const s = await evaluate({ llm: judge('SCORE: 9\nACHIEVED\n斷言已完整'),
+      readEvidence: () => 'x' }, evGoal, '/proj')
+    expect(s.achieved).toBe(true)
+    expect(s.score).toBe(9)
+  })
+  test('informed：ACHIEVED 與 NOT-YET 同時出現時保守判未達成', async () => {
+    const s = await evaluate({ llm: judge('SCORE: 5\nNOT-YET\nheader 尚未 achieved'),
+      readEvidence: () => 'x' }, evGoal, '/proj')
+    expect(s.achieved).toBe(false)
+  })
+  test('informed：讀不到的佐證檔跳過（fail-open），仍能判定', async () => {
+    const s = await evaluate({ llm: judge('SCORE: 4\nNOT-YET\n缺'),
+      readEvidence: (p) => { if (p.includes('a.py')) throw new Error('ENOENT'); return 'ok' } }, evGoal, '/proj')
+    expect(s.score).toBe(4) // 一個檔讀失敗不擋判定
+  })
+  test('informed：回應無 SCORE（亂格式）→ fail-open score 0', async () => {
+    const s = await evaluate({ llm: judge('我覺得還不錯'), readEvidence: () => 'x' }, evGoal, '/proj')
+    expect(s.score).toBe(0)
+    expect(s.achieved).toBe(false)
+  })
+  test('informed：SCORE 超界（15）夾到 10', async () => {
+    const s = await evaluate({ llm: judge('SCORE: 15\nACHIEVED\nok'), readEvidence: () => 'x' }, evGoal, '/proj')
+    expect(s.score).toBe(10)
+  })
+  test('informed：judge 回 NOT ACHIEVED（空格無連字）→ 保守判未達成', async () => {
+    const s = await evaluate({ llm: judge('SCORE: 3\nNOT ACHIEVED\nheader 沒驗'), readEvidence: () => 'x' }, evGoal, '/proj')
+    expect(s.achieved).toBe(false)
+  })
+  test('informed：judge 回 NOT  ACHIEVED（雙空格）→ 仍保守判未達成', async () => {
+    const s = await evaluate({ llm: judge('SCORE: 3\nNOT  ACHIEVED\n缺'), readEvidence: () => 'x' }, evGoal, '/proj')
+    expect(s.achieved).toBe(false)
+  })
+  test('informed：多檔累加觸總量上限，其餘檔略過（24000 硬上限分支）', async () => {
+    const files = ['a', 'b', 'c', 'd'].map(x => `lib/${x}.py`)
+    const g: Goal = { objective: 'o', noProgressLimit: 3, evidenceFiles: files }
+    const read: string[] = []
+    let captured = ''
+    const fetchFn = (async (_u: unknown, init: { body: string }) => { captured = init.body; return { ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: 'SCORE: 5\nNOT-YET\nx' } }] }) } }) as unknown as typeof fetch
+    await evaluate({ llm: { url: 'http://x/v1', model: 'm', apiKey: 'k', fetchFn },
+      readEvidence: (p) => { read.push(p); return 'z'.repeat(10000) } }, g, '/proj')
+    expect(captured).toContain('其餘佐證檔略過') // 觸頂後其餘檔被略過
+    expect(read.length).toBeLessThan(4)         // 第 4 檔未被讀
+  })
+  test('informed：路徑逃出 cwd（../）被擋、不讀取（防穿越外洩）', async () => {
+    const seen: string[] = []
+    const g: Goal = { objective: 'o', noProgressLimit: 3, evidenceFiles: ['../../secret.env', 'lib/ok.py'] }
+    await evaluate({ llm: judge('SCORE: 3\nNOT-YET\n缺'),
+      readEvidence: (p) => { seen.push(p); return 'X' } }, g, '/proj')
+    expect(seen.some(p => p.includes('secret'))).toBe(false) // 越界檔沒被讀
+    expect(seen.some(p => p.includes('ok.py'))).toBe(true)   // 合法檔有讀
+  })
+  test('informed：超長佐證檔（>8000 字元）被截斷', async () => {
+    let captured = ''
+    const big = 'a'.repeat(9000)
+    const g: Goal = { objective: 'o', noProgressLimit: 3, evidenceFiles: ['lib/big.py'] }
+    const fetchFn = (async (_u: unknown, init: { body: string }) => { captured = init.body; return { ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: 'SCORE: 5\nNOT-YET\nx' } }] }) } }) as unknown as typeof fetch
+    await evaluate({ llm: { url: 'http://x/v1', model: 'm', apiKey: 'k', fetchFn }, readEvidence: () => big }, g, '/proj')
+    expect(captured).toContain('…（截斷）') // prompt 內含截斷標註
+    expect(captured).not.toContain('a'.repeat(8500)) // 未整段塞入
+  })
+  // 向後相容：無 evidenceFiles 的舊 goal 仍走舊路徑，score = achieved?1:0（非新 SCORE 解析）
+  test('向後相容：無佐證檔 + agent 回 ACHIEVED（無 SCORE）→ score 1（舊語意）', async () => {
+    const s = await evaluate({ llm: judge('ACHIEVED 已完成') }, noVerify, '/tmp')
+    expect(s.achieved).toBe(true)
+    expect(s.score).toBe(1)
+  })
 })

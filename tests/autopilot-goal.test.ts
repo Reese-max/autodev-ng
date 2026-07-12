@@ -48,4 +48,17 @@ describe('parseGoal', () => {
     ].join('\n')
     expect(parseGoal(mdWithJsonFirst).verifyCommand).toBe('npm run verify')
   })
+
+  test('抽出 evidenceFiles（## 佐證檔案 段落，含/不含 - 前綴、空行忽略）', () => {
+    const mdWithEvidence = [
+      '# GOAL', '補強 api.py 測試斷言。', '',
+      '## 佐證檔案', 'tests/test_lib_api.py', '- lib/api.py', '', '',
+      '## 邊界', '- 連續無進展上限：2'
+    ].join('\n')
+    const g = parseGoal(mdWithEvidence)
+    expect(g.evidenceFiles).toEqual(['tests/test_lib_api.py', 'lib/api.py'])
+  })
+  test('無 佐證檔案 段落時 evidenceFiles 為 undefined（向後相容）', () => {
+    expect(parseGoal('# GOAL\n只有目標。').evidenceFiles).toBeUndefined()
+  })
 })
