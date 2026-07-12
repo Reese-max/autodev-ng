@@ -49,6 +49,7 @@ function criticPrompt(cands: Candidate[]): string {
   return [
     '你是對抗式問題評審。以下是多視角候選問題。去重、挑戰每個（真問題嗎？夠高價值嗎？漏了更重要的嗎？），按修復價值排序。',
     '嚴格照格式，每行一問題（高價值在前）：VALUE:<0~10> | <標題> | <lens> | <一句理由>',
+    '若逐一挑戰後認為沒有任何候選值得處理，只回一行 NONE。',
     `\n候選：\n${body || '（無）'}`
   ].join('\n')
 }
@@ -63,11 +64,19 @@ export async function discoverProblems(deps: DiscoverDeps, goal: Goal, cwd: stri
     catch { return [] as Candidate[] }
   }))
   const candidates = found.flat()
+  // critic 結果三分支（對稱 finder 的 NONE 慣例）：
+  //   ① 首個非空行 NONE → 合法否決：ranked 空且不退回候選（尊重 critic 的否決權）
+  //   ② parseRanked 有結果 → 正常採用
+  //   ③ throw/空回應/亂格式（無 VALUE 行且非 NONE）→ 故障：候選非空時退回原始候選（value 5），單點故障不白費整輪 discovery
   let ranked: RankedProblem[] = []
-  try { ranked = parseRanked((await callAgent(deps.criticLlm, criticPrompt(candidates))).text.trim()) }
-  catch { ranked = [] }
-  // critic 崩潰或回應解析不出任何排序、但候選非空時，退回原始候選（value 預設 5）——單點故障不白費整輪 discovery
-  if (ranked.length === 0 && candidates.length > 0) {
+  let vetoed = false
+  try {
+    const text = (await callAgent(deps.criticLlm, criticPrompt(candidates))).text.trim()
+    const firstLine = text.split(/\r?\n/).map(l => l.trim()).find(Boolean) ?? ''
+    if (/^NONE\b/i.test(firstLine)) vetoed = true
+    else ranked = parseRanked(text)
+  } catch { ranked = [] }
+  if (!vetoed && ranked.length === 0 && candidates.length > 0) {
     ranked = candidates.map(c => ({ title: c.title, lens: c.lens, value: 5, rationale: 'critic 未評，原始候選' }))
   }
   return { survey, ranked }

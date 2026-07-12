@@ -55,12 +55,19 @@ describe('discoverProblems', () => {
     expect(r.survey).toContain('coverage 40%')
     expect(r.ranked).toEqual([{ value: 8, title: '問題A', lens: 'correctness', rationale: '高價值' }])
   })
-  test('critic 亂格式且候選非空 → fail-open 退回原始候選（value 5），不崩、不白費', async () => {
+  test('critic 亂格式（非 NONE）且候選非空 → 視為故障，退回原始候選（value 5），不崩、不白費', async () => {
     const finder = seqLlm(['問題X｜y'])
     const critic = seqLlm(['我覺得都還好'])
     const r = await discoverProblems({ finderLlm: finder, criticLlm: critic,
       runSurvey: () => ({ output: 's' }), readEvidence: () => 'c', lenses: ['correctness'] }, goal, '/proj')
     expect(r.ranked).toEqual([{ title: '問題X', lens: 'correctness', value: 5, rationale: 'critic 未評，原始候選' }])
+  })
+  test('critic 回 NONE → 合法否決：ranked 空且不退回候選', async () => {
+    const finder = seqLlm(['問題X｜y'])
+    const critic = seqLlm(['NONE'])
+    const r = await discoverProblems({ finderLlm: finder, criticLlm: critic,
+      runSurvey: () => ({ output: 's' }), readEvidence: () => 'c', lenses: ['correctness'] }, goal, '/proj')
+    expect(r.ranked).toEqual([])
   })
   test('survey runSurvey throw → survey 空，仍能跑 finder/critic（fail-open）', async () => {
     const r = await discoverProblems({ finderLlm: seqLlm(['NONE']), criticLlm: seqLlm(['']),
