@@ -16,6 +16,13 @@ describe('config goalFile', () => {
     })
     expect(cfg.goalFile).toBeUndefined()
   })
+  test('M9.6：auditModel 可選、supplementLimit 預設 2（向後相容）', () => {
+    const bare = ConfigSchema.parse({ projectPath: '/p', backlogFile: '/p/B.md', dataDir: '/p/d', engine: 'mock' })
+    expect(bare.auditModel).toBeUndefined() // 未設＝不啟動 supplement 階段
+    expect(bare.supplementLimit).toBe(2)
+    const set = ConfigSchema.parse({ projectPath: '/p', backlogFile: '/p/B.md', dataDir: '/p/d', engine: 'mock', auditModel: 'gpt-5.5', supplementLimit: 3 })
+    expect(set.auditModel).toBe('gpt-5.5'); expect(set.supplementLimit).toBe(3)
+  })
 })
 
 describe('parseGoal', () => {
