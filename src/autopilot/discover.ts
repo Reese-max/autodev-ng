@@ -13,7 +13,7 @@ export function parseCandidates(lens: string, out: string): Candidate[] {
     const idx = l.search(/[｜|]/)
     if (idx < 0) return { lens, title: l, detail: '' }
     return { lens, title: l.slice(0, idx).trim(), detail: l.slice(idx + 1).trim() }
-  }).filter(c => c.title)
+  }).filter(c => c.title).slice(0, 5) // prompt 規定每鏡頭 0~5 條，解析端也硬界，避免單鏡頭灌爆候選池
 }
 
 // critic 回應：每行 VALUE:<n> | title | lens | rationale；夾 0~10；不符格式跳過。
@@ -55,7 +55,8 @@ function criticPrompt(cands: Candidate[]): string {
 
 export async function discoverProblems(deps: DiscoverDeps, goal: Goal, cwd: string): Promise<DiscoverResult> {
   let survey = ''
-  if (deps.runSurvey) { try { survey = deps.runSurvey('', cwd).output.slice(0, 8000) } catch { survey = '' } }
+  // 取尾部（錯誤/摘要通常在輸出尾端）——與 run.ts 的 execSync 輸出截長方向一致，避免頭尾互斬的 no-op
+  if (deps.runSurvey) { try { survey = deps.runSurvey('', cwd).output.slice(-8000) } catch { survey = '' } }
   const evidence = gatherEvidence(goal.evidenceFiles, cwd, deps.readEvidence)
   const found = await Promise.all(deps.lenses.map(async (lens) => {
     try { return parseCandidates(lens, (await callAgent(deps.finderLlm, finderPrompt(lens, survey, evidence))).text.trim()) }
@@ -65,5 +66,9 @@ export async function discoverProblems(deps: DiscoverDeps, goal: Goal, cwd: stri
   let ranked: RankedProblem[] = []
   try { ranked = parseRanked((await callAgent(deps.criticLlm, criticPrompt(candidates))).text.trim()) }
   catch { ranked = [] }
+  // critic 崩潰或回應解析不出任何排序、但候選非空時，退回原始候選（value 預設 5）——單點故障不白費整輪 discovery
+  if (ranked.length === 0 && candidates.length > 0) {
+    ranked = candidates.map(c => ({ title: c.title, lens: c.lens, value: 5, rationale: 'critic 未評，原始候選' }))
+  }
   return { survey, ranked }
 }

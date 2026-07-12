@@ -15,6 +15,12 @@ describe('parseCandidates', () => {
   })
   test('NONE → 空陣列', () => { expect(parseCandidates('security', 'NONE')).toEqual([]) })
   test('無分隔符行 → 整行為 title', () => { expect(parseCandidates('design', '模組職責糾纏')).toEqual([{ lens: 'design', title: '模組職責糾纏', detail: '' }]) })
+  test('每鏡頭最多取 5 條（6 行輸入 → 5 條）', () => {
+    const input = ['A｜a', 'B｜b', 'C｜c', 'D｜d', 'E｜e', 'F｜f'].join('\n')
+    const r = parseCandidates('tests', input)
+    expect(r).toHaveLength(5)
+    expect(r.map(c => c.title)).toEqual(['A', 'B', 'C', 'D', 'E'])
+  })
 })
 
 describe('parseRanked', () => {
@@ -49,12 +55,12 @@ describe('discoverProblems', () => {
     expect(r.survey).toContain('coverage 40%')
     expect(r.ranked).toEqual([{ value: 8, title: '問題A', lens: 'correctness', rationale: '高價值' }])
   })
-  test('critic 亂格式 → fail-open 空 ranked，不崩', async () => {
+  test('critic 亂格式且候選非空 → fail-open 退回原始候選（value 5），不崩、不白費', async () => {
     const finder = seqLlm(['問題X｜y'])
     const critic = seqLlm(['我覺得都還好'])
     const r = await discoverProblems({ finderLlm: finder, criticLlm: critic,
       runSurvey: () => ({ output: 's' }), readEvidence: () => 'c', lenses: ['correctness'] }, goal, '/proj')
-    expect(r.ranked).toEqual([])
+    expect(r.ranked).toEqual([{ title: '問題X', lens: 'correctness', value: 5, rationale: 'critic 未評，原始候選' }])
   })
   test('survey runSurvey throw → survey 空，仍能跑 finder/critic（fail-open）', async () => {
     const r = await discoverProblems({ finderLlm: seqLlm(['NONE']), criticLlm: seqLlm(['']),
