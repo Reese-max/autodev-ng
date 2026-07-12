@@ -98,6 +98,9 @@ export const ConfigSchema = z.object({
   judgeUrl: z.string().optional(),
   judgeModel: z.string().default('gpt-5.4-mini'),
   judgeApiKey: z.string().default('sk-any'),
+  // M9.6 verify-and-supplement：對抗式稽核用模型（異於 judgeModel 以獲獨立性），未設＝不啟動此階段。
+  auditModel: z.string().optional(),
+  supplementLimit: z.number().int().positive().default(2),
   discordChannelId: z.string().optional(),
   discordTokenFile: z.string().default('C:/Users/Administrator/openab/.env.tokens'),
   // M5 Task 1（引擎矩陣）：engines＝本專案引擎白名單（tag → 引擎設定），defaultEngine＝

@@ -1,4 +1,5 @@
 import { existsSync, appendFileSync, readFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { assemble, finalizeRunOnceHeartbeat } from '../cli.js'
@@ -7,6 +8,7 @@ import { runOnce } from '../scheduler.js'
 import { parseGoal } from './goal.js'
 import { plan } from './planner.js'
 import { evaluate } from './evaluator.js'
+import { verifyAndSupplement } from './supplement.js'
 import { runGoalSession, type OrchestratorDeps, type GoalOutcome } from './orchestrator.js'
 
 export function stopAlertMessage(goalId: string, outcome: GoalOutcome): string | null {
@@ -51,6 +53,24 @@ export async function main(cfgPath: string): Promise<void> {
     const outcome = await runGoalSession(orchDeps)
     appendFileSync(auditFile, JSON.stringify({ outcome }) + '\n') // 停止原因入稽核（spec 段⑤）
     console.log(`GOAL outcome: ${JSON.stringify(outcome)}`)
+    // M9.6：達成後對抗式獨立驗證＋補足（僅 cfg.auditModel 有設時啟動；fail-open——本階段故障保留 achieved）。
+    if (outcome.kind === 'achieved' && cfg.auditModel) {
+      try {
+        const sup = await verifyAndSupplement({
+          auditLlm: { url: cfg.judgeUrl, model: cfg.auditModel, apiKey: cfg.judgeApiKey },
+          runVerify: (cmd, wd) => {
+            try { return { exitCode: 0, passed: 1, output: execSync(cmd, { cwd: wd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).slice(-2000) } }
+            catch (e) { const er = e as { status?: number; stdout?: string }; return { exitCode: er.status ?? 1, passed: 0, output: (er.stdout ?? '').slice(-2000) } }
+          },
+          runOnceFn: async () => { const r = await runOnce(kernelDeps); finalizeRunOnceHeartbeat(kernelDeps, r); return r },
+          appendTask: (t) => kernelDeps.store.append(t, { goalId, round: 0 }),
+          isAlive: () => existsSync(cfg.goalFile!) && !existsSync(cfg.stopFile),
+          supplementLimit: cfg.supplementLimit
+        }, goal, cfg.projectPath)
+        appendFileSync(auditFile, JSON.stringify({ supplement: sup }) + '\n')
+        console.log(`supplement: ${JSON.stringify(sup)}`)
+      } catch (e) { console.error('supplement 階段故障（fail-open，保留 achieved）:', String(e)) }
+    }
     const alert = stopAlertMessage(goalId, outcome)
     if (alert) await notifier.send(alert) // 一次性停機告警；send 永不 throw（fail-open）
   } finally {

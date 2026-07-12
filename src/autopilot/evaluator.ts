@@ -64,7 +64,8 @@ export async function evaluate(deps: EvalDeps, goal: Goal, cwd: string): Promise
 
 // 讀佐證檔給判定 LLM：每檔上限 8000 字元、總上限 24000 字元（硬上限，累加後夾裁），
 // 讀不到或路徑逃出 cwd 的檔一律跳過並註記（fail-open，防路徑穿越外洩）。
-function gatherEvidence(files: string[] | undefined, cwd: string,
+// export 供 supplement.ts 的對抗式稽核複用同一套讀檔+路徑圍欄。
+export function gatherEvidence(files: string[] | undefined, cwd: string,
   read: ((p: string) => string) | undefined): string {
   if (!files?.length) return ''
   const reader = read ?? ((p: string) => readFileSync(p, 'utf8'))
