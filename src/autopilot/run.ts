@@ -9,7 +9,7 @@ import { parseGoal } from './goal.js'
 import { plan } from './planner.js'
 import { evaluate } from './evaluator.js'
 import { verifyAndSupplement } from './supplement.js'
-import { discoverProblems } from './discover.js'
+import { discoverProblems, type DiscoverResult } from './discover.js'
 import { runGoalSession, type OrchestratorDeps, type GoalOutcome } from './orchestrator.js'
 
 export function stopAlertMessage(goalId: string, outcome: GoalOutcome): string | null {
@@ -44,8 +44,12 @@ export async function main(cfgPath: string): Promise<void> {
     try { lessonsText = deps.lessons?.inject() ?? '' } catch { /* fail-open */ }
 
     // M9.7：session 開頭跑一次 discovery（僅 cfg.surveyCommand 有設；fail-open——故障退回無 discovered）。
-    let discovered: { survey: string; ranked: import('./discover.js').RankedProblem[] } | undefined
+    let discovered: DiscoverResult | undefined
     if (cfg.surveyCommand) {
+      // spec：auditModel 未設時 critic 退用 judgeModel，獨立性降級——記一筆稽核事件提醒（fail-open，不擋 discovery 主流程）。
+      if (!cfg.auditModel) {
+        try { appendFileSync(auditFile, JSON.stringify({ discoveryNote: 'critic 用 judgeModel（auditModel 未設，獨立性降級）' }) + '\n') } catch { /* fail-open */ }
+      }
       try {
         discovered = await discoverProblems({
           finderLlm: llm,
@@ -56,8 +60,11 @@ export async function main(cfgPath: string): Promise<void> {
           },
           lenses: cfg.discoverLenses
         }, goal, cfg.projectPath)
-        appendFileSync(auditFile, JSON.stringify({ discovered }) + '\n')
       } catch (e) { console.error('discovery 故障（fail-open，無 discovered）:', String(e)) }
+      // 稽核 append 移出 discovery 主 try：即使寫檔失敗，discovered 已賦值不受影響，且不會誤觸「無 discovered」訊息。
+      if (discovered) {
+        try { appendFileSync(auditFile, JSON.stringify({ discovered }) + '\n') } catch { /* fail-open：稽核寫入失敗不影響主流程 */ }
+      }
     }
 
     const orchDeps: OrchestratorDeps = {
