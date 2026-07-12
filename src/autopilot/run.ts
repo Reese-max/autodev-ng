@@ -9,6 +9,7 @@ import { parseGoal } from './goal.js'
 import { plan } from './planner.js'
 import { evaluate } from './evaluator.js'
 import { verifyAndSupplement } from './supplement.js'
+import { discoverProblems } from './discover.js'
 import { runGoalSession, type OrchestratorDeps, type GoalOutcome } from './orchestrator.js'
 
 export function stopAlertMessage(goalId: string, outcome: GoalOutcome): string | null {
@@ -42,8 +43,25 @@ export async function main(cfgPath: string): Promise<void> {
     let lessonsText = ''
     try { lessonsText = deps.lessons?.inject() ?? '' } catch { /* fail-open */ }
 
+    // M9.7：session 開頭跑一次 discovery（僅 cfg.surveyCommand 有設；fail-open——故障退回無 discovered）。
+    let discovered: { survey: string; ranked: import('./discover.js').RankedProblem[] } | undefined
+    if (cfg.surveyCommand) {
+      try {
+        discovered = await discoverProblems({
+          finderLlm: llm,
+          criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey },
+          runSurvey: (_c, wd) => {
+            try { return { output: execSync(cfg.surveyCommand!, { cwd: wd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: cfg.surveyTimeoutMs }).slice(-8000) } }
+            catch (e) { const er = e as { stdout?: string }; return { output: (er.stdout ?? '').slice(-8000) } }
+          },
+          lenses: cfg.discoverLenses
+        }, goal, cfg.projectPath)
+        appendFileSync(auditFile, JSON.stringify({ discovered }) + '\n')
+      } catch (e) { console.error('discovery 故障（fail-open，無 discovered）:', String(e)) }
+    }
+
     const orchDeps: OrchestratorDeps = {
-      goalId, goal, cwd: cfg.projectPath, kernelDeps, lessonsText,
+      goalId, goal, cwd: cfg.projectPath, kernelDeps, lessonsText, discovered,
       planFn: (input) => plan(llm, input),
       evalFn: (cwd) => evaluate({ llm }, goal, cwd),
       runOnceFn: async (d) => { const r = await runOnce(d); finalizeRunOnceHeartbeat(d, r); return r },

@@ -101,6 +101,10 @@ export const ConfigSchema = z.object({
   // M9.6 verify-and-supplement：對抗式稽核用模型（異於 judgeModel 以獲獨立性），未設＝不啟動此階段。
   auditModel: z.string().optional(),
   supplementLimit: z.number().int().positive().default(2),
+  // M9.7 informed problem-finding：surveyCommand 未設＝discovery 不啟動（planner 維持 "round N"）。
+  surveyCommand: z.string().optional(),
+  surveyTimeoutMs: z.number().int().positive().default(120000),
+  discoverLenses: z.array(z.string()).default(['correctness', 'tests', 'perf', 'design', 'security']),
   discordChannelId: z.string().optional(),
   discordTokenFile: z.string().default('C:/Users/Administrator/openab/.env.tokens'),
   // M5 Task 1（引擎矩陣）：engines＝本專案引擎白名單（tag → 引擎設定），defaultEngine＝

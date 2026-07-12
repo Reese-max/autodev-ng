@@ -23,6 +23,14 @@ describe('config goalFile', () => {
     const set = ConfigSchema.parse({ projectPath: '/p', backlogFile: '/p/B.md', dataDir: '/p/d', engine: 'mock', auditModel: 'gpt-5.5', supplementLimit: 3 })
     expect(set.auditModel).toBe('gpt-5.5'); expect(set.supplementLimit).toBe(3)
   })
+  test('M9.7：surveyCommand 可選、surveyTimeoutMs/discoverLenses 有預設（向後相容）', () => {
+    const bare = ConfigSchema.parse({ projectPath: '/p', backlogFile: '/p/B.md', dataDir: '/p/d', engine: 'mock' })
+    expect(bare.surveyCommand).toBeUndefined()
+    expect(bare.surveyTimeoutMs).toBe(120000)
+    expect(bare.discoverLenses).toEqual(['correctness', 'tests', 'perf', 'design', 'security'])
+    const set = ConfigSchema.parse({ projectPath: '/p', backlogFile: '/p/B.md', dataDir: '/p/d', engine: 'mock', surveyCommand: 'ruff check .', discoverLenses: ['tests'] })
+    expect(set.surveyCommand).toBe('ruff check .'); expect(set.discoverLenses).toEqual(['tests'])
+  })
 })
 
 describe('parseGoal', () => {
