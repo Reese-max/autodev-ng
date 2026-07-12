@@ -20,7 +20,7 @@
     "claude": { "adapter": "claude-cli" },
     "m3": {
       "adapter": "claude-cli",
-      "costPerRunUsd": 0.5,
+      "costPerRunUsd": 0.15,
       "model": "{env:MINIMAX_MODEL}",
       "env": {
         "ANTHROPIC_BASE_URL": "{env:MINIMAX_BASE_URL}",
