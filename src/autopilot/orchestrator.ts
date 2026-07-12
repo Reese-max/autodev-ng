@@ -2,6 +2,7 @@ import type { Deps, CycleResult } from '../scheduler.js'
 import type { Goal } from './goal.js'
 import type { PlanResult, PlanInput } from './planner.js'
 import type { ProgressSnapshot } from './evaluator.js'
+import type { RankedProblem } from './discover.js'
 
 export type GoalOutcome =
   | { kind: 'achieved'; rounds: number }
@@ -18,6 +19,8 @@ export interface OrchestratorDeps {
   kernelDeps: Deps
   /** M7 Task 5：session 開始時讀一次的教訓文字，逐輪附進 planFn 的 prompt（fail-open，undefined 時行為與現狀一致）。 */
   lessonsText?: string
+  /** M9.7：session 開始時跑一次的勘查＋排序問題清單，逐輪附進 repoSummary（fail-open，undefined 時行為與現狀一致）。 */
+  discovered?: { survey: string; ranked: RankedProblem[] }
   planFn: (input: PlanInput) => Promise<PlanResult>
   evalFn: (cwd: string) => Promise<ProgressSnapshot>
   runOnceFn: (d: Deps) => Promise<CycleResult>
@@ -36,7 +39,14 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
     if (!deps.isAlive()) return { kind: 'killed', rounds: round }
     round++
 
-    const repoSummary = `round ${round}`
+    const repoSummary = deps.discovered && deps.discovered.ranked.length
+      ? [
+          `round ${round}`,
+          `# 專案勘查\n${deps.discovered.survey.slice(0, 2000)}`,
+          '# 已排序的待解問題（高價值在前；配下方歷史挑最高價值且未處理者）',
+          ...deps.discovered.ranked.map((p, i) => `${i + 1}. [value ${p.value}] ${p.title}（${p.lens}）— ${p.rationale}`)
+        ].join('\n')
+      : `round ${round}`
     const planResult = await deps.planFn({ goal: deps.goal, repoSummary, history, lessonsText: deps.lessonsText })
     if (planResult.kind === 'achieved') return { kind: 'achieved', rounds: round }
     if (planResult.kind === 'stuck') return { kind: 'stuck', rounds: round, reason: planResult.reason }

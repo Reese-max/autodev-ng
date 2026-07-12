@@ -93,4 +93,29 @@ describe('runGoalSession', () => {
     expect(out.kind).toBe('no-progress')                 // 仍正常終止
     expect(appended.filter(t => t === '重複任務甲')).toHaveLength(1) // 只 append 一次
   })
+
+  test('M9.7：discovered 有排序問題時 repoSummary 含問題清單', async () => {
+    let seenSummary = ''
+    const deps = {
+      goalId: 'g', goal: { objective: 'o', noProgressLimit: 1 }, cwd: '/p', kernelDeps: {} as never, lessonsText: '',
+      discovered: { survey: 'coverage 40%', ranked: [{ value: 9, title: 'api 斷言弱', lens: 'tests', rationale: '高頻' }] },
+      planFn: async (input: { repoSummary: string }) => { seenSummary = input.repoSummary; return { kind: 'achieved' as const } },
+      evalFn: async () => ({ achieved: true, score: 1, detail: '' }),
+      runOnceFn: async () => 'done' as never, isAlive: () => true
+    }
+    await runGoalSession(deps as never)
+    expect(seenSummary).toContain('coverage 40%')
+    expect(seenSummary).toContain('api 斷言弱')
+  })
+  test('M9.7：無 discovered → repoSummary 維持 round N（向後相容）', async () => {
+    let seenSummary = ''
+    const deps = {
+      goalId: 'g', goal: { objective: 'o', noProgressLimit: 1 }, cwd: '/p', kernelDeps: {} as never, lessonsText: '',
+      planFn: async (input: { repoSummary: string }) => { seenSummary = input.repoSummary; return { kind: 'achieved' as const } },
+      evalFn: async () => ({ achieved: true, score: 1, detail: '' }),
+      runOnceFn: async () => 'done' as never, isAlive: () => true
+    }
+    await runGoalSession(deps as never)
+    expect(seenSummary).toMatch(/round 1/)
+  })
 })

@@ -13,6 +13,7 @@ function buildPrompt(input: PlanInput): string {
   const goalBlock = `# 目標\n${goal.objective}` + (lessonsText ? `\n\n${lessonsText}` : '')
   return [
     '你是自主開發規劃器。目標如下，判斷為達成目標「下一批」該做哪些具體任務。',
+    '若 repo 現況含「已排序的待解問題」，優先挑其中最高價值且未在歷史中處理過的問題，為它拆任務。',
     goalBlock,
     goal.verifyCommand ? `# 驗收條件\n${goal.verifyCommand}` : '',
     `# repo 現況\n${repoSummary || '（無摘要）'}`,
