@@ -209,6 +209,7 @@
       const res = await fetch('/api/panel/' + name)
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status))
+      if (body.ok === false) throw new Error(body.text ?? '(無錯誤訊息)')
       const el = document.querySelector('[data-panel="' + name + '"] .panelText')
       if (el) el.textContent = body.text ?? ''
       if (errEl) { errEl.style.display = 'none'; errEl.textContent = '' }
