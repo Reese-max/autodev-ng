@@ -9,6 +9,7 @@ import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { ConfigSchema, type Config } from '../src/types.js'
 import type { LlmOpts } from '../src/autopilot/llm.js'
+import { EventLog } from '../src/events.js'
 import type { ChildProcess, SpawnOptions } from 'node:child_process'
 
 // 沿用 tests/learn-integration.test.ts 的 ConfigSchema.parse 建 cfg 模式（先讀）。控制 handler
@@ -47,8 +48,12 @@ function lastEvent(dataDir: string): Record<string, unknown> {
   return JSON.parse(lines[lines.length - 1]!)
 }
 
+// M9.4 fast-follow #2：BotDeps 新增 events 欄位（長壽 EventLog 實例，doAsk 用）。
 function toDeps(s: { cfg: Config; store: BacklogStore; db: RunDb }, llm: LlmOpts = noLlm): BotDeps {
-  return { cfg: s.cfg, store: s.store, db: s.db, llm, cfgPath: join(s.cfg.projectPath, 'config.json') }
+  return {
+    cfg: s.cfg, store: s.store, db: s.db, llm, cfgPath: join(s.cfg.projectPath, 'config.json'),
+    events: new EventLog(s.cfg.dataDir)
+  }
 }
 
 describe('appendUserTask（純函式，直呼）', () => {

@@ -5,6 +5,7 @@ import type { BacklogStore } from '../backlog.js'
 import { localDay, type RunDb } from '../db.js'
 import { yesterdayLocal } from '../daemon.js'
 import type { LlmOpts } from '../autopilot/llm.js'
+import type { EventLog } from '../events.js'
 import { isSilenced } from './silence.js'
 import { doPause, doResume, doSilence, doTask, doAsk, doGoal } from './actions.js'
 
@@ -14,6 +15,9 @@ export interface BotDeps {
   db: RunDb
   llm: LlmOpts
   cfgPath: string // /goal run 需要轉傳給 spawn 的 autopilot run.js --config 參數
+  // M9.4 fast-follow #2：長壽 EventLog 實例（doAsk 用），避免每呼叫 new EventLog()
+  // 造成 O(n) 全檔讀行數。與 autopilot Deps.events 同款單例慣例（見 src/cli.ts assemble()）。
+  events: EventLog
 }
 
 // Discord 單訊息上限鏡像 src/notify.ts:82（同一份截斷邏輯，避免兩處漂移）。

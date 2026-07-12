@@ -8,7 +8,6 @@ import { spawn } from 'node:child_process'
 import { setSilence, clearSilence } from './silence.js'
 import { callAgent } from '../autopilot/llm.js'
 import { withBacklogLock } from '../backlog.js'
-import { EventLog } from '../events.js'
 import type { BotDeps, CmdResult } from './handlers.js'
 
 const TASK_TEXT_NEWLINE_ERR = '任務內容不可含換行'
@@ -113,7 +112,9 @@ export async function doAsk(d: BotDeps, arg: string): Promise<CmdResult> {
     const r = await callAgent(d.llm, question)
     const text = r.text.trim() ? r.text : 'LLM 未回應'
     try {
-      new EventLog(d.cfg.dataDir).append('ask', { tokens: r.totalTokens, q: question.slice(0, 80) })
+      // M9.4 fast-follow #2：改用 BotDeps 注入的長壽 EventLog 實例，不再每呼叫
+      // new EventLog(d.cfg.dataDir)（建構子 O(n) 全檔讀 events.jsonl 數行數）。
+      d.events.append('ask', { tokens: r.totalTokens, q: question.slice(0, 80) })
     } catch { /* 記帳失敗不影響回覆 */ }
     return { ok: r.text.trim() ? true : false, text }
   } catch {

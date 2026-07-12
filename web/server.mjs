@@ -297,9 +297,23 @@ function getHandleCommand() {
 }
 
 /** server 啟動時用既有 config 組一份 BotDeps，鏡像 src/bot/index.ts 的組法：llm 用 cfg.judge*、
- * cfgPath 就是 --config 參數。每請求共用同一份（不重複 assemble，sqlite 連線沿用既有 deps.db）。 */
-export function buildBotDeps({ cfg, store, db, cfgPath }) {
-  return { cfg, store, db, llm: { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }, cfgPath }
+ * cfgPath 就是 --config 參數。每請求共用同一份（不重複 assemble，sqlite 連線沿用既有 deps.db）。
+ * events 為長壽 EventLog 實例（M9.4 fast-follow #2：doAsk 不再每呼叫自建一份 O(n) 全檔讀）
+ * ——呼叫端須提供，此函式本身不建構（main() 已有 assemble() 組好的 deps.events 可直接沿用）。 */
+export function buildBotDeps({ cfg, store, db, cfgPath, events }) {
+  return { cfg, store, db, llm: { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }, cfgPath, events }
+}
+
+// 動態 import dist/events.js（鏡像 getHandleCommand 的 promise 快取式動態載入慣例，避免
+// module 頂層靜態 import 依賴 dist 建置順序）——只有 createRequestHandler 收不到 ctx.botDeps
+// 的 fallback 路徑（目前僅測試會走到）才需要在這裡自建一份長壽 EventLog；main() 正式啟動
+// 路徑一律沿用 assemble() 已組好的 deps.events，不會走到這個 fallback。
+let eventLogClassPromise
+function getEventLogClass() {
+  if (!eventLogClassPromise) {
+    eventLogClassPromise = import(new NodeURL('../dist/events.js', import.meta.url).href).then(m => m.EventLog)
+  }
+  return eventLogClassPromise
 }
 
 const PANEL_NAMES = new Set(['status', 'cost', 'backlog', 'log', 'lessons', 'goal'])
@@ -350,8 +364,19 @@ function attachLogsSse(req, res, dataDir) {
 // ---------- HTTP routing ----------
 export function createRequestHandler(ctx) {
   const { cfg, cfgPath, store, db, dbPath, token, spawnFn, childState, indexHtml, localDayFn, spawnOpts } = ctx
-  const botDeps = ctx.botDeps ?? buildBotDeps({ cfg, store, db, cfgPath })
+  // botDeps 延遲、快取一次組成：ctx.botDeps 已提供（main() 正式路徑）直接沿用；
+  // 否則（目前僅測試）動態 import dist/events.js 現組一份長壽 EventLog 落地在 fallback botDeps 上。
+  let botDepsPromise
+  const getBotDeps = async () => {
+    if (ctx.botDeps) return ctx.botDeps
+    if (!botDepsPromise) {
+      botDepsPromise = getEventLogClass().then(EventLog =>
+        buildBotDeps({ cfg, store, db, cfgPath, events: new EventLog(cfg.dataDir) }))
+    }
+    return botDepsPromise
+  }
   return async function handle(req, res) {
+    const botDeps = await getBotDeps()
     const url = new NodeURL(req.url, 'http://127.0.0.1')
     const send = (code, body, headers = {}) => {
       res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...headers })
@@ -485,7 +510,7 @@ async function main() {
   const indexHtml = readFileSync(INDEX_HTML, 'utf8')
   const token = loadOrCreateToken(cfg.dataDir)
   const childState = createChildState()
-  const botDeps = buildBotDeps({ cfg, store: deps.store, db: deps.db, cfgPath })
+  const botDeps = buildBotDeps({ cfg, store: deps.store, db: deps.db, cfgPath, events: deps.events })
   const server = createServer({
     cfg, cfgPath, store: deps.store, db: deps.db, dbPath: join(cfg.dataDir, 'run.db'),
     token, spawnFn: nodeSpawn, childState, indexHtml, localDayFn: localDay, botDeps,

@@ -7,6 +7,7 @@ import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { ConfigSchema, type Config } from '../src/types.js'
 import type { LlmOpts } from '../src/autopilot/llm.js'
+import { EventLog } from '../src/events.js'
 
 // 沿用 tests/learn-integration.test.ts 的 ConfigSchema.parse 建 cfg 模式（先讀）。查詢 handler
 // 不碰 scheduler/worktree，故不需真 git repo，只要 cfg 路徑存在即可（brief 允許酌情簡化）。
@@ -25,8 +26,12 @@ function setup(backlogMd = '- [ ] 任務一\n'): { dir: string; cfg: Config; sto
 
 const noLlm: LlmOpts = { model: 'm', apiKey: 'k' } // url 未設 → callAgent fail-open，查詢 handler 用不到
 
+// M9.4 fast-follow #2：BotDeps 新增 events 欄位（長壽 EventLog 實例，doAsk 用）。
 function toDeps(s: { cfg: Config; store: BacklogStore; db: RunDb }): BotDeps {
-  return { cfg: s.cfg, store: s.store, db: s.db, llm: noLlm, cfgPath: join(s.cfg.projectPath, 'config.json') }
+  return {
+    cfg: s.cfg, store: s.store, db: s.db, llm: noLlm, cfgPath: join(s.cfg.projectPath, 'config.json'),
+    events: new EventLog(s.cfg.dataDir)
+  }
 }
 
 describe('status', () => {
