@@ -68,4 +68,32 @@ describe('evaluate', () => {
     const s = await evaluate({ llm: judge('SCORE: 15\nACHIEVED\nok'), readEvidence: () => 'x' }, evGoal, '/proj')
     expect(s.score).toBe(10)
   })
+  test('informed：judge 回 NOT ACHIEVED（空格無連字）→ 保守判未達成', async () => {
+    const s = await evaluate({ llm: judge('SCORE: 3\nNOT ACHIEVED\nheader 沒驗'), readEvidence: () => 'x' }, evGoal, '/proj')
+    expect(s.achieved).toBe(false)
+  })
+  test('informed：路徑逃出 cwd（../）被擋、不讀取（防穿越外洩）', async () => {
+    const seen: string[] = []
+    const g: Goal = { objective: 'o', noProgressLimit: 3, evidenceFiles: ['../../secret.env', 'lib/ok.py'] }
+    await evaluate({ llm: judge('SCORE: 3\nNOT-YET\n缺'),
+      readEvidence: (p) => { seen.push(p); return 'X' } }, g, '/proj')
+    expect(seen.some(p => p.includes('secret'))).toBe(false) // 越界檔沒被讀
+    expect(seen.some(p => p.includes('ok.py'))).toBe(true)   // 合法檔有讀
+  })
+  test('informed：超長佐證檔（>8000 字元）被截斷', async () => {
+    let captured = ''
+    const big = 'a'.repeat(9000)
+    const g: Goal = { objective: 'o', noProgressLimit: 3, evidenceFiles: ['lib/big.py'] }
+    const fetchFn = (async (_u: unknown, init: { body: string }) => { captured = init.body; return { ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: 'SCORE: 5\nNOT-YET\nx' } }] }) } }) as unknown as typeof fetch
+    await evaluate({ llm: { url: 'http://x/v1', model: 'm', apiKey: 'k', fetchFn }, readEvidence: () => big }, g, '/proj')
+    expect(captured).toContain('…（截斷）') // prompt 內含截斷標註
+    expect(captured).not.toContain('a'.repeat(8500)) // 未整段塞入
+  })
+  // 向後相容：無 evidenceFiles 的舊 goal 仍走舊路徑，score = achieved?1:0（非新 SCORE 解析）
+  test('向後相容：無佐證檔 + agent 回 ACHIEVED（無 SCORE）→ score 1（舊語意）', async () => {
+    const s = await evaluate({ llm: judge('ACHIEVED 已完成') }, noVerify, '/tmp')
+    expect(s.achieved).toBe(true)
+    expect(s.score).toBe(1)
+  })
 })
