@@ -1,0 +1,18 @@
+{
+  "projectPath": "D:/Users/Administrator/Desktop/Prompt AutoResearch",
+  "backlogFile": "D:/Users/Administrator/Desktop/Prompt AutoResearch/BACKLOG-adng.md",
+  "dataDir": "../data/prompt-autoresearch",
+  "worktreesDir": "../data/prompt-autoresearch/worktrees",
+  "verifyCommand": "python -m pytest tests/ -q --deselect tests/test_architecture_surface.py::ArchitectureSurfaceTests::test_experiment_report_snapshot_contract",
+  "verifyTimeoutMs": 120000,
+  "defaultEngine": "claude",
+  "engines": {
+    "claude": { "adapter": "claude-cli" },
+    "codex-spark": {
+      "adapter": "codex",
+      "model": "gpt-5.3-codex-spark",
+      "costPerRunUsd": 1.0
+    }
+  },
+  "extraDirective": "這是 autodev-ng 引擎端到端測試。只做任務明確要求的最小改動，不要動任何現有程式碼（app.js/index.html/lib/api/*.py 等一律不碰）。"
+}
