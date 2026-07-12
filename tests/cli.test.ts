@@ -437,13 +437,13 @@ test('M5：expandEnvValue——字串內嵌展開、多引用、無引用原樣�
   }
 })
 
-test('M5：既有 configs/voice-actress.json（真檔）schema 全過——engines 白名單含 claude/m3、不含 zen；registry lazy 不碰 m3 就不需要 MINIMAX_*', () => {
+test('M5：既有 configs/voice-actress.json（真檔）schema 全過——engines 白名單含 claude/m3/codex-spark、不含 zen；registry lazy 不碰 m3 就不需要 MINIMAX_*', () => {
   // 不走 assemble：避免測試打開真 dataDir 的 run.db（可能與跑中的 daemon 打架）。
   // schema 驗證＋registry（dataDir 換 temp）已覆蓋「真檔能跑」的組裝面。
   const realCfgPath = resolve(import.meta.dirname, '..', 'configs', 'voice-actress.json')
   const cfg = ConfigSchema.parse(JSON.parse(readFileSync(realCfgPath, 'utf8')))
   expect(cfg.defaultEngine).toBe('claude')
-  expect(Object.keys(cfg.engines)).toEqual(['claude', 'm3'])
+  expect(Object.keys(cfg.engines)).toEqual(['claude', 'm3', 'codex-spark'])
   expect(cfg.engines['zen']).toBeUndefined() // opencode zen 明文禁派 voice-actress
   const registry = makeEngineRegistry({ ...cfg, dataDir: mkdtempSync(join(tmpdir(), 'adng-va-')) })
   expect(registry.resolve('claude')).toBeInstanceOf(ClaudeCliEngine) // lazy：不 resolve m3 不需要 MINIMAX env
