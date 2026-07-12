@@ -25,6 +25,14 @@ describe('parseAudit', () => {
   test('GAPS 但無任務 → clean', () => { expect(parseAudit('GAPS\n\n').clean).toBe(true) })
   test('亂格式（無標記）→ fail-open clean', () => { expect(parseAudit('我覺得還行').clean).toBe(true) })
   test('空回應 → clean', () => { expect(parseAudit('').clean).toBe(true) })
+  test('GAPS: 冒號變體 → 仍解析', () => {
+    const r = parseAudit('GAPS：\n補 A')
+    expect(r.clean).toBe(false); expect(r.gapTasks).toEqual(['補 A'])
+  })
+  test('首行非恰為 GAPS(話多開頭) → 保守 clean，不誤觸發', () => {
+    expect(parseAudit('GAPS 是我回報缺口的方式，這裡沒有\nCLEAN').clean).toBe(true)
+    expect(parseAudit('分析後我認為\nGAPS\n補 X').clean).toBe(true) // GAPS 不在首個非空行 → 保守 clean
+  })
 })
 
 describe('verifyAndSupplement', () => {

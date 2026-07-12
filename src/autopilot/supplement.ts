@@ -8,12 +8,15 @@ import { gatherEvidence } from './evaluator.js'
 
 export interface AuditResult { clean: boolean; gapTasks: string[] }
 
-// 解析對抗式稽核回應：GAPS 段後每行一任務（可帶 - 前綴）；無 GAPS 或無任務 = clean（fail-open）。
+// 解析對抗式稽核回應（仿 planner 首行判定，嚴格）：首個非空行須恰為 GAPS（可帶冒號）才進補足模式，
+// 其後每行一任務（可帶 - 前綴）；否則（CLEAN/話多/亂格式/空/GAPS 無任務）一律 clean（fail-open，
+// 保守——寧可漏補也不憑話多模型的 chatty 回應憑空生任務）。
 export function parseAudit(out: string): AuditResult {
   const lines = out.split(/\r?\n/)
-  const gapsIdx = lines.findIndex(l => /^\s*GAPS\b/i.test(l))
-  if (gapsIdx < 0) return { clean: true, gapTasks: [] }
-  const gapTasks = lines.slice(gapsIdx + 1).map(l => l.trim().replace(/^-\s*/, '')).filter(Boolean)
+  const firstIdx = lines.findIndex(l => l.trim())
+  const first = firstIdx >= 0 ? lines[firstIdx]!.trim() : ''
+  if (!/^GAPS[:：]?$/i.test(first)) return { clean: true, gapTasks: [] }
+  const gapTasks = lines.slice(firstIdx + 1).map(l => l.trim().replace(/^-\s*/, '')).filter(Boolean)
   return { clean: gapTasks.length === 0, gapTasks }
 }
 
