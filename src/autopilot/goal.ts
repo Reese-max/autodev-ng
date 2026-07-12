@@ -3,6 +3,7 @@ export interface Goal {
   verifyCommand?: string
   engine?: string
   noProgressLimit: number
+  evidenceFiles?: string[]
 }
 
 export function parseGoal(md: string): Goal {
@@ -30,10 +31,20 @@ export function parseGoal(md: string): Goal {
   const engineM = md.match(/引擎[：:]\s*([\w-]+)/)
   // noProgressLimit：「連續無進展上限：N」，預設 3
   const limM = md.match(/連續無進展上限[：:]\s*(\d+)/)
+  // evidenceFiles：「## 佐證檔案」段落下每行一路徑（可帶 - 前綴），空行/下個 ## 為界。
+  // 無法用機械 verify 量測的品質類目標，用這些檔內容餵 evaluator 的判定 LLM（見 evaluator.ts）。
+  const evLines: string[] = []
+  let inEvidence = false
+  for (const l of lines) {
+    if (/^##\s*佐證檔案/.test(l)) { inEvidence = true; continue }
+    if (/^##\s/.test(l)) inEvidence = false
+    if (inEvidence && l.trim()) evLines.push(l.trim().replace(/^-\s*/, ''))
+  }
   return {
     objective: objLines.join(' '),
     verifyCommand,
     engine: engineM?.[1],
-    noProgressLimit: limM ? Number(limM[1]) : 3
+    noProgressLimit: limM ? Number(limM[1]) : 3,
+    evidenceFiles: evLines.length ? evLines : undefined
   }
 }
