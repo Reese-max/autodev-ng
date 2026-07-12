@@ -517,6 +517,15 @@ async function main() {
   })
 
   const PORT = 3900
+  // M9.4 fast-follow #4：port 被佔用時（常駐排程 respawn 撞上舊實例仍在跑，等效單例守衛）
+  // 乾淨退出，而非放給 Node 當 uncaught exception 印一堆 stack trace 雜訊。
+  server.on('error', e => {
+    if (e.code === 'EADDRINUSE') {
+      console.log(`[web] port ${PORT} 已被佔用，本實例退出（單例守衛）`)
+      process.exit(0)
+    }
+    throw e
+  })
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`[web] autodev-ng 控制台已啟動：http://127.0.0.1:${PORT}/?token=${token}`)
     console.log(`[web] CSRF token: ${token}`)
