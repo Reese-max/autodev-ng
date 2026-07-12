@@ -26,6 +26,11 @@
         "ANTHROPIC_BASE_URL": "{env:MINIMAX_BASE_URL}",
         "ANTHROPIC_AUTH_TOKEN": "{env:MINIMAX_API_KEY}"
       }
+    },
+    "codex-spark": {
+      "adapter": "codex",
+      "model": "gpt-5.3-codex-spark",
+      "costPerRunUsd": 1.0
     }
   },
   "extraDirective": "commit 用 conventional commit（feat/fix 優先；repo 有 chore-guard hook 會在 chore 類 commit 比例過高時拒絕 chore/docs/refactor/test 開頭的 commit）。dev server 固定佔用 port 3210，驗證前不要自行啟動 dev server；若 port 3210 被佔用，那是使用者的進程，不要殺它。"
