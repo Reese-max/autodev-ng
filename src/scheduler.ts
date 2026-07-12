@@ -269,7 +269,7 @@ function resolveFailure(
 /** M9.9：cfg.engines 中標了 subscription:true 的引擎 tag 清單（訂閱制，邊際成本≈0，
  * 估值照記帳但不踩日頂）。digest/handlers 各自需要同一份清單，故導出供 import。 */
 export function subscriptionTags(cfg: Config): string[] {
-  return Object.entries(cfg.engines).filter(([, e]) => e.subscription).map(([t]) => t)
+  return Object.entries(cfg.engines ?? {}).filter(([, e]) => e.subscription).map(([t]) => t)
 }
 
 /** M4 Task 3：本地日成本（取代舊版 UTC 字串切割）。offsetHours=0 時與舊行為完全一致

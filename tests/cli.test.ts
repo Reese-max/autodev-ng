@@ -14,6 +14,7 @@ import { DevinEngine } from '../src/engines/devin.js'
 import { KernelVerifier } from '../src/verifier.js'
 import { DiscordNotifier } from '../src/notify.js'
 import { EventLog } from '../src/events.js'
+import { RunDb } from '../src/db.js'
 import type { CycleResult, Deps } from '../src/scheduler.js'
 
 function writeConfig(dir: string, over: Record<string, unknown> = {}): string {
@@ -255,25 +256,36 @@ test('小修輪#2：agy 設了 env → 拒（agy 不透傳 env 過 WSL 邊界，
 // finalizeRunOnceHeartbeat 導出（同 runNotifyTest 模式），mock deps、不打真 API、不碰真 config。
 // ---------------------------------------------------------------------------
 
-function heartbeatDeps(dataDir: string, costUsd: number): { deps: Deps; events: EventLog } {
+/** M9.9：改用真 RunDb＋帶 subscription 引擎的 cfg——heartbeat todayCostUsd 語意變 billed
+ * （真金帳），mock stub 只換函式名驗不出「訂閱名義帳被排除」這條語意，得灌真資料驗。
+ * 預灌一筆真金 claude 記錄（ts 落在測試 now 2026-07-07T03:00Z 的 +8 本地日窗口內）。 */
+function heartbeatDeps(dataDir: string, costUsd: number): { deps: Deps; events: EventLog; db: RunDb } {
   const events = new EventLog(dataDir)
+  const db = new RunDb(join(dataDir, 'run.db'))
+  db.record({ taskId: 'hb-real', ok: true, costUsd, detail: 'real', engine: 'claude', ts: '2026-07-07T03:00:00.000Z' })
   const deps = {
-    cfg: { timezoneOffsetHours: 8 },
+    cfg: {
+      timezoneOffsetHours: 8,
+      engines: { claude: { adapter: 'mock' }, 'codex-spark': { adapter: 'mock', costPerRunUsd: 1, subscription: true } },
+    },
     events,
-    db: { costForLocalDay: () => costUsd },
+    db,
   } as unknown as Deps
-  return { deps, events }
+  return { deps, events, db }
 }
 
 function readHeartbeatFile(dataDir: string): { state: string; todayCostUsd: number } {
   return JSON.parse(readFileSync(join(dataDir, 'heartbeat.json'), 'utf8')) as { state: string; todayCostUsd: number }
 }
 
-test('finalizeRunOnceHeartbeat：done/failed/engine-error/blocked 跑完任務 → heartbeat 收尾為 idle、todayCostUsd 為當日值', () => {
+test('finalizeRunOnceHeartbeat：done/failed/engine-error/blocked 跑完任務 → heartbeat 收尾為 idle、todayCostUsd 為當日 billed 真金值（排除訂閱引擎名義帳）', () => {
   const results: CycleResult[] = ['done', 'failed', 'engine-error', { kind: 'blocked', taskId: 't1', taskText: '任務', reason: 'merge-conflict' }]
   for (const result of results) {
     const dir = mkdtempSync(join(tmpdir(), 'adng-hb-'))
-    const { deps } = heartbeatDeps(dir, 1.23)
+    const { deps, db } = heartbeatDeps(dir, 1.23)
+    // M9.9：同一本地日再灌一筆訂閱引擎名義帳 $100——billed 語意必須排除它，
+    // 否則 heartbeat 會是 $101.23（名義總帳），顯示數字與日頂閘踩的數字不一致。
+    db.record({ taskId: 'hb-sub', ok: true, costUsd: 100, detail: 'nominal', engine: 'codex-spark', ts: '2026-07-07T03:00:00.000Z' })
     // 模擬 runOnce 期間任務起跑時寫下的 running heartbeat——收尾必須覆寫掉這個假活狀態
     deps.events.heartbeat({ state: 'running', currentTask: '任務', todayCostUsd: 0 })
 
@@ -281,7 +293,7 @@ test('finalizeRunOnceHeartbeat：done/failed/engine-error/blocked 跑完任務 �
 
     const hb = readHeartbeatFile(dir)
     expect(hb.state).toBe('idle')
-    expect(hb.todayCostUsd).toBe(1.23) // 來自 db.costForLocalDay（當日成本），不是寫死 0
+    expect(hb.todayCostUsd).toBeCloseTo(1.23) // billed 真金（claude $1.23），訂閱 codex-spark $100 被排除
   }
 })
 
