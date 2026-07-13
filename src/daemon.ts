@@ -25,9 +25,11 @@ export interface DaemonOpts {
   maxCycles?: number
   /** 供測試注入：可用記憶體比例。生產預設 os.freemem()/os.totalmem()。 */
   memFreeRatioFn?: () => number
+  /** M10.5：config 檔絕對路徑。有設時每輪自查檔案是否仍存在，消失→優雅退出（多專案退場語意）。測試可不設（跳過檢查）。 */
+  cfgPath?: string
 }
 
-export type DaemonResult = 'lock-busy' | 'stopped' | 'max-cycles'
+export type DaemonResult = 'lock-busy' | 'stopped' | 'max-cycles' | 'config-gone'
 
 const OOM_FREE_RATIO = 0.15
 const MAX_BACKOFF_MS = 10 * 60 * 1000
@@ -253,6 +255,12 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
     while (true) {
       if (maxCycles !== undefined && cycles >= maxCycles) return 'max-cycles'
       cycles++
+
+      // M10.5：多專案退場——config 檔被移除＝該專案退役，daemon 優雅自退（≤一輪生效）。
+      if (opts.cfgPath && !existsSync(opts.cfgPath)) {
+        quiet(() => deps.events.append('daemon-config-gone', { cfgPath: opts.cfgPath }))
+        return 'config-gone'
+      }
 
       // 每輪迴圈開頭檢查每日摘要（鐵律 #6）——stop 當天也必達
       await checkAndSendDigest(deps, notifier)

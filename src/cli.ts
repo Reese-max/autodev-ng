@@ -278,6 +278,7 @@ async function cmdDaemon(cfgPath: string): Promise<void> {
       lockDir,
       cooldownMs: deps.cfg.cooldownMs,
       idleSleepMs: IDLE_SLEEP_MS,
+      cfgPath: resolve(cfgPath),
     })
     console.log(`daemon result: ${result}`)
   })

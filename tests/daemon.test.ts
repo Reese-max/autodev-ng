@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -625,6 +625,39 @@ test('M10.0 案例 5：perpetual:true → checkAndSendDigest 呼叫點會呼叫 
   const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
   expect(digestSends).toHaveLength(1)
   expect(digestSends[0]).toContain('自主工程師台帳：open 1｜fixed 2｜deferred 0')
+})
+
+// ---------------------------------------------------------------------------
+// M10.5 Task 1：daemon config-gone 自退（多專案退場語意）
+// ---------------------------------------------------------------------------
+
+test('M10.5：config 檔消失 → 記 daemon-config-gone 事件並回 config-gone（多專案退場）', async () => {
+  const d = deps(new MockEngine())
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+  const cfgFile = join(d.cfg.dataDir, 'proj.json')
+  writeFileSync(cfgFile, '{}')
+  let cycle = 0
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, {
+    cfgPath: cfgFile,
+    maxCycles: 5,
+    sleepFn: async () => { cycle++; if (cycle === 1) rmSync(cfgFile) },
+  }))
+
+  expect(result).toBe('config-gone')
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  expect(events).toContain('"type":"daemon-config-gone"')
+})
+
+test('M10.5：cfgPath 未設 → 行為不變（回歸線）', async () => {
+  const d = deps(new MockEngine(), '# 空 backlog\n')
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 3 }))
+
+  expect(result).toBe('max-cycles')
 })
 
 test('yesterdayLocal：純函數月界/年界正確減一天（本地日曆日，位移邏輯與 offset 無關）', () => {
