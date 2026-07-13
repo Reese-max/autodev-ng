@@ -188,8 +188,9 @@ async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void>
   // 否則今天輪首送出時 today 才過幾分鐘，ok/fail/cost/DLQ/verify-skip 全部趨近於 0（紅線 4）。
   // M10.0 Task 6：perpetualDigestLine 本身已 fail-open 回 null；這層 try/catch 是
   // import/呼叫層的雙保險（belt-and-suspenders），任何故障一律降級為 null（省略該段）。
+  // 終審 finding 1：perpetual 未開（M9.9 回歸線）時完全不呼叫——避免每輪側效建 run.db 表。
   let perpetualLine: string | null = null
-  try { perpetualLine = perpetualDigestLine(dataDir) } catch { /* fail-open */ }
+  try { perpetualLine = deps.cfg.perpetual ? perpetualDigestLine(dataDir) : null } catch { /* fail-open */ }
 
   let text: string
   try {

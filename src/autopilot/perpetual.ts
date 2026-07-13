@@ -49,6 +49,9 @@ export async function runPerpetualCycle(
   notify: (t: string) => Promise<boolean>, hooks: PerpetualHooks
 ): Promise<boolean> {
   let ledger: ProblemsLedger | undefined
+  // 終審 finding 2：宣告在 try 外，讓 catch 也摸得到——state 載入後任何 throw（discover/
+  // ledger 開檔/runSession…）都要落地武裝冷卻，否則 daemon 下一 idle tick 立刻重跑燒錢迴圈。
+  let state: ReturnType<typeof loadPerpetualState> | undefined
   try {
     // ── 前置閘（依序；任一擋下皆安靜讓路：不寫狀態、不發事件、不呼叫 discover）──
     // 移進 try（finding 3）：billedToday() 等 hook 若 throw，須落在下面的 catch → perpetual-error，
@@ -59,7 +62,7 @@ export async function runPerpetualCycle(
 
     const cooldownDefault = cfg.perpetualCooldownMs ?? DEFAULT_COOLDOWN_MS
     const threshold = cfg.perpetualValueThreshold ?? DEFAULT_VALUE_THRESHOLD
-    const state = loadPerpetualState(dataDir, cooldownDefault)
+    state = loadPerpetualState(dataDir, cooldownDefault)
     const now = hooks.now()
     if (state.lastSessionTs && now.getTime() - Date.parse(state.lastSessionTs) < state.currentCooldownMs) return false
 
@@ -67,6 +70,12 @@ export async function runPerpetualCycle(
     return await runBody(cfg, dataDir, events, notify, hooks, state, now, threshold, ledger)
   } catch (e) {
     quiet(() => events.append('perpetual-error', { error: String(e) }))
+    // 終審 finding 2 belt：state 已載入代表閘門都通過了（非安靜讓路），這次 throw 真的
+    // 消耗了一次嘗試——best-effort 補武裝，蓋掉 discover-throw／ledger-open-throw／
+    // runSession-throw 等所有下游意外，不再依賴 runBody 內每個分支各自記帳。
+    if (state) {
+      try { state.lastSessionTs = hooks.now().toISOString(); savePerpetualState(dataDir, state) } catch { /* fail-open：補武裝失敗不反殺 */ }
+    }
     return false
   } finally {
     try { ledger?.close() } catch { /* fail-open：關閉失敗不反殺 */ }
@@ -156,6 +165,13 @@ async function runBody(
   ledger.setStatus(authored.fp, 'in-progress', '', goalId)
   quiet(() => events.append('perpetual-goal-authored', { fingerprint: authored.fp, goalId, title: authored.title }))
 
+  // 終審 finding 2/g：runSession 前先武裝冷卻——涵蓋 session throw（外層 catch 也會補，
+  // 這裡是主線）與 session 回 'lock-busy'/'no-goal'（closeout 對非 object result 直接回 false
+  // 不回寫，若不在此先武裝，下一 idle tick 會對同一份剛落地的 GOAL 立刻重跑）。之後 closeout
+  // 成功收案還會再 save 一次刷新 lastSessionTs——雙重寫入正確（跑完那段時間也該算數）。
+  state.lastSessionTs = hooks.now().toISOString()
+  savePerpetualState(dataDir, state)
+
   const result = await hooks.runSession({ discovered })
   return closeout(cfg, dataDir, events, notify, ledger, state, now, authored.fp, authored.title, goalId, result)
 }
@@ -200,7 +216,10 @@ export function perpetualDigestLine(dataDir: string): string | null {
   try {
     ledger = new ProblemsLedger(join(dataDir, 'run.db'))
     const c = ledger.counts()
-    return `自主工程師台帳：open ${c.open ?? 0}｜fixed ${c.fixed ?? 0}｜deferred ${c.deferred ?? 0}`
+    const open = c.open ?? 0, fixed = c.fixed ?? 0, deferred = c.deferred ?? 0
+    // 終審 finding 1：零活動（空台帳／全 0）＝整段省略，不是印「0｜0｜0」的噪音行（spec §3.7）。
+    if (open === 0 && fixed === 0 && deferred === 0) return null
+    return `自主工程師台帳：open ${open}｜fixed ${fixed}｜deferred ${deferred}`
   } catch {
     return null
   } finally {

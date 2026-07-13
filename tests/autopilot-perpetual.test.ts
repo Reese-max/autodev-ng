@@ -218,6 +218,39 @@ describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {
     expect(notify).toHaveBeenCalledTimes(1)
   })
 
+  // 終審 finding 2/g：成案（GOAL 已落地、ledger in-progress）之後，runSession 無論 throw
+  // 或回 lock-busy/no-goal，都不得讓 lastSessionTs 停留在未武裝狀態——否則下一個 idle tick
+  // 會對剛落地的同一份 GOAL 立刻重跑昂貴的 discover→author→session 全路徑。
+  test('runSession throws（成案後）→ perpetual-error 事件、回 false、lastSessionTs 已武裝冷卻', async () => {
+    const cfg = makeCfg(dir)
+    const fp = problemFingerprint('會爆炸的問題')
+    const author = vi.fn(async () => autoGoalMd(fp, '修會爆炸的問題'))
+    const discover = vi.fn(async () => ({ survey: 's', ranked: [{ title: '會爆炸的問題', lens: 'tests', value: 8, rationale: 'r' }] }))
+    const runSession = vi.fn(async () => { throw new Error('session boom') })
+    const hooks = makeHooks({ discover, author, runSession })
+    const r = await runPerpetualCycle(cfg, dir, events, async () => true, hooks)
+    expect(r).toBe(false)
+    expect(eventTypes(dir)).toContain('perpetual-error')
+    expect(existsSync(join(dir, 'perpetual-state.json'))).toBe(true)
+    expect(readState(dir).lastSessionTs).toBe(NOW.toISOString())
+  })
+
+  test('runSession 回 lock-busy（成案後）→ closeout 不回寫，但 runSession 前的早期武裝已落地：lastSessionTs 非空', async () => {
+    const cfg = makeCfg(dir)
+    const fp = problemFingerprint('鎖忙問題')
+    const author = vi.fn(async () => autoGoalMd(fp, '修鎖忙問題'))
+    const discover = vi.fn(async () => ({ survey: 's', ranked: [{ title: '鎖忙問題', lens: 'tests', value: 8, rationale: 'r' }] }))
+    const runSession = vi.fn(async (): Promise<'lock-busy'> => 'lock-busy')
+    const hooks = makeHooks({ discover, author, runSession })
+    const r = await runPerpetualCycle(cfg, dir, events, async () => true, hooks)
+    expect(r).toBe(false) // closeout 對非 object result 回 false，不回寫 ledger、不刪 GOAL
+    expect(readState(dir).lastSessionTs).toBe(NOW.toISOString())
+    const l = new ProblemsLedger(join(dir, 'run.db'))
+    expect(l.listByStatus('in-progress').map(x => x.fingerprint)).toContain(fp) // 未被 closeout 收案
+    l.close()
+    expect(existsSync(cfg.goalFile!)).toBe(true) // 未刪（closeout 沒跑到刪檔那段）
+  })
+
   test('deferred 映射：runSession 回 no-progress → 台帳 deferred', async () => {
     const cfg = makeCfg(dir)
     const fp = problemFingerprint('高價問題乙')
@@ -274,6 +307,10 @@ describe('runPerpetualCycle fail-open', () => {
     const r = await runPerpetualCycle(makeCfg(dir), dir, events, async () => true, hooks)
     expect(r).toBe(false)
     expect(eventTypes(dir)).toContain('perpetual-error')
+    // 終審 finding 2：state 在 discover 之前已載入，外層 catch 須 best-effort 補武裝冷卻，
+    // 否則下一 idle tick 會立刻對同一次 discover 故障重跑（燒錢迴圈）。
+    expect(existsSync(join(dir, 'perpetual-state.json'))).toBe(true)
+    expect(readState(dir).lastSessionTs).toBe(NOW.toISOString())
   })
 
   // finding 3：前置閘（含 billedToday()）現在跑在 try 內——真的 throw 時必須落進外層
@@ -302,6 +339,22 @@ describe('perpetualDigestLine', () => {
     // 開一個目錄但塞入損壞 run.db → 建構或查詢丟錯 → null
     const dir = mkdtempSync(join(tmpdir(), 'adng-perp-'))
     writeFileSync(join(dir, 'run.db'), 'not a sqlite file at all')
+    expect(perpetualDigestLine(dir)).toBeNull()
+    safeRm(dir)
+  })
+
+  // 終審 finding 1：空台帳（表存在但 0 列，或 run.db 根本不存在）一律回 null——
+  // 零活動＝整段省略（spec §3.7），不是印「open 0｜fixed 0｜deferred 0」的噪音行。
+  test('空台帳（0 列）→ null，不是 all-zero 字串', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'adng-perp-'))
+    const l = new ProblemsLedger(join(dir, 'run.db')) // 建表但不塞任何列
+    l.close()
+    expect(perpetualDigestLine(dir)).toBeNull()
+    safeRm(dir)
+  })
+
+  test('run.db 完全不存在（首次跑 perpetual:false 的專案）→ null', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'adng-perp-'))
     expect(perpetualDigestLine(dir)).toBeNull()
     safeRm(dir)
   })
