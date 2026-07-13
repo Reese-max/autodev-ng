@@ -658,6 +658,8 @@ test('M10.5：cfgPath 未設 → 行為不變（回歸線）', async () => {
   const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 3 }))
 
   expect(result).toBe('max-cycles')
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  expect(events).not.toContain('"type":"daemon-config-gone"')
 })
 
 test('yesterdayLocal：純函數月界/年界正確減一天（本地日曆日，位移邏輯與 offset 無關）', () => {

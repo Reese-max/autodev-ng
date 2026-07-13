@@ -256,14 +256,14 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       if (maxCycles !== undefined && cycles >= maxCycles) return 'max-cycles'
       cycles++
 
-      // M10.5：多專案退場——config 檔被移除＝該專案退役，daemon 優雅自退（≤一輪生效）。
+      // 每輪迴圈開頭檢查每日摘要（鐵律 #6）——stop 當天也必達
+      await checkAndSendDigest(deps, notifier)
+
+      // M10.5：多專案退場——config 檔被移除＝該專案退役，daemon 優雅自退（≤一輪生效；擺在 digest 之後：退役當輪到期的每日摘要仍必達，鐵律 #6）。
       if (opts.cfgPath && !existsSync(opts.cfgPath)) {
         quiet(() => deps.events.append('daemon-config-gone', { cfgPath: opts.cfgPath }))
         return 'config-gone'
       }
-
-      // 每輪迴圈開頭檢查每日摘要（鐵律 #6）——stop 當天也必達
-      await checkAndSendDigest(deps, notifier)
 
       // M7.5:OOM 閘——可用記憶體 <15% 跳過本輪派工(舊系統教訓:高壓下 spawn 只會雪崩)
       // stop 優先於 OOM 跳輪——否則低記憶體期間操作者停不下 daemon(全分支審查 IMPORTANT)
