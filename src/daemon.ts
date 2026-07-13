@@ -7,7 +7,7 @@ import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
 import { runOnce, subscriptionTags, type Deps, type CycleResult, type BlockedReason } from './scheduler.js'
 import { isSilenced } from './bot/silence.js'
 import { quiet, type EventLog } from './events.js'
-import { maybeRunPerpetual } from './autopilot/perpetual.js'
+import { maybeRunPerpetual, perpetualDigestLine } from './autopilot/perpetual.js'
 
 export interface Notifier {
   send(text: string): Promise<boolean>
@@ -186,9 +186,14 @@ async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void>
 
   // stamp 判定仍用 today（重送/stop-day 語意不變）；實際聚合報「已完結的前一本地日」，
   // 否則今天輪首送出時 today 才過幾分鐘，ok/fail/cost/DLQ/verify-skip 全部趨近於 0（紅線 4）。
+  // M10.0 Task 6：perpetualDigestLine 本身已 fail-open 回 null；這層 try/catch 是
+  // import/呼叫層的雙保險（belt-and-suspenders），任何故障一律降級為 null（省略該段）。
+  let perpetualLine: string | null = null
+  try { perpetualLine = perpetualDigestLine(dataDir) } catch { /* fail-open */ }
+
   let text: string
   try {
-    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayLocal(day), offsetHours, subscriptionEngines: subscriptionTags(deps.cfg) })
+    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayLocal(day), offsetHours, subscriptionEngines: subscriptionTags(deps.cfg), perpetualLine })
   } catch {
     return
   }

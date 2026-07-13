@@ -12,6 +12,9 @@ export interface BuildDigestOpts {
   /** M9.9：訂閱制引擎 tag 清單（scheduler.subscriptionTags(cfg) 產出）。未傳＝視同無訂閱引擎
    * （billedUsd===costUsd，向後相容）。 */
   subscriptionEngines?: string[]
+  /** M10.0 Task 6：perpetualDigestLine(dataDir) 產出的自主工程師台帳摘要行。
+   * undefined/null＝整段省略（既有呼叫端不變、輸出逐位元組相同）；字串＝文末追加一行。 */
+  perpetualLine?: string | null
 }
 
 function dlqPath(dataDir: string): string {
@@ -96,6 +99,7 @@ export function buildDigest(opts: BuildDigestOpts): string {
     lines.push(`⚠ 本日驗證鏈其他告警 ${other} 次（詳見 events.jsonl）`)
   }
   lines.push(`adng 通道自檢 OK`)
+  if (opts.perpetualLine != null) lines.push(opts.perpetualLine)
   return lines.join('\n')
 }
 
