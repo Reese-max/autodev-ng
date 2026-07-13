@@ -18,7 +18,8 @@ const NO_ARG_COMMANDS: Record<string, string> = {
   log: '查詢近期事件紀錄',
   pause: '暫停 daemon（寫入 stop 檔）',
   resume: '恢復 daemon（清除 stop 檔）',
-  lessons: '查看教訓庫（專案＋全域）'
+  lessons: '查看教訓庫（專案＋全域）',
+  problems: '列出自主工程師台帳待處理問題 top10（依 value 排序）'
 }
 
 const ARG_COMMANDS: Record<string, string> = {
@@ -28,7 +29,7 @@ const ARG_COMMANDS: Record<string, string> = {
   goal: 'GOAL autopilot：set <目標文字>／run／status／stop'
 }
 
-/** 11 個 slash command 定義（7 無參數 + 4 帶字串參數 arg）。 */
+/** 12 個 slash command 定義（8 無參數 + 4 帶字串參數 arg）。 */
 function buildCommandsData(): ReturnType<SlashCommandBuilder['toJSON']>[] {
   const noArg = Object.entries(NO_ARG_COMMANDS).map(([name, desc]) =>
     new SlashCommandBuilder().setName(name).setDescription(desc).toJSON()

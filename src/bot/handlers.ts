@@ -9,6 +9,7 @@ import type { EventLog } from '../events.js'
 import { isSilenced } from './silence.js'
 import { doPause, doResume, doSilence, doTask, doAsk, doGoal } from './actions.js'
 import { subscriptionTags } from '../scheduler.js'
+import { ProblemsLedger } from '../autopilot/ledger.js'
 
 export interface BotDeps {
   cfg: Config
@@ -177,6 +178,23 @@ async function cmdLessons(d: BotDeps): Promise<CmdResult> {
   }
 }
 
+/** /problems：對 dataDir/run.db 開唯讀 ProblemsLedger 連線，列 open top10（value DESC，
+ * ledger.listByStatus 已排序）。每呼叫自開自關，不長駐（鏡像 perpetualDigestLine 慣例）；
+ * 任何故障 fail-open 回人話，絕不炸 bot（M10.0 Task 6）。 */
+async function cmdProblems(d: BotDeps): Promise<CmdResult> {
+  let ledger: ProblemsLedger | undefined
+  try {
+    ledger = new ProblemsLedger(join(d.cfg.dataDir, 'run.db'))
+    const open = ledger.listByStatus('open', 10)
+    if (open.length === 0) return { ok: true, text: '目前無待處理問題' }
+    return { ok: true, text: open.map(r => `v${r.value} [${r.lens}] ${r.title}`).join('\n') }
+  } catch {
+    return { ok: false, text: '問題台帳查詢失敗，請稍後再試' }
+  } finally {
+    try { ledger?.close() } catch { /* fail-open：關閉失敗不反殺 */ }
+  }
+}
+
 /** 統一入口：路由到查詢（本檔）與控制（actions.ts）handler。未知指令回人話，
  * 任何 handler 內部意外 throw 一律在此吞掉（鐵律：永不 throw、永不外洩 token）。
  * 回傳結構化 {ok,text}：查詢類（status/cost/backlog/log/lessons）與控制類（actions.ts）
@@ -191,6 +209,7 @@ export async function handleCommand(name: string, arg: string, d: BotDeps): Prom
       case 'backlog': return pass(await cmdBacklog(d))
       case 'log': return pass(await cmdLog(d))
       case 'lessons': return pass(await cmdLessons(d))
+      case 'problems': return pass(await cmdProblems(d))
       case 'pause': return pass(await doPause(d))
       case 'resume': return pass(await doResume(d))
       case 'silence': return pass(await doSilence(d, arg))

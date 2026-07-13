@@ -8,6 +8,7 @@ import { RunDb } from '../src/db.js'
 import { ConfigSchema, type Config } from '../src/types.js'
 import type { LlmOpts } from '../src/autopilot/llm.js'
 import { EventLog } from '../src/events.js'
+import { ProblemsLedger } from '../src/autopilot/ledger.js'
 
 // 沿用 tests/learn-integration.test.ts 的 ConfigSchema.parse 建 cfg 模式（先讀）。查詢 handler
 // 不碰 scheduler/worktree，故不需真 git repo，只要 cfg 路徑存在即可（brief 允許酌情簡化）。
@@ -184,6 +185,33 @@ describe('lessons', () => {
     expect(out.ok).toBe(true)
     expect(out.text.length).toBeLessThanOrEqual(1900 + '…[truncated]'.length)
     expect(out.text).toContain('[truncated]')
+  })
+})
+
+describe('problems', () => {
+  test('/problems 列 open top10，value DESC，排除 fixed（M10.0 Task 6）', async () => {
+    const s = setup()
+    mkdirSync(s.cfg.dataDir, { recursive: true })
+    const ledger = new ProblemsLedger(join(s.cfg.dataDir, 'run.db'))
+    ledger.upsertSeen({ title: '低值問題', lens: 'perf', value: 3 }, '2026-07-01T00:00:00Z')
+    ledger.upsertSeen({ title: '高值問題', lens: 'security', value: 9 }, '2026-07-01T00:00:00Z')
+    const fixed = ledger.upsertSeen({ title: '已修問題', lens: 'bug', value: 8 }, '2026-07-01T00:00:00Z')
+    ledger.setStatus(fixed.row.fingerprint, 'fixed', 'done')
+    ledger.close()
+
+    const out = await handleCommand('problems', '', toDeps(s))
+    expect(out.ok).toBe(true)
+    const lines = out.text.split('\n')
+    expect(lines).toEqual(['v9 [security] 高值問題', 'v3 [perf] 低值問題'])
+    expect(out.text).not.toContain('已修問題')
+  })
+
+  test('/problems 無 open 案 → 友善空訊息，不炸', async () => {
+    const s = setup()
+    const out = await handleCommand('problems', '', toDeps(s))
+    expect(out.ok).toBe(true)
+    expect(out.text.length).toBeGreaterThan(0)
+    expect(out.text).not.toContain('undefined')
   })
 })
 

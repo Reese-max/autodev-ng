@@ -196,3 +196,24 @@ test('buildDigest：offsetHours 未傳時預設 0（UTC），與舊行為相容�
   expect(text).not.toContain('verify 略過')
   db.close()
 })
+
+test('buildDigest：perpetualLine 有值 → 文末出現該行（M10.0 Task 6）', () => {
+  const db = freshDb()
+  const dataDir = freshDataDir()
+  const line = '自主工程師台帳：open 1｜fixed 2｜deferred 0'
+  const text = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05', perpetualLine: line })
+  expect(text).toContain(line)
+  expect(text.trim().endsWith(line)).toBe(true)
+  db.close()
+})
+
+test('buildDigest：perpetualLine 未傳／null → 輸出不含「自主工程師」字樣，且與未傳時逐位元組相同（向後相容）', () => {
+  const db = freshDb()
+  const dataDir = freshDataDir()
+  const textUndefined = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05' })
+  expect(textUndefined).not.toContain('自主工程師')
+  const textNull = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05', perpetualLine: null })
+  expect(textNull).not.toContain('自主工程師')
+  expect(textNull).toBe(textUndefined)
+  db.close()
+})

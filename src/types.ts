@@ -117,7 +117,11 @@ export const ConfigSchema = z.object({
   // M7：教訓庫檔路徑。learningsFile 未設時 cli.ts assemble 預設 join(dataDir,'learnings.md')
   // （功能零設定開啟）；globalLearningsFile 為跨專案共用教訓檔，未設即不注入全局段。
   learningsFile: z.string().optional(),
-  globalLearningsFile: z.string().optional()
+  globalLearningsFile: z.string().optional(),
+  // M10.0 永續外環：perpetual 未設（false）＝外環完全停用，daemon 行為與 M9.9 一致（硬回歸線）。
+  perpetual: z.boolean().default(false),
+  perpetualCooldownMs: z.number().int().positive().default(6 * 60 * 60 * 1000),
+  perpetualValueThreshold: z.number().int().min(0).max(10).default(6)
 })
   .superRefine((c, ctx) => {
     if (!c.engines && !c.engine) ctx.addIssue({ code: 'custom', path: ['engine'], message: 'engines map 與 legacy engine 欄位至少須設一個' })

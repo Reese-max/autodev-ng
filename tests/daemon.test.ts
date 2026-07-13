@@ -1,8 +1,21 @@
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+// M10.0 Task 5：daemon idle 分支呼叫 maybeRunPerpetual——整檔 mock，預設 resolve false
+// （等同 cfg.perpetual 未開時真實閘門的觀察行為），既有 idle 相關測試不受影響；
+// 三個新案例（下方 M10.0 區塊）用 mockResolvedValueOnce/mockRejectedValueOnce 覆蓋單次呼叫。
+const maybeRunPerpetualMock = vi.hoisted(() => vi.fn(async (): Promise<boolean> => false))
+// 終審 finding 1：perpetualDigestLine 也整檔 mock（預設回 null，等同既有 fail-open 觀察行為，
+// 不改變既有測試——之前這個 import 在本檔根本沒被 mock 到值，daemon.ts 呼叫時直接 undefined
+// 炸 TypeError，被呼叫端自己的 try/catch 吞成 null，效果剛好一樣）。案例 5 靠這個 mock 的
+// 呼叫次數斷言 daemon.ts 呼叫點是否有先看 cfg.perpetual 這個 gate——真實函式的行為
+// （空台帳回 null）已在 tests/autopilot-perpetual.test.ts 涵蓋，這裡只驗 call-site 邏輯。
+const perpetualDigestLineMock = vi.hoisted(() => vi.fn((): string | null => null))
+vi.mock('../src/autopilot/perpetual.js', () => ({ maybeRunPerpetual: maybeRunPerpetualMock, perpetualDigestLine: perpetualDigestLineMock }))
+
 import { runDaemon, yesterdayLocal, baseAlertMessage, type DaemonOpts, type Notifier } from '../src/daemon.js'
 import type { CycleResult, Deps } from '../src/scheduler.js'
 import { BacklogStore } from '../src/backlog.js'
@@ -532,6 +545,86 @@ test('⑲ 崩潰計數一次成功 cycle 後歸零：4 崩 → 1 成功 → 再�
   // 未觸發暫停：無 30 分 sleep（上面 toEqual 已保證），也不得出現 pause 告警
   const pauseAlerts = notifier.sent.filter(t => t.includes('連續崩潰暫停'))
   expect(pauseAlerts).toHaveLength(0)
+})
+
+// ---------------------------------------------------------------------------
+// M10.0 Task 5：idle 分支接外環（maybeRunPerpetual，見上方整檔 vi.mock）
+// ---------------------------------------------------------------------------
+
+test('M10.0 案例 1：perpetual 未觸發（maybeRunPerpetual 回 false）→ idle 分支行為與現狀一致（idle alert 照發、sleep 收 idleSleepMs）', async () => {
+  const d = deps(new MockEngine(), '# 空 backlog\n')
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
+
+  expect(result).toBe('max-cycles')
+  expect(notifier.sent.some(t => t.includes('backlog 已耗盡'))).toBe(true)
+  expect(sleepCalls).toEqual([5000]) // idleSleepMs（baseOpts 預設）
+})
+
+test('M10.0 案例 2：perpetual 觸發（maybeRunPerpetual 回 true）→ 該輪不發 idle alert，sleep 收 cooldownMs（非 idleSleepMs）', async () => {
+  maybeRunPerpetualMock.mockResolvedValueOnce(true)
+  const d = deps(new MockEngine(), '# 空 backlog\n')
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
+
+  expect(result).toBe('max-cycles')
+  expect(notifier.sent.some(t => t.includes('backlog 已耗盡'))).toBe(false)
+  expect(sleepCalls).toEqual([1000]) // cooldownMs（baseOpts 預設）
+})
+
+test('M10.0 案例 3：maybeRunPerpetual throw → daemon 不死（fail-open，鐵律 #4），照發 idle alert，迴圈繼續跑下一輪', async () => {
+  maybeRunPerpetualMock.mockRejectedValueOnce(new Error('perpetual 炸裂（模擬外環故障）'))
+  const d = deps(new MockEngine(), '# 空 backlog\n')
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 2 }))
+
+  expect(result).toBe('max-cycles') // 兩輪都跑完，throw 沒有炸出主迴圈
+  expect(notifier.sent.some(t => t.includes('backlog 已耗盡'))).toBe(true)
+  expect(sleepCalls).toEqual([5000, 5000])
+})
+
+// 終審 finding 1：perpetual:false（ConfigSchema 預設）時，checkAndSendDigest 呼叫點不得呼叫
+// perpetualDigestLine——否則每日側效在 dataDir/run.db 建表，且對空台帳印出噪音行，破壞
+// 「perpetual 未設時行為與 M9.9 byte-identical」的硬回歸線（spec §3.7 零噪音）。
+// perpetualDigestLine 真實函式的「空台帳回 null」行為已在 tests/autopilot-perpetual.test.ts
+// 的 perpetualDigestLine describe 區塊涵蓋；本檔測的是 daemon.ts 呼叫點本身的 cfg.perpetual
+// gate 邏輯，用檔頭的 perpetualDigestLineMock 斷言呼叫次數（見檔頭 mock 說明）。
+test('M10.0 案例 4：perpetual:false（預設）→ checkAndSendDigest 呼叫點完全不呼叫 perpetualDigestLine（回歸線 finding 1）', async () => {
+  const d = deps(new MockEngine(), '# 空 backlog\n') // 直接 idle，快速觸發 digest 檢查
+  expect(d.cfg.perpetual).toBe(false) // 確認測試前提：cfg 走 ConfigSchema 預設值
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+  perpetualDigestLineMock.mockClear()
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
+
+  expect(result).toBe('max-cycles')
+  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  expect(digestSends).toHaveLength(1) // digest 仍每輪必送（鐵律 #6 不受影響）
+  expect(perpetualDigestLineMock).not.toHaveBeenCalled() // 但 perpetual 未開時完全不呼叫
+})
+
+test('M10.0 案例 5：perpetual:true → checkAndSendDigest 呼叫點會呼叫 perpetualDigestLine，回傳值併入摘要文字', async () => {
+  const d = deps(new MockEngine(), '# 空 backlog\n')
+  d.cfg.perpetual = true
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+  perpetualDigestLineMock.mockClear()
+  perpetualDigestLineMock.mockReturnValueOnce('自主工程師台帳：open 1｜fixed 2｜deferred 0')
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
+
+  expect(result).toBe('max-cycles')
+  expect(perpetualDigestLineMock).toHaveBeenCalledWith(d.cfg.dataDir)
+  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  expect(digestSends).toHaveLength(1)
+  expect(digestSends[0]).toContain('自主工程師台帳：open 1｜fixed 2｜deferred 0')
 })
 
 test('yesterdayLocal：純函數月界/年界正確減一天（本地日曆日，位移邏輯與 offset 無關）', () => {

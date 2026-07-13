@@ -280,3 +280,20 @@ function todayCost(db: RunDb, cfg: Config): number {
   const offsetHours = cfg.timezoneOffsetHours
   return db.billedCostForLocalDay(localDay(new Date().toISOString(), offsetHours), offsetHours, subscriptionTags(cfg))
 }
+
+/**
+ * Fix 4（首跑實證）：runOnce 對 stopped/cost-stop/idle/preflight-failed 自帶 heartbeat 收尾，
+ * 但任務真的跑起來（running）之後的 done/failed/engine-error/blocked 都不再寫——daemon 靠
+ * 下一輪覆寫無礙；run-once 是單輪進程，不收尾 heartbeat 會永遠停在 running 假活。這裡只對
+ * 「跑過任務」的結果補寫 idle（觀測面故障吞錯，不反殺 CLI）。從 cmdRunOnce 抽出導出
+ * （同 runNotifyTest 模式）：mock deps 即可回歸測試，不必真跑 CLI 進程。
+ */
+export function finalizeRunOnceHeartbeat(deps: Deps, result: CycleResult, now: Date = new Date()): void {
+  if (!(typeof result === 'object' || result === 'done' || result === 'failed' || result === 'engine-error')) return
+  try {
+    const day = localDay(now.toISOString(), deps.cfg.timezoneOffsetHours)
+    // M9.9：heartbeat todayCostUsd 語意＝billed（真金帳，與 scheduler todayCost 的踩頂數字一致），
+    // 排除訂閱引擎的名義估值——顯示與日頂閘看同一個數字，不因寫入路徑不同而語意漂移。
+    deps.events.heartbeat({ state: 'idle', todayCostUsd: deps.db.billedCostForLocalDay(day, deps.cfg.timezoneOffsetHours, subscriptionTags(deps.cfg)) })
+  } catch { /* 觀測面故障不可反殺 CLI（鐵律 #4） */ }
+}
