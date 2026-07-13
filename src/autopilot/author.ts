@@ -74,9 +74,18 @@ export async function authorGoal(
   }
   const md = parts.join('\n') + '\n'
 
-  // 組裝後回讀自驗：objective 非空、verifyCommand 逐字＝cfg.verifyCommand，不符回 null。
+  // 組裝後回讀自驗：全欄位 round-trip 比對模板原意，任一不符即代表 objective 夾帶注入內容，回 null。
+  // （防注入：惡意 objective 文字裡塞「連續無進展上限：999」「引擎：xxx」或自帶「## 佐證檔案」段落，
+  // parseGoal 對全文做首個符合正則抽取，會被覆蓋掉模板真正寫入的值）
+  const expectedEvidence = evidenceFiles.length ? evidenceFiles : undefined
   const g = parseGoal(md)
-  if (!g.objective || g.verifyCommand !== cfg.verifyCommand) return null
+  if (
+    !g.objective ||
+    g.verifyCommand !== cfg.verifyCommand ||
+    g.noProgressLimit !== 2 ||
+    g.engine !== undefined ||
+    JSON.stringify(g.evidenceFiles) !== JSON.stringify(expectedEvidence)
+  ) return null
   return md
 }
 
