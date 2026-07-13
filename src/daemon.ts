@@ -7,6 +7,7 @@ import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
 import { runOnce, subscriptionTags, type Deps, type CycleResult, type BlockedReason } from './scheduler.js'
 import { isSilenced } from './bot/silence.js'
 import { quiet, type EventLog } from './events.js'
+import { maybeRunPerpetual } from './autopilot/perpetual.js'
 
 export interface Notifier {
   send(text: string): Promise<boolean>
@@ -293,12 +294,15 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
         try { await deps.lessons.reflect(result) } catch { /* fail-open */ }
       }
 
+      // M10.0：idle 分支接外環（perpetual opt-in+fail-open+sleep 語意）。
       // M7.5:idle 要任務通知(6h 冷卻=持續 idle 每 6h 至多提醒一次,不洗版)
-      if (result === 'idle') {
-        await alert('idle', 'daemon 提醒:backlog 已耗盡,請補任務')
-      }
-
       if (result === 'idle' || result === 'cost-hard-stop') {
+        if (result === 'idle') {
+          let acted = false
+          try { acted = await maybeRunPerpetual(deps, notifier) } catch { /* fail-open：外環故障不反殺 daemon（鐵律 #4） */ }
+          if (acted) { await sleep(cooldownMs); continue }   // session 已耗時，短冷卻即回輪
+          await alert('idle', 'daemon 提醒:backlog 已耗盡,請補任務')
+        }
         await sleep(idleSleepMs)
       } else {
         await sleep(cooldownMs)

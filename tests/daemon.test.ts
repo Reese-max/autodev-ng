@@ -1,8 +1,15 @@
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+// M10.0 Task 5：daemon idle 分支呼叫 maybeRunPerpetual——整檔 mock，預設 resolve false
+// （等同 cfg.perpetual 未開時真實閘門的觀察行為），既有 idle 相關測試不受影響；
+// 三個新案例（下方 M10.0 區塊）用 mockResolvedValueOnce/mockRejectedValueOnce 覆蓋單次呼叫。
+const maybeRunPerpetualMock = vi.hoisted(() => vi.fn(async (): Promise<boolean> => false))
+vi.mock('../src/autopilot/perpetual.js', () => ({ maybeRunPerpetual: maybeRunPerpetualMock }))
+
 import { runDaemon, yesterdayLocal, baseAlertMessage, type DaemonOpts, type Notifier } from '../src/daemon.js'
 import type { CycleResult, Deps } from '../src/scheduler.js'
 import { BacklogStore } from '../src/backlog.js'
@@ -532,6 +539,48 @@ test('⑲ 崩潰計數一次成功 cycle 後歸零：4 崩 → 1 成功 → 再�
   // 未觸發暫停：無 30 分 sleep（上面 toEqual 已保證），也不得出現 pause 告警
   const pauseAlerts = notifier.sent.filter(t => t.includes('連續崩潰暫停'))
   expect(pauseAlerts).toHaveLength(0)
+})
+
+// ---------------------------------------------------------------------------
+// M10.0 Task 5：idle 分支接外環（maybeRunPerpetual，見上方整檔 vi.mock）
+// ---------------------------------------------------------------------------
+
+test('M10.0 案例 1：perpetual 未觸發（maybeRunPerpetual 回 false）→ idle 分支行為與現狀一致（idle alert 照發、sleep 收 idleSleepMs）', async () => {
+  const d = deps(new MockEngine(), '# 空 backlog\n')
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
+
+  expect(result).toBe('max-cycles')
+  expect(notifier.sent.some(t => t.includes('backlog 已耗盡'))).toBe(true)
+  expect(sleepCalls).toEqual([5000]) // idleSleepMs（baseOpts 預設）
+})
+
+test('M10.0 案例 2：perpetual 觸發（maybeRunPerpetual 回 true）→ 該輪不發 idle alert，sleep 收 cooldownMs（非 idleSleepMs）', async () => {
+  maybeRunPerpetualMock.mockResolvedValueOnce(true)
+  const d = deps(new MockEngine(), '# 空 backlog\n')
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
+
+  expect(result).toBe('max-cycles')
+  expect(notifier.sent.some(t => t.includes('backlog 已耗盡'))).toBe(false)
+  expect(sleepCalls).toEqual([1000]) // cooldownMs（baseOpts 預設）
+})
+
+test('M10.0 案例 3：maybeRunPerpetual throw → daemon 不死（fail-open，鐵律 #4），照發 idle alert，迴圈繼續跑下一輪', async () => {
+  maybeRunPerpetualMock.mockRejectedValueOnce(new Error('perpetual 炸裂（模擬外環故障）'))
+  const d = deps(new MockEngine(), '# 空 backlog\n')
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 2 }))
+
+  expect(result).toBe('max-cycles') // 兩輪都跑完，throw 沒有炸出主迴圈
+  expect(notifier.sent.some(t => t.includes('backlog 已耗盡'))).toBe(true)
+  expect(sleepCalls).toEqual([5000, 5000])
 })
 
 test('yesterdayLocal：純函數月界/年界正確減一天（本地日曆日，位移邏輯與 offset 無關）', () => {

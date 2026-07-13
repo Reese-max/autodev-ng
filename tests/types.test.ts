@@ -75,6 +75,35 @@ test('defaultEngine 不在 engines 白名單 → schema refine 拒', () => {
   })).toThrow()
 })
 
+// ---------------------------------------------------------------------------
+// M10.0 Task 5：perpetual 三欄預設值
+
+test('M10.0：perpetual/perpetualCooldownMs/perpetualValueThreshold 套用預設值（未設＝外環完全停用）', () => {
+  const cfg = ConfigSchema.parse({
+    projectPath: 'D:/x/proj', backlogFile: 'D:/x/proj/BACKLOG.md', dataDir: 'D:/x/data', engine: 'mock'
+  })
+  expect(cfg.perpetual).toBe(false)
+  expect(cfg.perpetualCooldownMs).toBe(6 * 60 * 60 * 1000)
+  expect(cfg.perpetualValueThreshold).toBe(6)
+})
+
+test('M10.0：perpetualValueThreshold 超出 0..10 範圍被拒，範圍內可覆蓋；perpetualCooldownMs 非正被拒', () => {
+  expect(() => ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'mock', perpetualValueThreshold: 11
+  })).toThrow()
+  expect(() => ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'mock', perpetualValueThreshold: -1
+  })).toThrow()
+  expect(() => ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'mock', perpetualCooldownMs: 0
+  })).toThrow()
+  const cfg = ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'mock', perpetual: true, perpetualValueThreshold: 8
+  })
+  expect(cfg.perpetual).toBe(true)
+  expect(cfg.perpetualValueThreshold).toBe(8)
+})
+
 test('engines 欄位驗證：全矩陣 adapter 可寫、未知 adapter 拒、costPerRunUsd 負值拒、env/model/timeoutMs 可選', () => {
   const cfg = ConfigSchema.parse({
     projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'claude-cli',
