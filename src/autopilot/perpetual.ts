@@ -48,19 +48,21 @@ export async function runPerpetualCycle(
   cfg: PerpetualConfig, dataDir: string, events: EventLog,
   notify: (t: string) => Promise<boolean>, hooks: PerpetualHooks
 ): Promise<boolean> {
-  // ── 前置閘（依序；任一擋下皆安靜讓路：不寫狀態、不發事件、不呼叫 discover）──
-  if (cfg.perpetual !== true) return false
-  if (existsSync(cfg.stopFile)) return false
-  if (hooks.billedToday() >= cfg.dailyHardUsd) return false
-
-  const cooldownDefault = cfg.perpetualCooldownMs ?? DEFAULT_COOLDOWN_MS
-  const threshold = cfg.perpetualValueThreshold ?? DEFAULT_VALUE_THRESHOLD
-  const state = loadPerpetualState(dataDir, cooldownDefault)
-  const now = hooks.now()
-  if (state.lastSessionTs && now.getTime() - Date.parse(state.lastSessionTs) < state.currentCooldownMs) return false
-
   let ledger: ProblemsLedger | undefined
   try {
+    // ── 前置閘（依序；任一擋下皆安靜讓路：不寫狀態、不發事件、不呼叫 discover）──
+    // 移進 try（finding 3）：billedToday() 等 hook 若 throw，須落在下面的 catch → perpetual-error，
+    // 不得逸出 runPerpetualCycle（鐵律 #4）。閘門順序與安靜讓路行為不變。
+    if (cfg.perpetual !== true) return false
+    if (existsSync(cfg.stopFile)) return false
+    if (hooks.billedToday() >= cfg.dailyHardUsd) return false
+
+    const cooldownDefault = cfg.perpetualCooldownMs ?? DEFAULT_COOLDOWN_MS
+    const threshold = cfg.perpetualValueThreshold ?? DEFAULT_VALUE_THRESHOLD
+    const state = loadPerpetualState(dataDir, cooldownDefault)
+    const now = hooks.now()
+    if (state.lastSessionTs && now.getTime() - Date.parse(state.lastSessionTs) < state.currentCooldownMs) return false
+
     ledger = new ProblemsLedger(join(dataDir, 'run.db'))
     return await runBody(cfg, dataDir, events, notify, hooks, state, now, threshold, ledger)
   } catch (e) {
@@ -135,7 +137,14 @@ async function runBody(
 
   if (!authored) {
     for (const row of candidates) ledger.setStatus(row.fingerprint, 'deferred', 'goal-authoring-failed')
-    quiet(() => events.append('perpetual-no-case', { reason: 'authoring-failed' }))
+    // finding 2：candidates 空（全部 value<門檻，author 從未被呼叫）與「author 全試過但皆回 null」
+    // 是不同原因，拆開回報。finding 1：兩者都真的呼叫過 hooks.discover()，須武裝冷卻（同 discover-empty
+    // 分支慣例），否則 daemon 下一個 idle tick 立刻重跑 discover（LLM 呼叫）直到燒穿當日額度。
+    const reason = candidates.length === 0 ? 'below-threshold' : 'goal-authoring-failed'
+    quiet(() => events.append('perpetual-no-case', { reason }))
+    state.consecutiveEmpty++
+    state.lastSessionTs = now.toISOString()
+    savePerpetualState(dataDir, state)
     return false
   }
 

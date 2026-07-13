@@ -49,6 +49,11 @@ function eventTypes(dir: string): string[] {
   if (!existsSync(f)) return []
   return readFileSync(f, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l).type as string)
 }
+function readEvents(dir: string): Record<string, unknown>[] {
+  const f = join(dir, 'events.jsonl')
+  if (!existsSync(f)) return []
+  return readFileSync(f, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l))
+}
 function readState(dir: string): Record<string, unknown> {
   return JSON.parse(readFileSync(join(dir, 'perpetual-state.json'), 'utf8'))
 }
@@ -170,7 +175,7 @@ describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {
     expect(hooks.runSession).not.toHaveBeenCalled()
   })
 
-  test('value 閘：全部 value<門檻 → 不 author、不 runSession，open 列仍在', async () => {
+  test('value 閘：全部 value<門檻 → 不 author、不 runSession，open 列仍在；lastSessionTs 更新武裝冷卻、no-case(below-threshold)', async () => {
     const hooks = makeHooks({
       discover: vi.fn(async () => ({ survey: '', ranked: [{ title: '低價問題', lens: 'perf', value: 3, rationale: 'r' }] }))
     })
@@ -181,6 +186,13 @@ describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {
     const l = new ProblemsLedger(join(dir, 'run.db'))
     expect(l.listByStatus('open').map(x => x.title)).toEqual(['低價問題'])
     l.close()
+    // finding 1：value-gate-miss 也真的呼叫了 discover，須武裝冷卻，否則下一 tick 立刻重跑 discover。
+    expect(readState(dir).lastSessionTs).toBe(NOW.toISOString())
+    expect(readState(dir).consecutiveEmpty).toBe(1)
+    // finding 2：candidates 為空（value 全部低於門檻，author 從未被呼叫）→ reason 是 below-threshold，
+    // 不是 goal-authoring-failed。
+    const noCase = readEvents(dir).find(e => e.type === 'perpetual-no-case')
+    expect(noCase?.reason).toBe('below-threshold')
   })
 
   test('成案全流程：value 8 → author 合法 GOAL → 寫檔 → runSession(achieved) → fixed → GOAL 刪 → true', async () => {
@@ -225,7 +237,7 @@ describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {
     expect(existsSync(cfg.goalFile!)).toBe(false)
   })
 
-  test('author 全敗：3 候選全 null → 各記 deferred(goal-authoring-failed)、event、false', async () => {
+  test('author 全敗：3 候選全 null → 各記 deferred(goal-authoring-failed)、event、false；lastSessionTs 更新武裝冷卻', async () => {
     const ranked = [
       { title: 'A 問題', lens: 'tests', value: 9, rationale: 'r' },
       { title: 'B 問題', lens: 'perf', value: 8, rationale: 'r' },
@@ -243,6 +255,12 @@ describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {
     expect(def.every(x => x.note === 'goal-authoring-failed')).toBe(true)
     l.close()
     expect(eventTypes(dir)).toContain('perpetual-no-case')
+    // finding 1：authoring-all-failed 也真的呼叫了 discover+author，須武裝冷卻。
+    expect(readState(dir).lastSessionTs).toBe(NOW.toISOString())
+    expect(readState(dir).consecutiveEmpty).toBe(1)
+    // finding 2：candidates 非空（3 個候選都嘗試過 author）→ reason 是 goal-authoring-failed。
+    const noCase = readEvents(dir).find(e => e.type === 'perpetual-no-case')
+    expect(noCase?.reason).toBe('goal-authoring-failed')
   })
 })
 
@@ -253,6 +271,15 @@ describe('runPerpetualCycle fail-open', () => {
 
   test('discover throw → perpetual-error 事件、回 false、不 throw', async () => {
     const hooks = makeHooks({ discover: vi.fn(async () => { throw new Error('boom') }) })
+    const r = await runPerpetualCycle(makeCfg(dir), dir, events, async () => true, hooks)
+    expect(r).toBe(false)
+    expect(eventTypes(dir)).toContain('perpetual-error')
+  })
+
+  // finding 3：前置閘（含 billedToday()）現在跑在 try 內——真的 throw 時必須落進外層
+  // catch → perpetual-error，不得逸出 runPerpetualCycle（鐵律 #4：整體 try/catch 不得外傳）。
+  test('billedToday() throw → perpetual-error 事件、回 false、不 throw', async () => {
+    const hooks = makeHooks({ billedToday: () => { throw new Error('billing boom') } })
     const r = await runPerpetualCycle(makeCfg(dir), dir, events, async () => true, hooks)
     expect(r).toBe(false)
     expect(eventTypes(dir)).toContain('perpetual-error')
