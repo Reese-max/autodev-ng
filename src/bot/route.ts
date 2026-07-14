@@ -36,7 +36,8 @@ export const READ_COMMANDS = ['status', 'cost', 'backlog', 'log', 'lessons', 'pr
 export const ACTION_COMMANDS = ['pause', 'resume', 'silence', 'task', 'ask', 'goal'] as const
 
 /** 專案名解析：精確匹配優先（即使該名同時是另一專案的前綴）；否則在 names 裡找唯一前綴匹配；
- * 前綴命中 ≥2 個回 ambiguous 帶候選（依 names 原順序）；一個都沒命中回 unknown。 */
+ * 前綴命中 ≥2 個回 ambiguous 帶候選（依 names 原順序）；一個都沒命中回 unknown。
+ * 注意：空字串輸入時 startsWith('') 恆真，若 names>1 會回 ambiguous 全候選——呼叫端須自行做 truthy 前置檢查（routeMultiInteraction 已做）。 */
 export function resolveProject(input: string, names: string[]):
   { kind: 'one'; name: string } | { kind: 'ambiguous'; candidates: string[] } | { kind: 'unknown' } {
   if (names.includes(input)) return { kind: 'one', name: input }
@@ -89,6 +90,11 @@ export async function routeMultiInteraction(
 
   if ((ACTION_COMMANDS as readonly string[]).includes(i.commandName)) {
     await i.reply('動作指令必須指定 project')
+    return
+  }
+
+  if (!(READ_COMMANDS as readonly string[]).includes(i.commandName)) {
+    await i.reply('未知指令')
     return
   }
 

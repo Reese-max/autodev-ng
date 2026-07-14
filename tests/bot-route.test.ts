@@ -218,4 +218,13 @@ describe('routeMultiInteraction', () => {
     await expect(routeMultiInteraction(i, projects, handle)).resolves.toBeUndefined()
     expect(replies).toEqual([{ text: '內部錯誤', ephemeral: undefined }])
   })
+
+  test('未分類指令(無 project) → reply 未知指令,handle 零呼叫', async () => {
+    const projects = new Map<string, ProjectRuntime>([['a', runtime(['u1'])]])
+    const { i, replies } = fakeMultiInteraction({ commandName: 'notacmd', project: undefined })
+    const handle = vi.fn(async () => ({ ok: true, text: 'x' }))
+    await routeMultiInteraction(i, projects, handle)
+    expect(handle).not.toHaveBeenCalled()
+    expect(replies[0]?.text).toContain('未知指令')
+  })
 })
