@@ -58,6 +58,17 @@ describe('globalBilledToday', () => {
     expect(globalBilledToday(join(root, 'nowhere', 'x.json'), '2026-07-14T03:00:00Z')).toBe(0)
   })
 
+  test('engine 空欄（歷史列）在非空訂閱清單下仍計入真金（fail-safe）', () => {
+    // 訂閱清單非空時走 `engine NOT IN (...)` 分支；engine='' 不屬訂閱清單 → NOT IN 為 TRUE → 計入。
+    // 靠 attempts.engine 的 NOT NULL DEFAULT '' 落地此不變量（庫內不存在 NULL engine）。
+    const a = writeCfg('a', { engines: { spark: { adapter: 'codex', subscription: true } } })
+    seedDb(join(root, 'data/a'), [
+      { ts: '2026-07-14T01:00:00Z', cost: 4, engine: '' },       // 歷史空欄 → 計入
+      { ts: '2026-07-14T02:00:00Z', cost: 6, engine: 'claude' }, // 一般引擎 → 計入
+      { ts: '2026-07-14T03:00:00Z', cost: 90, engine: 'spark' }]) // 訂閱 → 排除
+    expect(globalBilledToday(a, '2026-07-14T05:00:00Z')).toBe(10)
+  })
+
   test('config 缺 timezoneOffsetHours 時鏡像 Zod default(8)，不可低估為 0', () => {
     // 不寫 timezoneOffsetHours 欄位（模擬 prompt-autoresearch.json 實況）。
     const p = join(root, 'configs', 'notz.json')

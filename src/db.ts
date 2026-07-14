@@ -26,6 +26,26 @@ export function localDayUtcRange(day: string, offsetHours: number): { startIso: 
   }
 }
 
+/** M10.6：真金帳 SQL 的單一真相源。RunDb（自己的 this.db）與 globalcost（唯讀開的鄰居 db）
+ * 共用同一段 SQL，避免兩處鏡像漂移（M10.5 timezone 預設漂移事故的同類）。訂閱引擎排除、
+ * engine 空欄（歷史列）算真金（fail-safe）；清單空時＝無過濾的日窗加總（＝costForLocalDay）。 */
+export function billedCostOnDb(
+  db: Database.Database, day: string, offsetHours: number, subscriptionEngines: string[]
+): number {
+  const { startIso, endIso } = localDayUtcRange(day, offsetHours)
+  if (subscriptionEngines.length === 0) {
+    const row = db.prepare(
+      'SELECT COALESCE(SUM(cost_usd),0) AS c FROM attempts WHERE ts >= ? AND ts < ?'
+    ).get(startIso, endIso) as { c: number }
+    return row.c
+  }
+  const ph = subscriptionEngines.map(() => '?').join(',')
+  const row = db.prepare(
+    `SELECT COALESCE(SUM(cost_usd),0) AS c FROM attempts WHERE ts >= ? AND ts < ? AND engine NOT IN (${ph})`
+  ).get(startIso, endIso, ...subscriptionEngines) as { c: number }
+  return row.c
+}
+
 export class RunDb {
   private readonly db: Database.Database
 
@@ -91,13 +111,7 @@ export class RunDb {
   /** M9.9：真金帳（踩日頂用）。排除訂閱引擎；engine 空（歷史列）或未知一律計入
    * （fail-safe 寧誤煞不漏煞）。清單空時＝costForLocalDay 同值。 */
   billedCostForLocalDay(day: string, offsetHours = 0, subscriptionEngines: string[] = []): number {
-    if (subscriptionEngines.length === 0) return this.costForLocalDay(day, offsetHours)
-    const { startIso, endIso } = localDayUtcRange(day, offsetHours)
-    const ph = subscriptionEngines.map(() => '?').join(',')
-    const row = this.db.prepare(
-      `SELECT COALESCE(SUM(cost_usd),0) AS c FROM attempts WHERE ts >= ? AND ts < ? AND engine NOT IN (${ph})`
-    ).get(startIso, endIso, ...subscriptionEngines) as { c: number }
-    return row.c
+    return billedCostOnDb(this.db, day, offsetHours, subscriptionEngines)
   }
 
   /** 每日必達摘要用（M3b）＋本地日界線（M4 Task 3）：offsetHours 預設 0（UTC，等價舊行為）。

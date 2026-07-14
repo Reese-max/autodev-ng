@@ -75,6 +75,10 @@ export const EngineConfigSchema = z.object({
 })
 export type EngineConfig = z.infer<typeof EngineConfigSchema>
 
+// M10.6：timezoneOffsetHours 的 Zod 預設單一真相源——globalcost 讀 raw JSON 拿不到 Zod default，
+// 改從此常數鏡像（M10.5 缺欄低估事故的根因就是兩處預設不一致）。台灣 +8。
+export const DEFAULT_TIMEZONE_OFFSET_HOURS = 8
+
 export const ConfigSchema = z.object({
   projectPath: z.string().min(1),
   backlogFile: z.string().min(1),
@@ -88,7 +92,7 @@ export const ConfigSchema = z.object({
   globalDailyHardUsd: z.number().positive().optional(),
   cooldownMs: z.number().int().nonnegative().default(60_000),
   // M4 Task 3（成本記帳）：本地日界線與失敗成本估計。台灣預設 +8；成本日界線與 digest 報日共用同一個 offset。
-  timezoneOffsetHours: z.number().int().min(-12).max(14).default(8),
+  timezoneOffsetHours: z.number().int().min(-12).max(14).default(DEFAULT_TIMEZONE_OFFSET_HOURS),
   failureCostEstimateUsd: z.number().nonnegative().default(1),
   // M4 Task 6（worktree 接線）：worktreesDir 相對 config 檔目錄展開（cli.ts expandConfigPaths
   // 慣例，同 stopFile）；worktree.ts 本身收絕對路徑，展開留在 assemble 層。extraDirective 為
