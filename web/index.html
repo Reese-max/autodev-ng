@@ -287,9 +287,9 @@
 
     const body = document.getElementById('attemptsBody')
     body.innerHTML = s.attempts.map(a => `<tr>
-      <td>${a.ts ?? ''}</td><td>${a.taskId ?? ''}</td>
+      <td>${esc(a.ts ?? '')}</td><td>${esc(a.taskId ?? '')}</td>
       <td class="ok-${a.ok}">${a.ok ? 'ok' : 'fail'}</td>
-      <td>$${fmt(a.costUsd)}</td><td>${(a.detail ?? '').slice(0, 80)}</td></tr>`).join('')
+      <td>$${fmt(a.costUsd)}</td><td>${esc((a.detail ?? '').slice(0, 80))}</td></tr>`).join('')
 
     const log = document.getElementById('log')
     const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 10
