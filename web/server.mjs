@@ -9,7 +9,7 @@
 import { createServer as httpCreateServer } from 'node:http'
 import { spawn as nodeSpawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync, rmSync, openSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, rmSync, openSync, mkdirSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL, URL as NodeURL } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import Database from 'better-sqlite3'
@@ -19,12 +19,14 @@ export const DIST_CLI = resolve(HERE, '../dist/cli.js')
 export const INDEX_HTML = resolve(HERE, 'index.html')
 
 // ---------- argv ----------
+// M10.5 Task 7：--configs-dir 與 --config 互斥（main() 優先 configsDir 分流，鏡像 src/bot/index.ts 慣例）。
 export function parseArgs(argv) {
-  let configPath
+  let configPath, configsDir
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--config') configPath = argv[i + 1]
+    if (argv[i] === '--configs-dir') configsDir = argv[i + 1]
   }
-  return { configPath }
+  return { configPath, configsDir }
 }
 
 // ---------- CSRF token ----------
@@ -137,6 +139,24 @@ export function buildStatusPayload({ cfg, store, db, dbPath, localDayFn }) {
     botAlive: readBotAlive(cfg.dataDir),
     silencedUntil: readSilencedUntil(cfg.dataDir),
     stopFilePresent: cfg.stopFile ? existsSync(cfg.stopFile) : false,
+  }
+}
+
+/** 多專案彙總端點（M10.5 Task 7）：重用 buildStatusPayload 的欄位子集，逐專案 fail-open——
+ * 單專案讀掛（db/backlog 例外）不拖垮整體彙總，該項改帶 error 欄，陣列位置不缺席。 */
+export function buildProjectSummary(name, ctx) {
+  try {
+    const payload = buildStatusPayload({ cfg: ctx.cfg, store: ctx.store, db: ctx.db, dbPath: ctx.dbPath, localDayFn: ctx.localDayFn })
+    return {
+      name,
+      state: payload.heartbeat?.state ?? 'unknown',
+      ts: payload.ts,
+      todayCostUsd: payload.cost.today,
+      backlogOpen: payload.backlog.open,
+      daemonAlive: readDaemonLockOwner(ctx.cfg.dataDir) === 'alive',
+    }
+  } catch (err) {
+    return { name, error: String(err && err.message ? err.message : err) }
   }
 }
 
@@ -361,22 +381,29 @@ function attachLogsSse(req, res, dataDir) {
   req.on('close', () => clearInterval(timer))
 }
 
-// ---------- HTTP routing ----------
-export function createRequestHandler(ctx) {
-  const { cfg, cfgPath, store, db, dbPath, token, spawnFn, childState, indexHtml, localDayFn, spawnOpts } = ctx
-  // botDeps 延遲、快取一次組成：ctx.botDeps 已提供（main() 正式路徑）直接沿用；
-  // 否則（目前僅測試）動態 import dist/events.js 現組一份長壽 EventLog 落地在 fallback botDeps 上。
-  let botDepsPromise
-  const getBotDeps = async () => {
-    if (ctx.botDeps) return ctx.botDeps
-    if (!botDepsPromise) {
-      botDepsPromise = getEventLogClass().then(EventLog =>
-        buildBotDeps({ cfg, store, db, cfgPath, events: new EventLog(cfg.dataDir) }))
-    }
-    return botDepsPromise
+// botDeps 延遲、快取一次組成：ctx.botDeps 已提供（main() 正式路徑）直接沿用；否則（目前僅測試）
+// 動態 import dist/events.js 現組一份長壽 EventLog。WeakMap keyed by ctx 物件本身——單專案模式
+// ctx 恆為同一物件（等效原本的閉包變數快取）；多專案模式每個 project 的 ctx 各自快取一份。
+const botDepsCache = new WeakMap()
+function getBotDepsFor(ctx) {
+  if (ctx.botDeps) return Promise.resolve(ctx.botDeps)
+  if (!botDepsCache.has(ctx)) {
+    botDepsCache.set(ctx, getEventLogClass().then(EventLog =>
+      buildBotDeps({ cfg: ctx.cfg, store: ctx.store, db: ctx.db, cfgPath: ctx.cfgPath, events: new EventLog(ctx.cfg.dataDir) })))
   }
+  return botDepsCache.get(ctx)
+}
+
+// ---------- HTTP routing ----------
+// ctxOrMap：單專案模式（--config）傳入單一 ctx 物件——沿用既有行為，project 參數在此模式下被
+// 忽略（回歸硬線，byte-identical）。多專案模式（--configs-dir）傳入 Map<name, ctx>（main() 組出）：
+// 除首頁與「/api/status 無 project」彙總端點外，其餘全部端點要求 ?project=<name>：缺→400，
+// 未知→404。
+export function createRequestHandler(ctxOrMap) {
+  const isMulti = ctxOrMap instanceof Map
+  const anyCtx = isMulti ? ctxOrMap.values().next().value : ctxOrMap
+
   return async function handle(req, res) {
-    const botDeps = await getBotDeps()
     const url = new NodeURL(req.url, 'http://127.0.0.1')
     const send = (code, body, headers = {}) => {
       res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...headers })
@@ -385,9 +412,31 @@ export function createRequestHandler(ctx) {
 
     if (req.method === 'GET' && url.pathname === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end(indexHtml)
+      res.end(anyCtx.indexHtml)
       return
     }
+
+    // 多專案彙總端點：/api/status 無 project 參數 → 回全部專案摘要（供首頁卡片，Task 8）。
+    if (isMulti && req.method === 'GET' && url.pathname === '/api/status' && !url.searchParams.get('project')) {
+      const projects = []
+      for (const [name, pctx] of ctxOrMap) projects.push(buildProjectSummary(name, pctx))
+      send(200, { projects })
+      return
+    }
+
+    // 多專案模式下解析 project 參數：缺→400；未知→404。單專案模式恆用唯一 ctx（忽略 project）。
+    let ctx
+    if (isMulti) {
+      const name = url.searchParams.get('project')
+      if (!name) { send(400, { error: 'project required' }); return }
+      ctx = ctxOrMap.get(name)
+      if (!ctx) { send(404, { error: 'unknown project' }); return }
+    } else {
+      ctx = ctxOrMap
+    }
+    const { cfg, cfgPath, store, db, dbPath, token, spawnFn, childState, localDayFn, spawnOpts } = ctx
+    const botDeps = await getBotDepsFor(ctx)
+
     if (req.method === 'GET' && url.pathname === '/api/status') {
       try {
         send(200, buildStatusPayload({ cfg, store, db, dbPath, localDayFn }))
@@ -495,10 +544,75 @@ export function createServer(ctx) {
 }
 
 // ---------- bootstrap（真跑：組 deps、印 token+URL、bind 127.0.0.1:3900） ----------
+const PORT = 3900
+
+// M9.4 fast-follow #4：port 被佔用時（常駐排程 respawn 撞上舊實例仍在跑，等效單例守衛）乾淨退出，
+// 而非放給 Node 當 uncaught exception 印一堆 stack trace 雜訊。單專案／多專案共用同一組 listen 邏輯。
+function startHttpServer(server, token) {
+  server.on('error', e => {
+    if (e.code === 'EADDRINUSE') {
+      console.log(`[web] port ${PORT} 已被佔用，本實例退出（單例守衛）`)
+      process.exit(0)
+    }
+    throw e
+  })
+  server.listen(PORT, '127.0.0.1', () => {
+    console.log(`[web] autodev-ng 控制台已啟動：http://127.0.0.1:${PORT}/?token=${token}`)
+    console.log(`[web] CSRF token: ${token}`)
+    console.log('[web] 僅 bind 127.0.0.1，非本機請求一律無法連入。')
+  })
+}
+
+/** 多專案入口（M10.5 Task 7）：逐 config assemble，壞檔跳過+warn（fail-open，鏡像 bot mainMulti）。
+ * CSRF token 改共用 <repo root>/data/web-console.token（loadOrCreateToken 換入參）。 */
+async function mainMulti(configsDir) {
+  const { listProjectConfigs } = await import(new NodeURL('../dist/bot/config.js', import.meta.url).href)
+  const { assemble } = await import(new NodeURL('../dist/cli.js', import.meta.url).href)
+  const { localDay } = await import(new NodeURL('../dist/db.js', import.meta.url).href)
+
+  const indexHtml = readFileSync(INDEX_HTML, 'utf8')
+  // repo root：configsDir 的上一層（鏡像 src/bot/index.ts mainMulti 的 bot.lock 路徑推導）。
+  const repoDataDir = join(dirname(resolve(configsDir)), 'data')
+  mkdirSync(repoDataDir, { recursive: true })
+  const token = loadOrCreateToken(repoDataDir)
+
+  const projects = new Map()
+  for (const { name, cfgPath } of listProjectConfigs(configsDir)) {
+    try {
+      const { deps, cfg } = assemble(cfgPath)
+      const resolvedCfgPath = resolve(cfgPath)
+      projects.set(name, {
+        cfg, cfgPath: resolvedCfgPath, store: deps.store, db: deps.db,
+        dbPath: join(cfg.dataDir, 'run.db'), token, spawnFn: nodeSpawn,
+        childState: createChildState(), indexHtml, localDayFn: localDay,
+        botDeps: buildBotDeps({ cfg, store: deps.store, db: deps.db, cfgPath: resolvedCfgPath, events: deps.events }),
+      })
+    } catch (err) {
+      console.warn(`[web] 專案 ${name} 載入失敗，已跳過：`, err instanceof Error ? err.message : String(err))
+    }
+  }
+  if (projects.size === 0) {
+    console.error('configs-dir 下沒有任何專案成功載入，無法啟動 web')
+    process.exitCode = 1
+    return
+  }
+
+  const server = createServer(projects)
+  startHttpServer(server, token)
+  process.on('SIGINT', () => {
+    for (const ctx of projects.values()) ctx.db.close()
+    server.close(() => process.exit(0))
+  })
+}
+
 async function main() {
-  const { configPath } = parseArgs(process.argv.slice(2))
+  const { configPath, configsDir } = parseArgs(process.argv.slice(2))
+  if (configsDir) {
+    await mainMulti(configsDir)
+    return
+  }
   if (!configPath) {
-    console.error('用法：node web/server.mjs --config <path>')
+    console.error('用法：node web/server.mjs --config <path> 或 --configs-dir <dir>')
     process.exitCode = 1
     return
   }
@@ -516,22 +630,7 @@ async function main() {
     token, spawnFn: nodeSpawn, childState, indexHtml, localDayFn: localDay, botDeps,
   })
 
-  const PORT = 3900
-  // M9.4 fast-follow #4：port 被佔用時（常駐排程 respawn 撞上舊實例仍在跑，等效單例守衛）
-  // 乾淨退出，而非放給 Node 當 uncaught exception 印一堆 stack trace 雜訊。
-  server.on('error', e => {
-    if (e.code === 'EADDRINUSE') {
-      console.log(`[web] port ${PORT} 已被佔用，本實例退出（單例守衛）`)
-      process.exit(0)
-    }
-    throw e
-  })
-  server.listen(PORT, '127.0.0.1', () => {
-    console.log(`[web] autodev-ng 控制台已啟動：http://127.0.0.1:${PORT}/?token=${token}`)
-    console.log(`[web] CSRF token: ${token}`)
-    console.log('[web] 僅 bind 127.0.0.1，非本機請求一律無法連入。')
-  })
-
+  startHttpServer(server, token)
   process.on('SIGINT', () => { deps.db.close(); server.close(() => process.exit(0)) })
 }
 

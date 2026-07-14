@@ -620,3 +620,158 @@ test('POST /api/task 對 token；合法文字 → 已加入 backlog，backlog.md
     expect(readFileSync(join(dir, 'backlog.md'), 'utf8')).toContain('新任務 A')
   })
 })
+
+// ---------- M10.5 Task 7：--configs-dir 多專案（project 參數路由+全專案彙總端點） ----------
+test('parseArgs：解析 --configs-dir', () => {
+  expect(parseArgs(['--configs-dir', 'configs']).configsDir).toBe('configs')
+  expect(parseArgs(['--configs-dir', 'configs']).configPath).toBeUndefined()
+  expect(parseArgs(['--config', 'configs/x.json']).configsDir).toBeUndefined()
+})
+
+function makeProjectCtx(dir: string, token: string) {
+  const store = new BacklogStore(join(dir, 'backlog.md'))
+  const db = new RunDb(join(dir, 'run.db'))
+  const cfg: any = {
+    dataDir: dir, timezoneOffsetHours: 8, dailySoftUsd: 40, dailyHardUsd: 100,
+    stopFile: join(dir, '.adng.stop'), backlogFile: join(dir, 'backlog.md'),
+  }
+  return {
+    cfg, cfgPath: join(dir, 'cfg.json'), store, db, dbPath: join(dir, 'run.db'), token,
+    spawnFn: (_cmd: string, args: string[]) => ({ pid: 1, exitCode: null, killed: false, args, unref() {} }),
+    childState: createChildState(), indexHtml: '<html>multi</html>', localDayFn: localDay,
+    spawnOpts: { ...FAST, lockOwnerFn: () => 'unknown' },
+  }
+}
+
+async function withMultiServer(fn: (base: string, dirs: { a: string; b: string }) => Promise<void>) {
+  const dirA = tmp('adng-web-multi-a-')
+  const dirB = tmp('adng-web-multi-b-')
+  writeFileSync(join(dirA, 'backlog.md'), '- [ ] a1\n')
+  writeFileSync(join(dirB, 'backlog.md'), '- [ ] b1\n- [ ] b2\n')
+  const ctxA = makeProjectCtx(dirA, 'secret-tok')
+  const ctxB = makeProjectCtx(dirB, 'secret-tok')
+  const projects = new Map([['a', ctxA], ['b', ctxB]])
+  const server = createServer(projects as any)
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()))
+  const port = (server.address() as any).port
+  try {
+    await fn(`http://127.0.0.1:${port}`, { a: dirA, b: dirB })
+  } finally {
+    ctxA.db.close()
+    ctxB.db.close()
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  }
+}
+
+test('多專案 GET /api/status 無 project：回 { projects: [...] } 陣列，欄位齊全', async () => {
+  await withMultiServer(async base => {
+    const res = await fetch(base + '/api/status')
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(Array.isArray(body.projects)).toBe(true)
+    expect(body.projects.length).toBe(2)
+    const a = body.projects.find((p: any) => p.name === 'a')
+    expect(a.backlogOpen).toBe(1)
+    expect(typeof a.ts).toBe('string')
+    expect(typeof a.todayCostUsd).toBe('number')
+    expect(typeof a.daemonAlive).toBe('boolean')
+    const b = body.projects.find((p: any) => p.name === 'b')
+    expect(b.backlogOpen).toBe(2)
+  })
+})
+
+test('多專案 /api/status：逐專案 fail-open——單專案讀掛（db 已關閉）帶 error 欄不缺席', async () => {
+  const dirA = tmp('adng-web-multi-fail-a-')
+  const dirB = tmp('adng-web-multi-fail-b-')
+  writeFileSync(join(dirA, 'backlog.md'), '- [ ] a1\n')
+  writeFileSync(join(dirB, 'backlog.md'), '- [ ] b1\n')
+  const ctxA = makeProjectCtx(dirA, 'tok')
+  const ctxB = makeProjectCtx(dirB, 'tok')
+  ctxB.db.close() // 模擬讀掛：db 已關閉，buildStatusPayload 內 costForLocalDay 會 throw
+  const projects = new Map([['a', ctxA], ['b', ctxB]])
+  const server = createServer(projects as any)
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()))
+  const port = (server.address() as any).port
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/status`)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.projects.length).toBe(2)
+    const a = body.projects.find((p: any) => p.name === 'a')
+    expect(a.error).toBeUndefined()
+    expect(a.backlogOpen).toBe(1)
+    const b = body.projects.find((p: any) => p.name === 'b')
+    expect(typeof b.error).toBe('string')
+  } finally {
+    ctxA.db.close()
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  }
+})
+
+test('多專案 /api/status?project=a：走 a 的 ctx，回單專案完整形狀（非彙總陣列）', async () => {
+  await withMultiServer(async base => {
+    const res = await fetch(base + '/api/status?project=a')
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.projects).toBeUndefined()
+    expect(body.backlog.open).toBe(1)
+  })
+})
+
+test('多專案 ?project=zzz（未知專案）：404 {error:"unknown project"}', async () => {
+  await withMultiServer(async base => {
+    const res = await fetch(base + '/api/status?project=zzz')
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body.error).toBe('unknown project')
+  })
+})
+
+test('多專案：SSE /api/logs 缺 project → 400；panel 缺 project → 400', async () => {
+  await withMultiServer(async base => {
+    const logs = await fetch(base + '/api/logs')
+    expect(logs.status).toBe(400)
+    const panel = await fetch(base + '/api/panel/backlog')
+    expect(panel.status).toBe(400)
+  })
+})
+
+test('多專案：panel 未知 project → 404', async () => {
+  await withMultiServer(async base => {
+    const res = await fetch(base + '/api/panel/backlog?project=zzz')
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body.error).toBe('unknown project')
+  })
+})
+
+test('多專案：POST /api/pause 缺 project → 400；未知 project → 404；帶對的 project → 200', async () => {
+  await withMultiServer(async (base, dirs) => {
+    const missing = await fetch(base + '/api/pause', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
+    expect(missing.status).toBe(400)
+    const unknown = await fetch(base + '/api/pause?project=zzz', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
+    expect(unknown.status).toBe(404)
+    const ok = await fetch(base + '/api/pause?project=a', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
+    expect(ok.status).toBe(200)
+    expect(existsSync(join(dirs.a, '.adng.stop'))).toBe(true)
+  })
+})
+
+test('多專案：GET / 首頁不需 project（回任一 ctx 的 indexHtml）', async () => {
+  await withMultiServer(async base => {
+    const res = await fetch(base + '/')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('<html>multi</html>')
+  })
+})
+
+// ---------- 單專案 --config 模式回歸：project 參數在此模式下被忽略 ----------
+test('單專案模式：/api/status?project=anything 被忽略——回傳一如既往的單專案形狀，非彙總陣列', async () => {
+  await withServer(async base => {
+    const res = await fetch(base + '/api/status?project=anything')
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.projects).toBeUndefined()
+    expect(body.backlog.open).toBe(1)
+  })
+})

@@ -116,7 +116,7 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
     llm: { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }, events
   })
 
-  const deps: Deps = { cfg, store, db, engines, events, verifier, lessons }
+  const deps: Deps = { cfg, store, db, engines, events, verifier, lessons, cfgPath: absCfgPath }
   return { deps, notifier, cfg }
 }
 
@@ -278,6 +278,7 @@ async function cmdDaemon(cfgPath: string): Promise<void> {
       lockDir,
       cooldownMs: deps.cfg.cooldownMs,
       idleSleepMs: IDLE_SLEEP_MS,
+      cfgPath: resolve(cfgPath),
     })
     console.log(`daemon result: ${result}`)
   })

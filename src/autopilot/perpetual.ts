@@ -6,6 +6,7 @@ import { quiet, type EventLog } from '../events.js'
 import { localDay } from '../db.js'
 import type { Deps } from '../scheduler.js'
 import { subscriptionTags } from '../scheduler.js'
+import { globalBilledToday } from '../globalcost.js'
 import { ProblemsLedger, problemFingerprint } from './ledger.js'
 import { discoverProblems, type DiscoverResult, type RankedProblem } from './discover.js'
 import { parseGoal } from './goal.js'
@@ -256,6 +257,11 @@ export async function maybeRunPerpetual(
       authorGoal((prompt: string) => callAgent(judgeLlm, prompt).then(r => r.text), problem, cfg, fingerprint),
     runSession: (opts) => runGoalWithDeps(deps, notifier, cfg, opts),
     billedToday: () => deps.db.billedCostForLocalDay(localDay(new Date().toISOString(), offset), offset, subscriptionTags(cfg))
+  }
+
+  // M10.5：全域日頂同步閘（安靜讓路，與其他前置閘一致）。
+  if (cfg.globalDailyHardUsd !== undefined && deps.cfgPath) {
+    try { if (globalBilledToday(deps.cfgPath, new Date().toISOString()) >= cfg.globalDailyHardUsd) return false } catch { /* fail-open 放行 */ }
   }
 
   return runPerpetualCycle(cfg, cfg.dataDir, deps.events, (t) => notifier.send(t), hooks)

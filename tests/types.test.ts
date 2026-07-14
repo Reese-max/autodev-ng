@@ -124,3 +124,23 @@ test('engines 欄位驗證：全矩陣 adapter 可寫、未知 adapter 拒、cos
     engines: { claude: { adapter: 'claude-cli', costPerRunUsd: -1 } }
   })).toThrow()
 })
+
+// ---------------------------------------------------------------------------
+// M10.5 Task 4：globalDailyHardUsd（全域日頂）
+
+test('M10.5：globalDailyHardUsd 未設 → undefined（無全域防線，現狀不變）', () => {
+  const cfg = ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'mock'
+  })
+  expect(cfg.globalDailyHardUsd).toBeUndefined()
+})
+
+test('M10.5：globalDailyHardUsd 可設正數；非正被拒', () => {
+  const cfg = ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'mock', globalDailyHardUsd: 50
+  })
+  expect(cfg.globalDailyHardUsd).toBe(50)
+  expect(() => ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'mock', globalDailyHardUsd: 0
+  })).toThrow()
+})

@@ -14,9 +14,9 @@ REM same net effect as bot.lock (see install-web-task.ps1).
 REM ============================================================
 
 set "ADNG_ROOT=D:\Users\Administrator\Desktop\autodev-ng"
-set "ADNG_LOG_DIR=%ADNG_ROOT%\data\voice-actress"
+set "ADNG_LOG_DIR=%ADNG_ROOT%\data"
 set "ADNG_LOG=%ADNG_LOG_DIR%\web-console.log"
 
 if not exist "%ADNG_LOG_DIR%" mkdir "%ADNG_LOG_DIR%"
 
->>"%ADNG_LOG%" 2>&1 node "%ADNG_ROOT%\web\server.mjs" --config "%ADNG_ROOT%\configs\voice-actress.json"
+>>"%ADNG_LOG%" 2>&1 node "%ADNG_ROOT%\web\server.mjs" --configs-dir "%ADNG_ROOT%\configs"
