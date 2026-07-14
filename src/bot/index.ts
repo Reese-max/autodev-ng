@@ -1,11 +1,12 @@
-import { join, resolve } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { Client, Events, GatewayIntentBits, SlashCommandBuilder } from 'discord.js'
 import { assemble } from '../cli.js'
 import { acquireLock, releaseLock } from '../lock.js'
-import { loadBotConfig, loadBotToken } from './config.js'
+import { loadBotConfig, loadBotToken, listProjectConfigs, type BotConfig } from './config.js'
 import { handleCommand, type BotDeps } from './handlers.js'
 import { buildReplyPayload } from './reply.js'
-import { routeInteraction, type InteractionLike } from './route.js'
+import { routeInteraction, routeMultiInteraction, ACTION_COMMANDS, type InteractionLike, type ProjectRuntime } from './route.js'
 
 // discord.js adapter 只放 index.ts / reply.ts；純路由邏輯住 route.ts（不 import discord.js），
 // 讓 tests/bot-route.test.ts 零依賴測路由，不打真 Discord。
@@ -29,18 +30,30 @@ const ARG_COMMANDS: Record<string, string> = {
   goal: 'GOAL autopilot：set <目標文字>／run／status／stop'
 }
 
-/** 12 個 slash command 定義（8 無參數 + 4 帶字串參數 arg）。 */
-function buildCommandsData(): ReturnType<SlashCommandBuilder['toJSON']>[] {
-  const noArg = Object.entries(NO_ARG_COMMANDS).map(([name, desc]) =>
-    new SlashCommandBuilder().setName(name).setDescription(desc).toJSON()
-  )
-  const withArg = Object.entries(ARG_COMMANDS).map(([name, desc]) =>
-    new SlashCommandBuilder()
+/** 12 個 slash command 定義（8 無參數 + 4 帶字串參數 arg）。
+ * withProject=true（多專案模式）時每指令再加 string option `project`：
+ * READ_COMMANDS（NO_ARG_COMMANDS 扣掉 pause/resume）optional、ACTION_COMMANDS required
+ * （arg 與 project 皆 required 時 Discord 要求 arg 排前，故 project 在 arg 之後加）。
+ * withProject=false（單專案 --config 模式，main() 呼叫）維持原樣，無 project 選項。 */
+function buildCommandsData(withProject = false): ReturnType<SlashCommandBuilder['toJSON']>[] {
+  const noArg = Object.entries(NO_ARG_COMMANDS).map(([name, desc]) => {
+    const builder = new SlashCommandBuilder().setName(name).setDescription(desc)
+    if (withProject) {
+      const required = (ACTION_COMMANDS as readonly string[]).includes(name)
+      builder.addStringOption(o => o.setName('project').setDescription('專案名（可前綴縮寫）').setRequired(required))
+    }
+    return builder.toJSON()
+  })
+  const withArg = Object.entries(ARG_COMMANDS).map(([name, desc]) => {
+    const builder = new SlashCommandBuilder()
       .setName(name)
       .setDescription(desc)
       .addStringOption(o => o.setName('arg').setDescription('參數').setRequired(true))
-      .toJSON()
-  )
+    if (withProject) {
+      builder.addStringOption(o => o.setName('project').setDescription('專案名（可前綴縮寫）').setRequired(true))
+    }
+    return builder.toJSON()
+  })
   return [...noArg, ...withArg]
 }
 
@@ -123,13 +136,117 @@ export async function main(cfgPath: string): Promise<void> {
   await client.login(token)
 }
 
+/** 多專案入口（M10.5 Task 6）：逐 config 組裝，fail-open 跳過壞掉的專案；
+ * BotDeps 組法逐字鏡像 main() 上面那段（cfg/store/db/llm/cfgPath/events）。 */
+export async function mainMulti(configsDir: string): Promise<void> {
+  const entries = listProjectConfigs(configsDir)
+  const projects = new Map<string, ProjectRuntime>()
+  const loadedConfigs: { name: string; botCfg: BotConfig }[] = []
+
+  for (const { name, cfgPath } of entries) {
+    try {
+      const { deps, cfg } = assemble(cfgPath)
+      const botCfg = loadBotConfig(cfgPath)
+      const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }
+      const botDeps: BotDeps = { cfg, store: deps.store, db: deps.db, llm, cfgPath: resolve(cfgPath), events: deps.events }
+      projects.set(name, { deps: botDeps, allowed: botCfg.allowedUserIds })
+      loadedConfigs.push({ name, botCfg })
+    } catch (err) {
+      console.warn(`[bot] 專案 ${name} 載入失敗，已跳過：`, err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  if (projects.size === 0) {
+    console.error('configs-dir 下沒有任何專案成功載入，無法啟動 bot')
+    process.exit(1)
+  }
+
+  const tokenSource = loadedConfigs.find(p => p.botCfg.botTokenFile)?.botCfg.botTokenFile
+  const token = loadBotToken(tokenSource)
+  if (!token) {
+    console.error('找不到 bot token：請設定環境變數 ADNG_BOT_TOKEN 或任一 config 的 botTokenFile')
+    process.exit(1)
+  }
+
+  const guildId = loadedConfigs.find(p => p.botCfg.guildId)?.botCfg.guildId
+
+  // 單一 bot.lock 放 repo 頂層 data/（非任一專案 dataDir）；單專案 --config 模式 lock 位置不變。
+  const lockDir = join(dirname(resolve(configsDir)), 'data', 'bot.lock')
+  mkdirSync(dirname(lockDir), { recursive: true })
+  if (!acquireLock(lockDir)) {
+    console.error('bot 已在執行中（lock busy），避免雙 bot 同時上線')
+    process.exit(1)
+  }
+
+  const client = new Client({ intents: [GatewayIntentBits.Guilds] })
+
+  client.once(Events.ClientReady, async (c) => {
+    try {
+      const commandsData = buildCommandsData(true)
+      if (guildId) {
+        await c.application.commands.set(commandsData, guildId)
+      } else {
+        await c.application.commands.set(commandsData)
+      }
+      console.log(`adng bot ready（多專案 ${projects.size} 個）：以 ${c.user.tag} 上線，指令已註冊${guildId ? `（guild ${guildId}）` : '（全域）'}`)
+    } catch (err) {
+      console.error('slash command 註冊失敗：', err instanceof Error ? err.message : String(err))
+    }
+  })
+
+  client.on(Events.InteractionCreate, async (interaction) => {
+    try {
+      if (!interaction.isChatInputCommand()) return
+      const arg = interaction.options.getString('arg', false) ?? ''
+      const project = interaction.options.getString('project', false) ?? ''
+      const iLike: InteractionLike & { project?: string } = {
+        commandName: interaction.commandName,
+        userId: interaction.user.id,
+        arg,
+        project,
+        reply: async (text, ephemeral) => {
+          try {
+            const payload = buildReplyPayload(text, ephemeral)
+            if (interaction.replied || interaction.deferred) {
+              await interaction.followUp(payload)
+            } else {
+              await interaction.reply(payload)
+            }
+          } catch {
+            // discord.js 自身重連/回覆失敗即失敗——不做 bot 端 DLQ（鏡像單專案 main()）。
+          }
+        }
+      }
+      await routeMultiInteraction(iLike, projects, handleCommand)
+    } catch (err) {
+      console.error('interaction 處理失敗:', err instanceof Error ? err.message : String(err))
+    }
+  })
+
+  const shutdown = (signal: string): void => {
+    console.log(`收到 ${signal}，準備關閉 bot`)
+    releaseLock(lockDir)
+    client.destroy().finally(() => process.exit(0))
+  }
+  process.once('SIGINT', () => shutdown('SIGINT'))
+  process.once('SIGTERM', () => shutdown('SIGTERM'))
+
+  await client.login(token)
+}
+
+const configsDirArg = process.argv.indexOf('--configs-dir')
 const cfgArg = process.argv.indexOf('--config')
-if (cfgArg < 0 || cfgArg + 1 >= process.argv.length) {
-  console.error('用法：node dist/bot/index.js --config <path>')
-  process.exit(1)
-} else {
+if (configsDirArg >= 0 && configsDirArg + 1 < process.argv.length) {
+  mainMulti(process.argv[configsDirArg + 1]!).catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  })
+} else if (cfgArg >= 0 && cfgArg + 1 < process.argv.length) {
   main(process.argv[cfgArg + 1]!).catch((err: unknown) => {
     console.error(err instanceof Error ? err.message : String(err))
     process.exit(1)
   })
+} else {
+  console.error('用法：node dist/bot/index.js --configs-dir <dir> 或 --config <path>')
+  process.exit(1)
 }
