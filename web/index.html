@@ -308,16 +308,21 @@
     document.getElementById('backBar').style.display = projectsMode ? '' : 'none'
     document.getElementById('currentProjectLabel').textContent = currentProject ? ('專案：' + currentProject) : ''
   }
+  function esc(s) {
+    if (typeof s !== 'string') return ''
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+  }
+
   function renderProjectList(projects) {
     document.getElementById('projectCards').innerHTML = projects.map(p => {
       if (p.error) {
-        return `<div class="card" data-project="${p.name}" style="cursor:pointer">
-          <h2>${p.name}</h2><div class="panelErr" style="display:block">讀取失敗：${p.error}</div></div>`
+        return `<div class="card">
+          <h2>${esc(p.name)}</h2><div class="panelErr" style="display:block">讀取失敗：${esc(p.error)}</div></div>`
       }
       const daemonBadge = p.daemonAlive ? '<span class="badge badge-green">daemon 活</span>' : '<span class="badge badge-red">daemon 死</span>'
       return `<div class="card" data-project="${p.name}" style="cursor:pointer">
-        <h2>${p.name}</h2>
-        <div class="big state-${p.state}">${p.state}</div>
+        <h2>${esc(p.name)}</h2>
+        <div class="big state-${esc(p.state)}">${esc(p.state)}</div>
         <div class="sub">今日成本 $${fmt(p.todayCostUsd)}｜backlog 未完 ${p.backlogOpen}</div>
         ${daemonBadge}
       </div>`
@@ -361,7 +366,8 @@
   async function poll() {
     try {
       const res = await fetch(withProject('/api/status'))
-      const body = await res.json()
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) { flash(body.error || ('HTTP ' + res.status), true); return }
       if (body.projects) {
         projectsMode = true
         renderProjectList(body.projects)
