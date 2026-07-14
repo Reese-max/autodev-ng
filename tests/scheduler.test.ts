@@ -8,6 +8,7 @@ import { runOnce, type Deps } from '../src/scheduler.js'
 import { BacklogStore, taskId } from '../src/backlog.js'
 import type { Disposition } from '../src/types.js'
 import { RunDb, localDay, type AttemptRecord } from '../src/db.js'
+import Database from 'better-sqlite3'
 import { EventLog } from '../src/events.js'
 import { MockEngine } from '../src/engines/mock.js'
 import { ConfigSchema } from '../src/types.js'
@@ -589,4 +590,54 @@ test('M5 記帳回歸：真值引擎（costPerRunUsd 未設）語意完全不變
   expect(await runOnce({ ...d, db: spyDb })).toBe('failed')
   expect(spyDb.records[0]!.costUsd).toBeCloseTo(1) // ConfigSchema.failureCostEstimateUsd 預設 1
   expect(spyDb.records[0]!.detail).toContain('cost-estimated')
+})
+
+// ---------------------------------------------------------------------------
+// M10.5 Task 4：全域日頂接線（runOnce 第二道防線）
+
+// 逐字鏡像 tests/globalcost.test.ts 的 seedDb 手法：最小 attempts 表 + 直接寫真 run.db。
+function seedSiblingDb(dataDir: string, rows: { ts: string; cost: number; engine: string }[]): void {
+  mkdirSync(dataDir, { recursive: true })
+  const db = new Database(join(dataDir, 'run.db'))
+  db.exec(`CREATE TABLE attempts(
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    ts TEXT NOT NULL,
+    ok INTEGER NOT NULL,
+    cost_usd REAL NOT NULL,
+    detail TEXT NOT NULL,
+    engine TEXT NOT NULL DEFAULT ''
+  )`)
+  for (const r of rows) {
+    db.prepare('INSERT INTO attempts (task_id, ts, ok, cost_usd, detail, engine) VALUES (?,?,?,?,?,?)')
+      .run('t', r.ts, 1, r.cost, '', r.engine)
+  }
+  db.close()
+}
+
+// 建一個 configs/ 目錄裝兩個「兄弟專案」config：sibling 真花 $50，deps.cfgPath 指向
+// 同目錄下的 self.json（自己不記帳，避免與 d.db 的本地日頂邏輯疊加混淆）。
+function seedTwoProjectConfigs(): string {
+  const configsDir = mkdtempSync(join(tmpdir(), 'adng-sch-global-'))
+  writeFileSync(join(configsDir, 'self.json'), JSON.stringify({ dataDir: './data-self', timezoneOffsetHours: 8 }))
+  writeFileSync(join(configsDir, 'sibling.json'), JSON.stringify({ dataDir: './data-sibling', timezoneOffsetHours: 8 }))
+  seedSiblingDb(join(configsDir, 'data-sibling'), [{ ts: new Date().toISOString(), cost: 50, engine: 'claude' }])
+  return join(configsDir, 'self.json')
+}
+
+test('M10.5：全域日頂超標 → cost-hard-stop，事件帶 global:true', async () => {
+  const cfgPath = seedTwoProjectConfigs()
+  const d = deps(new MockEngine())
+  const cfg = { ...d.cfg, globalDailyHardUsd: 10 } // 兄弟專案已花 $50，遠超此頂
+  expect(await runOnce({ ...d, cfg, cfgPath })).toBe('cost-hard-stop')
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  expect(events).toContain('"type":"cost-hard-stop"')
+  expect(events).toContain('"global":true')
+})
+
+test('M10.5 回歸：未設 globalDailyHardUsd → 不受兄弟專案超標影響（現狀不變）', async () => {
+  const cfgPath = seedTwoProjectConfigs()
+  const d = deps(new MockEngine([{ ok: true, costUsd: 0.1 }]))
+  // globalDailyHardUsd 未設；cfgPath 有給——若閘門誤判「有 cfgPath 就查帳」會誤觸 cost-hard-stop。
+  expect(await runOnce({ ...d, cfgPath })).toBe('done')
 })

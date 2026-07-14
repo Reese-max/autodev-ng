@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
 import { localDay, type RunDb } from './db.js'
 import { quiet, type EventLog } from './events.js'
+import { globalBilledToday } from './globalcost.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
 import type { VerifierCheck } from './verifier.js'
 import { cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError, type WorktreeHandle } from './worktree.js'
@@ -24,6 +25,8 @@ export interface Deps {
   verifier?: { check(job: Job, res: RunResult): Promise<VerifierCheck> }
   /** M7：未接線時 undefined，行為與現狀完全一致（fail-open 硬線）。 */
   lessons?: LessonsPort
+  /** M10.5：config 檔絕對路徑（assemble 填入）——globalBilledToday 掃兄弟專案用。測試可不設。 */
+  cfgPath?: string
 }
 
 /** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
@@ -59,6 +62,18 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     quiet(() => events.heartbeat({ state: 'cost-stopped', todayCostUsd: spent }))
     return 'cost-hard-stop'
   }
+
+  // M10.5：全域日頂（第二道防線）。查帳失敗＝0 放行（fail-open，spec §4——第一道防線仍在）。
+  if (cfg.globalDailyHardUsd !== undefined && deps.cfgPath) {
+    let g = 0
+    try { g = globalBilledToday(deps.cfgPath, new Date().toISOString()) } catch { /* fail-open */ }
+    if (g >= cfg.globalDailyHardUsd) {
+      quiet(() => events.appendOnce('cost-hard-stop', { spent: g, global: true }))
+      quiet(() => events.heartbeat({ state: 'cost-stopped', todayCostUsd: todayCost(db, cfg) }))
+      return 'cost-hard-stop'
+    }
+  }
+
   if (spent >= cfg.dailySoftUsd) quiet(() => events.appendOnce('cost-soft-warn', { spent }))
 
   const task = store.nextTask()

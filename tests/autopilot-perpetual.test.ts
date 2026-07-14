@@ -5,10 +5,24 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { ConfigSchema, type Config } from '../src/types.js'
 import { EventLog } from '../src/events.js'
+import { BacklogStore } from '../src/backlog.js'
+import { RunDb } from '../src/db.js'
+import type { Deps } from '../src/scheduler.js'
 import { ProblemsLedger, problemFingerprint } from '../src/autopilot/ledger.js'
 import { AUTO_GOAL_MARKER, savePerpetualState } from '../src/autopilot/author.js'
 import type { SessionResult } from '../src/autopilot/session.js'
-import { runPerpetualCycle, perpetualDigestLine, type PerpetualHooks } from '../src/autopilot/perpetual.js'
+
+// M10.5 Task 4：maybeRunPerpetual 生產殼的全域日頂前置閘測試需要控制 globalBilledToday
+// 回傳值——整檔只 mock globalcost.js（不 mock 本檔主角 perpetual.js），runPerpetualCycle
+// 本體仍走真實實作，僅 maybeRunPerpetual 內部呼叫到的 globalBilledToday 被替換。
+const globalBilledTodayMock = vi.hoisted(() => vi.fn((_cfgPath: string, _nowIso: string): number => 0))
+vi.mock('../src/globalcost.js', () => ({ globalBilledToday: globalBilledTodayMock }))
+// discoverProblems 也整檔 mock：只有全域頂放行、真的走進 runBody 的無 GOAL 分支才會呼叫到它——
+// 藉此驗證前置閘確實在 discover 之前短路，而非只是巧合地因 surveyCommand 未設而跳過。
+const discoverProblemsMock = vi.hoisted(() => vi.fn())
+vi.mock('../src/autopilot/discover.js', () => ({ discoverProblems: discoverProblemsMock }))
+
+import { runPerpetualCycle, perpetualDigestLine, maybeRunPerpetual, type PerpetualHooks } from '../src/autopilot/perpetual.js'
 
 const NOW = new Date('2026-07-14T00:00:00Z')
 const goalIdOf = (obj: string) => createHash('sha1').update(obj).digest('hex').slice(0, 4)
@@ -357,5 +371,46 @@ describe('perpetualDigestLine', () => {
     const dir = mkdtempSync(join(tmpdir(), 'adng-perp-'))
     expect(perpetualDigestLine(dir)).toBeNull()
     safeRm(dir)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// M10.5 Task 4：maybeRunPerpetual 生產殼——全域日頂前置閘（在 runPerpetualCycle 之前）
+
+describe('maybeRunPerpetual 殼層：全域日頂前置閘', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'adng-perp-shell-'))
+    globalBilledTodayMock.mockReset()
+    discoverProblemsMock.mockReset()
+  })
+  afterEach(() => safeRm(dir))
+
+  function makeDeps(cfg: PCfg): Deps {
+    return {
+      cfg,
+      store: new BacklogStore(cfg.backlogFile),
+      db: new RunDb(join(dir, 'run.db')),
+      engines: { resolve: () => { throw new Error('不該被呼叫——全域頂應在派工前短路') } },
+      events: new EventLog(dir)
+    }
+  }
+
+  test('全域頂超標 → false，discover 未被呼叫（短路在 runPerpetualCycle 之前）', async () => {
+    globalBilledTodayMock.mockReturnValue(999)
+    const cfg = makeCfg(dir, { globalDailyHardUsd: 1, surveyCommand: 'echo hi' })
+    const deps = makeDeps(cfg)
+    const result = await maybeRunPerpetual({ ...deps, cfgPath: join(dir, 'self.json') }, { send: async () => true })
+    expect(result).toBe(false)
+    expect(discoverProblemsMock).not.toHaveBeenCalled()
+  })
+
+  test('未設 globalDailyHardUsd → 前置閘不介入（現狀回歸線，仍走到 discover 之前的既有閘門）', async () => {
+    globalBilledTodayMock.mockReturnValue(999) // 就算查帳回超大值，未設頂就不該被讀
+    const cfg = makeCfg(dir, { globalDailyHardUsd: undefined, perpetual: false }) // perpetual:false 讓既有閘門先擋，避免真的跑 discover
+    const deps = makeDeps(cfg)
+    const result = await maybeRunPerpetual({ ...deps, cfgPath: join(dir, 'self.json') }, { send: async () => true })
+    expect(result).toBe(false)
+    expect(globalBilledTodayMock).not.toHaveBeenCalled()
   })
 })

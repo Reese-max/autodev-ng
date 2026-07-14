@@ -116,7 +116,7 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
     llm: { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }, events
   })
 
-  const deps: Deps = { cfg, store, db, engines, events, verifier, lessons }
+  const deps: Deps = { cfg, store, db, engines, events, verifier, lessons, cfgPath: absCfgPath }
   return { deps, notifier, cfg }
 }
 
