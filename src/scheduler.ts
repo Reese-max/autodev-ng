@@ -69,7 +69,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     try { g = globalBilledToday(deps.cfgPath, new Date().toISOString()) } catch { /* fail-open */ }
     if (g >= cfg.globalDailyHardUsd) {
       quiet(() => events.appendOnce('cost-hard-stop-global', { spent: g }))
-      quiet(() => events.heartbeat({ state: 'cost-stopped', todayCostUsd: g }))
+      quiet(() => events.heartbeat({ state: 'cost-stopped', todayCostUsd: spent }))
       return 'cost-hard-stop'
     }
   }
