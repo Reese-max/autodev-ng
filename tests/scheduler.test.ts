@@ -625,14 +625,13 @@ function seedTwoProjectConfigs(): string {
   return join(configsDir, 'self.json')
 }
 
-test('M10.5：全域日頂超標 → cost-hard-stop，事件帶 global:true', async () => {
+test('M10.5：全域日頂超標 → cost-hard-stop-global', async () => {
   const cfgPath = seedTwoProjectConfigs()
   const d = deps(new MockEngine())
   const cfg = { ...d.cfg, globalDailyHardUsd: 10 } // 兄弟專案已花 $50，遠超此頂
   expect(await runOnce({ ...d, cfg, cfgPath })).toBe('cost-hard-stop')
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
-  expect(events).toContain('"type":"cost-hard-stop"')
-  expect(events).toContain('"global":true')
+  expect(events).toContain('"type":"cost-hard-stop-global"')
 })
 
 test('M10.5 回歸：未設 globalDailyHardUsd → 不受兄弟專案超標影響（現狀不變）', async () => {
