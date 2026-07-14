@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { basename, dirname, join, resolve } from 'node:path'
 
 export interface BotConfig {
   allowedUserIds: string[]
@@ -91,5 +91,20 @@ export function loadBotToken(botTokenFile?: string): string | null {
   } catch {
     // 靜默失敗：讀檔錯誤不外洩
     return null
+  }
+}
+
+export interface ProjectEntry { name: string; cfgPath: string }
+
+/** 掃 configsDir 下 *.json（檔名排序），name=去 .json 檔名。目錄不存在/空 → []。 */
+export function listProjectConfigs(configsDir: string): ProjectEntry[] {
+  try {
+    if (!existsSync(configsDir)) return []
+    return readdirSync(configsDir)
+      .filter(f => f.endsWith('.json'))
+      .sort()
+      .map(f => ({ name: basename(f, '.json'), cfgPath: join(configsDir, f) }))
+  } catch {
+    return []
   }
 }

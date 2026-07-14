@@ -2,7 +2,7 @@ import { describe, test, expect, afterEach } from 'vitest'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadBotConfig, loadBotToken } from '../src/bot/config.js'
+import { loadBotConfig, loadBotToken, listProjectConfigs } from '../src/bot/config.js'
 
 const savedEnv = process.env.ADNG_BOT_TOKEN
 afterEach(() => {
@@ -92,5 +92,24 @@ describe('loadBotToken', () => {
     delete process.env.ADNG_BOT_TOKEN
     expect(loadBotToken(join(dir(), 'missing.env'))).toBeNull()
     expect(loadBotToken(undefined)).toBeNull()
+  })
+})
+
+describe('listProjectConfigs', () => {
+  test('掃 *.json(檔名排序,忽略非 json),name=去 .json 檔名', () => {
+    const d = dir()
+    writeFileSync(join(d, 'b.json'), '{}')
+    writeFileSync(join(d, 'a.json'), '{}')
+    writeFileSync(join(d, 'readme.txt'), 'x')
+    expect(listProjectConfigs(d)).toEqual([
+      { name: 'a', cfgPath: join(d, 'a.json') },
+      { name: 'b', cfgPath: join(d, 'b.json') }
+    ])
+  })
+  test('目錄不存在 → []', () => {
+    expect(listProjectConfigs(join(dir(), 'nope'))).toEqual([])
+  })
+  test('目錄存在但空 → []', () => {
+    expect(listProjectConfigs(dir())).toEqual([])
   })
 })

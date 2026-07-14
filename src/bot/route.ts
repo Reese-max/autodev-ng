@@ -29,3 +29,82 @@ export async function routeInteraction(
     await i.reply('內部錯誤')
   }
 }
+
+/** 讀類指令：無 project 參數時對使用者有權限的每個專案各摘要一段。
+ * 動作類指令：project 必填（改狀態動作不可對「全部專案」批次做）。 */
+export const READ_COMMANDS = ['status', 'cost', 'backlog', 'log', 'lessons', 'problems'] as const
+export const ACTION_COMMANDS = ['pause', 'resume', 'silence', 'task', 'ask', 'goal'] as const
+
+/** 專案名解析：精確匹配優先（即使該名同時是另一專案的前綴）；否則在 names 裡找唯一前綴匹配；
+ * 前綴命中 ≥2 個回 ambiguous 帶候選（依 names 原順序）；一個都沒命中回 unknown。 */
+export function resolveProject(input: string, names: string[]):
+  { kind: 'one'; name: string } | { kind: 'ambiguous'; candidates: string[] } | { kind: 'unknown' } {
+  if (names.includes(input)) return { kind: 'one', name: input }
+  const matches = names.filter(n => n.startsWith(input))
+  if (matches.length === 1) return { kind: 'one', name: matches[0]! }
+  if (matches.length > 1) return { kind: 'ambiguous', candidates: matches }
+  return { kind: 'unknown' }
+}
+
+/** 多專案執行環境：每專案自己的 BotDeps＋allowlist（鏡像單專案 routeInteraction 的 allowed 參數）。 */
+export interface ProjectRuntime { deps: BotDeps; allowed: string[] }
+
+/** 多專案路由（M10.5 Task 5）：
+ * - i.project 有值：resolveProject → unknown/ambiguous 回人話（不呼叫 handle）；命中 → 該專案
+ *   allowlist 擋人（鏡像 routeInteraction）→ handle。
+ * - i.project 空：ACTION_COMMANDS → 回「動作指令必須指定 project」；否則（READ_COMMANDS）→ 對
+ *   使用者在其 allowlist 的每個專案各呼叫一次 handle，回覆以 `【<name>】\n<text>` 段落、專案間空行串接；
+ *   一個專案都沒權限 → 未授權。
+ * - 任何 handle throw 在本層吞掉（鏡像 routeInteraction 鐵律：路由層永不外拋）。
+ * - 聚合層不再另截斷——handlers.ts 既有 truncate 對每段各自負責。 */
+export async function routeMultiInteraction(
+  i: InteractionLike & { project?: string },
+  projects: Map<string, ProjectRuntime>,
+  handle: typeof handleCommand = handleCommand
+): Promise<void> {
+  const project = i.project
+  if (project) {
+    const r = resolveProject(project, [...projects.keys()])
+    if (r.kind === 'unknown') {
+      await i.reply(`找不到專案：${project}`)
+      return
+    }
+    if (r.kind === 'ambiguous') {
+      await i.reply(`專案名稱有歧義，候選：${r.candidates.join(', ')}`)
+      return
+    }
+    const rt = projects.get(r.name)!
+    if (rt.allowed.length === 0 || !rt.allowed.includes(i.userId)) {
+      await i.reply('未授權', true)
+      return
+    }
+    try {
+      const result = await handle(i.commandName, i.arg, rt.deps)
+      await i.reply(result.text)
+    } catch {
+      await i.reply('內部錯誤')
+    }
+    return
+  }
+
+  if ((ACTION_COMMANDS as readonly string[]).includes(i.commandName)) {
+    await i.reply('動作指令必須指定 project')
+    return
+  }
+
+  const allowedEntries = [...projects.entries()].filter(([, rt]) => rt.allowed.includes(i.userId))
+  if (allowedEntries.length === 0) {
+    await i.reply('未授權', true)
+    return
+  }
+  try {
+    const sections: string[] = []
+    for (const [name, rt] of allowedEntries) {
+      const result = await handle(i.commandName, i.arg, rt.deps)
+      sections.push(`【${name}】\n${result.text}`)
+    }
+    await i.reply(sections.join('\n\n'))
+  } catch {
+    await i.reply('內部錯誤')
+  }
+}
