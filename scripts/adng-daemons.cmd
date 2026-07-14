@@ -19,13 +19,12 @@ REM blindly retries "start /b >>log ... node ..." on a 15-minute
 REM schedule would error out before node.js can even launch to
 REM hit its own lock-busy path.
 REM Fix: pre-check daemon liveness via daemon.lock\pid.json +
-REM tasklist and skip the spawn (and the doomed redirect) entirely
-REM when a live owner already holds the lock. Task 1's acquireLock
-REM (dist/lock.js) remains the sole authority for actual stale-lock
-REM reclaim; this pre-check only dodges the Windows file-sharing
-REM conflict, it does not duplicate lock semantics (a dead/missing
-REM pid always falls through to a normal start attempt, letting
-REM acquireLock decide).
+REM tasklist; skip spawn entirely if a live owner holds the lock.
+REM If pre-check misses a still-alive daemon, file-sharing lock
+REM failure occurs before node.js launches (at the redirect stage),
+REM silently failing the spawn; refire retries on the next 15-minute
+REM cycle. acquireLock (dist/lock.js) handles stale-lock reclaim, not
+REM file-sharing conflicts.
 REM
 REM Pure ASCII only (hard rule 7). Redirection is placed right
 REM after "start /b", before the command, not after (pitfall 24: a
@@ -49,7 +48,7 @@ for %%F in ("%ADNG_ROOT%\configs\*.json") do (
     for /f "tokens=2 delims=:" %%A in ("!PJLINE!") do set "PJREST=%%A"
     for /f "delims=," %%B in ("!PJREST!") do set "LOCKPID=%%B"
     if defined LOCKPID (
-      tasklist /fi "PID eq !LOCKPID!" 2>nul | find "!LOCKPID!" >nul
+      tasklist /fi "PID eq !LOCKPID!" /fi "IMAGENAME eq node.exe" 2>nul | find "!LOCKPID!" >nul
       if not errorlevel 1 set "ALIVE=1"
     )
   )
