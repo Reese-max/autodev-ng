@@ -57,4 +57,14 @@ describe('globalBilledToday', () => {
   test('整體故障回 0（fail-open）：configs 目錄不存在', () => {
     expect(globalBilledToday(join(root, 'nowhere', 'x.json'), '2026-07-14T03:00:00Z')).toBe(0)
   })
+
+  test('config 缺 timezoneOffsetHours 時鏡像 Zod default(8)，不可低估為 0', () => {
+    // 不寫 timezoneOffsetHours 欄位（模擬 prompt-autoresearch.json 實況）。
+    const p = join(root, 'configs', 'notz.json')
+    writeFileSync(p, JSON.stringify({ dataDir: '../data/notz' }))
+    // ts 在 +8 日窗內（2026-07-14 01:30 本地、屬今日）、但在 UTC 日窗外（2026-07-13，屬昨日）。
+    // 若 offset 誤取 0，會用 UTC 日窗把這筆算成「昨日」而漏計。
+    seedDb(join(root, 'data/notz'), [{ ts: '2026-07-13T17:30:00Z', cost: 7, engine: 'claude' }])
+    expect(globalBilledToday(p, '2026-07-14T03:00:00Z')).toBe(7)
+  })
 })
