@@ -320,7 +320,7 @@
           <h2>${esc(p.name)}</h2><div class="panelErr" style="display:block">讀取失敗：${esc(p.error)}</div></div>`
       }
       const daemonBadge = p.daemonAlive ? '<span class="badge badge-green">daemon 活</span>' : '<span class="badge badge-red">daemon 死</span>'
-      return `<div class="card" data-project="${p.name}" style="cursor:pointer">
+      return `<div class="card" data-project="${esc(p.name)}" style="cursor:pointer">
         <h2>${esc(p.name)}</h2>
         <div class="big state-${esc(p.state)}">${esc(p.state)}</div>
         <div class="sub">今日成本 $${fmt(p.todayCostUsd)}｜backlog 未完 ${p.backlogOpen}</div>
