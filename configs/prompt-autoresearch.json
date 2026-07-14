@@ -13,6 +13,7 @@
   "surveyCommand": "python -m pytest tests/ -q --cov=lib --cov=scripts --cov=api --cov-report=term-missing --deselect tests/test_architecture_surface.py::ArchitectureSurfaceTests::test_experiment_report_snapshot_contract",
   "dailySoftUsd": 45,
   "dailyHardUsd": 50,
+  "globalDailyHardUsd": 40,
   "perpetual": true,
   "defaultEngine": "claude",
   "engines": {

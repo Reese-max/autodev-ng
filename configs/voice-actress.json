@@ -14,6 +14,7 @@
   "botAllowedUserIds": ["844236700611379200"],
   "botGuildId": "1492254295364731081",
   "timezoneOffsetHours": 8,
+  "globalDailyHardUsd": 40,
   "failureCostEstimateUsd": 3,
   "defaultEngine": "claude",
   "engines": {
