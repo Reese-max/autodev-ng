@@ -11,9 +11,9 @@ REM are harmless and double as auto-respawn.
 REM ============================================================
 
 set "ADNG_ROOT=D:\Users\Administrator\Desktop\autodev-ng"
-set "ADNG_LOG_DIR=%ADNG_ROOT%\data\voice-actress"
+set "ADNG_LOG_DIR=%ADNG_ROOT%\data"
 set "ADNG_LOG=%ADNG_LOG_DIR%\bot-console.log"
 
 if not exist "%ADNG_LOG_DIR%" mkdir "%ADNG_LOG_DIR%"
 
->>"%ADNG_LOG%" 2>&1 node "%ADNG_ROOT%\dist\bot\index.js" --config "%ADNG_ROOT%\configs\voice-actress.json"
+>>"%ADNG_LOG%" 2>&1 node "%ADNG_ROOT%\dist\bot\index.js" --configs-dir "%ADNG_ROOT%\configs"
