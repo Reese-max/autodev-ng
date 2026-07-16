@@ -19,6 +19,7 @@ jobs:
       - run: npm test
 
   dependency-upgrade:
+    name: dependency-upgrade (fastapi/starlette/httpx)
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4

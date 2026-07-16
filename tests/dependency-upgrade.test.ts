@@ -71,18 +71,24 @@ test('dependency-upgrade：安裝最新相容版 + 完整測試通過 + 佐證',
     testExitCode = e.status ?? 1
   }
 
-  // ── 5. 保存佐證 ──
+  // ── 5. 完整依賴樹快照 ──
+  const freezeOutput = pipFreeze()
+
+  // ── 6. 保存佐證 ──
+  const passed = testExitCode === 0
   const evidence = {
     timestamp: new Date().toISOString(),
+    passed,
     packages: DEPS,
     before: beforePkgs,
     after: afterPkgs,
     installOutput: installResult,
     testExitCode,
     testOutput,
+    freezeOutput,
   }
   writeFileSync(EVIDENCE_FILE, JSON.stringify(evidence, null, 2), 'utf-8')
 
-  // ── 6. 驗證 ──
+  // ── 7. 驗證 ──
   expect(testExitCode, `pytest 失敗 (exit=${testExitCode})\n${testOutput}`).toBe(0)
 })
