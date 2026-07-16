@@ -16,9 +16,19 @@
   "timezoneOffsetHours": 8,
   "globalDailyHardUsd": 40,
   "failureCostEstimateUsd": 3,
-  "defaultEngine": "claude",
+  "perpetual": true,
+  "defaultEngine": "opencode",
   "engines": {
     "claude": { "adapter": "claude-cli" },
+    "opencode": {
+      "adapter": "opencode",
+      "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe"
+    },
+    "devin": {
+      "adapter": "devin",
+      "command": "C:/Users/Administrator/AppData/Local/devin/cli/bin/devin.exe",
+      "costPerRunUsd": 0
+    },
     "m3": {
       "adapter": "claude-cli",
       "costPerRunUsd": 0.15,
