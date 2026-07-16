@@ -20,6 +20,7 @@
   "timezoneOffsetHours": 8,
   "globalDailyHardUsd": 40,
   "failureCostEstimateUsd": 3,
+  "maxAttempts": 3,
   "perpetual": true,
   "defaultEngine": "opencode",
   "engines": {
