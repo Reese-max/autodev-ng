@@ -108,7 +108,9 @@ export class OpencodeEngine implements Engine {
     const want = JSON.stringify({
       $schema: 'https://opencode.ai/config.json', model: this.model, permission: 'allow',
       ...(prov === 'zen' && modelId ? { provider: { zen: { npm: '@ai-sdk/openai-compatible', name: 'OpenCode Zen (adng isolated)',
-        options: { baseURL: 'https://opencode.ai/zen/v1', apiKey: '{env:OPENCODE_ZEN_KEY}', timeout: 30000, chunkTimeout: 15000 },
+        // timeout 30s 實測撞牆：big-pickle 吃 3 萬 token 上下文時單請求逾 27s 即 UnknownError
+        // 中斷整輪（2026-07-16 兩專案 task-failed 實錄）；放寬至 180s/60s 容納免費模型排隊延遲。
+        options: { baseURL: 'https://opencode.ai/zen/v1', apiKey: '{env:OPENCODE_ZEN_KEY}', timeout: 180000, chunkTimeout: 60000 },
         models: { [modelId]: {} } } } } : {})
     }, null, 2)
     let cur: string | undefined; try { cur = readFileSync(file, 'utf8') } catch { /* 不存在＝重寫 */ }
