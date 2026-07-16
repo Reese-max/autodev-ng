@@ -3,6 +3,7 @@ import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { runProcess } from '../proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
+import { WORKER_GUARDS } from './prompt-guard.js'
 
 /** Windows 路徑 → WSL /mnt 路徑：`D:\a b\c` → `/mnt/d/a b/c`。小寫碟符、反斜線轉正斜線、空格
  * 原樣保留（argv 直傳不經 shell 毋須跳脫）、尾斜線剝除；非「碟符:」開頭視為已是 POSIX。導出供測試。 */
@@ -98,6 +99,7 @@ export class AgyEngine implements Engine {
     const marker = `adng-run-${job.task.id}-${randomBytes(4).toString('hex')}`
     const prompt = [
       `你是自動開發工人。完成以下這一項任務。`,
+      WORKER_GUARDS,
       `改動完成後必須自己執行 git add -A 與 git commit（conventional commit，zh-TW）；`,
       `沒有 commit 的工作會被整輪作廢、視為失敗。`,
       `嚴禁超出任務範圍、嚴禁動 BACKLOG.md、嚴禁自行新增任務。只在目前工作目錄（git repo）內作業。`,

@@ -38,5 +38,5 @@
       "subscription": true
     }
   },
-  "extraDirective": "這是 autodev-ng 引擎端到端測試。只做任務明確要求的最小改動，不要動任何現有程式碼（app.js/index.html/lib/api/*.py 等一律不碰）。"
+  "extraDirective": "只做任務明確要求的最小改動，改動完成必須讓現有測試全數通過。"
 }

@@ -35,12 +35,12 @@ test('NDJSON 正常流（含毒行）＋新 commit → ok、commitHash、cost �
   expect(r.costUnknown).toBeUndefined() // 與估計值引擎不同：step_finish.cost 是可信真值
 })
 
-test('prompt 含 cwd guard（2026-07-16 引擎遊走事故回歸：嚴禁離開工作目錄操作其他 repo）', async () => {
+test('prompt 含 WORKER_GUARDS（2026-07-16 引擎遊走事故＋24bd552e 分析任務白燒回歸）', async () => {
   const { e } = engine('ok', ['aaa', 'bbb'])
   const r = await e.run({ task: T, projectPath: process.cwd() })
   // fixture ok 模式把 stdin（=prompt）前 800 字 echo 回 text → 斷言 guard 確實送進引擎
-  expect(r.output).toContain('嚴禁 cd 到其他目錄')
-  expect(r.output).toContain('絕對路徑')
+  expect(r.output).toContain('嚴禁 cd 到其他目錄') // cwd guard
+  expect(r.output).toContain('調查/分析/盤點') // 分析結論須落檔 commit
 })
 
 test('多 step run → costUsd＝Σ step_finish.part.cost（tool 步＋文字步）', async () => {

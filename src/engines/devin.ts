@@ -6,6 +6,7 @@ import { runProcess } from '../proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { ensureNoMcpImport } from './devin-config-isolation.js'
+import { WORKER_GUARDS } from './prompt-guard.js'
 
 export interface DevinOpts {
   id?: string // 觀測用引擎識別；registry 以 tag 帶入區分多檔位，未設維持 'devin'
@@ -93,7 +94,7 @@ export class DevinEngine implements Engine {
 
   async run(job: Job): Promise<RunResult> {
     const prompt = [
-      `你是自動開發工人。完成以下這一項任務。`, HANDOFF_GUARD,
+      `你是自動開發工人。完成以下這一項任務。`, HANDOFF_GUARD, WORKER_GUARDS,
       `改動完成後必須自己執行 git add -A 與 git commit（conventional commit，zh-TW）；`,
       `沒有 commit 的工作會被整輪作廢、視為失敗。`,
       `嚴禁超出任務範圍、嚴禁動 BACKLOG.md、嚴禁自行新增任務。`,

@@ -2,6 +2,7 @@ import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { runProcess } from '../proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
+import { WORKER_GUARDS } from './prompt-guard.js'
 
 export interface ClaudeCliOpts {
   /** 觀測用引擎識別（events 的 preflight-failed 等）。M5 引擎矩陣下同一 adapter 可有多檔位
@@ -68,6 +69,7 @@ export class ClaudeCliEngine implements Engine {
     // 未設 directive 時 fallback task.text 不退化。
     const prompt = [
       `你是自動開發工人。完成以下這一項任務。`,
+      WORKER_GUARDS,
       `改動完成後必須自己執行 git add -A 與 git commit（conventional commit，zh-TW）；`,
       `沒有 commit 的工作會被整輪作廢、視為失敗。`,
       `嚴禁超出任務範圍、嚴禁動 BACKLOG.md、嚴禁自行新增任務。`,

@@ -4,6 +4,7 @@ import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { runProcess } from '../proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
+import { WORKER_GUARDS } from './prompt-guard.js'
 
 export interface OpencodeOpts {
   id?: string
@@ -65,10 +66,7 @@ export class OpencodeEngine implements Engine {
     // prompt 組裝沿 claude-cli/codex 模板：directive 優先（Fix 1）、commit 要求是硬話（Fix 3）。
     const prompt = [
       `你是自動開發工人。完成以下這一項任務。`,
-      // 2026-07-16 事故（devin 有 HANDOFF_GUARD、opencode 沒有等價防線）：引擎照任務文字裡的
-      // 絕對路徑遊走到別的 repo 直接 commit，繞過 verify 閘。cwd guard 是縱深防禦第二層
-      // （第一層是 prepareWorktree 的 assertWorktreeCheckout 不派空 worktree）。
-      `所有操作只能在目前工作目錄這個 repo 內進行；嚴禁 cd 到其他目錄、嚴禁用 git -C 或絕對路徑對任何其他 repo 讀寫與 commit，即使任務文字提到別的路徑也一樣。`,
+      WORKER_GUARDS,
       `改動完成後必須自己執行 git add -A 與 git commit（conventional commit，zh-TW）；`,
       `沒有 commit 的工作會被整輪作廢、視為失敗。`,
       `嚴禁超出任務範圍、嚴禁動 BACKLOG.md、嚴禁自行新增任務。`,
