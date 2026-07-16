@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { runProcess } from '../proc.js'
 import type { PreflightCache } from '../preflight.js'
+import { defaultCommitHash } from './commit-hash.js'
 
 export interface ClaudeCliOpts {
   /** 觀測用引擎識別（events 的 preflight-failed 等）。M5 引擎矩陣下同一 adapter 可有多檔位
@@ -124,10 +124,4 @@ function parseResultJson(stdout: string): Record<string, unknown> | null {
 
 function tail(s: string, n = 2000): string {
   return s.length > n ? s.slice(-n) : s
-}
-
-function defaultCommitHash(cwd: string): string | undefined {
-  try {
-    return execFileSync('git', ['-C', cwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 }).trim()
-  } catch { return undefined }
 }

@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { runProcess } from '../proc.js'
 import type { PreflightCache } from '../preflight.js'
+import { defaultCommitHash } from './commit-hash.js'
 
 /** Windows 路徑 → WSL /mnt 路徑：`D:\a b\c` → `/mnt/d/a b/c`。小寫碟符、反斜線轉正斜線、空格
  * 原樣保留（argv 直傳不經 shell 毋須跳脫）、尾斜線剝除；非「碟符:」開頭視為已是 POSIX。導出供測試。 */
@@ -142,8 +142,3 @@ export class AgyEngine implements Engine {
 }
 
 function tail(s: string, n = 2000): string { return s.length > n ? s.slice(-n) : s }
-function defaultCommitHash(cwd: string): string | undefined {
-  try {
-    return execFileSync('git', ['-C', cwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 }).trim()
-  } catch { return undefined }
-}

@@ -3,7 +3,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError } from '../src/worktree.js'
+import { assertWorktreeCheckout, cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError } from '../src/worktree.js'
 
 function initGitRepo(dir: string): void {
   execFileSync('git', ['init', '-b', 'main'], { cwd: dir, stdio: 'ignore' })
@@ -142,6 +142,48 @@ test('prepareWorktree：殘留目錄被鎖住(前次中斷進程未退)時上拋
   expect(second.cwd).toBe(first.cwd)
   expect(existsSync(join(second.cwd, 'result.txt'))).toBe(false)
 }, 40000)
+
+// ---------------------------------------------------------------------------
+// 2026-07-16 note-filler 產線事故回歸：worktree add 後 checkout 未落地（空目錄/半套），
+// 引擎被派進去後遊走到外層 repo 繞過 verify 閘。assertWorktreeCheckout 必須在派工前擋下。
+// ---------------------------------------------------------------------------
+
+test('assertWorktreeCheckout：正常 worktree → 不拋（prepareWorktree 內建呼叫不誤傷正常路徑）', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  expect(() => assertWorktreeCheckout(wt.cwd, wt.branch)).not.toThrow()
+})
+
+test('assertWorktreeCheckout：空目錄（checkout 完全未落地，事故本體）→ 拋 code=worktree-invalid', () => {
+  const { worktreesDir } = newRepo()
+  // 模擬事故現場：目錄存在但空無一物（連 .git 都沒有）——git 會往上解析到外層 repo
+  // （外層分支不是 adng/<taskId>）或 symbolic-ref 直接失敗，兩種都必須擋下。
+  const emptyDir = join(worktreesDir, TASK_ID)
+  mkdirSync(emptyDir, { recursive: true })
+  let caught: unknown
+  try {
+    assertWorktreeCheckout(emptyDir, `adng/${TASK_ID}`)
+  } catch (err) {
+    caught = err
+  }
+  expect(caught).toBeInstanceOf(Error)
+  expect((caught as { code?: string }).code).toBe('worktree-invalid')
+})
+
+test('assertWorktreeCheckout：checkout 半套（tracked 檔缺失）→ 拋 code=worktree-invalid', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  rmSync(join(wt.cwd, 'README.md')) // 模擬 checkout 寫檔中斷：分支正確但 tracked 檔不在
+  let caught: unknown
+  try {
+    assertWorktreeCheckout(wt.cwd, wt.branch)
+  } catch (err) {
+    caught = err
+  }
+  expect(caught).toBeInstanceOf(Error)
+  expect((caught as Error).message).toMatch(/checkout 不完整/)
+  expect((caught as { code?: string }).code).toBe('worktree-invalid')
+})
 
 test('mergeBack：worktree 內 commit 後 ff-only 成功、主 repo HEAD 前進；cleanupWorktree 清掉現場', () => {
   const { repo, worktreesDir } = newRepo()

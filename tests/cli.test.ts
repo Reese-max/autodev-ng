@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { assemble, expandEnvValue, finalizeRunOnceHeartbeat, formatStatus, makeEngineRegistry, parseArgv, runNotifyTest } from '../src/cli.js'
@@ -449,14 +449,17 @@ test('M5：expandEnvValue——字串內嵌展開、多引用、無引用原樣�
   }
 })
 
-test('M5：既有 configs/voice-actress.json（真檔）schema 全過——engines 白名單含 claude/m3/codex-spark、不含 zen；registry lazy 不碰 m3 就不需要 MINIMAX_*', () => {
+test('M5：configs/ 下所有現役真檔 schema 全過，且 registry 能建出 defaultEngine（原 voice-actress 專測——該檔已退役 .retired，改為不綁定單一檔名）', () => {
   // 不走 assemble：避免測試打開真 dataDir 的 run.db（可能與跑中的 daemon 打架）。
   // schema 驗證＋registry（dataDir 換 temp）已覆蓋「真檔能跑」的組裝面。
-  const realCfgPath = resolve(import.meta.dirname, '..', 'configs', 'voice-actress.json')
-  const cfg = ConfigSchema.parse(JSON.parse(readFileSync(realCfgPath, 'utf8')))
-  expect(cfg.defaultEngine).toBe('claude')
-  expect(Object.keys(cfg.engines)).toEqual(['claude', 'm3', 'codex-spark'])
-  expect(cfg.engines['zen']).toBeUndefined() // opencode zen 明文禁派 voice-actress
-  const registry = makeEngineRegistry({ ...cfg, dataDir: mkdtempSync(join(tmpdir(), 'adng-va-')) })
-  expect(registry.resolve('claude')).toBeInstanceOf(ClaudeCliEngine) // lazy：不 resolve m3 不需要 MINIMAX env
+  // 只掃 *.json：.retired/.paused 等停用檔不在現役範圍，daemon launcher 同樣不會載它們。
+  const cfgDir = resolve(import.meta.dirname, '..', 'configs')
+  const files = readdirSync(cfgDir).filter(f => f.endsWith('.json'))
+  expect(files.length).toBeGreaterThan(0) // 空 configs 代表整套系統沒有任何專案在跑——那是異常
+  for (const f of files) {
+    const cfg = ConfigSchema.parse(JSON.parse(readFileSync(join(cfgDir, f), 'utf8')))
+    expect(cfg.engines[cfg.defaultEngine], `${f} 的 defaultEngine 必須在自己的 engines 白名單內`).toBeDefined()
+    const registry = makeEngineRegistry({ ...cfg, dataDir: mkdtempSync(join(tmpdir(), 'adng-cfg-')) })
+    expect(registry.resolve(cfg.defaultEngine)).toBeDefined() // lazy：只 resolve defaultEngine，不需要其他引擎的 env
+  }
 })

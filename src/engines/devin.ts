@@ -1,10 +1,10 @@
-import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { runProcess } from '../proc.js'
 import type { PreflightCache } from '../preflight.js'
+import { defaultCommitHash } from './commit-hash.js'
 import { ensureNoMcpImport } from './devin-config-isolation.js'
 
 export interface DevinOpts {
@@ -142,7 +142,3 @@ function tailErr(r: { stdout: string; stderr: string }): string {
 }
 
 function tail(s: string, n = 2000): string { return s.length > n ? s.slice(-n) : s }
-
-function defaultCommitHash(cwd: string): string | undefined {
-  try { return execFileSync('git', ['-C', cwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 }).trim() } catch { return undefined }
-}

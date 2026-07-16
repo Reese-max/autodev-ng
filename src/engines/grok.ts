@@ -1,10 +1,10 @@
-import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { runProcess } from '../proc.js'
 import type { PreflightCache } from '../preflight.js'
+import { defaultCommitHash } from './commit-hash.js'
 
 export interface GrokOpts {
   id?: string // 觀測用引擎識別；registry 以 tag 帶入區分多檔位，未設維持 'grok'
@@ -142,9 +142,3 @@ function filterTelemetry(stderr: string): string {
 }
 
 function tail(s: string, n = 2000): string { return s.length > n ? s.slice(-n) : s }
-
-function defaultCommitHash(cwd: string): string | undefined {
-  try {
-    return execFileSync('git', ['-C', cwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 }).trim()
-  } catch { return undefined }
-}

@@ -38,6 +38,9 @@ export type BlockedReason =
   | 'engine-not-allowed'
   // Task 2：worktree 殘留鎖定失敗（cleanStaleWorktree 掛 code==='worktree-locked'），獨立於 not-a-git-repo，避免人工誤判方向。
   | 'worktree-locked'
+  // 2026-07-16 事故：worktree add 後 checkout 未落地（assertWorktreeCheckout 掛 code==='worktree-invalid'）——
+  // 空目錄派工會讓引擎遊走到別的 repo 繞過 verify 閘，必須在派工前擋下。
+  | 'worktree-invalid'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
@@ -129,7 +132,8 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     wt = prepareWorktree(cfg.projectPath, cfg.worktreesDir, task.id)
   } catch (err) {
     quiet(() => events.append('worktree-prepare-failed', { task: task.text, error: String(err) }))
-    const reason: BlockedReason = (err as { code?: string })?.code === 'worktree-locked' ? 'worktree-locked' : 'not-a-git-repo'
+    const code = (err as { code?: string })?.code
+    const reason: BlockedReason = code === 'worktree-locked' || code === 'worktree-invalid' ? code : 'not-a-git-repo'
     return blockTask({ store, events }, task, reason, `worktree 建立失敗：${String(err)}`)
   }
 

@@ -97,6 +97,30 @@ function ensureMarkerIgnored(projectPath: string): void {
   }
 }
 
+/** 2026-07-16 note-filler 產線事故回歸防線：`git worktree add` 之後目錄實際是空的
+ * （checkout 未落地），引擎被派進去後 git 從空 cwd 往上解析到外層 repo、照 directive
+ * 裡的路徑遊走直接 commit 目標專案 main——完全繞過 verify 閘，帳面卻全記 no-commit。
+ * add 完必驗兩件事：(1) HEAD 確實在預期任務分支——空目錄會往上解析到別的 repo 的分支
+ * （或 symbolic-ref 直接失敗）；(2) checkout 完整——tracked 檔缺失（porcelain 的 D 狀態）
+ * 即半套 checkout。不符掛 code='worktree-invalid' 供 scheduler 分流 blocked，絕不派工。
+ * 只檢 D 不檢 M：autocrlf 等行尾差異可讓乾淨 checkout 立即顯示 modified，誤擋會封死整個專案。 */
+export function assertWorktreeCheckout(worktreePath: string, branch: string): void {
+  let head: string
+  try {
+    head = git(['symbolic-ref', '--short', 'HEAD'], worktreePath, QUICK_TIMEOUT_MS).trim()
+  } catch (err) {
+    throw Object.assign(new Error(`prepareWorktree: worktree 無效（${worktreePath} 解析不到 HEAD 分支，checkout 未落地？）：${String(err)}`), { code: 'worktree-invalid' })
+  }
+  if (head !== branch) {
+    throw Object.assign(new Error(`prepareWorktree: worktree 無效（${worktreePath} 的 HEAD 在 ${head} 而非 ${branch}——目錄空掉時 git 會往上解析到外層 repo）`), { code: 'worktree-invalid' })
+  }
+  const missing = git(['status', '--porcelain'], worktreePath, ADD_REMOVE_TIMEOUT_MS)
+    .split('\n').filter(l => l.startsWith(' D') || l.startsWith('D '))
+  if (missing.length > 0) {
+    throw Object.assign(new Error(`prepareWorktree: worktree 無效（checkout 不完整，${missing.length} 個 tracked 檔缺失）：${worktreePath}`), { code: 'worktree-invalid' })
+  }
+}
+
 /**
  * 任務級隔離執行環境：每個任務在獨立 worktree + 獨立分支（`adng/<taskId>`）跑，
  * 髒狀態不互相污染、rollback（見 verifier.ts）不會誤傷主工作目錄。
@@ -122,6 +146,7 @@ export function prepareWorktree(projectPath: string, worktreesDir: string, taskI
   cleanStaleWorktree(projectPath, worktreePath, branch)
 
   git(['worktree', 'add', '-b', branch, worktreePath, 'HEAD'], projectPath, ADD_REMOVE_TIMEOUT_MS)
+  assertWorktreeCheckout(worktreePath, branch)
 
   ensureMarkerIgnored(projectPath)
   writeFileSync(join(worktreePath, WORKTREE_MARKER), JSON.stringify({ taskId, createdAt: new Date().toISOString() }))
