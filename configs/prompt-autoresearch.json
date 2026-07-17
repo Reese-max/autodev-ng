@@ -10,7 +10,8 @@
   "judgeModel": "gpt-5.4-mini",
   "judgeApiKey": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h",
   "botAllowedUserIds": ["844236700611379200"],
-  "auditModel": "gpt-5.5",
+  "botTokenFile": "C:/Users/Administrator/.adng/bot.env",
+  "auditModel": "gpt-5.6-sol",
   "surveyCommand": "python -m pytest tests/ -q --cov=lib --cov=scripts --cov=api --cov-report=term-missing --deselect tests/test_architecture_surface.py::ArchitectureSurfaceTests::test_experiment_report_snapshot_contract",
   "dailySoftUsd": 45,
   "dailyHardUsd": 50,
@@ -35,6 +36,24 @@
       "adapter": "codex",
       "model": "gpt-5.3-codex-spark",
       "costPerRunUsd": 1,
+      "subscription": true
+    },
+    "codex-sol": {
+      "adapter": "codex",
+      "model": "gpt-5.6-sol",
+      "costPerRunUsd": 1,
+      "subscription": true
+    },
+    "codex-luna": {
+      "adapter": "codex",
+      "model": "gpt-5.6-luna",
+      "costPerRunUsd": 1,
+      "subscription": true
+    },
+    "grok": {
+      "adapter": "grok",
+      "command": "C:/Users/Administrator/.grok/bin/grok.exe",
+      "costPerRunUsd": 0,
       "subscription": true
     }
   },
