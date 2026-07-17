@@ -3,7 +3,31 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { stopAlertMessage, main } from '../src/autopilot/run.js'
+import { sessionAlive } from '../src/autopilot/session.js'
 import { acquireLock, releaseLock } from '../src/lock.js'
+
+describe('sessionAlive（M10.5 補洞：config 移除須在任務間煞停 session）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-alive-'))
+  const goalFile = join(dir, 'GOAL.md')
+  const stopFile = join(dir, '.adng.stop')
+  const cfgPath = join(dir, 'config.json')
+  writeFileSync(goalFile, '# GOAL')
+  writeFileSync(cfgPath, '{}')
+
+  test('goal+config 在、無 stopFile → 活', () => {
+    expect(sessionAlive(goalFile, stopFile, cfgPath)).toBe(true)
+  })
+  test('cfgPath 未提供（手動 /goal run 情境）→ 不影響存活', () => {
+    expect(sessionAlive(goalFile, stopFile, undefined)).toBe(true)
+  })
+  test('config 被移除（M10.5 退役/優雅重啟）→ 死', () => {
+    expect(sessionAlive(goalFile, stopFile, join(dir, 'gone.json'))).toBe(false)
+  })
+  test('stopFile 出現 → 死', () => {
+    writeFileSync(stopFile, '')
+    expect(sessionAlive(goalFile, stopFile, cfgPath)).toBe(false)
+  })
+})
 
 describe('stopAlertMessage', () => {
   test('achieved → null（不告警）', () => {
