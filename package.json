@@ -12,7 +12,6 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
-    "test:dep-upgrade": "vitest run tests/dependency-upgrade.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
