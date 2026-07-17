@@ -30,10 +30,20 @@ export interface OrchestratorDeps {
 
 export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcome> {
   const history: string[] = []
+  const appendedTexts = new Set<string>()
+  // 跨 session 去重（2026-07-17 實證：goal 8a0d 出現多批 round:0 近同文任務）：daemon 重啟後
+  // 新 session 的 history 歸零，planner 看不到 backlog 已 done/blocked 的舊案而重複立案白燒
+  // attempts。開場把 backlog 既有任務（含狀態）種進 history 供 planner 參照、種進 appendedTexts
+  // 擋同文重複 append。取尾端 50 條防 prompt 無界膨脹；讀失敗 fail-open 照舊空史。
+  try {
+    for (const t of deps.kernelDeps.store.read().slice(-50)) {
+      appendedTexts.add(t.text)
+      history.push(`既有任務(${t.status}): ${t.text}`)
+    }
+  } catch { /* fail-open */ }
   let round = 0
   let lastScore = -Infinity
   let noProgress = 0
-  const appendedTexts = new Set<string>()
 
   for (;;) {
     if (!deps.isAlive()) return { kind: 'killed', rounds: round }

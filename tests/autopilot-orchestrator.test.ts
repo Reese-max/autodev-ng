@@ -94,6 +94,32 @@ describe('runGoalSession', () => {
     expect(appended.filter(t => t === '重複任務甲')).toHaveLength(1) // 只 append 一次
   })
 
+  test('跨 session 去重：backlog 既有任務種進 history（含狀態）且同文任務不再 append', async () => {
+    const deps = base({ objective: 'o', noProgressLimit: 1 }, {})
+    // 直接寫 backlog 檔：一條 done、一條 blocked、一條 open（模擬前一個 session 留下的狀態）
+    writeFileSync(join(deps.cwd, 'BACKLOG.md'), [
+      '- [x] 已完成的舊任務 <!-- adng:autopilot goal:g1 round:1 --> <!-- adng:done abc123 -->',
+      '- [ ] 已卡死的舊任務 <!-- adng:autopilot goal:g1 round:1 --> <!-- adng:blocked reason="連敗" -->',
+      '- [ ] 還開著的舊任務 <!-- adng:autopilot goal:g1 round:2 -->',
+      ''
+    ].join('\n'))
+    let seenHistory: string[] = []
+    const appended: string[] = []
+    deps.planFn = async (input) => {
+      seenHistory = input.history
+      // planner 不聽話重出既有同文任務 → appendedTexts 開場種子必須擋下 append
+      return seenHistory.length ? { kind: 'tasks', tasks: ['已完成的舊任務', '全新任務'] } : { kind: 'achieved' }
+    }
+    deps.evalFn = async () => ({ achieved: true, score: 1, detail: '' })
+    const realAppend = deps.kernelDeps.store.append.bind(deps.kernelDeps.store)
+    deps.kernelDeps.store.append = (t: string, o: { goalId: string; round: number }) => { appended.push(t); realAppend(t, o) }
+    await runGoalSession(deps)
+    expect(seenHistory).toContain('既有任務(done): 已完成的舊任務')
+    expect(seenHistory).toContain('既有任務(blocked): 已卡死的舊任務')
+    expect(seenHistory).toContain('既有任務(open): 還開著的舊任務')
+    expect(appended).toEqual(['全新任務']) // 同文舊任務被擋、新任務照常 append
+  })
+
   test('M9.7：discovered 有排序問題時 repoSummary 含問題清單', async () => {
     let seenSummary = ''
     await runGoalSession(base({ objective: 'o', noProgressLimit: 1 }, {
