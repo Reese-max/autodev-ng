@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
 import { localDay, type RunDb } from './db.js'
+import { candidateEngines } from './engines/rotation.js'
 import { quiet, type EventLog } from './events.js'
 import { globalBilledToday } from './globalcost.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
@@ -89,7 +90,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   const dups = store.duplicateIds()
   if (dups.length > 0) quiet(() => events.appendOnce('duplicate-tasks', { ids: dups }))
 
-  const picked = await pickReadyTask({ cfg, store, events, engines }, openTasks)
+  const picked = await pickReadyTask({ cfg, store, db, events, engines }, openTasks)
   if (typeof picked === 'string' || 'kind' in picked) {
     if (picked === 'preflight-failed') quiet(() => events.heartbeat({ state: 'idle', todayCostUsd: spent }))
     return picked
@@ -224,11 +225,9 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   return resolveFailure({ cfg, store, db, events }, task, 'failed', res.failureReason ?? '未知')
 }
 
-/**
- * 環境級 blocked（worktree 建立失敗於非 git 專案 / mergeBack ff 失敗）：不計入 maxAttempts
+/** 環境級 blocked（worktree 建立失敗於非 git 專案 / mergeBack ff 失敗）：不計入 maxAttempts
  * （不是任務本身的失敗），直接標記 blocked 讓人工介入。store.report 拋錯只吞錯記事件
- * （同 resolveFailure 慣例——backlog 沒標到 blocked 是已知殘留風險，下一輪會重新撿到）。
- */
+ * （backlog 沒標到 blocked 是已知殘留風險，下一輪會重新撿到）。 */
 function blockTask(
   { store, events }: Pick<Deps, 'store' | 'events'>,
   task: Task,
@@ -238,47 +237,46 @@ function blockTask(
   try {
     store.report(task.id, { kind: 'blocked', reason: humanReason })
   } catch (err) {
-    quiet(() => events.append('report-failed', {
-      task: task.text, kind: 'blocked', error: String(err), willRepick: true
-    }))
+    quiet(() => events.append('report-failed', { task: task.text, kind: 'blocked', error: String(err), willRepick: true }))
   }
   quiet(() => events.append('task-blocked', { task: task.text, reason }))
   return { kind: 'blocked', taskId: task.id, taskText: task.text, reason }
 }
 
-/** 2026-07-17 preflight 餓死修正：舊版固定取第一個 open 任務，其引擎 preflight 掛掉時整輪直接
- * 結束，排後面、用別引擎的任務被永久堵死（07-16 devin ping timeout 首次觀測）。改為依檔案序逐
- * 候選（M5 Task 1 per-task 引擎解析搬入）：白名單外/resolve 拋錯→該任務 blocked（同舊版；訊息
- * 只含變數名不含值）；preflight 失敗→跳過續找（PreflightCache 保證同引擎只真打一次探針）；
- * 全部候選都壞才回 'preflight-failed'。 */
+/** 餓死修正（07-17）＋輪替路由（07-18，engines/rotation.ts）：逐候選任務展開 candidateEngines，
+ * resolve/preflight 壞的逐一後退（PreflightCache 保證同引擎只真打一次探針），全部候選壞→
+ * 'preflight-failed'；白名單外或單一候選 resolve 拋錯→blocked（訊息只含變數名不含值）。 */
 async function pickReadyTask(
-  { cfg, store, events, engines }: Pick<Deps, 'cfg' | 'store' | 'events' | 'engines'>,
+  { cfg, store, db, events, engines }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines'>,
   openTasks: Task[]
 ): Promise<{ task: Task; engine: Engine; engineTag: string; fixedCost: number | undefined } | CycleResult> {
   for (const cand of openTasks) {
-    const engineTag = cand.engineTag ?? cfg.defaultEngine
-    const engineCfg = cfg.engines[engineTag]
-    if (!engineCfg) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`)
-    let engine: Engine
-    try {
-      engine = engines.resolve(engineTag)
-    } catch (err) {
-      return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：引擎 ${engineTag} 無法建立（${String(err)}）`)
+    const tags = candidateEngines(cfg.engineRotation, cfg.defaultEngine, cand, db.failCount(cand.id))
+    for (const engineTag of tags) {
+      const engineCfg = cfg.engines[engineTag]
+      if (!engineCfg) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`)
+      let engine: Engine
+      try {
+        engine = engines.resolve(engineTag)
+      } catch (err) {
+        if (tags.length === 1) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：引擎 ${engineTag} 無法建立（${String(err)}）`)
+        quiet(() => events.appendOnce('engine-resolve-failed', { engine: engineTag, detail: String(err) })) // 輪替候選壞一個不堵任務，後退下一檔
+        continue
+      }
+      const pf = await engine.preflight()
+      if (!pf.ok) {
+        quiet(() => events.appendOnce('preflight-failed', { engine: engine.id, detail: pf.detail })) // appendOnce：持續故障不灌 log
+        continue
+      }
+      // costPerRunUsd 有設＝固定估計引擎；未設＝真值引擎（M4 Task 3 語意保留）
+      return { task: cand, engine, engineTag, fixedCost: engineCfg.costPerRunUsd }
     }
-    const pf = await engine.preflight()
-    if (!pf.ok) {
-      quiet(() => events.appendOnce('preflight-failed', { engine: engine.id, detail: pf.detail })) // appendOnce：持續故障不灌 log
-      continue
-    }
-    // costPerRunUsd 有設＝固定估計引擎；未設＝真值引擎（M4 Task 3 語意保留）
-    return { task: cand, engine, engineTag, fixedCost: engineCfg.costPerRunUsd }
   }
   return 'preflight-failed'
 }
 
-/** 失敗共通路（engine.run 回 ok:false 或拋例外都走到這）：達 maxAttempts → blocked；report 拋錯
- * 只吞錯記事件不改語意。lastFailure 寫進 blocked 註記——人工分流不用翻 events.jsonl 就能分辨
- * timeout/no-commit/verify 拒收。 */
+/** 失敗共通路：達 maxAttempts → blocked，lastFailure 寫進註記（人工分流不用翻 events.jsonl
+ * 就能分辨 timeout/no-commit/verify 拒收）；report 拋錯只吞錯記事件不改語意。 */
 function resolveFailure(
   { cfg, store, db, events }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events'>,
   task: Task,

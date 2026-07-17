@@ -19,6 +19,7 @@
   "maxAttempts": 3,
   "perpetual": true,
   "defaultEngine": "opencode",
+  "engineRotation": ["codex-sol", "codex-terra", "codex-luna", "codex-spark", "qwen-grok420", "grok", "qwen-grok", "opencode"],
   "engines": {
     "claude": {
       "adapter": "claude-cli"

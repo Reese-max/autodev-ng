@@ -159,6 +159,33 @@ test('preflight 餓死修正：首任務引擎壞 → 跳過改跑下一個可�
   expect(good.calls).toHaveLength(1)
 })
 
+test('引擎輪替：無 tag 任務走 rotation，preflight 壞檔位自動後退到好檔位完成', async () => {
+  const broken = new MockEngine([], { ok: false, detail: '檔位壞' })
+  const good = new MockEngine([{ ok: true, costUsd: 0 }])
+  const d = deps(good, '- [ ] 任務丙\n')
+  const cfg = {
+    ...d.cfg, engineRotation: ['bad', 'ok'],
+    engines: { claude: { adapter: 'mock' as const }, bad: { adapter: 'mock' as const, costPerRunUsd: 0 }, ok: { adapter: 'mock' as const, costPerRunUsd: 0 } }
+  }
+  const engines = { resolve: (tag: string) => (tag === 'bad' ? broken : good) }
+  expect(await runOnce({ ...d, cfg, engines })).toBe('done')
+  expect(broken.calls).toHaveLength(0)   // preflight 擋住，run 零呼叫
+  expect(good.calls).toHaveLength(1)
+  expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [x] 任務丙')
+})
+
+test('引擎輪替：候選 resolve 拋錯不堵任務（多候選 failover），後退下一檔完成', async () => {
+  const good = new MockEngine([{ ok: true, costUsd: 0 }])
+  const d = deps(good, '- [ ] 任務丁\n')
+  const cfg = {
+    ...d.cfg, engineRotation: ['ghost', 'ok'],
+    engines: { claude: { adapter: 'mock' as const }, ghost: { adapter: 'mock' as const, costPerRunUsd: 0 }, ok: { adapter: 'mock' as const, costPerRunUsd: 0 } }
+  }
+  const engines = { resolve: (tag: string) => { if (tag === 'ghost') throw new Error('建不起來'); return good } }
+  expect(await runOnce({ ...d, cfg, engines })).toBe('done')
+  expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [x] 任務丁')  // 不因 ghost 壞被 blocked
+})
+
 test('max-attempts blocked 註記帶最後失敗原因（人工分流不用翻 events.jsonl）', async () => {
   const e = new MockEngine([{ ok: false, reason: 'timeout' }, { ok: false, reason: 'timeout' }])
   const d = deps(e)

@@ -120,6 +120,7 @@ export const ConfigSchema = z.object({
   // 行為完全不變（向後相容硬線）。
   engines: z.record(z.string(), EngineConfigSchema).optional(),
   defaultEngine: z.string().default('claude'),
+  engineRotation: z.array(z.string()).optional(), // 無 tag 任務的輪替路由清單（src/engines/rotation.ts）；未設＝defaultEngine 舊行為
   // M7：教訓庫檔路徑。learningsFile 未設時 cli.ts assemble 預設 join(dataDir,'learnings.md')
   // （功能零設定開啟）；globalLearningsFile 為跨專案共用教訓檔，未設即不注入全局段。
   learningsFile: z.string().optional(),
@@ -139,4 +140,5 @@ export const ConfigSchema = z.object({
   })
   .transform(c => ({ ...c, engines: c.engines ?? { claude: { adapter: c.engine ?? 'claude-cli' } } }))
   .refine(c => c.defaultEngine in c.engines, { message: 'defaultEngine 必須存在於 engines 白名單內', path: ['defaultEngine'] })
+  .refine(c => (c.engineRotation ?? []).every(t => t in c.engines), { message: 'engineRotation 每個 tag 必須存在於 engines 白名單內', path: ['engineRotation'] })
 export type Config = z.infer<typeof ConfigSchema>
