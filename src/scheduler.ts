@@ -79,8 +79,8 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
 
   if (spent >= cfg.dailySoftUsd) quiet(() => events.appendOnce('cost-soft-warn', { spent }))
 
-  const task = store.nextTask()
-  if (!task) {
+  const openTasks = store.read().filter(t => t.status === 'open')
+  if (openTasks.length === 0) {
     quiet(() => events.appendOnce('idle', { note: 'backlog 空，等使用者補任務' }))
     quiet(() => events.heartbeat({ state: 'idle', todayCostUsd: spent }))
     return 'idle'
@@ -89,40 +89,14 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   const dups = store.duplicateIds()
   if (dups.length > 0) quiet(() => events.appendOnce('duplicate-tasks', { ids: dups }))
 
+  const picked = await pickReadyTask({ cfg, store, events, engines }, openTasks)
+  if (typeof picked === 'string' || 'kind' in picked) {
+    if (picked === 'preflight-failed') quiet(() => events.heartbeat({ state: 'idle', todayCostUsd: spent }))
+    return picked
+  }
+  const { task, engine, engineTag, fixedCost } = picked
+
   quiet(() => events.heartbeat({ state: 'running', currentTask: task.text, todayCostUsd: spent }))
-
-  // M5 Task 1：per-task 引擎解析。tag 不在 cfg.engines 白名單 → 直接 blocked
-  // （engine-not-allowed），不計 maxAttempts（是路由設定問題，不是任務本身失敗）。
-  // resolve 拋錯（adapter 未實作／{env:VAR} 引用缺失）同歸此路——錯誤訊息只含變數名
-  // 不含值（API key 永不落 log/backlog）。
-  const engineTag = task.engineTag ?? cfg.defaultEngine
-  const engineCfg = cfg.engines[engineTag]
-  if (!engineCfg) {
-    return blockTask(
-      { store, events }, task, 'engine-not-allowed',
-      `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`
-    )
-  }
-  let engine: Engine
-  try {
-    engine = engines.resolve(engineTag)
-  } catch (err) {
-    return blockTask(
-      { store, events }, task, 'engine-not-allowed',
-      `engine-not-allowed：引擎 ${engineTag} 無法建立（${String(err)}）`
-    )
-  }
-  // 非 claude 真值引擎（costPerRunUsd 有設）：成功失敗一律入帳固定估計值；
-  // 未設＝真值引擎，保留真值解析與 costUnknown→failureCostEstimateUsd 語意（M4 Task 3）。
-  const fixedCost = engineCfg.costPerRunUsd
-
-  const pf = await engine.preflight()
-  if (!pf.ok) {
-    // appendOnce：preflight 持續故障（如引擎掛掉）不可無限灌 log
-    quiet(() => events.appendOnce('preflight-failed', { engine: engine.id, detail: pf.detail }))
-    quiet(() => events.heartbeat({ state: 'idle', todayCostUsd: spent }))
-    return 'preflight-failed'
-  }
 
   // M4 Task 6（worktree 接線）：任務級隔離執行環境。非 git 專案（prepareWorktree 上拋）
   // → 直接 blocked+告警，不計入 maxAttempts 失敗計數（環境問題而非任務本身失敗——
@@ -155,7 +129,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag })
     quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-    return resolveFailure({ cfg, store, db, events }, task, 'engine-error')
+    return resolveFailure({ cfg, store, db, events }, task, 'engine-error', String(err))
   }
 
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默，讓它浮出。
@@ -187,7 +161,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
       quiet(() => events.append('task-verify-failed', { task: task.text, reason: vc.reason }))
       // engine 失敗/verify 拒：rollback 已在 worktree 內安全跑過，保留現場供 debug（不清理）。
       quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-      return resolveFailure({ cfg, store, db, events }, task, 'failed')
+      return resolveFailure({ cfg, store, db, events }, task, 'failed', `verify 拒收：${vc.reason ?? '未附原因'}`)
     }
   }
 
@@ -247,7 +221,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   }))
   // engine 失敗（res.ok===false，非例外）：既有流程走 resolveFailure，worktree 保留現場。
   quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-  return resolveFailure({ cfg, store, db, events }, task, 'failed')
+  return resolveFailure({ cfg, store, db, events }, task, 'failed', res.failureReason ?? '未知')
 }
 
 /**
@@ -272,17 +246,48 @@ function blockTask(
   return { kind: 'blocked', taskId: task.id, taskText: task.text, reason }
 }
 
-/**
- * 失敗共通路（engine.run 回 ok:false 或 engine.run 拋例外都會走到這）。
- * 判斷是否達 maxAttempts → blocked；report 拋錯也只吞錯記事件，不影響本輪回傳的語意結果。
- */
+/** 2026-07-17 preflight 餓死修正：舊版固定取第一個 open 任務，其引擎 preflight 掛掉時整輪直接
+ * 結束，排後面、用別引擎的任務被永久堵死（07-16 devin ping timeout 首次觀測）。改為依檔案序逐
+ * 候選（M5 Task 1 per-task 引擎解析搬入）：白名單外/resolve 拋錯→該任務 blocked（同舊版；訊息
+ * 只含變數名不含值）；preflight 失敗→跳過續找（PreflightCache 保證同引擎只真打一次探針）；
+ * 全部候選都壞才回 'preflight-failed'。 */
+async function pickReadyTask(
+  { cfg, store, events, engines }: Pick<Deps, 'cfg' | 'store' | 'events' | 'engines'>,
+  openTasks: Task[]
+): Promise<{ task: Task; engine: Engine; engineTag: string; fixedCost: number | undefined } | CycleResult> {
+  for (const cand of openTasks) {
+    const engineTag = cand.engineTag ?? cfg.defaultEngine
+    const engineCfg = cfg.engines[engineTag]
+    if (!engineCfg) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`)
+    let engine: Engine
+    try {
+      engine = engines.resolve(engineTag)
+    } catch (err) {
+      return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：引擎 ${engineTag} 無法建立（${String(err)}）`)
+    }
+    const pf = await engine.preflight()
+    if (!pf.ok) {
+      quiet(() => events.appendOnce('preflight-failed', { engine: engine.id, detail: pf.detail })) // appendOnce：持續故障不灌 log
+      continue
+    }
+    // costPerRunUsd 有設＝固定估計引擎；未設＝真值引擎（M4 Task 3 語意保留）
+    return { task: cand, engine, engineTag, fixedCost: engineCfg.costPerRunUsd }
+  }
+  return 'preflight-failed'
+}
+
+/** 失敗共通路（engine.run 回 ok:false 或拋例外都走到這）：達 maxAttempts → blocked；report 拋錯
+ * 只吞錯記事件不改語意。lastFailure 寫進 blocked 註記——人工分流不用翻 events.jsonl 就能分辨
+ * timeout/no-commit/verify 拒收。 */
 function resolveFailure(
   { cfg, store, db, events }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events'>,
   task: Task,
-  base: 'failed' | 'engine-error'
+  base: 'failed' | 'engine-error',
+  lastFailure: string
 ): CycleResult {
   if (db.failCount(task.id) < cfg.maxAttempts) return base
-  return blockTask({ store, events }, task, 'max-attempts', `連敗 ${cfg.maxAttempts} 次，人工介入`)
+  const hint = lastFailure.replace(/\s+/g, ' ').trim().slice(0, 80) || '未知'
+  return blockTask({ store, events }, task, 'max-attempts', `連敗 ${cfg.maxAttempts} 次，人工介入（最後失敗：${hint}）`)
 }
 
 /** M9.9：cfg.engines 中標了 subscription:true 的引擎 tag 清單（訂閱制，邊際成本≈0，

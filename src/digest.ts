@@ -91,6 +91,7 @@ export function buildDigest(opts: BuildDigestOpts): string {
     `今日成本：真金 $${stats.billedUsd.toFixed(4)}｜訂閱名義 $${(stats.costUsd - stats.billedUsd).toFixed(4)}`,
     `DLQ 積壓：${dlqCount} 筆`,
   ]
+  for (const e of db.engineDayStats(isoDayUtc, offsetHours)) lines.push(`  引擎 ${e.engine}：${e.ok}/${e.n} 成，$${e.costUsd.toFixed(4)}`) // 每引擎戰績（路由決策依據）；零派工日自動省略
   // N=0 不印，避免雜訊；N>0 才浮出（鐵律 #4：fail-open-with-alert，不能只落 events.jsonl 沒人看）。
   if (verifySkip > 0) {
     lines.push(`⚠ 本日 verify 略過 ${verifySkip} 次（安全網未啟用，請檢查 verifyCommand）`)

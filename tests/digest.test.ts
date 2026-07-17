@@ -66,6 +66,25 @@ test('buildDigest：含日期、計數、成本、DLQ 行數、通道自檢字�
   db.close()
 })
 
+test('buildDigest：每引擎戰績行——含成敗比與成本、engine 空欄顯示 (未標)、零派工日整段省略', () => {
+  const db = freshDb()
+  db.record({ taskId: 'a', ok: true, costUsd: 0, detail: '', engine: 'devin', ts: '2026-07-05T01:00:00Z' })
+  db.record({ taskId: 'b', ok: false, costUsd: 0.5, detail: '', engine: 'opencode', ts: '2026-07-05T02:00:00Z' })
+  db.record({ taskId: 'c', ok: true, costUsd: 0.3, detail: '', engine: 'opencode', ts: '2026-07-05T03:00:00Z' })
+  db.record({ taskId: 'd', ok: true, costUsd: 0.1, detail: '', ts: '2026-07-05T04:00:00Z' }) // 歷史列無 engine
+  const dataDir = freshDataDir()
+  const text = buildDigest({ db, dataDir, isoDayUtc: '2026-07-05' })
+  expect(text).toContain('引擎 opencode：1/2 成，$0.8000')
+  expect(text).toContain('引擎 devin：1/1 成，$0.0000')
+  expect(text).toContain('引擎 (未標)：1/1 成')
+  db.close()
+
+  // 零派工日：不出現任何引擎行
+  const empty = freshDb()
+  expect(buildDigest({ db: empty, dataDir: freshDataDir(), isoDayUtc: '2026-07-05' })).not.toContain('引擎 ')
+  empty.close()
+})
+
 test('buildDigest：零任務零成本仍完整產出（鐵律 #6：無事也要發）', () => {
   const db = freshDb()
   const dataDir = freshDataDir()

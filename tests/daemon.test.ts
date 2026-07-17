@@ -112,7 +112,8 @@ test('① lock 被占 → lock-busy，告警一次，runOnce 完全不執行', a
 
 test('② runOnce throw → 不死、runonce-crash 事件每輪都記、告警走冷卻閘（同 key 只送 1 則）、指數退避後繼續下一輪', async () => {
   class ThrowingStore extends BacklogStore {
-    nextTask(): never {
+    read(): never {
+      // runOnce 的任務讀取入口是 read()（2026-07-17 preflight 餓死修正後）——毒下沉到底層讀檔
       throw new Error('backlog 讀取炸裂（模擬 I/O 故障）')
     }
   }
@@ -138,7 +139,8 @@ test('② runOnce throw → 不死、runonce-crash 事件每輪都記、告警�
 
 test('②b 冷卻閘：連續 5 次崩潰觸發暫停——daemon-crash 與 daemon-crash-pause 各自 key 互不干擾、皆只送 1 則', async () => {
   class ThrowingStore extends BacklogStore {
-    nextTask(): never {
+    read(): never {
+      // runOnce 的任務讀取入口是 read()（2026-07-17 preflight 餓死修正後）——毒下沉到底層讀檔
       throw new Error('backlog 讀取炸裂（模擬 I/O 故障）')
     }
   }
@@ -459,7 +461,8 @@ test('MEDIUM 1 修復：baseAlertMessage 依 blocked reason 各出對應人話�
 
 test('⑰ 連續崩潰暫停 ×2：10 輪全崩 → 第 5、10 輪各暫停完整 30 分（機制不受冷卻閘影響），pause 告警只送 1 則', async () => {
   class ThrowingStore extends BacklogStore {
-    nextTask(): never {
+    read(): never {
+      // runOnce 的任務讀取入口是 read()（2026-07-17 preflight 餓死修正後）——毒下沉到底層讀檔
       throw new Error('backlog 讀取炸裂（模擬 I/O 故障）')
     }
   }
@@ -514,9 +517,9 @@ test('⑱ acquireLock throw（infra 故障，非 lock-busy）→ 告警走冷卻
 test('⑲ 崩潰計數一次成功 cycle 後歸零：4 崩 → 1 成功 → 再崩 2 輪退避從 2^1 重起，不誤觸第 5 次暫停門檻', async () => {
   class FlakyStore extends BacklogStore {
     private calls = 0
-    nextTask(): Task | null {
+    read(): Task[] {
       this.calls++
-      if (this.calls === 5) return super.nextTask() // 第 5 輪放行：正常派工成功
+      if (this.calls === 5) return super.read() // 第 5 輪放行：正常派工成功
       throw new Error('backlog 讀取炸裂（模擬陣發性 I/O 故障）')
     }
   }

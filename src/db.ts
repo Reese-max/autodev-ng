@@ -128,5 +128,13 @@ export class RunDb {
     return { ok: row.ok, fail: row.fail, costUsd: row.cost, billedUsd }
   }
 
+  /** 每引擎日戰績（digest 路由決策依據）。engine 空欄＝M9.9 前歷史列，顯示 '(未標)'；派工數 DESC。 */
+  engineDayStats(day: string, offsetHours = 0): { engine: string; n: number; ok: number; costUsd: number }[] {
+    const { startIso, endIso } = localDayUtcRange(day, offsetHours)
+    return this.db.prepare(
+      "SELECT COALESCE(NULLIF(engine,''),'(未標)') AS engine, COUNT(*) AS n, COALESCE(SUM(ok),0) AS ok, COALESCE(SUM(cost_usd),0) AS costUsd FROM attempts WHERE ts >= ? AND ts < ? GROUP BY 1 ORDER BY n DESC"
+    ).all(startIso, endIso) as { engine: string; n: number; ok: number; costUsd: number }[]
+  }
+
   close(): void { this.db.close() }
 }

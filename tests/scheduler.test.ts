@@ -145,6 +145,30 @@ test('engine 丟例外：計一次失敗、不打勾、回 engine-error', async 
   expect(d.db.failCount(d.store.nextTask()!.id)).toBe(1)
 })
 
+test('preflight 餓死修正：首任務引擎壞 → 跳過改跑下一個可用引擎的任務，壞引擎任務保持 open', async () => {
+  const bad = new MockEngine([], { ok: false, detail: '引擎掛了' })
+  const good = new MockEngine([{ ok: true, costUsd: 0 }])
+  const d = deps(good, '- [ ] [engine:bad] 任務甲\n- [ ] 任務乙\n')
+  const cfg = { ...d.cfg, engines: { claude: { adapter: 'mock' as const }, bad: { adapter: 'mock' as const, costPerRunUsd: 0 } } }
+  const engines = { resolve: (tag: string) => (tag === 'bad' ? bad : good) }
+  expect(await runOnce({ ...d, cfg, engines })).toBe('done')
+  const md = readFileSync(d.cfg.backlogFile, 'utf8')
+  expect(md).toContain('- [x] 任務乙')                 // 後面的任務被撿起並完成
+  expect(md).toContain('- [ ] [engine:bad] 任務甲')    // 壞引擎任務不動、不 blocked（引擎恢復後可跑）
+  expect(bad.calls).toHaveLength(0)
+  expect(good.calls).toHaveLength(1)
+})
+
+test('max-attempts blocked 註記帶最後失敗原因（人工分流不用翻 events.jsonl）', async () => {
+  const e = new MockEngine([{ ok: false, reason: 'timeout' }, { ok: false, reason: 'timeout' }])
+  const d = deps(e)
+  expect(await runOnce(d)).toBe('failed')
+  expect(await runOnce(d)).toMatchObject({ kind: 'blocked', reason: 'max-attempts' })
+  const md = readFileSync(d.cfg.backlogFile, 'utf8')
+  expect(md).toContain('最後失敗：')
+  expect(md).toContain('timeout')
+})
+
 test('preflight 失敗：回 preflight-failed，engine.run 零呼叫，事件 24h 去重', async () => {
   const e = new MockEngine([{ ok: true }], { ok: false, detail: 'engine 尚未就緒' })
   const d = deps(e)
