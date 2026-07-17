@@ -44,11 +44,41 @@
       "costPerRunUsd": 1,
       "subscription": true
     },
+    "codex-terra": {
+      "adapter": "codex",
+      "model": "gpt-5.6-terra",
+      "costPerRunUsd": 1,
+      "subscription": true
+    },
     "grok": {
       "adapter": "grok",
       "command": "C:/Users/Administrator/.grok/bin/grok.exe",
       "costPerRunUsd": 0,
       "subscription": true
+    },
+    "copilot": {
+      "adapter": "copilot",
+      "model": "auto",
+      "costPerRunUsd": 0,
+      "subscription": true
+    },
+    "qwen-grok": {
+      "adapter": "qwen",
+      "model": "grok-4.3",
+      "env": { "OPENAI_BASE_URL": "http://127.0.0.1:8318/v1", "OPENAI_API_KEY": "adng" },
+      "costPerRunUsd": 0,
+      "subscription": true
+    },
+    "qwen-grok420": {
+      "adapter": "qwen",
+      "model": "grok-4.20",
+      "env": { "OPENAI_BASE_URL": "http://127.0.0.1:8318/v1", "OPENAI_API_KEY": "adng" },
+      "costPerRunUsd": 0,
+      "subscription": true
+    },
+    "claude-haiku": {
+      "adapter": "claude-cli",
+      "model": "claude-haiku-4-5-20251001"
     }
   },
   "extraDirective": "Python 一律用主專案 venv:\"D:/Users/Administrator/Desktop/筆記補齊/.venv/Scripts/python.exe\" 加 -X utf8;嚴禁 pip install 到全域 Python(本機 24/7 系統共用)。不得弱化既有品質閘:原稿逐字不可變、無來源/【待補證】→pending_evidence、只掛實際引用來源、法條引用須通過離線查核。grok proxy 在 http://127.0.0.1:8318/v1(model grok-4.3),整合測試標記 integration 平時跳過。"
