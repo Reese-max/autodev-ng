@@ -20,6 +20,7 @@
   "perpetual": true,
   "defaultEngine": "opencode",
   "engineRotation": ["codex-sol", "codex-terra", "codex-luna", "codex-spark", "qwen-grok420", "grok", "qwen-grok", "opencode"],
+  "discordChannelId": "1492793288514863164",
   "engines": {
     "claude": {
       "adapter": "claude-cli"

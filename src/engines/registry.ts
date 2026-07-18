@@ -39,7 +39,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new ClaudeCliEngine({
           id: tag === 'claude' ? 'claude-cli' : `claude-cli:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, tag === 'claude' ? 'preflight-cache.json' : `preflight-cache-${tag}.json`)),
-          env: expandEnvMap(ec.env),
+          command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
           timeoutMs: ec.timeoutMs
         })
@@ -47,7 +47,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new CodexEngine({
           id: tag === 'codex' ? 'codex' : `codex:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
-          env: expandEnvMap(ec.env),
+          command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
           timeoutMs: ec.timeoutMs
         })
@@ -55,7 +55,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new CopilotEngine({
           id: tag === 'copilot' ? 'copilot' : `copilot:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
-          env: expandEnvMap(ec.env),
+          command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model), // 未設鎖 gpt-5-mini（adapter 預設）
           timeoutMs: ec.timeoutMs
         })
@@ -65,6 +65,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new AgyEngine({
           id: tag === 'agy' ? 'agy' : `agy:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
+          command: ec.command,
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
           timeoutMs: ec.timeoutMs
         })
@@ -73,7 +74,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new GrokEngine({
           id: tag === 'grok' ? 'grok' : `grok:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
-          env: expandEnvMap(ec.env),
+          command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
           timeoutMs: ec.timeoutMs
         })
@@ -85,7 +86,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new QwenEngine({
           id: tag === 'qwen' ? 'qwen' : `qwen:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
-          env: qenv,
+          command: ec.command, env: qenv,
           baseUrl: qenv?.OPENAI_BASE_URL,
           apiKey: qenv?.OPENAI_API_KEY,
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
