@@ -19,7 +19,7 @@
   "maxAttempts": 3,
   "perpetual": true,
   "defaultEngine": "opencode",
-  "engineRotation": ["codex-sol", "codex-terra", "codex-luna", "codex-spark", "grok", "opencode"],
+  "engineRotation": ["codex-sol", "codex-terra", "codex-luna", "codex-spark", "grok"],
   "discordChannelId": "1492793288514863164",
   "engines": {
     "claude": {
