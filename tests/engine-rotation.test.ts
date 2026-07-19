@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest'
 import { candidateEngines } from '../src/engines/rotation.js'
+import { subscriptionTags } from '../src/scheduler.js'
 import { ConfigSchema } from '../src/types.js'
 
 const ROT = ['a', 'b', 'c']
@@ -36,4 +37,22 @@ test('config 驗證：engineRotation 的 tag 必須在 engines 白名單內', ()
   }
   expect(ConfigSchema.parse({ ...base, engineRotation: ['claude', 'm2'] }).engineRotation).toEqual(['claude', 'm2'])
   expect(() => ConfigSchema.parse({ ...base, engineRotation: ['claude', '不存在'] })).toThrow()
+})
+
+test('config 解析：subscription 檔位可只存在於 engines 白名單，不必列入 engineRotation', () => {
+  const cfg = ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x',
+    defaultEngine: 'claude',
+    engines: {
+      claude: { adapter: 'mock' as const },
+      m2: { adapter: 'mock' as const },
+      'codex-spark': { adapter: 'mock' as const, costPerRunUsd: 1, subscription: true }
+    },
+    engineRotation: ['claude', 'm2']
+  })
+
+  expect(cfg.engineRotation).toEqual(['claude', 'm2'])
+  expect(cfg.engines['codex-spark']?.subscription).toBe(true)
+  expect(subscriptionTags(cfg)).toEqual(['codex-spark'])
+  expect(candidateEngines(cfg.engineRotation, cfg.defaultEngine, { id: '00000000' }, 0)).not.toContain('codex-spark')
 })
