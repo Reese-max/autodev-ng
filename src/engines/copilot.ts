@@ -65,6 +65,8 @@ export class CopilotEngine implements Engine {
     return result
   }
 
+  invalidatePreflight(): void { this.cache.set(this.command, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+
   async run(job: Job): Promise<RunResult> {
     const before = this.getCommitHash(job.projectPath)
     const r = await runProcess({

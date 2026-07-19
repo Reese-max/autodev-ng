@@ -54,3 +54,12 @@ test('cacheFile 父目錄不存在時 set 不 throw（fail-open）', () => {
   expect(() => c.set('k', { ok: true, detail: 'x' })).not.toThrow()
   expect(c.get('k')).toBeNull() // 寫不進去就當沒 cache
 })
+
+test('set ts=0 → 寫入即過期，get 立即 miss（invalidatePreflight 語意）', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'adng-pf-')), 'pf.json')
+  const c = new PreflightCache(file)
+  c.set('k', { ok: true, detail: 'PONG' })
+  expect(c.get('k')?.ok).toBe(true)
+  c.set('k', { ok: false, detail: 'run-failed：下輪重探' }, 0)
+  expect(c.get('k')).toBeNull() // 過期＝miss → 下輪真探針
+})

@@ -63,6 +63,8 @@ export class ClaudeCliEngine implements Engine {
     return result
   }
 
+  invalidatePreflight(): void { this.cache.set(this.command, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+
   async run(job: Job): Promise<RunResult> {
     // Fix 3（首跑實證）：模型會做完不 commit → 整輪 $10 白燒。commit 要求必須是硬話。
     // Fix 1：任務行吃 job.directive（scheduler 已把 task.text+extraDirective 組好），

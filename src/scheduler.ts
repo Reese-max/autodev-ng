@@ -128,23 +128,22 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   } catch (err) {
     // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
     db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag })
+    engine.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
     quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
     return resolveFailure({ cfg, store, db, events }, task, 'engine-error', String(err))
   }
 
-  // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默，讓它浮出。
-  // 失敗成本估計（M4 Task 3，真花錢前必修）：res.costUnknown===true 表示引擎沒能力回報真值
-  // （timeout/exit≠0/輸出不可解析——已於 claude-cli.ts 標記），改記 cfg.failureCostEstimateUsd，
-  // detail 帶 cost-estimated 標記供人工／digest 辨識這是估計值非真值。engine 正常解析出真值
-  // （包含 is_error 但仍解出 JSON、真值恰好 0）時 costUnknown 不設，照記真值不套估計。
-  // M5 Task 1：fixedCost 有設（非 claude 真值引擎）→ 成功失敗一律入帳固定估計值，
-  // costUnknown/failureCostEstimateUsd 的估計語意只留給真值引擎（claude）。
+  // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默。失敗成本估計（M4 Task 3）：costUnknown===true
+  // （timeout/exit≠0/輸出不可解析）改記 cfg.failureCostEstimateUsd，detail 帶 cost-estimated 標記；
+  // 引擎解析出真值（含 is_error、真值恰好 0）照記真值。M5 Task 1：fixedCost 有設（非真值引擎）
+  // → 成功失敗一律入帳固定估計值，估計語意只留給真值引擎（claude）。
   const costEstimated = fixedCost === undefined && !res.ok && res.costUnknown === true
   const recordedCostUsd = fixedCost ?? (costEstimated ? cfg.failureCostEstimateUsd : res.costUsd)
   const baseDetail = res.failureReason ?? res.commitHash ?? ''
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
   db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag })
+  if (!res.ok) engine.invalidatePreflight?.() // timeout/exit≠0/no-commit：引擎健康存疑，下輪重探（verify 拒收不算）
 
   if (res.ok && verifier) {
     // verifier 本身故障（非 verify-fail / judge-mismatch 的明確拒絕）一律 pass-with-alert（鐵律 #4）：

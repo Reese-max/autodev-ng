@@ -95,6 +95,8 @@ export class AgyEngine implements Engine {
     return result
   }
 
+  invalidatePreflight(): void { this.cache.set(`${this.distro}:${this.agyBin}`, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+
   async run(job: Job): Promise<RunResult> {
     // marker 進 pkill -f pattern（killByMarker）：taskId=hex 的隱性契約改顯性白名單驗證（defense-in-depth）
     if (!/^[0-9a-f]+$/i.test(job.task.id)) throw new Error(`task.id 非 hex，拒組 pkill marker：${job.task.id.slice(0, 40)}`)

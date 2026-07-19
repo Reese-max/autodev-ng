@@ -62,6 +62,8 @@ export class OpencodeEngine implements Engine {
     return result
   }
 
+  invalidatePreflight(): void { this.cache.set(`${this.command}|${this.model}`, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+
   async run(job: Job): Promise<RunResult> {
     // prompt 組裝沿 claude-cli/codex 模板：directive 優先（Fix 1）、commit 要求是硬話（Fix 3）。
     const prompt = [

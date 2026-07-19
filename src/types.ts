@@ -50,6 +50,7 @@ export interface Engine {
   id: string
   preflight(): Promise<PreflightResult>
   run(job: Job): Promise<RunResult>
+  invalidatePreflight?(): void // run 失敗後失效快取讓下輪重探（07-18 codex shim 事故：好快取 6h 掩護壞引擎）
 }
 
 /** M5 Task 1：per-task 引擎解析。scheduler 依任務 tag（或 cfg.defaultEngine）按需取引擎

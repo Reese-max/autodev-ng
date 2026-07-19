@@ -19,11 +19,11 @@ export class PreflightCache {
     return entry.r
   }
 
-  /** 寫失敗（目錄不存在/磁碟滿）吞掉——cache 是加速器不是正確性來源（鐵律 #4）。 */
-  set(key: string, r: PreflightResult): void {
+  /** 寫失敗吞掉——cache 是加速器不是正確性來源（鐵律 #4）。ts 傳 0＝寫入即過期＝失效（下輪必重探）。 */
+  set(key: string, r: PreflightResult, ts = Date.now()): void {
     try {
       const all = this.load()
-      all[key] = { r, ts: Date.now() }
+      all[key] = { r, ts }
       const tmp = this.file + '.tmp'
       writeFileSync(tmp, JSON.stringify(all))
       renameSync(tmp, this.file)

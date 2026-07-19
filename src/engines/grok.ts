@@ -86,6 +86,8 @@ export class GrokEngine implements Engine {
     return result
   }
 
+  invalidatePreflight(): void { this.cache.set(this.command, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+
   async run(job: Job): Promise<RunResult> {
     const prompt = [
       `你是自動開發工人。完成以下這一項任務。`,

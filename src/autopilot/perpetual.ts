@@ -99,9 +99,13 @@ async function runBody(
       if (goalId === state.manualGoalDone) return false // 已跑過同一份，安靜略過
       const result = await hooks.runSession({})
       if (typeof result !== 'object') return false // lock-busy / no-goal：沒真的跑，不記狀態
-      state.manualGoalDone = goalId
-      state.lastSessionTs = now.toISOString()
-      savePerpetualState(dataDir, state)
+      // killed＝外力中斷（stopFile/config-gone/daemon 輪替），不消耗一次性執行權也不寫冷卻
+      // 時間戳——重啟後立即重新拾取（2026-07-19 實證：兩個手動 GOAL 被 daemon 輪替燒掉）。
+      if (result.outcome.kind !== 'killed') {
+        state.manualGoalDone = goalId
+        state.lastSessionTs = now.toISOString()
+        savePerpetualState(dataDir, state)
+      }
       await notify(`自主工程師：手動 GOAL ${goalId} → ${result.outcome.kind}（${result.outcome.rounds} 輪）`)
       return true
     }

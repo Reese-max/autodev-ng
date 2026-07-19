@@ -138,6 +138,17 @@ describe('runPerpetualCycle 手動 GOAL', () => {
     expect(notify).toHaveBeenCalledTimes(1)
   })
 
+  test('手動 GOAL 被外力中斷（killed）→ 不消耗執行權、不寫冷卻時間戳（舞步燒毀 GOAL 回歸）', async () => {
+    const cfg = makeCfg(dir)
+    writeFileSync(cfg.goalFile!, manualMd)
+    savePerpetualState(dir, { lastSessionTs: '', consecutiveEmpty: 0, currentCooldownMs: 6000, manualGoalDone: '' })
+    const hooks = makeHooks({ runSession: vi.fn(async (): Promise<SessionResult> => ({ goalId: 'abcd', outcome: { kind: 'killed', rounds: 1 } })) })
+    const r = await runPerpetualCycle(cfg, dir, events, async () => true, hooks)
+    expect(r).toBe(true)
+    expect(readState(dir).manualGoalDone).toBe('')  // 執行權未被消耗，重啟後重新拾取
+    expect(readState(dir).lastSessionTs).toBe('')   // 冷卻時間戳未寫，重拾不用等冷卻窗
+  })
+
   test('同 goalId 第二次 → false 不重跑', async () => {
     const cfg = makeCfg(dir)
     writeFileSync(cfg.goalFile!, manualMd)

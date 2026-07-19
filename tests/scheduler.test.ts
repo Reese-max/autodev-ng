@@ -186,6 +186,13 @@ test('引擎輪替：候選 resolve 拋錯不堵任務（多候選 failover）�
   expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [x] 任務丁')  // 不因 ghost 壞被 blocked
 })
 
+test('run 失敗 → engine.invalidatePreflight 被呼叫（下輪重探，07-18 codex shim 事故防）', async () => {
+  class SpyEngine extends MockEngine { invalidations = 0; invalidatePreflight(): void { this.invalidations++ } }
+  const e = new SpyEngine([{ ok: false, reason: 'timeout' }])
+  await runOnce(deps(e))
+  expect(e.invalidations).toBe(1)
+})
+
 test('max-attempts blocked 註記帶最後失敗原因（人工分流不用翻 events.jsonl）', async () => {
   const e = new MockEngine([{ ok: false, reason: 'timeout' }, { ok: false, reason: 'timeout' }])
   const d = deps(e)
