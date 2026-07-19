@@ -16,7 +16,10 @@ process.stdin.on('end', () => {
   if (mode === 'hang') { setInterval(() => {}, 1000); return } // 永不結束（驗超時補刀）
   if (mode === 'fail') { process.stderr.write('agy: quota exhausted (simulated)\n'); process.exit(3) }
   if (mode === 'empty') { process.exit(0) } // exit 0 零輸出（踩雷 §13）
-  // ok：agy 是純文字輸出（無 JSON）——回聲 stdin 前 800 字供測試驗 prompt 組裝
-  process.stdout.write('AGY-DONE: ' + input.slice(0, 800) + '\n')
+  // ok：agy 是純文字輸出（無 JSON）——回聲 -p 參數（1.1.4 契約：prompt 走 argv 不走 stdin）
+  // 前 800 字供測試驗 prompt 組裝；找不到 -p 時退回 stdin 回聲（防呆）。
+  const pIdx = argv.indexOf('-p')
+  const prompt = pIdx >= 0 ? (argv[pIdx + 1] ?? '') : input
+  process.stdout.write('AGY-DONE: ' + prompt.slice(0, 800) + '\n')
   process.exit(0)
 })

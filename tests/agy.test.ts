@@ -73,11 +73,23 @@ test('args 組裝：wsl.exe --cd <mnt路徑> -d Ubuntu -u root -- agy 旗標齊�
   expect(call[7]).toBe('/usr/local/bin/agy')
   expect(call).toContain('-p')
   expect(call).toContain('--dangerously-skip-permissions')
+  // 1.1.4 契約：全域旗標必在 -p 前（-p 後的旗標被當 prompt 吞掉、權限 auto-deny）
+  expect(call.indexOf('--dangerously-skip-permissions')).toBeLessThan(call.indexOf('-p'))
   expect(call[call.indexOf('--add-dir') + 1]).toBe(toWslPath(cwd)) // 真探針實證：缺 --add-dir 會跑去自家 scratch
   const ptIdx = call.indexOf('--print-timeout')
   expect(ptIdx).toBeGreaterThan(7)
   expect(call[ptIdx + 1]).toMatch(/^\d+s$/) // 明確設定，非放任預設 5m
-  expect(call[call.length - 1]).toMatch(/^adng-run-ab12cd34-[0-9a-f]{8}$/) // marker 進 cmdline 供 pkill -f
+  const promptArg = call[call.indexOf('-p') + 1]!
+  expect(promptArg).toContain('任務：修好登入頁')            // prompt 走 -p argv（1.1.4 不讀 stdin）
+  expect(promptArg).toMatch(/adng-run-ab12cd34-[0-9a-f]{8}/) // marker 在 prompt 內 → 進 cmdline 供 pkill -f
+})
+
+test('prompt 超過 argv 上限 → fail-fast 給明確原因，不 spawn', async () => {
+  const { e, logFile } = makeEngine('ok', ['aaa', 'bbb'])
+  const r = await e.run({ task: T, projectPath: process.cwd(), directive: 'x'.repeat(29_000) })
+  expect(r.ok).toBe(false)
+  expect(r.failureReason).toContain('argv 上限')
+  expect(() => loggedCalls(logFile)).toThrow() // 無任何 spawn 紀錄（log 檔不存在）
 })
 
 test('--cd 路徑轉換：含空格的 projectPath 完整轉為 /mnt 形（單一 argv 元素）', async () => {
@@ -90,7 +102,7 @@ test('--cd 路徑轉換：含空格的 projectPath 完整轉為 /mnt 形（單�
   expect(call[1]).toContain(' ') // 空格保留在同一個 argv 元素內
 })
 
-test('prompt 走 stdin：任務文字、commit 硬話、run-id marker 都在（純文字回聲驗證）', async () => {
+test('prompt 走 -p argv（1.1.4 契約）：任務文字、commit 硬話、run-id marker 都在（回聲驗證）', async () => {
   const { e } = makeEngine('ok', ['aaa', 'bbb'])
   const r = await e.run({ task: T, projectPath: process.cwd() })
   expect(r.output).toContain('修好登入頁')
@@ -137,7 +149,8 @@ test('超時 → 補刀 pkill 指令組裝正確：目標＝本次 run 的 marke
   expect(r.failureReason).toBe('timeout')
   const calls = loggedCalls(logFile)
   expect(calls.length).toBe(2) // 第 1 次＝run 本體；第 2 次＝補刀
-  const marker = calls[0]![calls[0]!.length - 1]!
+  // 1.1.4 契約：marker 在 prompt（-p 參數）內，從中萃取
+  const marker = /adng-run-ab12cd34-[0-9a-f]{8}/.exec(calls[0]![calls[0]!.length - 1]!)?.[0]
   expect(marker).toMatch(/^adng-run-ab12cd34-[0-9a-f]{8}$/)
   expect(calls[1]).toEqual(buildKillArgs('Ubuntu', marker)) // pkill -f <本次 marker> 一字不差
 }, 20_000)

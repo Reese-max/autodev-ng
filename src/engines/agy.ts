@@ -63,13 +63,15 @@ export class AgyEngine implements Engine {
     return [...this.argvPrefix, '--cd', toWslPath(winCwd), '-d', this.distro, '-u', 'root', '--', this.agyBin, ...agyTail]
   }
 
-  /** agy 旗標：--print-timeout 預設僅 5m（規格卡陷阱）→ 明確設為略短於 wall timeout，讓 agy 自己先退場
-   * （首選緩解）；地板 1s——舊地板 30s 在 wall 極小時反破壞「print-timeout ≤ wall」不變式。marker 兼作
-   * positional prompt 尾段：進 Linux 側 agy 的 cmdline，超時補刀 pkill -f 才咬得到（主 prompt 仍走 stdin）。 */
-  private agyFlags(budgetMs: number, marker?: string): string[] {
-    const flags = ['-p', '--dangerously-skip-permissions', '--print-timeout', `${Math.max(1, Math.floor(budgetMs / 1000))}s`]
+  /** agy 旗標（1.1.4 實測契約 2026-07-19）：全域旗標必在 -p 之前（-p 後的旗標被吞、權限直接
+   * auto-deny）；prompt 必為 -p 的參數——print 模式不讀 stdin（舊規格卡的 stdin 餵法已失效，
+   * 當時 positional 只放 marker，實測 agy 會把 marker 當 prompt 拿去自主研究）。prompt 含 run-id
+   * marker → 進 Linux 側 cmdline，超時補刀 pkill -f 咬得到。--print-timeout 預設僅 5m → 明確設為
+   * 略短於 wall timeout 讓 agy 自己先退場；地板 1s。 */
+  private agyFlags(budgetMs: number, prompt: string): string[] {
+    const flags = ['--dangerously-skip-permissions', '--print-timeout', `${Math.max(1, Math.floor(budgetMs / 1000))}s`]
     if (this.model !== undefined) flags.push('--model', this.model)
-    if (marker !== undefined) flags.push(marker)
+    flags.push('-p', prompt)
     return flags
   }
 
@@ -80,8 +82,8 @@ export class AgyEngine implements Engine {
     let result: PreflightResult
     try {
       const r = await runProcess({
-        command: this.command, args: this.wslArgs(process.cwd(), this.agyFlags(this.pingTimeoutMs - 10_000)),
-        cwd: process.cwd(), stdinText: 'Reply with exactly: PONG', timeoutMs: this.pingTimeoutMs
+        command: this.command, args: this.wslArgs(process.cwd(), this.agyFlags(this.pingTimeoutMs - 10_000, 'Reply with exactly: PONG')),
+        cwd: process.cwd(), stdinText: '', timeoutMs: this.pingTimeoutMs
       })
       result = r.stdout.includes('PONG')
         ? { ok: true, detail: `PONG ${r.durationMs}ms` }
@@ -107,12 +109,17 @@ export class AgyEngine implements Engine {
       `（run-id：${marker}，僅供系統識別，忽略即可）`
     ].join('\n')
 
+    // prompt 走 argv（1.1.4 不讀 stdin）→ 受 Windows CreateProcess 32767 字元上限約束；超限 fail-fast
+    // 給明確原因，不讓 wsl.exe 以難懂的 spawn 錯誤炸出來。
+    if (prompt.length > 28_000) {
+      return { ok: false, output: '', costUsd: 0, costUnknown: true, failureReason: `prompt ${prompt.length} 字超過 agy argv 上限（1.1.4 不讀 stdin）` }
+    }
     const before = this.getCommitHash(job.projectPath)
     // --add-dir 必帶（真探針實證）：agy print 模式不把 cwd 當 workspace，缺它會跑去自家 scratch 自嗨。
     const r = await runProcess({
       command: this.command,
-      args: this.wslArgs(job.projectPath, ['--add-dir', toWslPath(job.projectPath), ...this.agyFlags(this.timeoutMs - 30_000, marker)]),
-      cwd: job.projectPath, stdinText: prompt, timeoutMs: this.timeoutMs
+      args: this.wslArgs(job.projectPath, ['--add-dir', toWslPath(job.projectPath), ...this.agyFlags(this.timeoutMs - 30_000, prompt)]),
+      cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs
     })
 
     if (r.timedOut) {
