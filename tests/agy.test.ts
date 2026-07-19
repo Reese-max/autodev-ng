@@ -151,6 +151,7 @@ test('超時 → 補刀 pkill 指令組裝正確：目標＝本次 run 的 marke
   expect(calls.length).toBe(2) // 第 1 次＝run 本體；第 2 次＝補刀
   // 1.1.4 契約：marker 在 prompt（-p 參數）內，從中萃取
   const marker = /adng-run-ab12cd34-[0-9a-f]{8}/.exec(calls[0]![calls[0]!.length - 1]!)?.[0]
+  if (!marker) throw new Error('missing adng run marker')
   expect(marker).toMatch(/^adng-run-ab12cd34-[0-9a-f]{8}$/)
   expect(calls[1]).toEqual(buildKillArgs('Ubuntu', marker)) // pkill -f <本次 marker> 一字不差
 }, 20_000)
