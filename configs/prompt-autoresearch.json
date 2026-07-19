@@ -9,7 +9,9 @@
   "judgeUrl": "http://127.0.0.1:8317/v1",
   "judgeModel": "gpt-5.4-mini",
   "judgeApiKey": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h",
-  "botAllowedUserIds": ["844236700611379200"],
+  "botAllowedUserIds": [
+    "844236700611379200"
+  ],
   "botTokenFile": "C:/Users/Administrator/.adng/bot.env",
   "auditModel": "gpt-5.6-sol",
   "surveyCommand": "python -m pytest tests/ -q --cov=lib --cov=scripts --cov=api --cov-report=term-missing --deselect tests/test_architecture_surface.py::ArchitectureSurfaceTests::test_experiment_report_snapshot_contract",
@@ -19,7 +21,17 @@
   "maxAttempts": 3,
   "perpetual": true,
   "defaultEngine": "opencode",
-  "engineRotation": ["codex-sol", "codex-terra", "codex-luna", "codex-spark", "grok", "oc-deepseek", "oc-nemotron", "agy"],
+  "engineRotation": [
+    "codex-sol",
+    "codex-terra",
+    "codex-luna",
+    "codex-spark",
+    "grok",
+    "oc-deepseek",
+    "oc-nemotron",
+    "agy",
+    "qwen-gpt55"
+  ],
   "discordChannelId": "1492793288514863164",
   "engines": {
     "claude": {
@@ -113,6 +125,46 @@
     "claude-haiku": {
       "adapter": "claude-cli",
       "model": "claude-haiku-4-5-20251001"
+    },
+    "qwen-gpt55": {
+      "adapter": "qwen",
+      "model": "gpt-5.5",
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
+        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
+      },
+      "costPerRunUsd": 0,
+      "subscription": true
+    },
+    "qwen-gpt54": {
+      "adapter": "qwen",
+      "model": "gpt-5.4",
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
+        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
+      },
+      "costPerRunUsd": 0,
+      "subscription": true
+    },
+    "qwen-gpt54m": {
+      "adapter": "qwen",
+      "model": "gpt-5.4-mini",
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
+        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
+      },
+      "costPerRunUsd": 0,
+      "subscription": true
+    },
+    "qwen-grok420": {
+      "adapter": "qwen",
+      "model": "grok-4.20",
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8318/v1",
+        "OPENAI_API_KEY": "adng"
+      },
+      "costPerRunUsd": 0,
+      "subscription": true
     }
   },
   "extraDirective": "只做任務明確要求的最小改動，改動完成必須讓現有測試全數通過。"

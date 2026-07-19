@@ -12,7 +12,9 @@
   "auditModel": "gpt-5.6-sol",
   "surveyCommand": "\"D:/Users/Administrator/Desktop/筆記補齊/.venv/Scripts/python.exe\" -X utf8 -m pytest -m \"not integration\" -q",
   "surveyTimeoutMs": 300000,
-  "botAllowedUserIds": ["844236700611379200"],
+  "botAllowedUserIds": [
+    "844236700611379200"
+  ],
   "botTokenFile": "C:/Users/Administrator/.adng/bot.env",
   "timezoneOffsetHours": 8,
   "dailySoftUsd": 15,
@@ -21,10 +23,22 @@
   "maxAttempts": 3,
   "perpetual": true,
   "defaultEngine": "opencode",
-  "engineRotation": ["codex-sol", "codex-terra", "codex-luna", "codex-spark", "grok", "oc-deepseek", "oc-nemotron", "agy"],
+  "engineRotation": [
+    "codex-sol",
+    "codex-terra",
+    "codex-luna",
+    "codex-spark",
+    "grok",
+    "oc-deepseek",
+    "oc-nemotron",
+    "agy",
+    "qwen-gpt55"
+  ],
   "discordChannelId": "1492793288514863164",
   "engines": {
-    "claude": { "adapter": "claude-cli" },
+    "claude": {
+      "adapter": "claude-cli"
+    },
     "opencode": {
       "adapter": "opencode",
       "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe"
@@ -113,6 +127,46 @@
     "claude-haiku": {
       "adapter": "claude-cli",
       "model": "claude-haiku-4-5-20251001"
+    },
+    "qwen-gpt55": {
+      "adapter": "qwen",
+      "model": "gpt-5.5",
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
+        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
+      },
+      "costPerRunUsd": 0,
+      "subscription": true
+    },
+    "qwen-gpt54": {
+      "adapter": "qwen",
+      "model": "gpt-5.4",
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
+        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
+      },
+      "costPerRunUsd": 0,
+      "subscription": true
+    },
+    "qwen-gpt54m": {
+      "adapter": "qwen",
+      "model": "gpt-5.4-mini",
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
+        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
+      },
+      "costPerRunUsd": 0,
+      "subscription": true
+    },
+    "qwen-grok420": {
+      "adapter": "qwen",
+      "model": "grok-4.20",
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8318/v1",
+        "OPENAI_API_KEY": "adng"
+      },
+      "costPerRunUsd": 0,
+      "subscription": true
     }
   },
   "extraDirective": "Python 一律用主專案 venv:\"D:/Users/Administrator/Desktop/筆記補齊/.venv/Scripts/python.exe\" 加 -X utf8;嚴禁 pip install 到全域 Python(本機 24/7 系統共用)。不得弱化既有品質閘:原稿逐字不可變、無來源/【待補證】→pending_evidence、只掛實際引用來源、法條引用須通過離線查核。grok proxy 在 http://127.0.0.1:8318/v1(model grok-4.3),整合測試標記 integration 平時跳過。"

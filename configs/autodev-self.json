@@ -17,7 +17,8 @@
     "codex-sol",
     "codex-terra",
     "codex-luna",
-    "grok"
+    "grok",
+    "qwen-gpt55"
   ],
   "engines": {
     "codex-spark": {
@@ -68,10 +69,51 @@
       "command": "C:/Users/Administrator/.grok/bin/grok.exe",
       "costPerRunUsd": 0,
       "subscription": true
+    },
+    "qwen-gpt55": {
+      "adapter": "qwen",
+      "model": "gpt-5.5",
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
+        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
+      },
+      "costPerRunUsd": 0,
+      "subscription": true
+    },
+    "qwen-gpt54": {
+      "adapter": "qwen",
+      "model": "gpt-5.4",
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
+        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
+      },
+      "costPerRunUsd": 0,
+      "subscription": true
+    },
+    "qwen-gpt54m": {
+      "adapter": "qwen",
+      "model": "gpt-5.4-mini",
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
+        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
+      },
+      "costPerRunUsd": 0,
+      "subscription": true
+    },
+    "qwen-grok420": {
+      "adapter": "qwen",
+      "model": "grok-4.20",
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8318/v1",
+        "OPENAI_API_KEY": "adng"
+      },
+      "costPerRunUsd": 0,
+      "subscription": true
     }
   },
   "discordChannelId": "1492793288514863164",
   "perpetual": true,
   "perpetualValueThreshold": 7,
-  "extraDirective": "本專案就是 autodev-ng 自身（TypeScript）。鐵律：嚴禁修改 configs/ 目錄、scripts/ 目錄、data/ 目錄內任何檔案；嚴禁動任何 daemon/node 進程；kernel 行數預算測試（tests/kernel-budget.test.ts，src/*.ts 頂層 ≤2700 行）必須維持綠燈——新邏輯優先放 src/engines/ 等子目錄；所有變更需附單元測試。"
+  "extraDirective": "本專案就是 autodev-ng 自身（TypeScript）。鐵律：嚴禁修改 configs/ 目錄、scripts/ 目錄、data/ 目錄內任何檔案；嚴禁動任何 daemon/node 進程；kernel 行數預算測試（tests/kernel-budget.test.ts，src/*.ts 頂層 ≤2700 行）必須維持綠燈——新邏輯優先放 src/engines/ 等子目錄；所有變更需附單元測試。",
+  "judgeApiKey": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
 }
