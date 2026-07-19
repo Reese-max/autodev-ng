@@ -46,9 +46,10 @@
 
 ### 視需求新增
 
-4. `src/engines/routing-state.ts`
-   - 若晉升/隔離需要跨輪保存，新增此檔管理 `cfg.dataDir` 下的 JSON 狀態。
-   - 寫入需 tmp+rename；讀取失敗回空狀態；不得拋錯阻斷 `pickReadyTask()`。
+4. `src/engines/routing-state.ts`（已落地：格式 + 版本 + 回退）
+   - 檔名：`cfg.dataDir/engine-routing-state.json`
+   - 寫入 tmp+rename；讀取失敗回空狀態 + `kind:'reuse-current'`；不得拋錯阻斷 `pickReadyTask()`。
+   - 詳見下方「路由狀態檔 schema」。
 
 5. `src/engines/routing-stats.ts`
    - 若 `RunDb.engineDayStats()` 不足以表示「近期窗口」或「試探結果」，新增 adapter 將 db 查詢結果轉為路由摘要。
@@ -74,3 +75,43 @@
 - `engine-route-promoted`：某 tag 達門檻升為優先候選。
 
 這些事件應由 `pickReadyTask()` 在取得候選清單後派發，並以 `appendOnce()` 控制噪音；純排序函式只回傳決策結果與 reason，不直接碰 I/O。
+
+## 路由狀態檔 schema（`engine-routing-state.json`）
+
+路徑：`<cfg.dataDir>/engine-routing-state.json`  
+實作：`src/engines/routing-state.ts`  
+目前寫入版本：`version: 1`
+
+```json
+{
+  "version": 1,
+  "updatedAt": "2026-07-20T00:00:00.000Z",
+  "isolated": {
+    "qwen": { "untilTs": "2026-07-21T00:00:00.000Z", "reason": "probe-fail" }
+  },
+  "promoted": {
+    "codex": { "score": 3, "promotedAt": "2026-07-18T00:00:00.000Z" }
+  },
+  "probes": {
+    "opencode": { "hits": 2, "lastTs": "2026-07-19T01:00:00.000Z" }
+  }
+}
+```
+
+### 版本兼容
+
+| 情況 | 行為 |
+| --- | --- |
+| 缺檔 | `kind:'reuse-current' reason:'missing'` → 沿用 `candidateEngines()` |
+| 讀不到 / JSON 損壞 | `unreadable` / `corrupt` → 同上 |
+| 非物件形狀 | `invalid-shape` → 同上 |
+| 未來 version 且無可讀 map | `unsupported-version` → 同上 |
+| 未來 version 仍帶 v1 map 欄位 | 降級讀取已知欄位，`kind:'state'` |
+| 缺 `version` / 缺 map 欄位 | 回填空 map 與目前 version，`kind:'state'` |
+| 單筆 entry 型別錯 | 該筆回填安全預設（字串 `''`、數字 `0`），略過非物件 entry |
+
+### 寫入
+
+- 永遠寫成 `ROUTING_STATE_VERSION`（目前 1）
+- tmp+rename 原子寫；失敗回 `false` 不拋（fail-open）
+- 呼叫端在接線 `pickReadyTask()` 前應用 `shouldApplyRoutingState()`；`false` 時不得覆寫既有候選清單
