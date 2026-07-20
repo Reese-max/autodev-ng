@@ -63,6 +63,9 @@ test('buildPickReadySmokeReport：凍結決策指紋、事件計數與狀態匯�
   } as PickReadyTaskDecisionTrace<{ engineTag: string; fixedCost: number }>
   const status = {
     observedAt: NOW,
+    maintainOriginalPath: true,
+    decision: REUSE_CURRENT,
+    stateLoad: { kind: 'state' as const, source: 'file' as const },
     isolatedEngines: [{ engine: 'qwen', reason: 'bad', nextProbeAt: '2026-07-21T12:00:00.000Z' }],
     standbyEngines: [],
     recentStats: { kind: 'reuse-current' as const, decision: REUSE_CURRENT, reason: 'missing-run-db' },

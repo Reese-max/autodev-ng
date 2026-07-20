@@ -19,7 +19,7 @@ import {
   ROUTING_STATE_FILENAME,
   defaultRoutingState,
 } from '../src/engines/routing-state.js'
-import type { RunStatsResult } from '../src/engines/run-stats.js'
+import { REUSE_CURRENT, type RunStatsResult } from '../src/engines/run-stats.js'
 
 const NOW = '2026-07-21T12:00:00.000Z'
 const roots: string[] = []
@@ -65,6 +65,9 @@ test('集中列出有效隔離、下次試探、常駐候補與近三日樣本',
     { loadRoutingState: loadState, recentRunStats: readStats },
   )).toEqual({
     observedAt: NOW,
+    maintainOriginalPath: false,
+    decision: 'status',
+    stateLoad: { kind: 'state', source: 'file' },
     isolatedEngines: [
       { engine: 'codex', reason: 'probe-fail', nextProbeAt: '2026-07-21T13:00:00.000Z' },
       { engine: 'qwen', reason: 'bad-stats', nextProbeAt: '2026-07-22T12:00:00.000Z' },
@@ -101,6 +104,51 @@ test('匯總入口不改狀態檔或建立其他檔案', () => {
   expect(readFileSync(file, 'utf8')).toBe(before)
   expect(statSync(file).mtimeMs).toBe(beforeMtime)
   expect(readdirSync(dataDir)).toEqual(beforeNames)
+})
+
+test('狀態檔缺失時 maintainOriginalPath 且不拋錯', () => {
+  const dataDir = join(tempDir(), 'no-state-dir')
+  const report = readRoutingStatus(
+    { dataDir, nowIso: NOW },
+    { recentRunStats: () => STATS },
+  )
+  expect(report.maintainOriginalPath).toBe(true)
+  expect(report.decision).toBe(REUSE_CURRENT)
+  expect(report.stateLoad).toEqual({ kind: 'reuse-current', reason: 'missing' })
+  expect(report.isolatedEngines).toEqual([])
+  expect(report.standbyEngines).toEqual([])
+  expect(report.recentStats).toEqual(STATS)
+  expect(existsSync(dataDir)).toBe(false)
+})
+
+test('run.db 缺失時 maintainOriginalPath 且不拋錯', () => {
+  const dataDir = tempDir()
+  const file = join(dataDir, ROUTING_STATE_FILENAME)
+  writeFileSync(file, JSON.stringify({
+    ...defaultRoutingState(NOW),
+    isolated: { qwen: { untilTs: '2026-07-22T12:00:00.000Z', reason: 'fixture' } },
+    promoted: { spark: { score: 2, promotedAt: '2026-07-20T00:00:00.000Z' } },
+  }))
+  const before = readFileSync(file, 'utf8')
+  const namesBefore = readdirSync(dataDir).sort()
+
+  const report = readRoutingStatus({ dataDir, nowIso: NOW })
+  expect(report.maintainOriginalPath).toBe(true)
+  expect(report.decision).toBe(REUSE_CURRENT)
+  expect(report.stateLoad).toEqual({ kind: 'state', source: 'file' })
+  expect(report.isolatedEngines).toEqual([
+    { engine: 'qwen', reason: 'fixture', nextProbeAt: '2026-07-22T12:00:00.000Z' },
+  ])
+  expect(report.standbyEngines).toEqual([
+    { engine: 'spark', score: 2, promotedAt: '2026-07-20T00:00:00.000Z' },
+  ])
+  expect(report.recentStats).toEqual({
+    kind: 'reuse-current',
+    decision: REUSE_CURRENT,
+    reason: 'missing-run-db',
+  })
+  expect(readFileSync(file, 'utf8')).toBe(before)
+  expect(readdirSync(dataDir).sort()).toEqual(namesBefore)
 })
 
 const VALID_STATE = JSON.stringify({
@@ -144,11 +192,21 @@ test.each([
   const report = JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>
   expect(report).toMatchObject({
     observedAt: expect.any(String),
+    maintainOriginalPath: true,
+    decision: REUSE_CURRENT,
     isolatedEngines: expect.any(Array),
     standbyEngines: expect.any(Array),
     recentStats: { kind: 'reuse-current', reason: 'missing-run-db' },
   })
   expect(report.isolatedEngines).toHaveLength(expectedIsolated)
+  if (stateText === undefined || stateText === '{broken') {
+    expect(report.stateLoad).toEqual({
+      kind: 'reuse-current',
+      reason: stateText === undefined ? 'missing' : 'corrupt',
+    })
+  } else {
+    expect(report.stateLoad).toEqual({ kind: 'state', source: 'file' })
+  }
 
   expect(existsSync(dataDir)).toBe(existedBefore)
   if (existedBefore) expect(readdirSync(dataDir).sort()).toEqual(namesBefore)
