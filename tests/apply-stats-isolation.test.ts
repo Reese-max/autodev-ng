@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
   applyStatsIsolation,
   loadIsolatedTagsForPick,
@@ -12,6 +12,7 @@ import {
 } from '../src/engines/isolation-policy.js'
 import {
   ROUTING_STATE_FILENAME,
+  REUSE_CURRENT,
   loadRoutingState,
   saveRoutingState,
   defaultRoutingState,
@@ -128,19 +129,21 @@ describe('applyStatsIsolation', () => {
   test('原子寫入失敗 → 不回報隔離或派事件', () => {
     const dir = tmpDir()
     try {
-      const seen: string[] = []
+      const saveState = vi.fn(() => false)
+      const onIsolated = vi.fn()
       const tags = loadIsolatedTagsForPick(
         {
           dataDir: dir,
           rotation: ROT,
           nowIso: NOW,
           statsFn: () => BAD_QWEN_STATS,
-          saveStateFn: () => false,
+          saveStateFn: saveState,
         },
-        ev => { seen.push(ev.engine) }
+        onIsolated
       )
       expect(tags).toEqual([])
-      expect(seen).toEqual([])
+      expect(saveState).toHaveBeenCalledOnce()
+      expect(onIsolated).not.toHaveBeenCalled()
       expect(existsSync(join(dir, ROUTING_STATE_FILENAME))).toBe(false)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -280,6 +283,48 @@ describe('applyStatsIsolation', () => {
       )
       expect(tags).toContain('qwen')
       expect(seen).toEqual(['qwen'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('單一出口鉤子：同一隔離決策重複命中仍只寫一次、派一次事件', () => {
+    const dir = tmpDir()
+    try {
+      const duplicatedStats: RunStatsResult = {
+        ...BAD_QWEN_STATS,
+        engines: [BAD_QWEN_STATS.engines[0]!, BAD_QWEN_STATS.engines[0]!],
+      }
+      const stats = vi.fn(() => duplicatedStats)
+      const loadState = vi.fn(() => ({
+        kind: 'reuse-current' as const,
+        decision: REUSE_CURRENT,
+        reason: 'missing' as const,
+        state: defaultRoutingState(NOW),
+      }))
+      const effects: string[] = []
+      const saveState = vi.fn(() => { effects.push('write'); return true })
+      const onIsolated = vi.fn(() => { effects.push('event') })
+
+      const tags = loadIsolatedTagsForPick(
+        {
+          dataDir: dir,
+          rotation: ROT,
+          nowIso: NOW,
+          statsFn: stats,
+          loadStateFn: loadState,
+          saveStateFn: saveState,
+        },
+        onIsolated
+      )
+
+      expect(tags).toEqual(['qwen'])
+      expect(stats).toHaveBeenCalledOnce()
+      expect(loadState).toHaveBeenCalledOnce()
+      expect(saveState).toHaveBeenCalledOnce()
+      expect(onIsolated).toHaveBeenCalledOnce()
+      expect(onIsolated).toHaveBeenCalledWith(expect.objectContaining({ engine: 'qwen' }))
+      expect(effects).toEqual(['write', 'event'])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
