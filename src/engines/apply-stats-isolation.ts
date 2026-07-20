@@ -16,6 +16,8 @@ import { activeIsolatedTags } from './quarantine-gate.js'
 import {
   finalizeIsolationForPick,
   isolationIdle,
+  ROUTING_EVENT_SCHEMA_VERSION,
+  type IsolationEventPayload,
 } from './routing-exits.js'
 import {
   loadRoutingState,
@@ -32,13 +34,7 @@ import {
   type RunStatsResult,
 } from './run-stats.js'
 
-export interface IsolationAppliedEvent {
-  engine: string
-  reason: string
-  sampleCount: number
-  successRate: number
-  untilTs: string
-}
+export type IsolationAppliedEvent = IsolationEventPayload
 
 export type ApplyStatsIsolationResult =
   | {
@@ -109,6 +105,7 @@ function applyTargets(
     const entry = next.isolated[t.engine]
     if (next !== before && entry) {
       newlyIsolated.push({
+        schemaVersion: ROUTING_EVENT_SCHEMA_VERSION,
         engine: t.engine,
         reason: entry.reason,
         sampleCount: t.sampleCount,

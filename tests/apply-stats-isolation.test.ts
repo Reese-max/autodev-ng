@@ -10,6 +10,7 @@ import {
   ISOLATE_MIN_SAMPLES,
   ISOLATE_WINDOW_DAYS,
 } from '../src/engines/isolation-policy.js'
+import { ROUTING_EVENT_SCHEMA_VERSION } from '../src/engines/routing-exits.js'
 import {
   ROUTING_STATE_FILENAME,
   REUSE_CURRENT,
@@ -163,6 +164,7 @@ describe('applyStatsIsolation', () => {
       expect(r.kind).toBe('applied')
       expect(r.newlyIsolated).toHaveLength(1)
       expect(r.newlyIsolated[0]).toMatchObject({
+        schemaVersion: ROUTING_EVENT_SCHEMA_VERSION,
         engine: 'qwen',
         sampleCount: 6,
         successRate: 1 / 6,

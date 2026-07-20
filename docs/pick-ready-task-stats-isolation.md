@@ -61,6 +61,7 @@ npx vitest run tests/isolation-policy.test.ts tests/apply-stats-isolation.test.t
 ```json
 {
   "type": "engine-route-isolated",
+  "schemaVersion": 1,
   "engine": "qwen",
   "reason": "近3日樣本6成功率16.7%<30%",
   "sampleCount": 6,

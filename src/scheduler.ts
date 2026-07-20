@@ -250,7 +250,7 @@ export async function pickReadyTask(
   const routingKey = JSON.stringify([cfg.dataDir, cfg.engineRotation, cfg.timezoneOffsetHours])
   const isolatedTags = await singleFlightPickRouting(routingKey, () => loadIsolatedTagsForPick(
     { dataDir: cfg.dataDir, rotation: cfg.engineRotation, offsetHours: cfg.timezoneOffsetHours },
-    ev => quiet(() => events.append('engine-route-isolated', { engine: ev.engine, reason: ev.reason, sampleCount: ev.sampleCount, successRate: ev.successRate, untilTs: ev.untilTs })),
+    ev => quiet(() => events.append('engine-route-isolated', { ...ev })),
   )), subs = subscriptionTags(cfg)
   for (const cand of openTasks) {
     const tags = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs })
