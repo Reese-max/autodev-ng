@@ -32,12 +32,21 @@ describe('defaultCandidateTailEnhancer', () => {
     expect(defaultCandidateTailEnhancer(['a', 'b'], [])).toEqual(['a', 'b'])
   })
 
-  test('subscription 未出現者補進尾端，已存在者不重複', () => {
-    expect(defaultCandidateTailEnhancer(['a', 'b'], ['b', 'spark', 'a', 'terra'])).toEqual([
+  test('subscription 白名單與既有輪替重疊 → 保留輪替優先序且每項唯一', () => {
+    expect(defaultCandidateTailEnhancer(['a', 'b', 'c'], ['c', 'spark', 'a', 'b'])).toEqual([
       'a',
       'b',
+      'c',
       'spark',
+    ])
+  })
+
+  test('多個候補同時符合 → 依白名單順序補尾且重複候補只留首次', () => {
+    expect(defaultCandidateTailEnhancer(['a'], ['terra', 'spark', 'terra', 'nova', 'spark'])).toEqual([
+      'a',
       'terra',
+      'spark',
+      'nova',
     ])
   })
 
