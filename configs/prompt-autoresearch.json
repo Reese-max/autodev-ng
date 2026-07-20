@@ -29,8 +29,7 @@
     "grok",
     "oc-deepseek",
     "oc-nemotron",
-    "agy",
-    "qwen-gpt55"
+    "agy"
   ],
   "discordChannelId": "1492793288514863164",
   "engines": {
@@ -125,16 +124,6 @@
     "claude-haiku": {
       "adapter": "claude-cli",
       "model": "claude-haiku-4-5-20251001"
-    },
-    "qwen-gpt55": {
-      "adapter": "qwen",
-      "model": "gpt-5.5",
-      "env": {
-        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
-        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
-      },
-      "costPerRunUsd": 0,
-      "subscription": true
     },
     "qwen-gpt54": {
       "adapter": "qwen",

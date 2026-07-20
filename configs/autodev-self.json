@@ -17,8 +17,7 @@
     "codex-sol",
     "codex-terra",
     "codex-luna",
-    "grok",
-    "qwen-gpt55"
+    "grok"
   ],
   "engines": {
     "codex-spark": {
@@ -67,16 +66,6 @@
     "grok": {
       "adapter": "grok",
       "command": "C:/Users/Administrator/.grok/bin/grok.exe",
-      "costPerRunUsd": 0,
-      "subscription": true
-    },
-    "qwen-gpt55": {
-      "adapter": "qwen",
-      "model": "gpt-5.5",
-      "env": {
-        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
-        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
-      },
       "costPerRunUsd": 0,
       "subscription": true
     },
