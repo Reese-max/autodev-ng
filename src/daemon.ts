@@ -8,6 +8,7 @@ import { runOnce, subscriptionTags, type Deps, type CycleResult, type BlockedRea
 import { isSilenced } from './bot/silence.js'
 import { quiet, type EventLog } from './events.js'
 import { maybeRunPerpetual, perpetualDigestLine } from './autopilot/perpetual.js'
+import { cleanupRoutingState } from './engines/routing-state-cleanup.js'
 
 export interface Notifier {
   send(text: string): Promise<boolean>
@@ -298,6 +299,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       }
 
       consecutiveCrashes = 0
+      quiet(() => cleanupRoutingState(deps.cfg.dataDir, [deps.cfg.defaultEngine, ...(deps.cfg.engineRotation ?? [])]))
 
       if (result === 'stopped') return 'stopped'
 
