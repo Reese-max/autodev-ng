@@ -11,6 +11,7 @@ import {
   loadRoutingState,
   normalizeRoutingState,
   routingStatePath,
+  routingStateForUpdate,
   saveRoutingState,
   shouldApplyRoutingState,
 } from '../src/engines/routing-state.js'
@@ -55,12 +56,16 @@ describe('loadRoutingState 回退（不影響原派工）', () => {
 
   test('內容損壞（非 JSON）→ corrupt', () => {
     const dir = tmpDataDir()
-    writeFileSync(join(dir, ROUTING_STATE_FILENAME), '{{{')
+    const file = join(dir, ROUTING_STATE_FILENAME)
+    writeFileSync(file, '{{{')
     const result = loadRoutingState(dir, { nowIso: NOW })
     expect(result.kind).toBe('reuse-current')
     if (result.kind !== 'reuse-current') throw new Error('expected reuse')
     expect(result.reason).toBe('corrupt')
     expect(shouldApplyRoutingState(result)).toBe(false)
+    expect(routingStateForUpdate(result)).toBeNull()
+    expect(saveRoutingState(dir, defaultRoutingState(NOW), { nowIso: NOW })).toBe(false)
+    expect(readFileSync(file, 'utf8')).toBe('{{{')
   })
 
   test('形狀非法（陣列/字串）→ invalid-shape', () => {

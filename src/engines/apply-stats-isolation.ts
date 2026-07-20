@@ -14,10 +14,11 @@ import {
 } from './isolation-policy.js'
 import { activeIsolatedTags } from './quarantine-gate.js'
 import {
-  defaultRoutingState,
   loadRoutingState,
+  routingStateForUpdate,
   saveRoutingState,
   shouldApplyRoutingState,
+  type LoadRoutingStateResult,
   type RoutingState,
 } from './routing-state.js'
 import { applyFirstIsolation } from './routing-transition.js'
@@ -65,7 +66,7 @@ export interface ApplyStatsIsolationInput {
   timeoutMs?: number
   /** 測試注入 */
   statsFn?: (dbFile: string, opts?: RunStatsOptions) => RunStatsResult
-  loadStateFn?: (dataDir: string, opts?: { nowIso?: string }) => { state: RoutingState }
+  loadStateFn?: (dataDir: string, opts?: { nowIso?: string }) => LoadRoutingStateResult
   saveStateFn?: (dataDir: string, state: RoutingState, opts?: { nowIso?: string }) => boolean
 }
 
@@ -168,7 +169,15 @@ export function applyStatsIsolation(input: ApplyStatsIsolationInput): ApplyStats
 
     const loadFn = input.loadStateFn ?? ((dir, opts) => loadRoutingState(dir, opts))
     const loaded = loadFn(dataDir, { nowIso })
-    const base = loaded.state ?? defaultRoutingState(nowIso)
+    const base = routingStateForUpdate(loaded)
+    if (!base) {
+      return {
+        kind: 'reuse-current',
+        newlyIsolated: [],
+        activeIsolatedTags: [],
+        reason: `state-${loaded.kind === 'reuse-current' ? loaded.reason : 'unavailable'}`,
+      }
+    }
     const { state, newlyIsolated } = applyTargets(base, targets, nowIso)
 
     if (newlyIsolated.length === 0) {
@@ -181,10 +190,19 @@ export function applyStatsIsolation(input: ApplyStatsIsolationInput): ApplyStats
     }
 
     const saveFn = input.saveStateFn ?? saveRoutingState
+    let saved = false
     try {
-      saveFn(dataDir, state, { nowIso })
+      saved = saveFn(dataDir, state, { nowIso })
     } catch {
-      /* fail-open：本輪仍用記憶體隔離結果 */
+      /* fail-open */
+    }
+    if (!saved) {
+      return {
+        kind: 'reuse-current',
+        newlyIsolated: [],
+        activeIsolatedTags: activeIsolatedTags(base.isolated, nowIso),
+        reason: 'state-write-failed',
+      }
     }
 
     return {

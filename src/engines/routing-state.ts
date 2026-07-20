@@ -6,9 +6,11 @@
  * - 讀不到、內容損壞、版本不支援 → fail-open 回空預設 + kind:'reuse-current'
  *   （呼叫端必須沿用既有 candidateEngines()，不得改派工路徑）
  * - 欄位缺失 → 以預設值補齊後仍 kind:'state'（向後相容）
- * - 寫入採 tmp+rename；任何 I/O 失敗不拋錯（fail-open）
+ * - 寫入採唯一 tmp+rename；既有檔不可用時拒絕覆寫並保留原檔
+ * - 任何 I/O 失敗不拋錯（fail-open）
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { REUSE_CURRENT } from './routing-decision.js'
 
@@ -156,6 +158,12 @@ export function shouldApplyRoutingState(result: LoadRoutingStateResult): boolean
   return result.kind === 'state'
 }
 
+/** 缺檔可初始化；既有檔讀取失敗時不可更新，避免用空預設覆蓋損毀原檔。 */
+export function routingStateForUpdate(result: LoadRoutingStateResult): RoutingState | null {
+  if (result.kind === 'state') return result.state
+  return result.reason === 'missing' ? result.state : null
+}
+
 /**
  * 讀取 dataDir 下路由狀態。
  * 缺檔 / 讀不到 / JSON 壞 / 形狀非法 / 不支援版本 → reuse-current + 空預設。
@@ -219,6 +227,7 @@ export function loadRoutingState(
 
 /**
  * 原子寫入路由狀態（永遠寫成目前 ROUTING_STATE_VERSION）。
+ * 既有檔讀取失敗時拒絕更新，保留現場供後續修復。
  * @returns true 成功；false 失敗（fail-open，不拋）
  */
 export function saveRoutingState(
@@ -235,13 +244,21 @@ export function saveRoutingState(
     promoted: state.promoted ?? {},
     probes: state.probes ?? {},
   }
+  let tmp = ''
   try {
     mkdirSync(dirname(file), { recursive: true })
-    const tmp = `${file}.tmp`
+    if (existsSync(file) && routingStateForUpdate(loadRoutingState(dataDir, { nowIso })) === null) {
+      return false
+    }
+    tmp = `${file}.${randomUUID()}.tmp`
     writeFileSync(tmp, JSON.stringify(payload))
     renameSync(tmp, file)
     return true
   } catch {
     return false
+  } finally {
+    if (tmp) {
+      try { rmSync(tmp, { force: true }) } catch { /* 保留主錯誤的 fail-open 契約 */ }
+    }
   }
 }

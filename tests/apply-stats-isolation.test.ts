@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
@@ -22,6 +22,14 @@ import { RunDb } from '../src/db.js'
 
 const NOW = '2026-07-20T12:00:00.000Z'
 const ROT = ['qwen', 'codex', 'opencode']
+const BAD_QWEN_STATS = {
+  kind: 'stats',
+  days: ['2026-07-20', '2026-07-19', '2026-07-18'],
+  sampleCount: 6,
+  engines: [
+    { engine: 'qwen', sampleCount: 6, ok: 0, fail: 6, successRate: 0 },
+  ],
+} satisfies RunStatsResult
 
 function tmpDir(): string {
   return mkdtempSync(join(tmpdir(), 'adng-iso-'))
@@ -94,6 +102,51 @@ describe('applyStatsIsolation', () => {
     }
   })
 
+  test('狀態檔損壞 → 標記不可用並保留原檔，不套用新隔離', () => {
+    const dir = tmpDir()
+    try {
+      const file = join(dir, ROUTING_STATE_FILENAME)
+      writeFileSync(file, '{"version":1,"isolated":')
+      const r = applyStatsIsolation({
+        dataDir: dir,
+        rotation: ROT,
+        nowIso: NOW,
+        statsFn: () => BAD_QWEN_STATS,
+      })
+      expect(r).toMatchObject({
+        kind: 'reuse-current',
+        reason: 'state-corrupt',
+        newlyIsolated: [],
+        activeIsolatedTags: [],
+      })
+      expect(readFileSync(file, 'utf8')).toBe('{"version":1,"isolated":')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('原子寫入失敗 → 不回報隔離或派事件', () => {
+    const dir = tmpDir()
+    try {
+      const seen: string[] = []
+      const tags = loadIsolatedTagsForPick(
+        {
+          dataDir: dir,
+          rotation: ROT,
+          nowIso: NOW,
+          statsFn: () => BAD_QWEN_STATS,
+          saveStateFn: () => false,
+        },
+        ev => { seen.push(ev.engine) }
+      )
+      expect(tags).toEqual([])
+      expect(seen).toEqual([])
+      expect(existsSync(join(dir, ROUTING_STATE_FILENAME))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   test('樣本≥6 成功率<30% 的輪替引擎 → 寫入 dataDir 隔離狀態與事由', () => {
     const dir = tmpDir()
     try {
@@ -125,7 +178,7 @@ describe('applyStatsIsolation', () => {
       const raw = JSON.parse(readFileSync(join(dir, ROUTING_STATE_FILENAME), 'utf8')) as {
         isolated: Record<string, { reason: string }>
       }
-      expect(raw.isolated.qwen.reason).toContain('<30%')
+      expect(raw.isolated.qwen!.reason).toContain('<30%')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
