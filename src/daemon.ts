@@ -9,6 +9,7 @@ import { isSilenced } from './bot/silence.js'
 import { quiet, type EventLog } from './events.js'
 import { maybeRunPerpetual, perpetualDigestLine } from './autopilot/perpetual.js'
 import { cleanupRoutingState } from './engines/routing-state-cleanup.js'
+import { checkRoutingStateConsistency } from './engines/routing-state-consistency.js'
 
 export interface Notifier {
   send(text: string): Promise<boolean>
@@ -252,6 +253,8 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
   }
 
   try {
+    // 啟動時路由狀態一致性：只警告標記，不改派工（fail-open）
+    quiet(() => { const r = checkRoutingStateConsistency({ dataDir: deps.cfg.dataDir, engineRotation: deps.cfg.engineRotation, offsetHours: deps.cfg.timezoneOffsetHours }); if (r.warnings.length) deps.events.append('engine-route-consistency-warn', { warnings: r.warnings }) })
     let cycles = 0
     let consecutiveCrashes = 0
 
