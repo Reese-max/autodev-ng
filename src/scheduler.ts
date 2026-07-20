@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
 import { localDay, type RunDb } from './db.js'
-import { candidateEngines } from './engines/rotation.js'
+import { loadActiveIsolatedTags, pickCandidateTags } from './engines/pick-candidates.js'
 import { quiet, type EventLog } from './events.js'
 import { globalBilledToday } from './globalcost.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
@@ -242,15 +242,15 @@ function blockTask(
   return { kind: 'blocked', taskId: task.id, taskText: task.text, reason }
 }
 
-/** 餓死修正（07-17）＋輪替路由（07-18，engines/rotation.ts）：逐候選任務展開 candidateEngines，
- * resolve/preflight 壞的逐一後退（PreflightCache 保證同引擎只真打一次探針），全部候選壞→
- * 'preflight-failed'；白名單外或單一候選 resolve 拋錯→blocked（訊息只含變數名不含值）。 */
+/** 餓死修正＋輪替＋pickCandidateTags（quarantine/subscription 單一入口）：展開 tags，
+ * resolve/preflight 壞則後退；全壞→preflight-failed；白名單外/單候選 resolve 拋→blocked。 */
 async function pickReadyTask(
   { cfg, store, db, events, engines }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines'>,
   openTasks: Task[]
 ): Promise<{ task: Task; engine: Engine; engineTag: string; fixedCost: number | undefined } | CycleResult> {
+  const isolatedTags = loadActiveIsolatedTags(cfg.dataDir), subs = subscriptionTags(cfg)
   for (const cand of openTasks) {
-    const tags = candidateEngines(cfg.engineRotation, cfg.defaultEngine, cand, db.failCount(cand.id))
+    const tags = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs })
     for (const engineTag of tags) {
       const engineCfg = cfg.engines[engineTag]
       if (!engineCfg) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`)
