@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
 import { localDay, type RunDb } from './db.js'
-import { loadActiveIsolatedTags, pickCandidateTags } from './engines/pick-candidates.js'
+import { loadIsolatedTagsForPick } from './engines/apply-stats-isolation.js'
+import { pickCandidateTags } from './engines/pick-candidates.js'
 import { quiet, type EventLog } from './events.js'
 import { globalBilledToday } from './globalcost.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
@@ -224,9 +225,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   return resolveFailure({ cfg, store, db, events }, task, 'failed', res.failureReason ?? '未知')
 }
 
-/** 環境級 blocked（worktree 建立失敗於非 git 專案 / mergeBack ff 失敗）：不計入 maxAttempts
- * （不是任務本身的失敗），直接標記 blocked 讓人工介入。store.report 拋錯只吞錯記事件
- * （backlog 沒標到 blocked 是已知殘留風險，下一輪會重新撿到）。 */
+/** 環境級 blocked：不計 maxAttempts；store.report 失敗只記事件。 */
 function blockTask(
   { store, events }: Pick<Deps, 'store' | 'events'>,
   task: Task,
@@ -242,13 +241,15 @@ function blockTask(
   return { kind: 'blocked', taskId: task.id, taskText: task.text, reason }
 }
 
-/** 餓死修正＋輪替＋pickCandidateTags（quarantine/subscription 單一入口）：展開 tags，
- * resolve/preflight 壞則後退；全壞→preflight-failed；白名單外/單候選 resolve 拋→blocked。 */
+/** 戰績隔離→輪替候選→preflight；全壞→preflight-failed；白名單外/單候選 resolve 拋→blocked。 */
 async function pickReadyTask(
   { cfg, store, db, events, engines }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines'>,
   openTasks: Task[]
 ): Promise<{ task: Task; engine: Engine; engineTag: string; fixedCost: number | undefined } | CycleResult> {
-  const isolatedTags = loadActiveIsolatedTags(cfg.dataDir), subs = subscriptionTags(cfg)
+  const isolatedTags = loadIsolatedTagsForPick(
+    { dataDir: cfg.dataDir, rotation: cfg.engineRotation, offsetHours: cfg.timezoneOffsetHours },
+    ev => quiet(() => events.append('engine-route-isolated', { engine: ev.engine, reason: ev.reason, sampleCount: ev.sampleCount, successRate: ev.successRate, untilTs: ev.untilTs })),
+  ), subs = subscriptionTags(cfg)
   for (const cand of openTasks) {
     const tags = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs })
     for (const engineTag of tags) {
@@ -274,8 +275,7 @@ async function pickReadyTask(
   return 'preflight-failed'
 }
 
-/** 失敗共通路：達 maxAttempts → blocked，lastFailure 寫進註記（人工分流不用翻 events.jsonl
- * 就能分辨 timeout/no-commit/verify 拒收）；report 拋錯只吞錯記事件不改語意。 */
+/** 達 maxAttempts → blocked（lastFailure 進註記）；report 拋錯只吞錯。 */
 function resolveFailure(
   { cfg, store, db, events }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events'>,
   task: Task,
@@ -287,34 +287,22 @@ function resolveFailure(
   return blockTask({ store, events }, task, 'max-attempts', `連敗 ${cfg.maxAttempts} 次，人工介入（最後失敗：${hint}）`)
 }
 
-/** M9.9：cfg.engines 中標了 subscription:true 的引擎 tag 清單（訂閱制，邊際成本≈0，
- * 估值照記帳但不踩日頂）。digest/handlers 各自需要同一份清單，故導出供 import。 */
+/** 訂閱制引擎 tag 清單（邊際成本≈0，不踩日頂）。 */
 export function subscriptionTags(cfg: Config): string[] {
   return Object.entries(cfg.engines ?? {}).filter(([, e]) => e.subscription).map(([t]) => t)
 }
 
-/** M4 Task 3：本地日成本（取代舊版 UTC 字串切割）。offsetHours=0 時與舊行為完全一致
- * （相容性錨點）；生產路徑一律帶入 cfg.timezoneOffsetHours。
- * M9.9：日頂閘改踩真金帳（billedCostForLocalDay 排除訂閱引擎）——訂閱引擎的名義估值
- * 不該誤觸日頂，真花錢的引擎才觸。 */
+/** 本地日 billed 成本（排除訂閱引擎）。 */
 function todayCost(db: RunDb, cfg: Config): number {
   const offsetHours = cfg.timezoneOffsetHours
   return db.billedCostForLocalDay(localDay(new Date().toISOString(), offsetHours), offsetHours, subscriptionTags(cfg))
 }
 
-/**
- * Fix 4（首跑實證）：runOnce 對 stopped/cost-stop/idle/preflight-failed 自帶 heartbeat 收尾，
- * 但任務真的跑起來（running）之後的 done/failed/engine-error/blocked 都不再寫——daemon 靠
- * 下一輪覆寫無礙；run-once 是單輪進程，不收尾 heartbeat 會永遠停在 running 假活。這裡只對
- * 「跑過任務」的結果補寫 idle（觀測面故障吞錯，不反殺 CLI）。從 cmdRunOnce 抽出導出
- * （同 runNotifyTest 模式）：mock deps 即可回歸測試，不必真跑 CLI 進程。
- */
+/** run-once 任務跑完後補 heartbeat idle（stopped/cost/idle/preflight 已自帶收尾）。 */
 export function finalizeRunOnceHeartbeat(deps: Deps, result: CycleResult, now: Date = new Date()): void {
   if (!(typeof result === 'object' || result === 'done' || result === 'failed' || result === 'engine-error')) return
   try {
     const day = localDay(now.toISOString(), deps.cfg.timezoneOffsetHours)
-    // M9.9：heartbeat todayCostUsd 語意＝billed（真金帳，與 scheduler todayCost 的踩頂數字一致），
-    // 排除訂閱引擎的名義估值——顯示與日頂閘看同一個數字，不因寫入路徑不同而語意漂移。
     deps.events.heartbeat({ state: 'idle', todayCostUsd: deps.db.billedCostForLocalDay(day, deps.cfg.timezoneOffsetHours, subscriptionTags(deps.cfg)) })
   } catch { /* 觀測面故障不可反殺 CLI（鐵律 #4） */ }
 }
