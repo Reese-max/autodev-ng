@@ -86,7 +86,11 @@ interface RoutingScenario {
   probeReady?: boolean
   subscriptions?: readonly string[]
   preflight?: Readonly<Record<string, boolean>>
-  expectedFingerprint: string
+  expected: {
+    branch: string
+    events: (string | null)[][]
+    stateWrites: string[][]
+  }
 }
 
 const ROUTING_SCENARIOS: readonly RoutingScenario[] = [
@@ -94,41 +98,41 @@ const ROUTING_SCENARIOS: readonly RoutingScenario[] = [
     name: '隔離命中',
     engineRotation: ['qwen', 'codex'],
     failedQwenRuns: 6,
-    expectedFingerprint: JSON.stringify({
+    expected: {
       branch: 'picked:codex:fixed=0',
       events: [['append', 'engine-route-isolated', 'qwen', 'sent']],
       stateWrites: [['routing-state', 'created']],
-    }),
+    },
   },
   {
     name: '試探放行',
     engineRotation: ['qwen', 'codex'],
     failedQwenRuns: 6,
     probeReady: true,
-    expectedFingerprint: JSON.stringify({
+    expected: {
       branch: 'picked:qwen:fixed=0',
       events: [],
       stateWrites: [],
-    }),
+    },
   },
   {
     name: '候補補位',
     engineRotation: ['qwen'],
     subscriptions: ['spark'],
     preflight: { qwen: false },
-    expectedFingerprint: JSON.stringify({
+    expected: {
       branch: 'picked:spark:fixed=0',
       events: [['appendOnce', 'preflight-failed', 'qwen', 'sent']],
       stateWrites: [],
-    }),
+    },
   },
   {
     name: '沿用現狀',
-    expectedFingerprint: JSON.stringify({
+    expected: {
       branch: 'picked:qwen:fixed=0',
       events: [],
       stateWrites: [],
-    }),
+    },
   },
 ]
 
@@ -161,7 +165,7 @@ function routingScenarioFixture(scenario: RoutingScenario) {
   return { ...base, engineRotation: scenario.engineRotation, runDb }
 }
 
-test.each(ROUTING_SCENARIOS)('$name：參數 fixture 可重現完整分支指紋', async scenario => {
+test.each(ROUTING_SCENARIOS)('$name：事件、落盤與路由結果皆為單一出口', async scenario => {
   const f = routingScenarioFixture(scenario)
   expect(f.deps.cfg.engineRotation).toEqual(f.engineRotation)
   expect(f.runDb).toBe(join(f.dataDir, 'run.db'))
@@ -174,7 +178,12 @@ test.each(ROUTING_SCENARIOS)('$name：參數 fixture 可重現完整分支指紋
     f.deps,
     deps => pickReadyTask(deps, [TASK])
   )
-  expect(trace.fingerprint).toBe(scenario.expectedFingerprint)
+  expect(trace.branchResult).toBe(scenario.expected.branch)
+  expect(trace.events).toHaveLength(scenario.expected.events.length)
+  expect(trace.stateWrites).toHaveLength(scenario.expected.stateWrites.length)
+  expect(trace.events.length).toBeLessThanOrEqual(1)
+  expect(trace.stateWrites.length).toBeLessThanOrEqual(1)
+  expect(trace.fingerprint).toBe(JSON.stringify(scenario.expected))
 })
 
 test('blocked 分支：攔截 backlog 狀態寫入但不改原回傳', async () => {
