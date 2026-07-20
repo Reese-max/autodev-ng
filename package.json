@@ -12,6 +12,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "routing-check": "tsc -p tsconfig.build.json && node dist/engines/routing-check.js",
+    "routing-status": "tsc -p tsconfig.build.json && node dist/engines/routing-status.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
