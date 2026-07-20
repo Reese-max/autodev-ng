@@ -3,6 +3,7 @@ import type { BacklogStore } from './backlog.js'
 import { localDay, type RunDb } from './db.js'
 import { loadIsolatedTagsForPick } from './engines/apply-stats-isolation.js'
 import { pickCandidateTags } from './engines/pick-candidates.js'
+import { singleFlightPickRouting } from './engines/pick-ready-single-flight.js'
 import { quiet, type EventLog } from './events.js'
 import { globalBilledToday } from './globalcost.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
@@ -242,14 +243,15 @@ function blockTask(
 }
 
 /** 戰績隔離→輪替候選→preflight；全壞→preflight-failed；白名單外/單候選 resolve 拋→blocked。 */
-async function pickReadyTask(
+export async function pickReadyTask(
   { cfg, store, db, events, engines }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines'>,
   openTasks: Task[]
 ): Promise<{ task: Task; engine: Engine; engineTag: string; fixedCost: number | undefined } | CycleResult> {
-  const isolatedTags = loadIsolatedTagsForPick(
+  const routingKey = JSON.stringify([cfg.dataDir, cfg.engineRotation, cfg.timezoneOffsetHours])
+  const isolatedTags = await singleFlightPickRouting(routingKey, () => loadIsolatedTagsForPick(
     { dataDir: cfg.dataDir, rotation: cfg.engineRotation, offsetHours: cfg.timezoneOffsetHours },
     ev => quiet(() => events.append('engine-route-isolated', { engine: ev.engine, reason: ev.reason, sampleCount: ev.sampleCount, successRate: ev.successRate, untilTs: ev.untilTs })),
-  ), subs = subscriptionTags(cfg)
+  )), subs = subscriptionTags(cfg)
   for (const cand of openTasks) {
     const tags = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs })
     for (const engineTag of tags) {
