@@ -247,6 +247,57 @@ describe('狀態重建入口守門', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  test('只讀檢查：第二次重建不重初始化快取與事件計數，試探/常駐候選不重置', () => {
+    // 純讀 buildRoutingContext：暖快取後刪 run.db，第二次仍命中快取且 probes/promoted 原封。
+    const dir = tmpDir()
+    try {
+      seedPreRestartState(dir)
+      seedBadQwen(dir, 6, 1)
+      const file = join(dir, ROUTING_STATE_FILENAME)
+      const before = readFileSync(file, 'utf8')
+      const dbFile = join(dir, 'run.db')
+
+      const first = buildRoutingContext({
+        dataDir: dir,
+        engineRotation: ROT,
+        nowIso: NOW,
+        offsetHours: 0,
+      })
+      expect(first.kind).toBe('context')
+      if (first.kind !== 'context') throw new Error('expected context')
+      expect(first.context.stats.kind).toBe('stats')
+      expect(first.context.state.probes.qwen).toEqual({ hits: 1, lastTs: PROBE_LAST_TS })
+      expect(first.context.state.promoted.codex).toEqual({ score: 4, promotedAt: PROMOTED_AT })
+      expect(first.context.state.isolated.qwen?.untilTs).toBe(UNTIL_TS)
+      const firstStats = first.context.stats
+
+      // 刪除 run.db：若第二次呼叫重初始化快取，會落入 reuse-current 而非延續 stats
+      rmSync(dbFile, { force: true })
+
+      const second = buildRoutingContext({
+        dataDir: dir,
+        engineRotation: ROT,
+        nowIso: NOW,
+        offsetHours: 0,
+      })
+      expect(second.kind).toBe('context')
+      if (second.kind !== 'context') throw new Error('expected context')
+
+      // 快取未重初始化：無 run.db 仍回同一 stats
+      expect(second.context.stats).toEqual(firstStats)
+      // 事件計數（probes.hits）與試探時點不重置
+      expect(second.context.state.probes.qwen).toEqual({ hits: 1, lastTs: PROBE_LAST_TS })
+      // 常駐候選標記（promoted）不重置
+      expect(second.context.state.promoted.codex).toEqual({ score: 4, promotedAt: PROMOTED_AT })
+      expect(second.context.state.isolated.qwen?.untilTs).toBe(UNTIL_TS)
+      // 入口為只讀：狀態檔位元組級不變
+      expect(readFileSync(file, 'utf8')).toBe(before)
+      expect(isSingleProbeEligible(second.context.state, 'qwen', NOW)).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件', () => {
