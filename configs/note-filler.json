@@ -47,7 +47,8 @@
       "adapter": "devin",
       "command": "C:/Users/Administrator/AppData/Local/devin/cli/bin/devin.exe",
       "costPerRunUsd": 0,
-      "timeoutMs": 86400000
+      "timeoutMs": 86400000,
+      "subscription": true
     },
     "codex-sol": {
       "adapter": "codex",
