@@ -4,7 +4,14 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import type { Disposition } from '../types.js'
+import {
+  pickReadyTaskBranchResult,
+  type PickReadyTaskResultLike,
+} from './pick-ready-routing-summary.js'
 import { routingStatePath } from './routing-state.js'
+
+export { pickReadyTaskBranchResult } from './pick-ready-routing-summary.js'
+export type { PickReadyTaskResultLike } from './pick-ready-routing-summary.js'
 
 interface TrackableDeps {
   cfg: { dataDir: string }
@@ -14,11 +21,6 @@ interface TrackableDeps {
   }
   store: { report(taskId: string, disposition: Disposition): void }
 }
-
-export type PickReadyTaskResultLike =
-  | string
-  | { engineTag: string; fixedCost: number | undefined }
-  | { kind: string; reason?: string }
 
 export interface TrackedDecisionEvent {
   method: 'append' | 'appendOnce'
@@ -66,15 +68,6 @@ function routingStateWrite(before: FileSnapshot, after: FileSnapshot): TrackedSt
     return { target: 'routing-state', status: 'changed' }
   }
   return undefined
-}
-
-export function pickReadyTaskBranchResult(result: PickReadyTaskResultLike): string {
-  if (typeof result === 'string') return result
-  if ('engineTag' in result) {
-    const cost = result.fixedCost === undefined ? 'metered' : `fixed=${result.fixedCost}`
-    return `picked:${result.engineTag}:${cost}`
-  }
-  return result.reason ? `${result.kind}:${result.reason}` : result.kind
 }
 
 function branchFingerprint(
