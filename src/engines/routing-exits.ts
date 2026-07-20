@@ -82,6 +82,7 @@ export function parseRoutingEventPayload<T extends RoutingEventType>(
   type: T,
   payload: unknown
 ): RoutingEventPayloadByType[T] | undefined {
+  if (!Object.hasOwn(ROUTING_EVENT_PAYLOAD_SCHEMAS, type)) return undefined
   const parsed = ROUTING_EVENT_PAYLOAD_SCHEMAS[type].safeParse(payload)
   return parsed.success ? parsed.data as RoutingEventPayloadByType[T] : undefined
 }

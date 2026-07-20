@@ -15,6 +15,7 @@ import {
   ROUTING_EVENT_SCHEMA_VERSION,
   ROUTING_EVENT_TYPES,
   routingContextUnavailable,
+  type RoutingEventType,
 } from '../src/engines/routing-exits.js'
 import { buildRoutingContext, routingContextUnavailable as contextFallback } from '../src/engines/routing-context.js'
 
@@ -40,6 +41,12 @@ const PROMOTION_EVENT = {
   score: 2,
   promotedAt: '2026-07-21T00:00:00.000Z',
 } as const
+
+const ROUTING_EVENTS = [
+  [ROUTING_EVENT_TYPES.isolated, EVENT],
+  [ROUTING_EVENT_TYPES.probe, PROBE_EVENT],
+  [ROUTING_EVENT_TYPES.promoted, PROMOTION_EVENT],
+] as const
 
 test('routingContextUnavailable：固定 reuse-current / unavailable', () => {
   expect(routingContextUnavailable()).toEqual({
@@ -124,14 +131,13 @@ test('dispatchIsolationEvents：onIsolated 拋錯 fail-open 且仍繼續後續�
 })
 
 test('三類路由事件固定為 schema v1，完整 payload 才通過', () => {
-  expect(parseRoutingEventPayload(ROUTING_EVENT_TYPES.isolated, EVENT)).toEqual(EVENT)
-  expect(parseRoutingEventPayload(ROUTING_EVENT_TYPES.probe, PROBE_EVENT)).toEqual(PROBE_EVENT)
-  expect(parseRoutingEventPayload(ROUTING_EVENT_TYPES.promoted, PROMOTION_EVENT)).toEqual(PROMOTION_EVENT)
-
-  expect(parseRoutingEventPayload(ROUTING_EVENT_TYPES.isolated, {
-    schemaVersion: ROUTING_EVENT_SCHEMA_VERSION,
-    engine: 'qwen',
-  })).toBeUndefined()
+  for (const [type, payload] of ROUTING_EVENTS) {
+    expect(parseRoutingEventPayload(type, payload)).toEqual(payload)
+    for (const missing of Object.keys(payload)) {
+      const incomplete = Object.fromEntries(Object.entries(payload).filter(([field]) => field !== missing))
+      expect(parseRoutingEventPayload(type, incomplete)).toBeUndefined()
+    }
+  }
   expect(parseRoutingEventPayload(ROUTING_EVENT_TYPES.probe, {
     ...PROBE_EVENT,
     schemaVersion: 2,
@@ -145,20 +151,22 @@ test('三類路由事件固定為 schema v1，完整 payload 才通過', () => {
 test('dispatchRoutingEvent：拒收不完整 payload 且 consumer 失敗不外拋', () => {
   const onEvent = vi.fn()
   expect(dispatchRoutingEvent(ROUTING_EVENT_TYPES.probe, { engine: 'qwen' }, onEvent)).toBe(false)
+  expect(dispatchRoutingEvent('engine-route-unknown' as RoutingEventType, EVENT, onEvent)).toBe(false)
   expect(onEvent).not.toHaveBeenCalled()
   expect(dispatchRoutingEvent(ROUTING_EVENT_TYPES.probe, PROBE_EVENT, () => {
     throw new Error('event sink failed')
   })).toBe(false)
 })
 
-test('finalizeIsolationForPick：事件不完整時拒收，原 active tags 不變', () => {
+test('finalizeIsolationForPick：不完整事件拒收且不阻斷後續完整事件', () => {
   const onIsolated = vi.fn()
   const { reason: _missing, ...incomplete } = EVENT
   expect(finalizeIsolationForPick({
-    newlyIsolated: [incomplete],
+    newlyIsolated: [incomplete, { ...EVENT, engine: 'codex' }],
     activeIsolatedTags: ['qwen'],
   }, onIsolated)).toEqual(['qwen'])
-  expect(onIsolated).not.toHaveBeenCalled()
+  expect(onIsolated).toHaveBeenCalledOnce()
+  expect(onIsolated).toHaveBeenCalledWith({ ...EVENT, engine: 'codex' })
 })
 
 test('finalizeIsolationForPick：唯一完成出口——有 newlyIsolated 才派事件並回 tags', () => {
