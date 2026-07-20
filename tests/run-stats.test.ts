@@ -2,12 +2,22 @@ import { rmSync, writeFileSync } from 'node:fs'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { RunDb } from '../src/db.js'
 import { clearRunStatsCache, recentRunStats, REUSE_CURRENT } from '../src/engines/run-stats.js'
 
 function dbPath(): string {
   return join(mkdtempSync(join(tmpdir(), 'adng-run-stats-')), 'run.db')
+}
+
+function seed(records: Array<{ taskId: string; ok: boolean; engine: string; ts: string }>): string {
+  const f = dbPath()
+  const db = new RunDb(f)
+  for (const r of records) {
+    db.record({ taskId: r.taskId, ok: r.ok, costUsd: 0.1, detail: '', engine: r.engine, ts: r.ts })
+  }
+  db.close()
+  return f
 }
 
 afterEach(() => {
@@ -93,4 +103,137 @@ test('舊 schema 或壞檔查詢失敗時沿用現狀', () => {
   writeFileSync(f, 'not sqlite')
   const result = recentRunStats(f, { nowIso: '2026-07-19T12:00:00.000Z' })
   expect(result).toEqual({ kind: 'reuse-current', decision: REUSE_CURRENT, reason: 'query-failed' })
+})
+
+/**
+ * 近 3 日時間窗邊界：半開區間 [最舊日本地 00:00, 今日本地次日 00:00)。
+ * UTC offset=0 時恰為 72 小時；offset≠0 時仍為 3 個本地曆日（UTC 起迄平移）。
+ * 覆蓋：跨日、缺中間日、剛好落在 72h/日界線上的樣本數與成功率。
+ */
+describe('run.db 近三日統計時間窗邊界', () => {
+  test('跨日：offset+8 時 UTC 午夜附近依本地日界納入／排除', () => {
+    // now 2026-07-19T12:00Z +8h → 本地 07-19 20:00 → 近 3 本地日 19/18/17
+    // 窗：[2026-07-16T16:00:00.000Z, 2026-07-19T16:00:00.000Z)
+    const f = seed([
+      // 窗外：本地 07-16 最後一毫秒
+      { taskId: 'before', ok: true, engine: 'qwen', ts: '2026-07-16T15:59:59.999Z' },
+      // 窗起點（含）：本地 07-17 00:00
+      { taskId: 'start', ok: false, engine: 'qwen', ts: '2026-07-16T16:00:00.000Z' },
+      // 本地日跨日：UTC 16:00 才進本地 07-19；15:59 仍屬本地 07-18
+      { taskId: 'local-18-end', ok: true, engine: 'codex', ts: '2026-07-18T15:59:59.999Z' },
+      { taskId: 'local-19-start', ok: true, engine: 'codex', ts: '2026-07-18T16:00:00.000Z' },
+      // 窗終點（不含）：本地 07-20 00:00
+      { taskId: 'end', ok: true, engine: 'qwen', ts: '2026-07-19T16:00:00.000Z' },
+    ])
+
+    const result = recentRunStats(f, {
+      nowIso: '2026-07-19T12:00:00.000Z',
+      offsetHours: 8,
+      windowDays: 3,
+    })
+    expect(result.kind).toBe('stats')
+    if (result.kind !== 'stats') throw new Error('expected stats')
+    expect(result.days).toEqual(['2026-07-19', '2026-07-18', '2026-07-17'])
+    // before/end 排除 → 僅 start + local-18-end + local-19-start
+    expect(result.sampleCount).toBe(3)
+    expect(result.engines).toEqual([
+      { engine: 'codex', sampleCount: 2, ok: 2, fail: 0, successRate: 1 },
+      { engine: 'qwen', sampleCount: 1, ok: 0, fail: 1, successRate: 0 },
+    ])
+  })
+
+  test('缺少部分日期：中間日無資料仍只計實際樣本，成功率不因缺日被稀釋', () => {
+    // 窗 20/19/18；只在 20 與 18 有資料，19 全空
+    const f = seed([
+      { taskId: 'd20-ok', ok: true, engine: 'qwen', ts: '2026-07-20T08:00:00.000Z' },
+      { taskId: 'd20-fail', ok: false, engine: 'qwen', ts: '2026-07-20T09:00:00.000Z' },
+      { taskId: 'd18-ok', ok: true, engine: 'qwen', ts: '2026-07-18T10:00:00.000Z' },
+      { taskId: 'd18-fail', ok: false, engine: 'codex', ts: '2026-07-18T11:00:00.000Z' },
+      // 窗外（17）不應計入
+      { taskId: 'd17-out', ok: true, engine: 'qwen', ts: '2026-07-17T23:00:00.000Z' },
+    ])
+
+    const result = recentRunStats(f, {
+      nowIso: '2026-07-20T12:00:00.000Z',
+      offsetHours: 0,
+      windowDays: 3,
+    })
+    expect(result.kind).toBe('stats')
+    if (result.kind !== 'stats') throw new Error('expected stats')
+    expect(result.days).toEqual(['2026-07-20', '2026-07-19', '2026-07-18'])
+    expect(result.sampleCount).toBe(4)
+    // qwen: 2 ok + 1 fail = 3；成功率 2/3，不得被「缺 07-19」當成額外 fail
+    expect(result.engines).toEqual([
+      { engine: 'qwen', sampleCount: 3, ok: 2, fail: 1, successRate: 2 / 3 },
+      { engine: 'codex', sampleCount: 1, ok: 0, fail: 1, successRate: 0 },
+    ])
+  })
+
+  test('72 小時邊界：半開區間 [start, end) 剛好落點不誤算樣本與成功率', () => {
+    // offset=0、近 3 日 = 恰好 72h：[2026-07-18T00:00:00.000Z, 2026-07-21T00:00:00.000Z)
+    const f = seed([
+      { taskId: 't-1ms', ok: true, engine: 'qwen', ts: '2026-07-17T23:59:59.999Z' }, // 窗外
+      { taskId: 't0', ok: false, engine: 'qwen', ts: '2026-07-18T00:00:00.000Z' }, // 起點含
+      { taskId: 'mid-ok', ok: true, engine: 'qwen', ts: '2026-07-19T12:00:00.000Z' },
+      { taskId: 'mid-fail', ok: false, engine: 'codex', ts: '2026-07-20T00:00:00.000Z' },
+      { taskId: 't72-1ms', ok: true, engine: 'codex', ts: '2026-07-20T23:59:59.999Z' }, // 終點前含
+      { taskId: 't72', ok: true, engine: 'qwen', ts: '2026-07-21T00:00:00.000Z' }, // 終點不含
+    ])
+
+    const result = recentRunStats(f, {
+      nowIso: '2026-07-20T12:00:00.000Z',
+      offsetHours: 0,
+      windowDays: 3,
+    })
+    expect(result.kind).toBe('stats')
+    if (result.kind !== 'stats') throw new Error('expected stats')
+    expect(result.days).toEqual(['2026-07-20', '2026-07-19', '2026-07-18'])
+    // 納入：t0, mid-ok, mid-fail, t72-1ms（4）；排除 t-1ms 與 t72
+    expect(result.sampleCount).toBe(4)
+    expect(result.engines).toEqual([
+      { engine: 'codex', sampleCount: 2, ok: 1, fail: 1, successRate: 0.5 },
+      { engine: 'qwen', sampleCount: 2, ok: 1, fail: 1, successRate: 0.5 },
+    ])
+  })
+
+  test('72 小時邊界 + 僅邊界點：起點成功、終點排除 → 樣本 1、成功率 100%', () => {
+    const f = seed([
+      { taskId: 'at-start', ok: true, engine: 'qwen', ts: '2026-07-18T00:00:00.000Z' },
+      { taskId: 'at-end', ok: false, engine: 'qwen', ts: '2026-07-21T00:00:00.000Z' },
+    ])
+    const result = recentRunStats(f, {
+      nowIso: '2026-07-20T12:00:00.000Z',
+      offsetHours: 0,
+      windowDays: 3,
+    })
+    expect(result.kind).toBe('stats')
+    if (result.kind !== 'stats') throw new Error('expected stats')
+    expect(result.sampleCount).toBe(1)
+    expect(result.engines).toEqual([
+      { engine: 'qwen', sampleCount: 1, ok: 1, fail: 0, successRate: 1 },
+    ])
+  })
+
+  test('跨日缺中間日且邊界同時出現：聚合不把窗外 fail 算進成功率', () => {
+    // offset+8；窗 [07-16T16:00Z, 07-19T16:00Z)；本地 18 無資料
+    const f = seed([
+      { taskId: 'out-fail', ok: false, engine: 'qwen', ts: '2026-07-16T15:59:59.999Z' },
+      { taskId: 'in-start-ok', ok: true, engine: 'qwen', ts: '2026-07-16T16:00:00.000Z' },
+      { taskId: 'in-day19-fail', ok: false, engine: 'qwen', ts: '2026-07-19T15:00:00.000Z' },
+      { taskId: 'out-end-ok', ok: true, engine: 'qwen', ts: '2026-07-19T16:00:00.000Z' },
+    ])
+    const result = recentRunStats(f, {
+      nowIso: '2026-07-19T12:00:00.000Z',
+      offsetHours: 8,
+      windowDays: 3,
+    })
+    expect(result.kind).toBe('stats')
+    if (result.kind !== 'stats') throw new Error('expected stats')
+    expect(result.days).toEqual(['2026-07-19', '2026-07-18', '2026-07-17'])
+    // 僅 in-start-ok + in-day19-fail；窗外 fail/ok 不影響
+    expect(result.sampleCount).toBe(2)
+    expect(result.engines).toEqual([
+      { engine: 'qwen', sampleCount: 2, ok: 1, fail: 1, successRate: 0.5 },
+    ])
+  })
 })
