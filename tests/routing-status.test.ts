@@ -1,5 +1,7 @@
 import {
+  existsSync,
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -101,28 +103,59 @@ test('匯總入口不改狀態檔或建立其他檔案', () => {
   expect(readdirSync(dataDir)).toEqual(beforeNames)
 })
 
-test('CLI 解析 config 並輸出 JSON', () => {
+const VALID_STATE = JSON.stringify({
+  ...defaultRoutingState(NOW),
+  isolated: { qwen: { untilTs: '2026-07-22T12:00:00.000Z', reason: 'fixture' } },
+})
+
+test.each([
+  { name: '有狀態檔', stateText: VALID_STATE, engineRotation: undefined, expectedIsolated: 1 },
+  { name: '無狀態檔', stateText: undefined, engineRotation: undefined, expectedIsolated: 0 },
+  { name: '狀態 JSON 損毀', stateText: '{broken', engineRotation: undefined, expectedIsolated: 0 },
+  { name: '空輪替名單', stateText: VALID_STATE, engineRotation: [], expectedIsolated: 1 },
+] as const)('CLI smoke：$name 時輸出可用且 dataDir 完全唯讀', ({ stateText, engineRotation, expectedIsolated }) => {
   const root = tempDir()
+  const dataDir = join(root, 'state')
+  const stateFile = join(dataDir, ROUTING_STATE_FILENAME)
   const configPath = join(root, 'config.json')
+  if (stateText !== undefined) {
+    mkdirSync(dataDir)
+    writeFileSync(stateFile, stateText)
+  }
   writeFileSync(configPath, JSON.stringify({
     projectPath: './project',
     backlogFile: './BACKLOG.md',
     dataDir: './state',
     engine: 'mock',
+    engineRotation,
   }))
 
   expect(loadRoutingStatusInput(configPath)).toEqual({
-    dataDir: join(root, 'state'),
+    dataDir,
     offsetHours: 8,
   })
 
+  const existedBefore = existsSync(dataDir)
+  const namesBefore = existedBefore ? readdirSync(dataDir).sort() : []
+  const contentBefore = existsSync(stateFile) ? readFileSync(stateFile, 'utf8') : undefined
+  const mtimeBefore = existsSync(stateFile) ? statSync(stateFile).mtimeMs : undefined
   const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
   expect(routingStatusMain(['--config', configPath])).toBe(0)
-  expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
-    isolatedEngines: [],
-    standbyEngines: [],
+  const report = JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>
+  expect(report).toMatchObject({
+    observedAt: expect.any(String),
+    isolatedEngines: expect.any(Array),
+    standbyEngines: expect.any(Array),
     recentStats: { kind: 'reuse-current', reason: 'missing-run-db' },
   })
+  expect(report.isolatedEngines).toHaveLength(expectedIsolated)
+
+  expect(existsSync(dataDir)).toBe(existedBefore)
+  if (existedBefore) expect(readdirSync(dataDir).sort()).toEqual(namesBefore)
+  if (contentBefore !== undefined) {
+    expect(readFileSync(stateFile, 'utf8')).toBe(contentBefore)
+    expect(statSync(stateFile).mtimeMs).toBe(mtimeBefore)
+  }
 })
 
 test('CLI 缺 --config 時回報用法', () => {
