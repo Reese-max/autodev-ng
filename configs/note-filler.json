@@ -27,7 +27,6 @@
     "codex-sol",
     "codex-terra",
     "codex-luna",
-    "codex-spark",
     "grok",
     "oc-deepseek",
     "oc-nemotron",
@@ -67,13 +66,6 @@
     "codex-terra": {
       "adapter": "codex",
       "model": "gpt-5.6-terra",
-      "costPerRunUsd": 1,
-      "subscription": true,
-      "timeoutMs": 86400000
-    },
-    "codex-spark": {
-      "adapter": "codex",
-      "model": "gpt-5.3-codex-spark",
       "costPerRunUsd": 1,
       "subscription": true,
       "timeoutMs": 86400000

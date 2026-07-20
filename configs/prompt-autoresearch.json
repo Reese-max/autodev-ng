@@ -25,7 +25,6 @@
     "codex-sol",
     "codex-terra",
     "codex-luna",
-    "codex-spark",
     "grok",
     "oc-deepseek",
     "oc-nemotron",
@@ -46,13 +45,6 @@
       "adapter": "devin",
       "command": "C:/Users/Administrator/AppData/Local/devin/cli/bin/devin.exe",
       "costPerRunUsd": 0,
-      "timeoutMs": 86400000
-    },
-    "codex-spark": {
-      "adapter": "codex",
-      "model": "gpt-5.3-codex-spark",
-      "costPerRunUsd": 1,
-      "subscription": true,
       "timeoutMs": 86400000
     },
     "codex-sol": {

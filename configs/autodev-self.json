@@ -20,13 +20,6 @@
     "grok"
   ],
   "engines": {
-    "codex-spark": {
-      "adapter": "codex",
-      "model": "gpt-5.3-codex-spark",
-      "costPerRunUsd": 1,
-      "subscription": true,
-      "timeoutMs": 86400000
-    },
     "codex-sol": {
       "adapter": "codex",
       "model": "gpt-5.6-sol",
