@@ -35,46 +35,46 @@
   "engines": {
     "claude": {
       "adapter": "claude-cli",
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "opencode": {
       "adapter": "opencode",
       "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe",
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "devin": {
       "adapter": "devin",
       "command": "C:/Users/Administrator/AppData/Local/devin/cli/bin/devin.exe",
       "costPerRunUsd": 0,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "codex-spark": {
       "adapter": "codex",
       "model": "gpt-5.3-codex-spark",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "codex-sol": {
       "adapter": "codex",
       "model": "gpt-5.6-sol",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "codex-luna": {
       "adapter": "codex",
       "model": "gpt-5.6-luna",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "codex-terra": {
       "adapter": "codex",
       "model": "gpt-5.6-terra",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "oc-deepseek": {
       "adapter": "opencode",
@@ -82,7 +82,7 @@
       "model": "opencode/deepseek-v4-flash-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "oc-nemotron": {
       "adapter": "opencode",
@@ -90,7 +90,7 @@
       "model": "opencode/nemotron-3-ultra-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "oc-hy3": {
       "adapter": "opencode",
@@ -98,7 +98,7 @@
       "model": "opencode/hy3-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "oc-mimo": {
       "adapter": "opencode",
@@ -106,7 +106,7 @@
       "model": "opencode/mimo-v2.5-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "oc-north": {
       "adapter": "opencode",
@@ -114,32 +114,32 @@
       "model": "opencode/north-mini-code-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "agy": {
       "adapter": "agy",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "grok": {
       "adapter": "grok",
       "command": "C:/Users/Administrator/.grok/bin/grok.exe",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "copilot": {
       "adapter": "copilot",
       "model": "auto",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "claude-haiku": {
       "adapter": "claude-cli",
       "model": "claude-haiku-4-5-20251001",
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "qwen-gpt54": {
       "adapter": "qwen",
@@ -150,7 +150,7 @@
       },
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "qwen-gpt54m": {
       "adapter": "qwen",
@@ -161,7 +161,7 @@
       },
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "qwen-grok420": {
       "adapter": "qwen",
@@ -172,7 +172,7 @@
       },
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     }
   },
   "extraDirective": "只做任務明確要求的最小改動，改動完成必須讓現有測試全數通過。",

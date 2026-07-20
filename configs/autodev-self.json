@@ -25,28 +25,28 @@
       "model": "gpt-5.3-codex-spark",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "codex-sol": {
       "adapter": "codex",
       "model": "gpt-5.6-sol",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "codex-luna": {
       "adapter": "codex",
       "model": "gpt-5.6-luna",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "codex-terra": {
       "adapter": "codex",
       "model": "gpt-5.6-terra",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "oc-deepseek": {
       "adapter": "opencode",
@@ -54,7 +54,7 @@
       "model": "opencode/deepseek-v4-flash-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "oc-nemotron": {
       "adapter": "opencode",
@@ -62,20 +62,20 @@
       "model": "opencode/nemotron-3-ultra-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "agy": {
       "adapter": "agy",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "grok": {
       "adapter": "grok",
       "command": "C:/Users/Administrator/.grok/bin/grok.exe",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "qwen-gpt54": {
       "adapter": "qwen",
@@ -86,7 +86,7 @@
       },
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "qwen-gpt54m": {
       "adapter": "qwen",
@@ -97,7 +97,7 @@
       },
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     },
     "qwen-grok420": {
       "adapter": "qwen",
@@ -108,7 +108,7 @@
       },
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 10800000
+      "timeoutMs": 86400000
     }
   },
   "discordChannelId": "1492793288514863164",
