@@ -81,14 +81,35 @@ function asString(v: unknown, fallback = ''): string {
   return typeof v === 'string' ? v : fallback
 }
 
+/**
+ * 新版 camelCase 優先；舊版別名（snake_case / 近義複數）僅在主鍵缺席時採用。
+ * 升級相容：舊檔可讀、寫回永遠是目前 schema。
+ */
+function pickField(obj: Record<string, unknown>, primary: string, ...aliases: string[]): unknown {
+  if (Object.prototype.hasOwnProperty.call(obj, primary)) return obj[primary]
+  for (const a of aliases) {
+    if (Object.prototype.hasOwnProperty.call(obj, a)) return obj[a]
+  }
+  return undefined
+}
+
+/** 是否暴露可降級讀取的 map（含舊版頂層別名）。 */
+export function hasReadableRoutingMaps(raw: Record<string, unknown>): boolean {
+  return (
+    isPlainObject(pickField(raw, 'isolated', 'isolation'))
+    || isPlainObject(pickField(raw, 'promoted', 'promotions'))
+    || isPlainObject(pickField(raw, 'probes', 'probe'))
+  )
+}
+
 function normalizeIsolated(raw: unknown): Record<string, IsolationEntry> {
   if (!isPlainObject(raw)) return {}
   const out: Record<string, IsolationEntry> = {}
   for (const [tag, entry] of Object.entries(raw)) {
     if (!tag || !isPlainObject(entry)) continue
     out[tag] = {
-      untilTs: asString(entry.untilTs),
-      reason: asString(entry.reason),
+      untilTs: asString(pickField(entry, 'untilTs', 'until_ts')),
+      reason: asString(pickField(entry, 'reason')),
     }
   }
   return out
@@ -100,8 +121,8 @@ function normalizePromoted(raw: unknown): Record<string, PromotionEntry> {
   for (const [tag, entry] of Object.entries(raw)) {
     if (!tag || !isPlainObject(entry)) continue
     out[tag] = {
-      score: asNonNegInt(entry.score, 0),
-      promotedAt: asString(entry.promotedAt),
+      score: asNonNegInt(pickField(entry, 'score'), 0),
+      promotedAt: asString(pickField(entry, 'promotedAt', 'promoted_at')),
     }
   }
   return out
@@ -113,8 +134,8 @@ function normalizeProbes(raw: unknown): Record<string, ProbeEntry> {
   for (const [tag, entry] of Object.entries(raw)) {
     if (!tag || !isPlainObject(entry)) continue
     out[tag] = {
-      hits: asNonNegInt(entry.hits, 0),
-      lastTs: asString(entry.lastTs),
+      hits: asNonNegInt(pickField(entry, 'hits'), 0),
+      lastTs: asString(pickField(entry, 'lastTs', 'last_ts')),
     }
   }
   return out
@@ -123,6 +144,7 @@ function normalizeProbes(raw: unknown): Record<string, ProbeEntry> {
 /**
  * 將任意 JSON 正規化為 v1 狀態。
  * - 可辨識的物件（含缺 version / 缺欄）→ 回填預設
+ * - 舊版欄位名稱（snake_case / isolation|promotions|probe）→ 對應到新版
  * - 未來主版本若仍帶 v1 可讀欄位 → 降級讀取（向前相容讀）
  * - 完全無法辨識 → null（呼叫端 reuse-current）
  */
@@ -133,23 +155,20 @@ export function normalizeRoutingState(raw: unknown, nowIso = new Date().toISOStr
   if (versionRaw !== undefined && versionRaw !== null) {
     if (typeof versionRaw !== 'number' || !Number.isFinite(versionRaw) || versionRaw < 1) {
       // 非法 version 但仍嘗試讀已知欄位；若連 map 都沒有則判廢
-      const hasMaps =
-        isPlainObject(raw.isolated) || isPlainObject(raw.promoted) || isPlainObject(raw.probes)
-      if (!hasMaps) return null
+      if (!hasReadableRoutingMaps(raw)) return null
     } else if (versionRaw > ROUTING_STATE_VERSION) {
       // 未來版本：僅在仍暴露 v1 欄位時降級讀取，否則 unsupported
-      const hasMaps =
-        isPlainObject(raw.isolated) || isPlainObject(raw.promoted) || isPlainObject(raw.probes)
-      if (!hasMaps) return null
+      if (!hasReadableRoutingMaps(raw)) return null
     }
   }
 
+  const updatedRaw = pickField(raw, 'updatedAt', 'updated_at')
   return {
     version: ROUTING_STATE_VERSION,
-    updatedAt: asString(raw.updatedAt, nowIso),
-    isolated: normalizeIsolated(raw.isolated),
-    promoted: normalizePromoted(raw.promoted),
-    probes: normalizeProbes(raw.probes),
+    updatedAt: asString(updatedRaw, nowIso),
+    isolated: normalizeIsolated(pickField(raw, 'isolated', 'isolation')),
+    promoted: normalizePromoted(pickField(raw, 'promoted', 'promotions')),
+    probes: normalizeProbes(pickField(raw, 'probes', 'probe')),
   }
 }
 
@@ -205,9 +224,7 @@ export function loadRoutingState(
     Number.isFinite(versionRaw) &&
     versionRaw > ROUTING_STATE_VERSION
   ) {
-    const hasMaps =
-      isPlainObject(raw.isolated) || isPlainObject(raw.promoted) || isPlainObject(raw.probes)
-    if (!hasMaps) {
+    if (!hasReadableRoutingMaps(raw)) {
       return {
         kind: 'reuse-current',
         decision: REUSE_CURRENT,
