@@ -18,7 +18,7 @@
   "dailySoftUsd": 45,
   "dailyHardUsd": 50,
   "globalDailyHardUsd": 40,
-  "maxAttempts": 3,
+  "maxAttempts": 6,
   "perpetual": true,
   "defaultEngine": "opencode",
   "engineRotation": [
@@ -175,5 +175,6 @@
       "timeoutMs": 3600000
     }
   },
-  "extraDirective": "只做任務明確要求的最小改動，改動完成必須讓現有測試全數通過。"
+  "extraDirective": "只做任務明確要求的最小改動，改動完成必須讓現有測試全數通過。",
+  "perpetualCooldownMs": 3600000
 }

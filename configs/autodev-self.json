@@ -3,7 +3,7 @@
   "backlogFile": "../data/autodev-self/BACKLOG.md",
   "dataDir": "../data/autodev-self",
   "goalFile": "../data/autodev-self/GOAL.md",
-  "maxAttempts": 3,
+  "maxAttempts": 6,
   "timezoneOffsetHours": 8,
   "dailySoftUsd": 5,
   "dailyHardUsd": 10,
@@ -116,5 +116,6 @@
   "perpetualValueThreshold": 7,
   "extraDirective": "本專案就是 autodev-ng 自身（TypeScript）。鐵律：嚴禁修改 configs/ 目錄、scripts/ 目錄、data/ 目錄內任何檔案；嚴禁動任何 daemon/node 進程；kernel 行數預算測試（tests/kernel-budget.test.ts，src/*.ts 頂層 ≤2700 行）必須維持綠燈——新邏輯優先放 src/engines/ 等子目錄；所有變更需附單元測試。",
   "judgeApiKey": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h",
-  "worktreesDir": "../data/autodev-self/worktrees"
+  "worktreesDir": "../data/autodev-self/worktrees",
+  "perpetualCooldownMs": 3600000
 }
