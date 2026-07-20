@@ -7,19 +7,24 @@
  * 2. 試探時點（untilTs / probes.lastTs）不因重啟或再次套用隔離而重置
  * 3. engine-route-isolated 事件不重複派發
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
   applyStatsIsolation,
   loadIsolatedTagsForPick,
+  type ApplyStatsIsolationInput,
   type IsolationAppliedEvent,
 } from '../src/engines/apply-stats-isolation.js'
 import { ISOLATE_MIN_SAMPLES } from '../src/engines/isolation-policy.js'
 import { pickCandidateTags } from '../src/engines/pick-candidates.js'
+import { candidateEngines } from '../src/engines/rotation.js'
 import { buildRoutingContext } from '../src/engines/routing-context.js'
 import {
+  REUSE_CURRENT,
+  ROUTING_STATE_FILENAME,
+  defaultRoutingState,
   loadRoutingState,
   saveRoutingState,
   type RoutingState,
@@ -41,6 +46,14 @@ const UNTIL_TS = new Date(NOW_MS + ISOLATION_BEFORE_PROBE_MS).toISOString()
 /** 本隔離窗內已用過的試探時點（不可再試探、也不可被重啟清掉）。 */
 const PROBE_LAST_TS = new Date(NOW_MS - 60 * 60 * 1000).toISOString()
 const PROMOTED_AT = '2026-07-18T08:00:00.000Z'
+const BAD_QWEN_STATS = {
+  kind: 'stats',
+  days: ['2026-07-20', '2026-07-19', '2026-07-18'],
+  sampleCount: 6,
+  engines: [
+    { engine: 'qwen', sampleCount: 6, ok: 1, fail: 5, successRate: 1 / 6 },
+  ],
+} satisfies RunStatsResult
 
 function tmpDir(): string {
   return mkdtempSync(join(tmpdir(), 'adng-restart-consist-'))
@@ -98,10 +111,11 @@ function pickLikeReadyTask(
   dataDir: string,
   taskId: string,
   events: IsolationAppliedEvent[],
-  nowIso = NOW
+  nowIso = NOW,
+  overrides: Partial<ApplyStatsIsolationInput> = {}
 ): { isolatedTags: string[]; candidateTags: string[] } {
   const isolatedTags = loadIsolatedTagsForPick(
-    { dataDir, rotation: ROT, nowIso, offsetHours: 0 },
+    { dataDir, rotation: ROT, nowIso, offsetHours: 0, ...overrides },
     ev => {
       events.push(ev)
     }
@@ -116,6 +130,124 @@ function pickLikeReadyTask(
   })
   return { isolatedTags, candidateTags }
 }
+
+type LoadStateFn = NonNullable<ApplyStatsIsolationInput['loadStateFn']>
+
+function rebuildAndPick(dataDir: string, loadStateFn?: LoadStateFn) {
+  const rebuilt = buildRoutingContext(
+    { dataDir, engineRotation: ROT, nowIso: NOW },
+    {
+      recentRunStats: () => BAD_QWEN_STATS,
+      ...(loadStateFn ? { loadRoutingState: loadStateFn } : {}),
+    }
+  )
+  const saveState = vi.fn(() => true)
+  const events: IsolationAppliedEvent[] = []
+  const picked = pickLikeReadyTask(dataDir, '00000000', events, NOW, {
+    statsFn: () => BAD_QWEN_STATS,
+    saveStateFn: saveState,
+    ...(loadStateFn ? { loadStateFn } : {}),
+  })
+  return { rebuilt, picked, saveState, events }
+}
+
+function expectLegacyFallback(result: ReturnType<typeof rebuildAndPick>): void {
+  expect(result.rebuilt.kind).toBe('reuse-current')
+  expect(result.picked).toEqual({
+    isolatedTags: [],
+    candidateTags: candidateEngines(ROT, DEFAULT_ENGINE, { id: '00000000' }, 0),
+  })
+  expect(result.events).toEqual([])
+  expect(result.saveState).not.toHaveBeenCalled()
+}
+
+describe('狀態重建入口守門', () => {
+  test('重建：延續既有派工且不重置試探時間', () => {
+    const dir = tmpDir()
+    try {
+      seedPreRestartState(dir)
+      const file = join(dir, ROUTING_STATE_FILENAME)
+      const before = readFileSync(file, 'utf8')
+      const result = rebuildAndPick(dir)
+
+      expect(result.rebuilt.kind).toBe('context')
+      expect(result.picked).toEqual({ isolatedTags: ['qwen'], candidateTags: ['codex', 'opencode'] })
+      expect(result.events).toEqual([])
+      expect(result.saveState).not.toHaveBeenCalled()
+      expect(readFileSync(file, 'utf8')).toBe(before)
+      expect(loadRoutingState(dir).state.probes.qwen?.lastTs).toBe(PROBE_LAST_TS)
+      expect(loadRoutingState(dir).state.isolated.qwen?.untilTs).toBe(UNTIL_TS)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('讀檔失敗：回原派工且不覆寫既有試探時間', () => {
+    const dir = tmpDir()
+    try {
+      seedPreRestartState(dir)
+      const file = join(dir, ROUTING_STATE_FILENAME)
+      const before = readFileSync(file, 'utf8')
+      const unreadable = vi.fn(() => ({
+        kind: 'reuse-current' as const,
+        decision: REUSE_CURRENT,
+        reason: 'unreadable' as const,
+        state: defaultRoutingState(NOW),
+      }))
+      const result = rebuildAndPick(dir, unreadable)
+
+      expectLegacyFallback(result)
+      expect(readFileSync(file, 'utf8')).toBe(before)
+      expect(JSON.parse(before).isolated.qwen.untilTs).toBe(UNTIL_TS)
+      expect(JSON.parse(before).probes.qwen.lastTs).toBe(PROBE_LAST_TS)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('版本不符：回原派工且不覆寫舊版試探時間', () => {
+    const dir = tmpDir()
+    try {
+      const prior = seedPreRestartState(dir)
+      const file = join(dir, ROUTING_STATE_FILENAME)
+      const before = JSON.stringify({ version: 99, previousState: prior })
+      writeFileSync(file, before)
+      expect(loadRoutingState(dir, { nowIso: NOW })).toMatchObject({
+        kind: 'reuse-current',
+        reason: 'unsupported-version',
+      })
+      const result = rebuildAndPick(dir)
+
+      expectLegacyFallback(result)
+      expect(readFileSync(file, 'utf8')).toBe(before)
+      expect(JSON.parse(before).previousState.isolated.qwen.untilTs).toBe(UNTIL_TS)
+      expect(JSON.parse(before).previousState.probes.qwen.lastTs).toBe(PROBE_LAST_TS)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('內容損壞：回原派工且不覆寫殘存試探時間', () => {
+    const dir = tmpDir()
+    try {
+      const file = join(dir, ROUTING_STATE_FILENAME)
+      const before = `{"version":1,"isolated":{"qwen":{"untilTs":"${UNTIL_TS}"}},"probes":{"qwen":{"hits":1,"lastTs":"${PROBE_LAST_TS}"}}`
+      writeFileSync(file, before)
+      expect(loadRoutingState(dir, { nowIso: NOW })).toMatchObject({
+        kind: 'reuse-current',
+        reason: 'corrupt',
+      })
+      const result = rebuildAndPick(dir)
+
+      expectLegacyFallback(result)
+      expect(readFileSync(file, 'utf8')).toBe(before)
+      expect(before).toContain(UNTIL_TS)
+      expect(before).toContain(PROBE_LAST_TS)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件', () => {
   test('寫入隔離+晉升 → 重建上下文 → pick 延續原狀且不重設試探、不重派事件', () => {
