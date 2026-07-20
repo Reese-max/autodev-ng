@@ -30,6 +30,9 @@
     "grok",
     "oc-deepseek",
     "oc-nemotron",
+    "oc-hy3",
+    "oc-mimo",
+    "oc-north",
     "agy"
   ],
   "discordChannelId": "1492793288514863164",
