@@ -158,6 +158,71 @@ test('dispatchRoutingEvent：拒收不完整 payload 且 consumer 失敗不外�
   })).toBe(false)
 })
 
+/**
+ * 事件 schema 收斂回歸：合法 / 缺欄 / 版本不符 / 多餘欄位。
+ * 僅合法 payload 才會真正呼叫 consumer（派發）。
+ */
+test('事件 schema 四情境：合法才派發，缺欄/版本不符/多餘欄位一律拒收', () => {
+  for (const [type, validPayload] of ROUTING_EVENTS) {
+    // 1) 合法 payload → parse 通過且 dispatch 呼叫 consumer
+    expect(parseRoutingEventPayload(type, validPayload)).toEqual(validPayload)
+    const onValid = vi.fn()
+    expect(dispatchRoutingEvent(type, validPayload, onValid)).toBe(true)
+    expect(onValid).toHaveBeenCalledOnce()
+    expect(onValid).toHaveBeenCalledWith(type, validPayload)
+
+    // 2) 缺欄位 → 不派發
+    for (const missing of Object.keys(validPayload)) {
+      const incomplete = Object.fromEntries(
+        Object.entries(validPayload).filter(([field]) => field !== missing)
+      )
+      expect(parseRoutingEventPayload(type, incomplete), `缺 ${missing}`).toBeUndefined()
+      const onMissing = vi.fn()
+      expect(dispatchRoutingEvent(type, incomplete, onMissing)).toBe(false)
+      expect(onMissing).not.toHaveBeenCalled()
+    }
+
+    // 3) 版本不符 → 不派發
+    for (const badVersion of [0, 2, 99, '1', null, undefined] as const) {
+      const wrongVersion = { ...validPayload, schemaVersion: badVersion }
+      expect(parseRoutingEventPayload(type, wrongVersion), `version=${String(badVersion)}`).toBeUndefined()
+      const onVersion = vi.fn()
+      expect(dispatchRoutingEvent(type, wrongVersion, onVersion)).toBe(false)
+      expect(onVersion).not.toHaveBeenCalled()
+    }
+
+    // 4) 多餘欄位 → 不派發（strict）
+    const withExtra = { ...validPayload, unexpectedField: 'nope' }
+    expect(parseRoutingEventPayload(type, withExtra)).toBeUndefined()
+    const onExtra = vi.fn()
+    expect(dispatchRoutingEvent(type, withExtra, onExtra)).toBe(false)
+    expect(onExtra).not.toHaveBeenCalled()
+  }
+})
+
+test('dispatchIsolationEvents / finalizeIsolationForPick：混合合法與異常時只派發合法事件', () => {
+  const { reason: _missing, ...missingField } = EVENT
+  const wrongVersion = { ...EVENT, schemaVersion: 2 as const }
+  const withExtra = { ...EVENT, extra: true as const }
+  const validOther = { ...EVENT, engine: 'codex' }
+
+  const onIsolated = vi.fn()
+  dispatchIsolationEvents(
+    [missingField, wrongVersion, withExtra, validOther],
+    onIsolated
+  )
+  expect(onIsolated).toHaveBeenCalledOnce()
+  expect(onIsolated).toHaveBeenCalledWith(validOther)
+
+  const onFinalize = vi.fn()
+  expect(finalizeIsolationForPick({
+    newlyIsolated: [missingField, wrongVersion, withExtra, validOther],
+    activeIsolatedTags: ['qwen', 'codex'],
+  }, onFinalize)).toEqual(['qwen', 'codex'])
+  expect(onFinalize).toHaveBeenCalledOnce()
+  expect(onFinalize).toHaveBeenCalledWith(validOther)
+})
+
 test('finalizeIsolationForPick：不完整事件拒收且不阻斷後續完整事件', () => {
   const onIsolated = vi.fn()
   const { reason: _missing, ...incomplete } = EVENT
