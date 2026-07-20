@@ -19,8 +19,9 @@ import {
 } from '../src/engines/apply-stats-isolation.js'
 import { pickCandidateTags } from '../src/engines/pick-candidates.js'
 import { candidateEngines } from '../src/engines/rotation.js'
-import { buildRoutingContext } from '../src/engines/routing-context.js'
+import { buildRoutingContext, routingContextUnavailable } from '../src/engines/routing-context.js'
 import { REUSE_CURRENT } from '../src/engines/routing-decision.js'
+import { isolationIdle } from '../src/engines/routing-exits.js'
 import {
   ROUTING_STATE_FILENAME,
   loadRoutingState,
@@ -40,17 +41,9 @@ const FAIL_COUNT = 0
 /** 凍結舊路徑輸出——逐欄位比對，禁止半對半錯。 */
 const LEGACY = {
   noRotationCandidates: [DEFAULT_ENGINE],
-  noRotationIsolation: {
-    kind: 'reuse-current' as const,
-    newlyIsolated: [] as IsolationAppliedEvent[],
-    activeIsolatedTags: [] as string[],
-    reason: 'no-rotation',
-  },
-  noRotationContext: {
-    kind: 'reuse-current' as const,
-    decision: REUSE_CURRENT,
-    reason: 'unavailable',
-  },
+  // 與 routing-exits 單一出口對齊，避免 LEGACY 手抄另一套 shape
+  noRotationIsolation: isolationIdle('reuse-current', [], 'no-rotation'),
+  noRotationContext: routingContextUnavailable(),
   missingRunDbStats: {
     kind: 'reuse-current' as const,
     decision: REUSE_CURRENT,

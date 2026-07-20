@@ -14,6 +14,10 @@ import {
 } from './isolation-policy.js'
 import { activeIsolatedTags } from './quarantine-gate.js'
 import {
+  finalizeIsolationForPick,
+  isolationIdle,
+} from './routing-exits.js'
+import {
   loadRoutingState,
   routingStateForUpdate,
   saveRoutingState,
@@ -82,17 +86,14 @@ function loadActiveTags(dataDir: string, nowIso: string): string[] {
   }
 }
 
+/** 非 applied 出口：一律走 isolationIdle，保證 newlyIsolated 為空。 */
 function emptyResult(
   kind: 'unchanged' | 'reuse-current',
   dataDir: string,
   nowIso: string,
   reason: string
 ): ApplyStatsIsolationResult {
-  const tags = loadActiveTags(dataDir, nowIso)
-  if (kind === 'reuse-current') {
-    return { kind, newlyIsolated: [], activeIsolatedTags: tags, reason }
-  }
-  return { kind, newlyIsolated: [], activeIsolatedTags: tags, reason }
+  return isolationIdle(kind, loadActiveTags(dataDir, nowIso), reason)
 }
 
 function applyTargets(
@@ -126,13 +127,8 @@ export function loadIsolatedTagsForPick(
   input: ApplyStatsIsolationInput,
   onIsolated?: (ev: IsolationAppliedEvent) => void
 ): string[] {
-  const result = applyStatsIsolation(input)
-  if (onIsolated) {
-    for (const ev of result.newlyIsolated) {
-      try { onIsolated(ev) } catch { /* fail-open */ }
-    }
-  }
-  return result.activeIsolatedTags
+  // 事件派發唯一出口：finalizeIsolationForPick（回退/unchanged 的 newlyIsolated 為空 → 不派）
+  return finalizeIsolationForPick(applyStatsIsolation(input), onIsolated)
 }
 
 /**
@@ -171,22 +167,20 @@ export function applyStatsIsolation(input: ApplyStatsIsolationInput): ApplyStats
     const loaded = loadFn(dataDir, { nowIso })
     const base = routingStateForUpdate(loaded)
     if (!base) {
-      return {
-        kind: 'reuse-current',
-        newlyIsolated: [],
-        activeIsolatedTags: [],
-        reason: `state-${loaded.kind === 'reuse-current' ? loaded.reason : 'unavailable'}`,
-      }
+      return isolationIdle(
+        'reuse-current',
+        [],
+        `state-${loaded.kind === 'reuse-current' ? loaded.reason : 'unavailable'}`
+      )
     }
     const { state, newlyIsolated } = applyTargets(base, targets, nowIso)
 
     if (newlyIsolated.length === 0) {
-      return {
-        kind: 'unchanged',
-        newlyIsolated: [],
-        activeIsolatedTags: activeIsolatedTags(state.isolated, nowIso),
-        reason: 'already-isolated',
-      }
+      return isolationIdle(
+        'unchanged',
+        activeIsolatedTags(state.isolated, nowIso),
+        'already-isolated'
+      )
     }
 
     const saveFn = input.saveStateFn ?? saveRoutingState
@@ -197,12 +191,11 @@ export function applyStatsIsolation(input: ApplyStatsIsolationInput): ApplyStats
       /* fail-open */
     }
     if (!saved) {
-      return {
-        kind: 'reuse-current',
-        newlyIsolated: [],
-        activeIsolatedTags: activeIsolatedTags(base.isolated, nowIso),
-        reason: 'state-write-failed',
-      }
+      return isolationIdle(
+        'reuse-current',
+        activeIsolatedTags(base.isolated, nowIso),
+        'state-write-failed'
+      )
     }
 
     return {

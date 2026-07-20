@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { expect, test, vi } from 'vitest'
-import { REUSE_CURRENT, buildRoutingContext } from '../src/engines/routing-context.js'
+import { REUSE_CURRENT, buildRoutingContext, routingContextUnavailable } from '../src/engines/routing-context.js'
 import { defaultRoutingState } from '../src/engines/routing-state.js'
 
 const NOW = '2026-07-20T00:00:00.000Z'
@@ -14,7 +14,8 @@ const STATS = {
   ],
 }
 const STATE = defaultRoutingState(NOW)
-const FALLBACK = { kind: 'reuse-current', decision: REUSE_CURRENT, reason: 'unavailable' } as const
+/** 與單一出口 helper 對齊，禁止測試端手寫另一套 fallback shape。 */
+const FALLBACK = routingContextUnavailable()
 
 test('可注入讀取器會組合 rotation、近三日戰績與狀態檔', () => {
   const readStats = vi.fn(() => STATS)

@@ -1,6 +1,10 @@
 import { join } from 'node:path'
 import { REUSE_CURRENT } from './routing-decision.js'
 import {
+  routingContextUnavailable,
+  type RoutingContextUnavailable,
+} from './routing-exits.js'
+import {
   recentRunStats,
   type EngineRunStats,
   type RecentRunStats,
@@ -13,7 +17,7 @@ import {
   type RoutingState,
 } from './routing-state.js'
 
-export { REUSE_CURRENT }
+export { REUSE_CURRENT, routingContextUnavailable }
 
 /** 可供後續純路由決策使用的完整輸入；建構失敗時絕不回傳半成品。 */
 export interface RoutingContext {
@@ -24,7 +28,7 @@ export interface RoutingContext {
 
 export type RoutingContextResult =
   | { kind: 'context'; context: RoutingContext }
-  | { kind: 'reuse-current'; decision: typeof REUSE_CURRENT; reason: 'unavailable' }
+  | RoutingContextUnavailable
 
 export interface RoutingContextInput {
   dataDir: string
@@ -37,10 +41,6 @@ export interface RoutingContextInput {
 export interface RoutingContextReaders {
   recentRunStats?: (dbFile: string, opts: RunStatsOptions) => RunStatsResult
   loadRoutingState?: (dataDir: string, opts: { nowIso?: string }) => LoadRoutingStateResult
-}
-
-function fallback(): RoutingContextResult {
-  return { kind: 'reuse-current', decision: REUSE_CURRENT, reason: 'unavailable' }
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -99,7 +99,7 @@ export function buildRoutingContext(
 ): RoutingContextResult {
   const rotation = input.engineRotation
   if (!Array.isArray(rotation) || rotation.length === 0 || rotation.some(tag => typeof tag !== 'string' || tag.length === 0)) {
-    return fallback()
+    return routingContextUnavailable()
   }
 
   const nowIso = input.nowIso ?? new Date().toISOString()
@@ -112,9 +112,9 @@ export function buildRoutingContext(
       windowDays: 3,
     })
     const state = readState(input.dataDir, { nowIso })
-    if (!hasStatsFields(stats) || !hasStateFields(state)) return fallback()
+    if (!hasStatsFields(stats) || !hasStateFields(state)) return routingContextUnavailable()
     return { kind: 'context', context: { engineRotation: [...rotation], stats, state: state.state } }
   } catch {
-    return fallback()
+    return routingContextUnavailable()
   }
 }
