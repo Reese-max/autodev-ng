@@ -37,46 +37,46 @@
   "engines": {
     "claude": {
       "adapter": "claude-cli",
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "opencode": {
       "adapter": "opencode",
       "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe",
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "devin": {
       "adapter": "devin",
       "command": "C:/Users/Administrator/AppData/Local/devin/cli/bin/devin.exe",
       "costPerRunUsd": 0,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "codex-sol": {
       "adapter": "codex",
       "model": "gpt-5.6-sol",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "codex-luna": {
       "adapter": "codex",
       "model": "gpt-5.6-luna",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "codex-terra": {
       "adapter": "codex",
       "model": "gpt-5.6-terra",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "codex-spark": {
       "adapter": "codex",
       "model": "gpt-5.3-codex-spark",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "oc-deepseek": {
       "adapter": "opencode",
@@ -84,7 +84,7 @@
       "model": "opencode/deepseek-v4-flash-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "oc-nemotron": {
       "adapter": "opencode",
@@ -92,7 +92,7 @@
       "model": "opencode/nemotron-3-ultra-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "oc-hy3": {
       "adapter": "opencode",
@@ -100,7 +100,7 @@
       "model": "opencode/hy3-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "oc-mimo": {
       "adapter": "opencode",
@@ -108,7 +108,7 @@
       "model": "opencode/mimo-v2.5-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "oc-north": {
       "adapter": "opencode",
@@ -116,32 +116,32 @@
       "model": "opencode/north-mini-code-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "agy": {
       "adapter": "agy",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "grok": {
       "adapter": "grok",
       "command": "C:/Users/Administrator/.grok/bin/grok.exe",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "copilot": {
       "adapter": "copilot",
       "model": "auto",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "claude-haiku": {
       "adapter": "claude-cli",
       "model": "claude-haiku-4-5-20251001",
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "qwen-gpt54": {
       "adapter": "qwen",
@@ -152,7 +152,7 @@
       },
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "qwen-gpt54m": {
       "adapter": "qwen",
@@ -163,7 +163,7 @@
       },
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     },
     "qwen-grok420": {
       "adapter": "qwen",
@@ -174,7 +174,7 @@
       },
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 10800000
     }
   },
   "extraDirective": "Python 一律用主專案 venv:\"D:/Users/Administrator/Desktop/筆記補齊/.venv/Scripts/python.exe\" 加 -X utf8;嚴禁 pip install 到全域 Python(本機 24/7 系統共用)。不得弱化既有品質閘:原稿逐字不可變、無來源/【待補證】→pending_evidence、只掛實際引用來源、法條引用須通過離線查核。grok proxy 在 http://127.0.0.1:8318/v1(model grok-4.3),整合測試標記 integration 平時跳過。",
