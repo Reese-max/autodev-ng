@@ -156,65 +156,195 @@ const VALID_STATE = JSON.stringify({
   isolated: { qwen: { untilTs: '2026-07-22T12:00:00.000Z', reason: 'fixture' } },
 })
 
-test.each([
-  { name: '有狀態檔', stateText: VALID_STATE, engineRotation: undefined, expectedIsolated: 1 },
-  { name: '無狀態檔', stateText: undefined, engineRotation: undefined, expectedIsolated: 0 },
-  { name: '狀態 JSON 損毀', stateText: '{broken', engineRotation: undefined, expectedIsolated: 0 },
-  { name: '空輪替名單', stateText: VALID_STATE, engineRotation: [], expectedIsolated: 1 },
-] as const)('CLI smoke：$name 時輸出可用且 dataDir 完全唯讀', ({ stateText, engineRotation, expectedIsolated }) => {
+/** 匯總報告必須穩定輸出的欄位（四種 smoke 情境共用契約）。 */
+const STABLE_REPORT_KEYS = [
+  'observedAt',
+  'maintainOriginalPath',
+  'decision',
+  'stateLoad',
+  'isolatedEngines',
+  'standbyEngines',
+  'recentStats',
+] as const
+
+type SmokeScenario = {
+  name: '有狀態檔' | '無狀態檔' | 'JSON 損毀' | '空 engineRotation'
+  stateText: string | undefined
+  engineRotation: readonly string[] | undefined
+  expectedIsolated: number
+  expectedStateLoad:
+    | { kind: 'state'; source: 'file' }
+    | { kind: 'reuse-current'; reason: 'missing' | 'corrupt' }
+}
+
+const SMOKE_SCENARIOS: readonly SmokeScenario[] = [
+  {
+    name: '有狀態檔',
+    stateText: VALID_STATE,
+    engineRotation: ['qwen', 'codex'],
+    expectedIsolated: 1,
+    expectedStateLoad: { kind: 'state', source: 'file' },
+  },
+  {
+    name: '無狀態檔',
+    stateText: undefined,
+    engineRotation: ['qwen'],
+    expectedIsolated: 0,
+    expectedStateLoad: { kind: 'reuse-current', reason: 'missing' },
+  },
+  {
+    name: 'JSON 損毀',
+    stateText: '{broken',
+    engineRotation: ['qwen'],
+    expectedIsolated: 0,
+    expectedStateLoad: { kind: 'reuse-current', reason: 'corrupt' },
+  },
+  {
+    name: '空 engineRotation',
+    stateText: VALID_STATE,
+    engineRotation: [],
+    expectedIsolated: 1,
+    expectedStateLoad: { kind: 'state', source: 'file' },
+  },
+]
+
+function snapshotDataDir(dataDir: string, stateFile: string): {
+  existed: boolean
+  names: string[]
+  content: string | undefined
+  mtime: number | undefined
+} {
+  const existed = existsSync(dataDir)
+  return {
+    existed,
+    names: existed ? readdirSync(dataDir).sort() : [],
+    content: existsSync(stateFile) ? readFileSync(stateFile, 'utf8') : undefined,
+    mtime: existsSync(stateFile) ? statSync(stateFile).mtimeMs : undefined,
+  }
+}
+
+function expectDataDirUnchanged(
+  dataDir: string,
+  stateFile: string,
+  before: ReturnType<typeof snapshotDataDir>,
+): void {
+  expect(existsSync(dataDir)).toBe(before.existed)
+  if (before.existed) expect(readdirSync(dataDir).sort()).toEqual(before.names)
+  if (before.content !== undefined) {
+    expect(readFileSync(stateFile, 'utf8')).toBe(before.content)
+    expect(statSync(stateFile).mtimeMs).toBe(before.mtime)
+  }
+}
+
+function prepareSmokeRoot(scenario: SmokeScenario): {
+  root: string
+  dataDir: string
+  stateFile: string
+  configPath: string
+} {
   const root = tempDir()
   const dataDir = join(root, 'state')
   const stateFile = join(dataDir, ROUTING_STATE_FILENAME)
   const configPath = join(root, 'config.json')
-  if (stateText !== undefined) {
+  if (scenario.stateText !== undefined) {
     mkdirSync(dataDir)
-    writeFileSync(stateFile, stateText)
+    writeFileSync(stateFile, scenario.stateText)
   }
+  const rotation = scenario.engineRotation ?? []
+  // defaultEngine 預設 claude；rotation tags 也必須在 engines 白名單
+  const engines = Object.fromEntries(
+    ['claude', ...rotation].map(tag => [tag, { adapter: 'mock' as const, costPerRunUsd: 0 }]),
+  )
   writeFileSync(configPath, JSON.stringify({
     projectPath: './project',
     backlogFile: './BACKLOG.md',
     dataDir: './state',
     engine: 'mock',
-    engineRotation,
+    engines,
+    // 空陣列仍寫入，驗證 config 路徑接受空 engineRotation
+    engineRotation: scenario.engineRotation,
   }))
+  return { root, dataDir, stateFile, configPath }
+}
 
-  expect(loadRoutingStatusInput(configPath)).toEqual({
-    dataDir,
-    offsetHours: 8,
-  })
+function expectStableReportShape(report: Record<string, unknown>): void {
+  expect(Object.keys(report).sort()).toEqual([...STABLE_REPORT_KEYS].sort())
+  expect(typeof report.observedAt).toBe('string')
+  expect(typeof report.maintainOriginalPath).toBe('boolean')
+  expect(typeof report.decision).toBe('string')
+  expect(report.stateLoad).toEqual(expect.any(Object))
+  expect(Array.isArray(report.isolatedEngines)).toBe(true)
+  expect(Array.isArray(report.standbyEngines)).toBe(true)
+  expect(report.recentStats).toEqual(expect.any(Object))
+}
 
-  const existedBefore = existsSync(dataDir)
-  const namesBefore = existedBefore ? readdirSync(dataDir).sort() : []
-  const contentBefore = existsSync(stateFile) ? readFileSync(stateFile, 'utf8') : undefined
-  const mtimeBefore = existsSync(stateFile) ? statSync(stateFile).mtimeMs : undefined
-  const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
-  expect(routingStatusMain(['--config', configPath])).toBe(0)
-  const report = JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>
-  expect(report).toMatchObject({
-    observedAt: expect.any(String),
-    maintainOriginalPath: true,
-    decision: REUSE_CURRENT,
-    isolatedEngines: expect.any(Array),
-    standbyEngines: expect.any(Array),
-    recentStats: { kind: 'reuse-current', reason: 'missing-run-db' },
-  })
-  expect(report.isolatedEngines).toHaveLength(expectedIsolated)
-  if (stateText === undefined || stateText === '{broken') {
-    expect(report.stateLoad).toEqual({
-      kind: 'reuse-current',
-      reason: stateText === undefined ? 'missing' : 'corrupt',
+/**
+ * 最小 smoke：API 入口 readRoutingStatus
+ * 覆蓋有狀態檔 / 無狀態檔 / JSON 損毀 / 空 engineRotation；
+ * 驗證輸出欄位穩定、雙次讀取等價、dataDir 零寫入。
+ */
+test.each(SMOKE_SCENARIOS)(
+  'API smoke：$name → 輸出穩定且不產生狀態變更',
+  scenario => {
+    const { dataDir, stateFile, configPath } = prepareSmokeRoot(scenario)
+    // 空 engineRotation 也必須能從 config 解析（匯總入口不消費 rotation，但 config 路徑須穩定）
+    expect(loadRoutingStatusInput(configPath)).toEqual({ dataDir, offsetHours: 8 })
+
+    const before = snapshotDataDir(dataDir, stateFile)
+    const first = readRoutingStatus({ dataDir, nowIso: NOW })
+    const second = readRoutingStatus({ dataDir, nowIso: NOW })
+
+    expectStableReportShape(first as unknown as Record<string, unknown>)
+    expect(first).toEqual(second)
+    expect(first).toMatchObject({
+      observedAt: NOW,
+      maintainOriginalPath: true,
+      decision: REUSE_CURRENT,
+      stateLoad: scenario.expectedStateLoad,
+      standbyEngines: [],
+      recentStats: { kind: 'reuse-current', reason: 'missing-run-db' },
     })
-  } else {
-    expect(report.stateLoad).toEqual({ kind: 'state', source: 'file' })
-  }
+    expect(first.isolatedEngines).toHaveLength(scenario.expectedIsolated)
+    if (scenario.expectedIsolated === 1) {
+      expect(first.isolatedEngines[0]).toEqual({
+        engine: 'qwen',
+        reason: 'fixture',
+        nextProbeAt: '2026-07-22T12:00:00.000Z',
+      })
+    }
 
-  expect(existsSync(dataDir)).toBe(existedBefore)
-  if (existedBefore) expect(readdirSync(dataDir).sort()).toEqual(namesBefore)
-  if (contentBefore !== undefined) {
-    expect(readFileSync(stateFile, 'utf8')).toBe(contentBefore)
-    expect(statSync(stateFile).mtimeMs).toBe(mtimeBefore)
-  }
-})
+    expectDataDirUnchanged(dataDir, stateFile, before)
+  },
+)
+
+/**
+ * CLI 入口 smoke：routingStatusMain 同樣覆蓋四情境，
+ * 確認 JSON 輸出契約與 dataDir 完全唯讀。
+ */
+test.each(SMOKE_SCENARIOS)(
+  'CLI smoke：$name → 輸出穩定且 dataDir 完全唯讀',
+  scenario => {
+    const { dataDir, stateFile, configPath } = prepareSmokeRoot(scenario)
+    expect(loadRoutingStatusInput(configPath)).toEqual({ dataDir, offsetHours: 8 })
+
+    const before = snapshotDataDir(dataDir, stateFile)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    expect(routingStatusMain(['--config', configPath])).toBe(0)
+    const report = JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>
+
+    expectStableReportShape(report)
+    expect(report).toMatchObject({
+      observedAt: expect.any(String),
+      maintainOriginalPath: true,
+      decision: REUSE_CURRENT,
+      stateLoad: scenario.expectedStateLoad,
+      recentStats: { kind: 'reuse-current', reason: 'missing-run-db' },
+    })
+    expect(report.isolatedEngines).toHaveLength(scenario.expectedIsolated)
+
+    expectDataDirUnchanged(dataDir, stateFile, before)
+  },
+)
 
 test('CLI 缺 --config 時回報用法', () => {
   expect(() => routingStatusMain([])).toThrow('用法：npm run routing-status -- --config <path>')
