@@ -10,8 +10,9 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { REUSE_CURRENT } from './routing-decision.js'
 
-export const REUSE_CURRENT = '沿用現狀' as const
+export { REUSE_CURRENT }
 
 /** 目前寫入版本；讀取時支援同主版本缺欄回填，高於本版且無法辨識則 reuse-current。 */
 export const ROUTING_STATE_VERSION = 1 as const

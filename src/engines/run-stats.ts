@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs'
 import Database from 'better-sqlite3'
 import { localDay, localDayUtcRange } from '../db.js'
+import { REUSE_CURRENT } from './routing-decision.js'
 
-export const REUSE_CURRENT = '沿用現狀' as const
+export { REUSE_CURRENT }
 
 export interface EngineRunStats {
   engine: string
