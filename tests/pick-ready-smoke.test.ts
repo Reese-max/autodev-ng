@@ -2,17 +2,21 @@
  * 臨時 dataDir 端到端 smoke：
  * pickReadyTask 決策 → 事件計數 → 狀態匯總，作為回歸最小可重現入口。
  */
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
-import type { EventLog } from '../src/events.js'
+import { EventLog } from '../src/events.js'
 import { ISOLATE_MIN_SAMPLES } from '../src/engines/isolation-policy.js'
 import {
   buildPickReadySmokeReport,
   countTrackedEvents,
+  formatPickReadySmokeSummary,
+  PICK_READY_SMOKE_REPORT_FILE,
   runPickReadySmoke,
+  summarizePickReadySmoke,
+  writePickReadySmokeReport,
 } from '../src/engines/pick-ready-smoke.js'
 import type {
   PickReadyTaskDecisionTrace,
@@ -31,7 +35,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-// ── 單元：純計數 / 報告組裝 ──────────────────────────────────────────
+// ── 單元：純計數 / 報告組裝 / 匯總輸出 ────────────────────────────────
 
 test('countTrackedEvents：依 type 與 status 計數', () => {
   const events: TrackedDecisionEvent[] = [
@@ -50,7 +54,7 @@ test('countTrackedEvents：空列表回 total=0', () => {
   expect(countTrackedEvents([])).toEqual({ total: 0, byType: {}, byStatus: {} })
 })
 
-test('buildPickReadySmokeReport：凍結決策指紋、事件計數與狀態匯總', () => {
+function sampleReport() {
   const events: TrackedDecisionEvent[] = [
     { method: 'append', type: 'engine-route-isolated', data: { engine: 'qwen' }, status: 'sent' },
   ]
@@ -70,8 +74,11 @@ test('buildPickReadySmokeReport：凍結決策指紋、事件計數與狀態匯�
     standbyEngines: [],
     recentStats: { kind: 'reuse-current' as const, decision: REUSE_CURRENT, reason: 'missing-run-db' },
   }
+  return buildPickReadySmokeReport({ trace, status })
+}
 
-  const report = buildPickReadySmokeReport({ trace, status })
+test('buildPickReadySmokeReport：凍結決策指紋、事件計數與狀態匯總', () => {
+  const report = sampleReport()
   expect(Object.isFrozen(report)).toBe(true)
   expect(report.decision).toEqual({
     branchResult: 'picked:codex:fixed=0',
@@ -87,7 +94,50 @@ test('buildPickReadySmokeReport：凍結決策指紋、事件計數與狀態匯�
   expect(report.status.isolatedEngines[0]?.engine).toBe('qwen')
 })
 
-// ── 端到端 smoke（臨時 dataDir） ─────────────────────────────────────
+test('summarizePickReadySmoke / formatPickReadySmokeSummary：穩定匯總輸出', () => {
+  const report = sampleReport()
+  const summary = summarizePickReadySmoke(report)
+  expect(Object.isFrozen(summary)).toBe(true)
+  expect(summary).toEqual({
+    decision: 'picked:codex:fixed=0',
+    fingerprint: '{"branch":"picked:codex:fixed=0"}',
+    eventCounts: {
+      total: 1,
+      byType: { 'engine-route-isolated': 1 },
+      byStatus: { sent: 1 },
+    },
+    stateWrites: ['routing-state:created'],
+    routing: {
+      maintainOriginalPath: true,
+      decision: REUSE_CURRENT,
+      isolated: ['qwen'],
+      standby: [],
+      recentStatsKind: 'reuse-current',
+    },
+  })
+  // 不含 observedAt，兩次 format 字串完全一致
+  const a = formatPickReadySmokeSummary(report)
+  const b = formatPickReadySmokeSummary(report)
+  expect(a).toBe(b)
+  expect(a).toContain('"decision": "picked:codex:fixed=0"')
+  expect(a).toContain('"engine-route-isolated": 1')
+  expect(a).toContain('"isolated": [\n      "qwen"\n    ]')
+  expect(a).not.toContain(NOW)
+})
+
+test('writePickReadySmokeReport：寫入臨時 dataDir', () => {
+  const root = mkdtempSync(join(process.cwd(), '.pick-ready-smoke-'))
+  roots.push(root)
+  const dataDir = join(root, 'state')
+  mkdirSync(dataDir, { recursive: true })
+  const report = sampleReport()
+  const file = writePickReadySmokeReport(dataDir, report)
+  expect(file).toBe(join(dataDir, PICK_READY_SMOKE_REPORT_FILE))
+  expect(existsSync(file)).toBe(true)
+  expect(readFileSync(file, 'utf8')).toBe(formatPickReadySmokeSummary(report))
+})
+
+// ── 端到端 smoke（臨時 dataDir + 真實 EventLog） ─────────────────────
 
 function smokeFixture(options: {
   rotation?: readonly string[]
@@ -152,10 +202,8 @@ function smokeFixture(options: {
       cfg,
       store: { report: vi.fn() } as unknown as BacklogStore,
       db: { failCount: () => 0 } as unknown as RunDb,
-      events: {
-        append: vi.fn(),
-        appendOnce: vi.fn(() => true),
-      } as unknown as EventLog,
+      // 真實 EventLog：事件落盤到臨時 dataDir，避免 mock 跳過 I/O 路徑
+      events: new EventLog(dataDir),
       engines: {
         resolve(tag: string) {
           const engine = engineByTag.get(tag)
@@ -177,6 +225,7 @@ test('E2E smoke：臨時 dataDir 串起決策、事件計數與狀態匯總', as
   const report = await runPickReadySmoke(
     f.deps,
     deps => pickReadyTask(deps, [TASK]),
+    { writeReport: true },
   )
 
   // 決策：qwen 被隔離 → 選 codex
@@ -199,6 +248,20 @@ test('E2E smoke：臨時 dataDir 串起決策、事件計數與狀態匯總', as
   if (report.status.recentStats.kind === 'stats') {
     expect(report.status.recentStats.sampleCount).toBeGreaterThanOrEqual(ISOLATE_MIN_SAMPLES)
   }
+
+  // 匯總輸出：穩定字串 + 落盤到臨時 dataDir
+  const summaryText = formatPickReadySmokeSummary(report)
+  expect(summaryText).toContain('"decision": "picked:codex:fixed=0"')
+  expect(summaryText).toContain('"engine-route-isolated"')
+  expect(summaryText).toContain('"qwen"')
+  const reportFile = join(f.dataDir, PICK_READY_SMOKE_REPORT_FILE)
+  expect(existsSync(reportFile)).toBe(true)
+  expect(readFileSync(reportFile, 'utf8')).toBe(summaryText)
+
+  // 真實 EventLog 已寫入 events.jsonl
+  expect(existsSync(join(f.dataDir, 'events.jsonl'))).toBe(true)
+  const eventsBody = readFileSync(join(f.dataDir, 'events.jsonl'), 'utf8')
+  expect(eventsBody).toContain('engine-route-isolated')
 })
 
 test('E2E smoke：無戰績時沿用現狀、事件計數為 0、匯總仍可輸出', async () => {
@@ -207,6 +270,7 @@ test('E2E smoke：無戰績時沿用現狀、事件計數為 0、匯總仍可輸
   const report = await runPickReadySmoke(
     f.deps,
     deps => pickReadyTask(deps, [TASK]),
+    { writeReport: true },
   )
 
   expect(report.decision.branchResult).toBe('picked:qwen:fixed=0')
@@ -215,4 +279,10 @@ test('E2E smoke：無戰績時沿用現狀、事件計數為 0、匯總仍可輸
   expect(report.status.isolatedEngines).toEqual([])
   expect(report.status.observedAt).toEqual(expect.any(String))
   expect(report.status.recentStats).toBeDefined()
+
+  const summary = summarizePickReadySmoke(report)
+  expect(summary.decision).toBe('picked:qwen:fixed=0')
+  expect(summary.eventCounts.total).toBe(0)
+  expect(summary.routing.isolated).toEqual([])
+  expect(existsSync(join(f.dataDir, PICK_READY_SMOKE_REPORT_FILE))).toBe(true)
 })
