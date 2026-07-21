@@ -236,3 +236,33 @@ test('buildDigest：perpetualLine 未傳／null → 輸出不含「自主工程�
   expect(textNull).toBe(textUndefined)
   db.close()
 })
+
+test('buildDigest：今日額度消耗表——含引擎／次數／成功／cap／餘量；無 cap 顯示 —', () => {
+  const db = freshDb()
+  db.record({ taskId: 'a', ok: true, costUsd: 0, detail: '', engine: 'qwen', ts: '2026-07-05T01:00:00Z' })
+  db.record({ taskId: 'b', ok: false, costUsd: 0, detail: '', engine: 'qwen', ts: '2026-07-05T02:00:00Z' })
+  db.record({ taskId: 'c', ok: true, costUsd: 0, detail: '', engine: 'codex', ts: '2026-07-05T03:00:00Z' })
+  const dataDir = freshDataDir()
+  const text = buildDigest({
+    db,
+    dataDir,
+    isoDayUtc: '2026-07-05',
+    engines: {
+      qwen: { dailyAttemptCap: 10 },
+      idle: { dailyAttemptCap: 3 },
+    },
+  })
+  expect(text).toContain('今日額度消耗')
+  expect(text).toContain('引擎｜次數｜成功｜cap｜餘量')
+  expect(text).toContain('qwen｜2｜1｜10｜8')
+  expect(text).toContain('codex｜1｜1｜—｜—')
+  expect(text).toContain('idle｜0｜0｜3｜3')
+  db.close()
+})
+
+test('buildDigest：零派工且無 cap → 不印今日額度消耗段（避免雜訊）', () => {
+  const db = freshDb()
+  const text = buildDigest({ db, dataDir: freshDataDir(), isoDayUtc: '2026-07-05' })
+  expect(text).not.toContain('今日額度消耗')
+  db.close()
+})

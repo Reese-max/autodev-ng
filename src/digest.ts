@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { localDay, type RunDb } from './db.js'
+import type { RunDb } from './db.js'
+import { countDlqLines, countVerifyAlertsToday } from './engines/digest-counts.js'
+import { digestQuotaLines } from './engines/today-attempts-view.js'
 
 export interface BuildDigestOpts {
   db: RunDb
@@ -15,67 +17,8 @@ export interface BuildDigestOpts {
   /** M10.0 Task 6：perpetualDigestLine(dataDir) 產出的自主工程師台帳摘要行。
    * undefined/null＝整段省略（既有呼叫端不變、輸出逐位元組相同）；字串＝文末追加一行。 */
   perpetualLine?: string | null
-}
-
-function dlqPath(dataDir: string): string {
-  return join(dataDir, 'notify-dlq.jsonl')
-}
-
-/** DLQ 積壓行數。缺檔＝0；容錯讀檔（權限/競態問題時仍回 0，不讓摘要炸掉——鐵律 #6：摘要本身就是通道自檢，自己不能先倒）。 */
-function countDlqLines(dataDir: string): number {
-  const file = dlqPath(dataDir)
-  if (!existsSync(file)) return 0
-  try {
-    const content = readFileSync(file, 'utf8')
-    if (content.trim() === '') return 0
-    return content.split(/\r?\n/).filter(line => line.length > 0).length
-  } catch {
-    return 0
-  }
-}
-
-function eventsPath(dataDir: string): string {
-  return join(dataDir, 'events.jsonl')
-}
-
-/** verify-alert 分計結果（M4 Task 4）：verifySkip=安全網未啟用（verify-skip 前綴）；
- * other=驗證鏈其他告警（judge-skipped/judge-skip/rollback-failed/rollback-exception/verifier-exception 等，
- * 依 detail 前綴分流，非 verify-skip 一律歸此類——覆蓋所有既有與未來新增的告警前綴，不必逐一列舉維護）。 */
-interface VerifyAlertCounts { verifySkip: number; other: number }
-
-/** 當日 verify-alert 事件分計（紅線 4：verify skip 若不落 digest，config 打錯字時安全網靜默關閉沒人知道）。
- * 缺檔＝{0,0}；容錯讀檔/逐行解析（同 countDlqLines：摘要本身就是通道自檢，自己不能先倒——鐵律 #6）。
- * 日界線改用 localDay(ts, offsetHours)===isoDayUtc（M4 Task 3）：offsetHours=0 時與舊版
- * ts.slice(0,10) 前綴比對完全等價（相容性錨點），offsetHours≠0 時依本地日曆日歸類。 */
-function countVerifyAlertsToday(dataDir: string, isoDayUtc: string, offsetHours: number): VerifyAlertCounts {
-  const zero: VerifyAlertCounts = { verifySkip: 0, other: 0 }
-  const file = eventsPath(dataDir)
-  if (!existsSync(file)) return zero
-  try {
-    const content = readFileSync(file, 'utf8')
-    if (content.trim() === '') return zero
-    const counts: VerifyAlertCounts = { verifySkip: 0, other: 0 }
-    for (const line of content.split(/\r?\n/)) {
-      if (line.length === 0) continue
-      try {
-        const parsed = JSON.parse(line) as Record<string, unknown>
-        const ts = parsed.ts
-        const detail = parsed.detail
-        if (parsed.type === 'verify-alert' && typeof ts === 'string' && localDay(ts, offsetHours) === isoDayUtc) {
-          if (typeof detail === 'string' && detail.startsWith('verify-skip:')) {
-            counts.verifySkip++
-          } else {
-            counts.other++
-          }
-        }
-      } catch {
-        // 壞行跳過，不讓整份摘要因為單一壞行炸掉
-      }
-    }
-    return counts
-  } catch {
-    return zero
-  }
+  /** engines 設定（取 dailyAttemptCap）；未傳＝額度表不顯示 cap／餘量。 */
+  engines?: Record<string, { dailyAttemptCap?: number }>
 }
 
 /** 每日必達摘要（鐵律 #6）：即使今天零任務、零成本，也要產出一份文字證明通道還活著。 */
@@ -85,13 +28,15 @@ export function buildDigest(opts: BuildDigestOpts): string {
   const stats = db.dayStats(isoDayUtc, offsetHours, opts.subscriptionEngines ?? [])
   const dlqCount = countDlqLines(dataDir)
   const { verifySkip, other } = countVerifyAlertsToday(dataDir, isoDayUtc, offsetHours)
+  const engineStats = db.engineDayStats(isoDayUtc, offsetHours)
   const lines = [
     `adng 每日摘要 ${isoDayUtc}`,
     `完成 ${stats.ok} 筆／失敗 ${stats.fail} 筆`,
     `今日成本：真金 $${stats.billedUsd.toFixed(4)}｜訂閱名義 $${(stats.costUsd - stats.billedUsd).toFixed(4)}`,
     `DLQ 積壓：${dlqCount} 筆`,
   ]
-  for (const e of db.engineDayStats(isoDayUtc, offsetHours)) lines.push(`  引擎 ${e.engine}：${e.ok}/${e.n} 成，$${e.costUsd.toFixed(4)}`) // 每引擎戰績（路由決策依據）；零派工日自動省略
+  for (const e of engineStats) lines.push(`  引擎 ${e.engine}：${e.ok}/${e.n} 成，$${e.costUsd.toFixed(4)}`) // 每引擎戰績（路由決策依據）；零派工日自動省略
+  lines.push(...digestQuotaLines(engineStats, opts.engines)) // 今日額度消耗表；無 attempts 且無 cap 時整段省略
   // N=0 不印，避免雜訊；N>0 才浮出（鐵律 #4：fail-open-with-alert，不能只落 events.jsonl 沒人看）。
   if (verifySkip > 0) {
     lines.push(`⚠ 本日 verify 略過 ${verifySkip} 次（安全網未啟用，請檢查 verifyCommand）`)

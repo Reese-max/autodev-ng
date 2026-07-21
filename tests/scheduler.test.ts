@@ -256,6 +256,18 @@ test('preflight 失敗時 heartbeat 更新為 idle（不留 stale running）', a
   expect(hb.state).toBe('idle')
 })
 
+test('heartbeat 含 todayAttempts 摘要欄位（無 attempts 時為空物件或僅 cap 列）', async () => {
+  const d = deps(new MockEngine(), '# 空 backlog\n')
+  expect(await runOnce(d)).toBe('idle')
+  const hb = JSON.parse(readFileSync(join(d.cfg.dataDir, 'heartbeat.json'), 'utf8')) as {
+    state: string
+    todayAttempts?: Record<string, { n: number; ok: number; cap?: number }>
+  }
+  expect(hb.state).toBe('idle')
+  expect(hb.todayAttempts).toBeDefined()
+  expect(typeof hb.todayAttempts).toBe('object')
+})
+
 test('backlog 有重複任務時發 duplicate-tasks 事件（24h 去重）', async () => {
   const d = deps(new MockEngine(), '- [ ] 重複的\n- [ ] 重複的\n- [ ] 正常的\n')
   await runOnce(d)

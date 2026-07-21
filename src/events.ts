@@ -5,6 +5,8 @@ export interface HeartbeatState {
   state: 'running' | 'idle' | 'stopped' | 'cost-stopped'
   currentTask?: string
   todayCostUsd: number
+  /** 今日 attempts：engine → { n, ok, cap? } */
+  todayAttempts?: Record<string, { n: number; ok: number; cap?: number }>
 }
 
 // MEDIUM-4：events.jsonl 無界成長治理。append 是主迴圈熱路徑（每輪多次呼叫），若每次都

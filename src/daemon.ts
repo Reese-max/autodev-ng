@@ -200,7 +200,7 @@ async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void>
 
   let text: string
   try {
-    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayLocal(day), offsetHours, subscriptionEngines: subscriptionTags(deps.cfg), perpetualLine })
+    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayLocal(day), offsetHours, subscriptionEngines: subscriptionTags(deps.cfg), perpetualLine, engines: deps.cfg.engines })
   } catch {
     return
   }

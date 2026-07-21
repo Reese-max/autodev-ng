@@ -3,6 +3,7 @@ import type { BacklogStore } from './backlog.js'
 import { localDay, type RunDb } from './db.js'
 import { loadIsolatedTagsForPick } from './engines/apply-stats-isolation.js'
 import { loadDailyAttemptCapContext } from './engines/daily-attempt-cap-gate.js'
+import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { pickCandidateTags } from './engines/pick-candidates.js'
 import { singleFlightPickRouting } from './engines/pick-ready-single-flight.js'
 import { quiet, type EventLog } from './events.js'
@@ -59,14 +60,14 @@ export type CycleResult =
 export async function runOnce(deps: Deps): Promise<CycleResult> {
   const { cfg, store, db, engines, events, verifier } = deps
   if (existsSync(cfg.stopFile)) {
-    quiet(() => events.heartbeat({ state: 'stopped', todayCostUsd: todayCost(db, cfg) }))
+    writeHeartbeat(events, cfg, { state: 'stopped', todayCostUsd: todayCost(db, cfg) })
     return 'stopped'
   }
 
   const spent = todayCost(db, cfg)
   if (spent >= cfg.dailyHardUsd) {
     quiet(() => events.appendOnce('cost-hard-stop', { spent }))
-    quiet(() => events.heartbeat({ state: 'cost-stopped', todayCostUsd: spent }))
+    writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
     return 'cost-hard-stop'
   }
 
@@ -76,7 +77,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     try { g = globalBilledToday(deps.cfgPath, new Date().toISOString()) } catch { /* fail-open */ }
     if (g >= cfg.globalDailyHardUsd) {
       quiet(() => events.appendOnce('cost-hard-stop-global', { spent: g }))
-      quiet(() => events.heartbeat({ state: 'cost-stopped', todayCostUsd: spent }))
+      writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
       return 'cost-hard-stop'
     }
   }
@@ -86,7 +87,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   const openTasks = store.read().filter(t => t.status === 'open')
   if (openTasks.length === 0) {
     quiet(() => events.appendOnce('idle', { note: 'backlog 空，等使用者補任務' }))
-    quiet(() => events.heartbeat({ state: 'idle', todayCostUsd: spent }))
+    writeHeartbeat(events, cfg, { state: 'idle', todayCostUsd: spent })
     return 'idle'
   }
 
@@ -95,12 +96,12 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
 
   const picked = await pickReadyTask({ cfg, store, db, events, engines }, openTasks)
   if (typeof picked === 'string' || 'kind' in picked) {
-    if (picked === 'preflight-failed') quiet(() => events.heartbeat({ state: 'idle', todayCostUsd: spent }))
+    if (picked === 'preflight-failed') writeHeartbeat(events, cfg, { state: 'idle', todayCostUsd: spent })
     return picked
   }
   const { task, engine, engineTag, fixedCost } = picked
 
-  quiet(() => events.heartbeat({ state: 'running', currentTask: task.text, todayCostUsd: spent }))
+  writeHeartbeat(events, cfg, { state: 'running', currentTask: task.text, todayCostUsd: spent })
 
   // M4 Task 6（worktree 接線）：任務級隔離執行環境。非 git 專案（prepareWorktree 上拋）
   // → 直接 blocked+告警，不計入 maxAttempts 失敗計數（環境問題而非任務本身失敗——
@@ -308,6 +309,6 @@ export function finalizeRunOnceHeartbeat(deps: Deps, result: CycleResult, now: D
   if (!(typeof result === 'object' || result === 'done' || result === 'failed' || result === 'engine-error')) return
   try {
     const day = localDay(now.toISOString(), deps.cfg.timezoneOffsetHours)
-    deps.events.heartbeat({ state: 'idle', todayCostUsd: deps.db.billedCostForLocalDay(day, deps.cfg.timezoneOffsetHours, subscriptionTags(deps.cfg)) })
+    writeHeartbeat(deps.events, deps.cfg, { state: 'idle', todayCostUsd: deps.db.billedCostForLocalDay(day, deps.cfg.timezoneOffsetHours, subscriptionTags(deps.cfg)) })
   } catch { /* 觀測面故障不可反殺 CLI（鐵律 #4） */ }
 }

@@ -33,6 +33,23 @@ test('heartbeat 覆寫 heartbeat.json', () => {
   expect(hb.ts).toBeDefined()
 })
 
+test('heartbeat 可寫入 todayAttempts 摘要 { engine: { n, ok, cap? } }', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-ev-'))
+  const ev = new EventLog(dir)
+  ev.heartbeat({
+    state: 'idle',
+    todayCostUsd: 0,
+    todayAttempts: { qwen: { n: 2, ok: 1, cap: 10 }, codex: { n: 1, ok: 0 } },
+  })
+  const hb = JSON.parse(readFileSync(join(dir, 'heartbeat.json'), 'utf8')) as {
+    todayAttempts: Record<string, { n: number; ok: number; cap?: number }>
+  }
+  expect(hb.todayAttempts).toEqual({
+    qwen: { n: 2, ok: 1, cap: 10 },
+    codex: { n: 1, ok: 0 },
+  })
+})
+
 test('appendOnce 遇 events-once.json 損壞不 throw，降級重建為合法 JSON', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-ev-'))
   const ev = new EventLog(dir)
