@@ -91,7 +91,7 @@ function defaultRollback(cwd: string, toHash: string): boolean {
     throw new Error('rollback-refused: not an adng worktree')
   }
   try {
-    execFileSync('git', ['-C', cwd, 'reset', '--hard', toHash], { stdio: 'ignore', timeout: 30_000 })
+    execFileSync('git', ['-C', cwd, 'reset', '--hard', toHash], { stdio: 'ignore', timeout: 30_000, windowsHide: true })
     return true
   } catch {
     return false
@@ -102,7 +102,7 @@ function defaultGetDiff(cwd: string, baseCommitHash?: string): string {
   if (!baseCommitHash) return ''
   try {
     return execFileSync('git', ['-C', cwd, 'diff', `${baseCommitHash}..HEAD`], {
-      encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'ignore']
+      encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true
     })
   } catch {
     return ''

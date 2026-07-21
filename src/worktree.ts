@@ -22,14 +22,14 @@ function branchNameFor(taskId: string): string {
  * 的 console／daemon log；改為 pipe 後仍完整保留在拋出的 Error 內（.stderr／訊息字串),
  * 只是不再無條件洗版。 */
 function git(args: string[], cwd: string, timeoutMs: number): string {
-  return execFileSync('git', args, { cwd, timeout: timeoutMs, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return execFileSync('git', args, { cwd, timeout: timeoutMs, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
 }
 
 /** 容錯版 git 呼叫：任何失敗（含逾時）一律吞掉——供殘留自癒使用，呼叫端本來就預期
  * 這裡可能沒有殘留可清（第一次呼叫、或上次已正常清乾淨）。 */
 function gitTolerant(args: string[], cwd: string, timeoutMs: number): void {
   try {
-    execFileSync('git', args, { cwd, timeout: timeoutMs, encoding: 'utf8', stdio: ['ignore', 'ignore', 'ignore'] })
+    execFileSync('git', args, { cwd, timeout: timeoutMs, encoding: 'utf8', stdio: ['ignore', 'ignore', 'ignore'], windowsHide: true })
   } catch {
     // 容忍：見上方註解
   }

@@ -69,7 +69,7 @@ function commandExists(command: string): boolean {
   let exists: boolean
   try {
     if (process.platform === 'win32') {
-      execFileSync('where', [command], { stdio: 'ignore', timeout: 5000 })
+      execFileSync('where', [command], { stdio: 'ignore', timeout: 5000, windowsHide: true })
     } else {
       execFileSync('/bin/sh', ['-c', 'command -v "$1"', '--', command], { stdio: 'ignore', timeout: 5000 })
     }

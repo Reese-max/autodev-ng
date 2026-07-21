@@ -73,7 +73,7 @@ export async function runGoalWithDeps(
           finderLlm: llm,
           criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey },
           runSurvey: (_c, wd) => {
-            try { return { output: execSync(cfg.surveyCommand!, { cwd: wd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: cfg.surveyTimeoutMs }).slice(-8000) } }
+            try { return { output: execSync(cfg.surveyCommand!, { cwd: wd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: cfg.surveyTimeoutMs, windowsHide: true }).slice(-8000) } }
             catch (e) { const er = e as { stdout?: string }; return { output: (er.stdout ?? '').slice(-8000) } }
           },
           lenses: cfg.discoverLenses
@@ -104,7 +104,7 @@ export async function runGoalWithDeps(
         const sup = await verifyAndSupplement({
           auditLlm: { url: cfg.judgeUrl, model: cfg.auditModel, apiKey: cfg.judgeApiKey },
           runVerify: (cmd, wd) => {
-            try { return { exitCode: 0, passed: 1, output: execSync(cmd, { cwd: wd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).slice(-2000) } }
+            try { return { exitCode: 0, passed: 1, output: execSync(cmd, { cwd: wd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }).slice(-2000) } }
             catch (e) { const er = e as { status?: number; stdout?: string }; return { exitCode: er.status ?? 1, passed: 0, output: (er.stdout ?? '').slice(-2000) } }
           },
           runOnceFn: async () => { const r = await runOnce(kernelDeps); finalizeRunOnceHeartbeat(kernelDeps, r); return r },

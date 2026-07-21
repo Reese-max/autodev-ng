@@ -251,7 +251,7 @@ export async function maybeRunPerpetual(
         finderLlm: judgeLlm,
         criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey },
         runSurvey: (_c, wd) => {
-          try { return { output: execSync(cfg.surveyCommand!, { cwd: wd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: cfg.surveyTimeoutMs }).slice(-8000) } }
+          try { return { output: execSync(cfg.surveyCommand!, { cwd: wd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: cfg.surveyTimeoutMs, windowsHide: true }).slice(-8000) } }
           catch (e) { const er = e as { stdout?: string }; return { output: (er.stdout ?? '').slice(-8000) } }
         },
         lenses: cfg.discoverLenses

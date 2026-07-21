@@ -17,9 +17,9 @@ function canon(p: string): string {
  * 自己就是 repo 根（worktree 根），toplevel 不符一律回 undefined（呼叫端判失敗）。 */
 export function defaultCommitHash(cwd: string): string | undefined {
   try {
-    const top = execFileSync('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 10_000 }).trim()
+    const top = execFileSync('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 10_000, windowsHide: true }).trim()
     if (canon(top) !== canon(cwd)) return undefined
-    return execFileSync('git', ['-C', cwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 }).trim()
+    return execFileSync('git', ['-C', cwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000, windowsHide: true }).trim()
   } catch {
     return undefined
   }

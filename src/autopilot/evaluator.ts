@@ -15,7 +15,7 @@ export interface EvalDeps {
 // 預設 verify 執行：非零 exit 不 throw；passed = 從輸出數 "pass"/"passing" 的粗略計數（沙盒足夠）
 function defaultRunVerify(cmd: string, cwd: string): { exitCode: number; passed: number } {
   try {
-    const out = execSync(cmd, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    const out = execSync(cmd, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     const m = out.match(/(\d+)\s+pass/i)
     return { exitCode: 0, passed: m ? Number(m[1]) : 1 }
   } catch (err) {
