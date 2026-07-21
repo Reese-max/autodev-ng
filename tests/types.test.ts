@@ -126,6 +126,44 @@ test('engines 欄位驗證：全矩陣 adapter 可寫、未知 adapter 拒、cos
 })
 
 // ---------------------------------------------------------------------------
+// engines.<tag>.dailyAttemptCap（可選正整數；未設＝不限）
+
+test('dailyAttemptCap：未設 → undefined（向後相容）；正整數通過解析', () => {
+  const bare = ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'mock',
+  })
+  expect(bare.engines['claude']!.dailyAttemptCap).toBeUndefined()
+
+  const cfg = ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'claude-cli',
+    engines: {
+      claude: { adapter: 'claude-cli', dailyAttemptCap: 12 },
+      free: { adapter: 'mock', dailyAttemptCap: 1 },
+    },
+  })
+  expect(cfg.engines['claude']!.dailyAttemptCap).toBe(12)
+  expect(cfg.engines['free']!.dailyAttemptCap).toBe(1)
+})
+
+test('dailyAttemptCap：0／負數／非整數被拒', () => {
+  const base = {
+    projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'claude-cli' as const,
+  }
+  expect(() => ConfigSchema.parse({
+    ...base,
+    engines: { claude: { adapter: 'claude-cli', dailyAttemptCap: 0 } },
+  })).toThrow()
+  expect(() => ConfigSchema.parse({
+    ...base,
+    engines: { claude: { adapter: 'claude-cli', dailyAttemptCap: -3 } },
+  })).toThrow()
+  expect(() => ConfigSchema.parse({
+    ...base,
+    engines: { claude: { adapter: 'claude-cli', dailyAttemptCap: 1.5 } },
+  })).toThrow()
+})
+
+// ---------------------------------------------------------------------------
 // M10.5 Task 4：globalDailyHardUsd（全域日頂）
 
 test('M10.5：globalDailyHardUsd 未設 → undefined（無全域防線，現狀不變）', () => {

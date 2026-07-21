@@ -72,7 +72,9 @@ export const EngineConfigSchema = z.object({
   subscription: z.boolean().optional(), // M9.9：訂閱制引擎（邊際成本≈0）——估值照記帳但不踩日頂
   env: z.record(z.string(), z.string()).optional(),
   model: z.string().optional(),
-  timeoutMs: z.number().int().positive().optional()
+  timeoutMs: z.number().int().positive().optional(),
+  /** 單引擎每日 attempts 上限（可選）；未設＝不限。正整數，與 today-attempts 聚合對齊。 */
+  dailyAttemptCap: z.number().int().positive().optional(),
 })
 export type EngineConfig = z.infer<typeof EngineConfigSchema>
 
