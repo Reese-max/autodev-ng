@@ -35,8 +35,6 @@ import {
 } from '../src/engines/routing-transition.js'
 import {
   clearRunStatsCache,
-  recentRunStats,
-  type RunStatsOptions,
   type RunStatsResult,
 } from '../src/engines/run-stats.js'
 import { RunDb } from '../src/db.js'
@@ -45,7 +43,6 @@ const NOW = '2026-07-20T12:00:00.000Z'
 const NOW_MS = Date.parse(NOW)
 const ROT = ['qwen', 'codex', 'opencode']
 const DEFAULT_ENGINE = 'claude'
-const FIXTURE_IO_TIMEOUT_MS = 1_000
 
 /** 隔離窗內（尚未到 untilTs）的固定時刻，避免測試依賴「當下」。 */
 const UNTIL_TS = new Date(NOW_MS + ISOLATION_BEFORE_PROBE_MS).toISOString()
@@ -67,7 +64,6 @@ function tmpDir(): string {
 
 interface RestartFixture {
   dir: string
-  readStats: (dbFile: string, opts?: RunStatsOptions) => RunStatsResult
 }
 
 let fixture: RestartFixture | undefined
@@ -75,14 +71,10 @@ let fixture: RestartFixture | undefined
 beforeEach(() => {
   clearRunStatsCache()
   vi.restoreAllMocks()
-  vi.useRealTimers()
+  vi.useFakeTimers()
+  vi.setSystemTime(NOW)
   fixture = {
     dir: tmpDir(),
-    // 這組測快取／狀態延續；50ms 截止另由 run-stats.test.ts 驗證。
-    readStats: (dbFile, opts = {}) => recentRunStats(dbFile, {
-      ...opts,
-      timeoutMs: FIXTURE_IO_TIMEOUT_MS,
-    }),
   }
 })
 
@@ -157,7 +149,6 @@ function pickLikeReadyTask(
       rotation: ROT,
       nowIso,
       offsetHours: 0,
-      timeoutMs: FIXTURE_IO_TIMEOUT_MS,
       ...overrides,
     },
     ev => {
@@ -294,7 +285,7 @@ describe('狀態重建入口守門', () => {
 
   test('只讀檢查：第二次重建不重初始化快取與事件計數，試探/常駐候選不重置', () => {
     // 純讀 buildRoutingContext：暖快取後刪 run.db，第二次仍命中快取且 probes/promoted 原封。
-    const { dir, readStats } = useFixture()
+    const { dir } = useFixture()
     try {
       seedPreRestartState(dir)
       seedBadQwen(dir, 6, 1)
@@ -302,11 +293,9 @@ describe('狀態重建入口守門', () => {
       const before = readFileSync(file, 'utf8')
       const dbFile = join(dir, 'run.db')
 
-      const first = buildRoutingContext(
-        { dataDir: dir, engineRotation: ROT, nowIso: NOW, offsetHours: 0 },
-        { recentRunStats: readStats }
-      )
+      const first = buildRoutingContext({ dataDir: dir, engineRotation: ROT, nowIso: NOW, offsetHours: 0 })
       expect(first.kind).toBe('context')
+      expect(Date.now()).toBe(NOW_MS)
       if (first.kind !== 'context') throw new Error('expected context')
       expect(first.context.stats.kind).toBe('stats')
       expect(first.context.state.probes.qwen).toEqual({ hits: 1, lastTs: PROBE_LAST_TS })
@@ -317,10 +306,7 @@ describe('狀態重建入口守門', () => {
       // 刪除 run.db：若第二次呼叫重初始化快取，會落入 reuse-current 而非延續 stats
       rmSync(dbFile, { force: true })
 
-      const second = buildRoutingContext(
-        { dataDir: dir, engineRotation: ROT, nowIso: NOW, offsetHours: 0 },
-        { recentRunStats: readStats }
-      )
+      const second = buildRoutingContext({ dataDir: dir, engineRotation: ROT, nowIso: NOW, offsetHours: 0 })
       expect(second.kind).toBe('context')
       if (second.kind !== 'context') throw new Error('expected context')
 
@@ -342,17 +328,15 @@ describe('狀態重建入口守門', () => {
 
 describe('重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件', () => {
   test('寫入隔離+晉升 → 重建上下文 → pick 延續原狀且不重設試探、不重派事件', () => {
-    const { dir, readStats } = useFixture()
+    const { dir } = useFixture()
     try {
       const prior = seedPreRestartState(dir)
       seedBadQwen(dir, 6, 1) // 重啟後仍會讀到達門檻戰績，但已隔離不得重設
 
       // ── 模擬進程重啟：重新 buildRoutingContext（讀 state + run.db）──
-      const ctx = buildRoutingContext(
-        { dataDir: dir, engineRotation: ROT, nowIso: NOW, offsetHours: 0 },
-        { recentRunStats: readStats }
-      )
+      const ctx = buildRoutingContext({ dataDir: dir, engineRotation: ROT, nowIso: NOW, offsetHours: 0 })
       expect(ctx.kind).toBe('context')
+      expect(Date.now()).toBe(NOW_MS)
       if (ctx.kind !== 'context') throw new Error('expected routing context')
 
       // 隔離 / 晉升 / 試探時點原封延續
@@ -383,10 +367,7 @@ describe('重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件', (
 
       // ── 再重建一次上下文 + 第二輪 pick：仍不重派事件 ──
       clearRunStatsCache()
-      const ctx2 = buildRoutingContext(
-        { dataDir: dir, engineRotation: ROT, nowIso: NOW, offsetHours: 0 },
-        { recentRunStats: readStats }
-      )
+      const ctx2 = buildRoutingContext({ dataDir: dir, engineRotation: ROT, nowIso: NOW, offsetHours: 0 })
       expect(ctx2.kind).toBe('context')
       if (ctx2.kind !== 'context') throw new Error('expected routing context')
       expect(ctx2.context.state.probes.qwen?.lastTs).toBe(PROBE_LAST_TS)
@@ -403,7 +384,7 @@ describe('重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件', (
   })
 
   test('重啟前首次隔離有事件；重啟後同條件只延續、untilTs 不變、事件不重複', () => {
-    const { dir, readStats } = useFixture()
+    const { dir } = useFixture()
     try {
       seedBadQwen(dir, 6, 1)
 
@@ -435,11 +416,9 @@ describe('重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件', (
       expect(saveRoutingState(dir, withPromo, { nowIso: NOW })).toBe(true)
 
       clearRunStatsCache()
-      const rebuilt = buildRoutingContext(
-        { dataDir: dir, engineRotation: ROT, nowIso: NOW, offsetHours: 0 },
-        { recentRunStats: readStats }
-      )
+      const rebuilt = buildRoutingContext({ dataDir: dir, engineRotation: ROT, nowIso: NOW, offsetHours: 0 })
       expect(rebuilt.kind).toBe('context')
+      expect(Date.now()).toBe(NOW_MS)
       if (rebuilt.kind !== 'context') throw new Error('expected context')
       expect(rebuilt.context.state.isolated.qwen?.untilTs).toBe(frozenUntil)
       expect(rebuilt.context.state.promoted.codex?.promotedAt).toBe(PROMOTED_AT)
@@ -458,7 +437,6 @@ describe('重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件', (
         rotation: ROT,
         nowIso: NOW,
         offsetHours: 0,
-        timeoutMs: FIXTURE_IO_TIMEOUT_MS,
       })
       expect(reapply.kind).toBe('unchanged')
       expect(reapply.newlyIsolated).toEqual([])

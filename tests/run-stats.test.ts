@@ -23,6 +23,7 @@ function seed(records: Array<{ taskId: string; ok: boolean; engine: string; ts: 
 afterEach(() => {
   clearRunStatsCache()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 test('缺 run.db 時直接回沿用現狀', () => {
@@ -75,27 +76,43 @@ test('快取命中時不重新讀檔，避免同步查詢拖住主流程', () =>
 })
 
 test('查詢超時守門：有舊快取就回舊值，沒有快取才沿用現狀', () => {
+  const nowMs = Date.parse('2026-07-19T12:00:00.000Z')
+  vi.useFakeTimers()
+  vi.setSystemTime(nowMs)
   const f = dbPath()
   const db = new RunDb(f)
   db.record({ taskId: 'a', ok: true, costUsd: 1, detail: '', engine: 'qwen', ts: '2026-07-19T01:00:00.000Z' })
   db.close()
 
   const cached = recentRunStats(f, { nowIso: '2026-07-19T12:00:00.000Z' })
-  vi.spyOn(Date, 'now')
-    .mockReturnValueOnce(1000)
-    .mockReturnValueOnce(1000)
-    .mockReturnValueOnce(1100)
-  const timedOut = recentRunStats(f, { nowIso: '2026-07-19T12:00:00.000Z', timeoutMs: 50, cacheTtlMs: 0 })
+  vi.advanceTimersByTime(1)
+  let reads = 0
+  const timeoutClock = vi.fn(() => {
+    if (++reads === 3) vi.advanceTimersByTime(51)
+    return Date.now()
+  })
+  const timedOut = recentRunStats(f, {
+    nowIso: '2026-07-19T12:00:00.000Z',
+    nowMs: timeoutClock,
+    timeoutMs: 50,
+    cacheTtlMs: 0,
+  })
   expect(timedOut).toEqual(cached)
+  expect(timeoutClock).toHaveBeenCalledTimes(3)
+  expect(Date.now()).toBe(nowMs + 52)
 
   clearRunStatsCache()
-  vi.restoreAllMocks()
-  vi.spyOn(Date, 'now')
-    .mockReturnValueOnce(2000)
-    .mockReturnValueOnce(2000)
-    .mockReturnValueOnce(2100)
-  const noCache = recentRunStats(f, { nowIso: '2026-07-19T12:00:00.000Z', timeoutMs: 50, cacheTtlMs: 0 })
+  vi.setSystemTime(nowMs)
+  reads = 0
+  const noCache = recentRunStats(f, {
+    nowIso: '2026-07-19T12:00:00.000Z',
+    nowMs: timeoutClock,
+    timeoutMs: 50,
+    cacheTtlMs: 0,
+  })
   expect(noCache).toEqual({ kind: 'reuse-current', decision: REUSE_CURRENT, reason: 'timeout' })
+  expect(timeoutClock).toHaveBeenCalledTimes(6)
+  expect(Date.now()).toBe(nowMs + 51)
 })
 
 test('舊 schema 或壞檔查詢失敗時沿用現狀', () => {
