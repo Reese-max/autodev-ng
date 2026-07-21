@@ -169,6 +169,106 @@ describe('pickCandidateTags 單一入口', () => {
       })
     ).toEqual(['claude', 'spark'])
   })
+
+  test('日額度：達 cap 的候選跳過並輪替下一檔', () => {
+    expect(
+      pickCandidateTags({
+        rotation: ROT,
+        defaultEngine: 'claude',
+        task: { id: '00000000' },
+        failCount: 0,
+        dailyAttemptCaps: new Map([
+          ['a', 1],
+          ['b', 5],
+        ]),
+        todayAttemptCounts: new Map([
+          ['a', 1],
+          ['b', 0],
+        ]),
+      })
+    ).toEqual(['b', 'c'])
+  })
+
+  test('日額度：helper/counts 空 → 不攔截（fail-open 原路徑）', () => {
+    expect(
+      pickCandidateTags({
+        rotation: ROT,
+        defaultEngine: 'claude',
+        task: { id: '00000000' },
+        failCount: 0,
+        dailyAttemptCaps: new Map([['a', 1]]),
+        todayAttemptCounts: new Map(),
+      })
+    ).toEqual(['a', 'b', 'c'])
+  })
+
+  test('日額度：未傳 caps → 向後相容原路徑', () => {
+    expect(
+      pickCandidateTags({
+        rotation: ROT,
+        defaultEngine: 'claude',
+        task: { id: '00000000' },
+        failCount: 0,
+        todayAttemptCounts: new Map([['a', 99]]),
+      })
+    ).toEqual(['a', 'b', 'c'])
+  })
+
+  test('日額度在 subscription 補尾之後套用（達 cap 的尾端也跳過）', () => {
+    expect(
+      pickCandidateTags({
+        rotation: ROT,
+        defaultEngine: 'claude',
+        task: { id: '00000000' },
+        failCount: 0,
+        subscriptionTags: ['spark'],
+        dailyAttemptCaps: new Map([
+          ['a', 1],
+          ['spark', 1],
+        ]),
+        todayAttemptCounts: new Map([
+          ['a', 1],
+          ['spark', 1],
+        ]),
+      })
+    ).toEqual(['b', 'c']) // a、spark 達 cap；b/c 無 cap
+  })
+
+  test('日額度：全部達 cap → fail-open 保留清單', () => {
+    expect(
+      pickCandidateTags({
+        rotation: ['a', 'b'],
+        defaultEngine: 'claude',
+        task: { id: '00000000' },
+        failCount: 0,
+        dailyAttemptCaps: new Map([
+          ['a', 1],
+          ['b', 1],
+        ]),
+        todayAttemptCounts: new Map([
+          ['a', 1],
+          ['b', 1],
+        ]),
+      })
+    ).toEqual(['a', 'b'])
+  })
+
+  test('hooks 可替換 dailyAttemptCapGate', () => {
+    const tags = pickCandidateTags(
+      {
+        rotation: ROT,
+        defaultEngine: 'claude',
+        task: { id: '00000000' },
+        failCount: 0,
+        dailyAttemptCaps: new Map([['a', 1]]),
+        todayAttemptCounts: new Map([['a', 1]]),
+      },
+      {
+        dailyAttemptCapGate: (c) => c.filter(t => t !== 'c'),
+      }
+    )
+    expect(tags).toEqual(['a', 'b'])
+  })
 })
 
 describe('loadActiveIsolatedTags', () => {

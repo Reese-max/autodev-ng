@@ -1,16 +1,21 @@
 /**
  * pickReadyTask 候選清單單一入口。
  *
- * 管線：candidateEngines → quarantine gate → candidate-tail enhancer。
+ * 管線：candidateEngines → quarantine gate → candidate-tail enhancer → daily attempt cap gate。
  * - 隔離：仍在隔離期的輪替檔位跳過派工（有健康候選時）
  * - 尾端：subscription 候補補進尾端（無顯式 engineTag 時）
- * 兩段皆可經 hooks 替換；缺資料時維持原 candidateEngines 路徑。
+ * - 日額度：今日 attempts 已達 dailyAttemptCap 的檔位視為不可用並輪替
+ * 各段皆可經 hooks 替換；缺資料／讀取失敗時維持原 candidateEngines 路徑。
  */
 import { candidateEngines } from './rotation.js'
 import {
   defaultCandidateTailEnhancer,
   type CandidateTailEnhancer,
 } from './candidate-tail.js'
+import {
+  defaultDailyAttemptCapGate,
+  type DailyAttemptCapGate,
+} from './daily-attempt-cap-gate.js'
 import {
   activeIsolatedTags,
   defaultQuarantineGate,
@@ -23,8 +28,10 @@ import {
 
 export type { QuarantineGate } from './quarantine-gate.js'
 export type { CandidateTailEnhancer } from './candidate-tail.js'
+export type { DailyAttemptCapGate } from './daily-attempt-cap-gate.js'
 export { defaultQuarantineGate, activeIsolatedTags } from './quarantine-gate.js'
 export { defaultCandidateTailEnhancer } from './candidate-tail.js'
+export { defaultDailyAttemptCapGate } from './daily-attempt-cap-gate.js'
 
 export interface PickCandidateInput {
   rotation: string[] | undefined
@@ -35,11 +42,16 @@ export interface PickCandidateInput {
   isolatedTags?: readonly string[]
   /** subscription 候補；未設＝不補尾 */
   subscriptionTags?: readonly string[]
+  /** tag → dailyAttemptCap；未設／空＝不限 */
+  dailyAttemptCaps?: ReadonlyMap<string, number>
+  /** tag → 今日 attempts；未設／空＝視為 0（不觸發 cap，fail-open） */
+  todayAttemptCounts?: ReadonlyMap<string, number>
 }
 
 export interface PickCandidateHooks {
   quarantineGate?: QuarantineGate
   candidateTailEnhancer?: CandidateTailEnhancer
+  dailyAttemptCapGate?: DailyAttemptCapGate
 }
 
 /**
@@ -59,7 +71,7 @@ export function loadActiveIsolatedTags(dataDir: string, nowIso?: string): string
 
 /**
  * pickReadyTask 唯一候選入口。
- * 顯式 engineTag 仍過 quarantine（隔離可擋），但不補 subscription 尾端（尊重人工指定）。
+ * 顯式 engineTag 仍過 quarantine 與日額度閘，但不補 subscription 尾端（尊重人工指定）。
  */
 export function pickCandidateTags(
   input: PickCandidateInput,
@@ -73,8 +85,15 @@ export function pickCandidateTags(
   )
   const gate = hooks.quarantineGate ?? defaultQuarantineGate
   const enhance = hooks.candidateTailEnhancer ?? defaultCandidateTailEnhancer
+  const capGate = hooks.dailyAttemptCapGate ?? defaultDailyAttemptCapGate
   const isolated = new Set(input.isolatedTags ?? [])
   const afterGate = gate(base, isolated)
-  if (input.task.engineTag) return afterGate
-  return enhance(afterGate, input.subscriptionTags ?? [])
+  const afterTail = input.task.engineTag
+    ? afterGate
+    : enhance(afterGate, input.subscriptionTags ?? [])
+  return capGate(
+    afterTail,
+    input.dailyAttemptCaps ?? new Map(),
+    input.todayAttemptCounts ?? new Map(),
+  )
 }

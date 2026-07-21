@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
 import { localDay, type RunDb } from './db.js'
 import { loadIsolatedTagsForPick } from './engines/apply-stats-isolation.js'
+import { loadDailyAttemptCapContext } from './engines/daily-attempt-cap-gate.js'
 import { pickCandidateTags } from './engines/pick-candidates.js'
 import { singleFlightPickRouting } from './engines/pick-ready-single-flight.js'
 import { quiet, type EventLog } from './events.js'
@@ -252,8 +253,10 @@ export async function pickReadyTask(
     { dataDir: cfg.dataDir, rotation: cfg.engineRotation, offsetHours: cfg.timezoneOffsetHours },
     ev => quiet(() => events.append('engine-route-isolated', { ...ev })),
   )), subs = subscriptionTags(cfg)
+  // 日額度守門：helper/run.db 失敗 → 空 caps/counts，維持原派工路徑（fail-open）
+  const { dailyAttemptCaps, todayAttemptCounts } = loadDailyAttemptCapContext(cfg.engines, cfg.dataDir)
   for (const cand of openTasks) {
-    const tags = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs })
+    const tags = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs, dailyAttemptCaps, todayAttemptCounts })
     for (const engineTag of tags) {
       const engineCfg = cfg.engines[engineTag]
       if (!engineCfg) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`)
