@@ -1,0 +1,331 @@
+{
+  "command": "npx vitest run --reporter=dot",
+  "startedAt": "2026-07-21T05:02:49.785Z",
+  "finishedAt": "2026-07-21T06:34:13.840Z",
+  "roundsRequested": 20,
+  "roundsCompleted": 20,
+  "runs": [
+    {
+      "round": 1,
+      "startedAt": "2026-07-21T05:02:49.786Z",
+      "durationMs": 223341,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 2,
+      "startedAt": "2026-07-21T05:06:33.131Z",
+      "durationMs": 269917,
+      "exitCode": 1,
+      "timedOut": false,
+      "failures": [
+        {
+          "order": 1,
+          "spec": "tests/worktree.test.ts > prepareWorktree：殘留目錄被鎖住(前次中斷進程未退)時上拋且不砍分支——成果分支與 HEAD 完好保留；解鎖後重試自癒成功（2a929ec9 產線事故回歸測試）",
+          "message": "Error: waitForWriteLockState: C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\adng-wt-lmvMea\\worktrees\\abc12345\\result.txt 在 10000ms 內未達到 locked=true"
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "startedAt": "2026-07-21T05:11:03.052Z",
+      "durationMs": 244321,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 4,
+      "startedAt": "2026-07-21T05:15:07.375Z",
+      "durationMs": 253012,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 5,
+      "startedAt": "2026-07-21T05:19:20.389Z",
+      "durationMs": 225288,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 6,
+      "startedAt": "2026-07-21T05:23:05.679Z",
+      "durationMs": 218504,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 7,
+      "startedAt": "2026-07-21T05:26:44.184Z",
+      "durationMs": 241361,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 8,
+      "startedAt": "2026-07-21T05:30:45.547Z",
+      "durationMs": 280834,
+      "exitCode": 1,
+      "timedOut": false,
+      "failures": [
+        {
+          "order": 1,
+          "spec": "tests/learn-integration.test.ts > ② lessons.reflect 拋錯不可反殺主迴圈（fail-open，鐵律 #4）",
+          "message": "Error: Test timed out in 20000ms."
+        }
+      ]
+    },
+    {
+      "round": 9,
+      "startedAt": "2026-07-21T05:35:26.442Z",
+      "durationMs": 526703,
+      "exitCode": 1,
+      "timedOut": false,
+      "failures": [
+        {
+          "order": 1,
+          "spec": "tests/daemon.test.ts > ⑬ 冷卻閘：alert-cooldown.json 損壞 → fail-open 照發不炸 daemon（鐵律 #4）",
+          "message": "Error: Test timed out in 20000ms."
+        },
+        {
+          "order": 2,
+          "spec": "tests/restart-routing-consistency.test.ts > 重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件 > 寫入隔離+晉升 → 重建上下文 → pick 延續原狀且不重設試探、不重派事件",
+          "message": "AssertionError: expected 'reuse-current' to be 'context' // Object.is equality"
+        },
+        {
+          "order": 3,
+          "spec": "tests/restart-routing-consistency.test.ts > 重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件 > 重啟前首次隔離有事件；重啟後同條件只延續、untilTs 不變、事件不重複",
+          "message": "AssertionError: expected [] to include 'qwen'"
+        },
+        {
+          "order": 4,
+          "spec": "tests/run-stats.test.ts > 快取命中時不重新讀檔，避免同步查詢拖住主流程",
+          "message": "AssertionError: expected { kind: 'reuse-current', …(2) } to deeply equal { kind: 'reuse-current', …(2) }"
+        }
+      ]
+    },
+    {
+      "round": 10,
+      "startedAt": "2026-07-21T05:44:13.149Z",
+      "durationMs": 545402,
+      "exitCode": 1,
+      "timedOut": false,
+      "failures": [
+        {
+          "order": 1,
+          "spec": "tests/daemon.test.ts > ⑪ 冷卻閘：兩個不同任務各自 blocked → 各送一則告警（key 各自獨立）",
+          "message": "Error: Test timed out in 20000ms."
+        },
+        {
+          "order": 2,
+          "spec": "tests/daemon.test.ts > M10.0 案例 2：perpetual 觸發（maybeRunPerpetual 回 true）→ 該輪不發 idle alert，sleep 收 cooldownMs（非 idleSleepMs）",
+          "message": "Error: Test timed out in 20000ms."
+        },
+        {
+          "order": 3,
+          "spec": "tests/restart-routing-consistency.test.ts > 重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件 > 寫入隔離+晉升 → 重建上下文 → pick 延續原狀且不重設試探、不重派事件",
+          "message": "AssertionError: expected 'reuse-current' to be 'context' // Object.is equality"
+        },
+        {
+          "order": 4,
+          "spec": "tests/restart-routing-consistency.test.ts > 重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件 > 重啟前首次隔離有事件；重啟後同條件只延續、untilTs 不變、事件不重複",
+          "message": "AssertionError: expected 'reuse-current' to be 'context' // Object.is equality"
+        },
+        {
+          "order": 5,
+          "spec": "tests/worktree.test.ts > mergeBack：worktree 內 commit 後 ff-only 成功、主 repo HEAD 前進；cleanupWorktree 清掉現場",
+          "message": "Error: Test timed out in 20000ms."
+        },
+        {
+          "order": 6,
+          "spec": "tests/worktree.test.ts > cleanupWorktree：marker 缺失 → 上拋拒刪，絕不 rmSync（目錄與分支原封不動）",
+          "message": "Error: prepareWorktree: worktree 無效（C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\adng-wt-mB9CMe\\worktrees\\abc12345 解析不到 HEAD 分支，checkout 未落地？）：Error: spawnSync git ETIMEDOUT"
+        },
+        {
+          "order": 7,
+          "spec": "tests/worktree.test.ts > cleanupWorktree：marker taskId 與分支不符 → 上拋拒刪（防路徑算錯誤刪別的任務現場）",
+          "message": "Error: Test timed out in 20000ms."
+        }
+      ]
+    },
+    {
+      "round": 11,
+      "startedAt": "2026-07-21T05:53:18.555Z",
+      "durationMs": 411817,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 12,
+      "startedAt": "2026-07-21T06:00:10.374Z",
+      "durationMs": 274986,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 13,
+      "startedAt": "2026-07-21T06:04:45.362Z",
+      "durationMs": 258027,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 14,
+      "startedAt": "2026-07-21T06:09:03.391Z",
+      "durationMs": 233989,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 15,
+      "startedAt": "2026-07-21T06:12:57.382Z",
+      "durationMs": 201729,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 16,
+      "startedAt": "2026-07-21T06:16:19.113Z",
+      "durationMs": 222781,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 17,
+      "startedAt": "2026-07-21T06:20:01.895Z",
+      "durationMs": 211782,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 18,
+      "startedAt": "2026-07-21T06:23:33.679Z",
+      "durationMs": 212491,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 19,
+      "startedAt": "2026-07-21T06:27:06.173Z",
+      "durationMs": 218286,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    },
+    {
+      "round": 20,
+      "startedAt": "2026-07-21T06:30:44.461Z",
+      "durationMs": 209379,
+      "exitCode": 0,
+      "timedOut": false,
+      "failures": []
+    }
+  ],
+  "frequencies": [
+    {
+      "spec": "tests/restart-routing-consistency.test.ts > 重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件 > 重啟前首次隔離有事件；重啟後同條件只延續、untilTs 不變、事件不重複",
+      "failedRounds": [
+        9,
+        10
+      ],
+      "failureRate": 0.1,
+      "classification": "intermittent"
+    },
+    {
+      "spec": "tests/restart-routing-consistency.test.ts > 重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件 > 寫入隔離+晉升 → 重建上下文 → pick 延續原狀且不重設試探、不重派事件",
+      "failedRounds": [
+        9,
+        10
+      ],
+      "failureRate": 0.1,
+      "classification": "intermittent"
+    },
+    {
+      "spec": "tests/daemon.test.ts > ⑪ 冷卻閘：兩個不同任務各自 blocked → 各送一則告警（key 各自獨立）",
+      "failedRounds": [
+        10
+      ],
+      "failureRate": 0.05,
+      "classification": "intermittent"
+    },
+    {
+      "spec": "tests/daemon.test.ts > ⑬ 冷卻閘：alert-cooldown.json 損壞 → fail-open 照發不炸 daemon（鐵律 #4）",
+      "failedRounds": [
+        9
+      ],
+      "failureRate": 0.05,
+      "classification": "intermittent"
+    },
+    {
+      "spec": "tests/daemon.test.ts > M10.0 案例 2：perpetual 觸發（maybeRunPerpetual 回 true）→ 該輪不發 idle alert，sleep 收 cooldownMs（非 idleSleepMs）",
+      "failedRounds": [
+        10
+      ],
+      "failureRate": 0.05,
+      "classification": "intermittent"
+    },
+    {
+      "spec": "tests/learn-integration.test.ts > ② lessons.reflect 拋錯不可反殺主迴圈（fail-open，鐵律 #4）",
+      "failedRounds": [
+        8
+      ],
+      "failureRate": 0.05,
+      "classification": "intermittent"
+    },
+    {
+      "spec": "tests/run-stats.test.ts > 快取命中時不重新讀檔，避免同步查詢拖住主流程",
+      "failedRounds": [
+        9
+      ],
+      "failureRate": 0.05,
+      "classification": "intermittent"
+    },
+    {
+      "spec": "tests/worktree.test.ts > cleanupWorktree：marker 缺失 → 上拋拒刪，絕不 rmSync（目錄與分支原封不動）",
+      "failedRounds": [
+        10
+      ],
+      "failureRate": 0.05,
+      "classification": "intermittent"
+    },
+    {
+      "spec": "tests/worktree.test.ts > cleanupWorktree：marker taskId 與分支不符 → 上拋拒刪（防路徑算錯誤刪別的任務現場）",
+      "failedRounds": [
+        10
+      ],
+      "failureRate": 0.05,
+      "classification": "intermittent"
+    },
+    {
+      "spec": "tests/worktree.test.ts > mergeBack：worktree 內 commit 後 ff-only 成功、主 repo HEAD 前進；cleanupWorktree 清掉現場",
+      "failedRounds": [
+        10
+      ],
+      "failureRate": 0.05,
+      "classification": "intermittent"
+    },
+    {
+      "spec": "tests/worktree.test.ts > prepareWorktree：殘留目錄被鎖住(前次中斷進程未退)時上拋且不砍分支——成果分支與 HEAD 完好保留；解鎖後重試自癒成功（2a929ec9 產線事故回歸測試）",
+      "failedRounds": [
+        2
+      ],
+      "failureRate": 0.05,
+      "classification": "intermittent"
+    }
+  ],
+  "conclusion": "最高頻不穩定測試：tests/restart-routing-consistency.test.ts > 重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件 > 重啟前首次隔離有事件；重啟後同條件只延續、untilTs 不變、事件不重複（2 輪，失敗率 10.0%）。"
+}
