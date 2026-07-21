@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci
-      - run: npm test
+      - run: npm run test:flaky-regression
 
   dependency-upgrade:
     name: dependency-upgrade (fastapi/starlette/httpx)

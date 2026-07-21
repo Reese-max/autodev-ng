@@ -14,6 +14,7 @@
     "routing-check": "tsc -p tsconfig.build.json && node dist/engines/routing-check.js",
     "routing-status": "tsc -p tsconfig.build.json && node dist/engines/routing-status.js",
     "test": "vitest run",
+    "test:flaky-regression": "npm run build && node dist/engines/flaky-regression.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
