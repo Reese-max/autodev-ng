@@ -64,14 +64,29 @@ test('樣本數不足時不輸出排序依據，直接沿用現狀', () => {
 })
 
 test('快取命中時不重新讀檔，避免同步查詢拖住主流程', () => {
+  // 固定 nowMs + 寬逾時：全套高負載下避免 50ms fail-open 讓 first/second 變成不同 reason 的 reuse-current
+  const nowIso = '2026-07-19T12:00:00.000Z'
+  const nowMs = Date.parse(nowIso)
   const f = dbPath()
   const db = new RunDb(f)
   db.record({ taskId: 'a', ok: true, costUsd: 1, detail: '', engine: 'qwen', ts: '2026-07-19T01:00:00.000Z' })
   db.close()
 
-  const first = recentRunStats(f, { nowIso: '2026-07-19T12:00:00.000Z', cacheTtlMs: 60_000 })
+  clearRunStatsCache()
+  const first = recentRunStats(f, {
+    nowIso,
+    nowMs: () => nowMs,
+    timeoutMs: 5_000,
+    cacheTtlMs: 60_000,
+  })
+  expect(first.kind).toBe('stats')
   rmSync(f)
-  const second = recentRunStats(f, { nowIso: '2026-07-19T12:00:00.000Z', cacheTtlMs: 60_000 })
+  const second = recentRunStats(f, {
+    nowIso,
+    nowMs: () => nowMs,
+    timeoutMs: 5_000,
+    cacheTtlMs: 60_000,
+  })
   expect(second).toEqual(first)
 })
 
