@@ -11,6 +11,16 @@
 
 export type DaemonAction = 'launch' | 'reap' | 'keep'
 
+/** 只列真正執行任務的引擎；wsl/cmd/conhost 等殼進程刻意不在其中。 */
+export const ENGINE_PROCESS_NAMES = new Set([
+  'node.exe', 'node', 'codex.exe', 'codex', 'opencode.exe', 'opencode',
+  'devin.exe', 'devin', 'python.exe', 'python', 'bun.exe', 'bun',
+])
+
+export function hasEngineProcess(processNames: readonly string[]): boolean {
+  return processNames.some(name => ENGINE_PROCESS_NAMES.has(name.toLowerCase()))
+}
+
 export type ClassifyDaemonInput = {
   pidAlive: boolean
   /** Age of last heartbeat in ms; null/omitted = no heartbeat info */

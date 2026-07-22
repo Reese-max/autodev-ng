@@ -1,10 +1,10 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { ConfigSchema, DEFAULT_STALE_THRESHOLD_MS } from '../types.js'
-import { classifyDaemon, type DaemonAction } from './health.js'
+import { ConfigSchema, DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
+import { classifyDaemon, hasEngineProcess, type DaemonAction } from './health.js'
 
-export { DEFAULT_STALE_THRESHOLD_MS } from '../types.js'
+export { DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
 const COMMAND_TIMEOUT_MS = 10_000
 
 export type CommandRunner = (command: string, args: string[]) => string
@@ -14,6 +14,7 @@ export type ReapDaemon = (pid: number) => void
 export interface SuperviseOptions {
   nowMs?: number
   staleThresholdMs?: number
+  wedgeHardCapMs?: number
   runCommand?: CommandRunner
   launch?: LaunchDaemon
   reap?: ReapDaemon
@@ -51,12 +52,13 @@ function isEnoent(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'ENOENT'
 }
 
-function configDataDir(configPath: string): { dataDir: string; staleThresholdMs: number } {
+function configDataDir(configPath: string): { dataDir: string; staleThresholdMs: number; wedgeHardCapMs: number } {
   const absolutePath = resolve(configPath)
   const cfg = ConfigSchema.parse(JSON.parse(readFileSync(absolutePath, 'utf8')))
   return {
     dataDir: resolve(dirname(absolutePath), cfg.dataDir),
     staleThresholdMs: cfg.staleThresholdMs,
+    wedgeHardCapMs: cfg.wedgeHardCapMs,
   }
 }
 
@@ -154,6 +156,20 @@ export function countChildProcesses(pid: number, runCommand: CommandRunner = def
     .length
 }
 
+/** 只在 hard-cap 已過時查完整子樹，避免一般 supervise cycle 多一次 CIM I/O。 */
+export function listDescendantProcessNames(pid: number, runCommand: CommandRunner = defaultRunCommand): string[] {
+  const output = runCommand('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    `$all = @(Get-CimInstance Win32_Process); $pending = @(${pid}); $names = @(); while ($pending.Count) { $parent = $pending[0]; $pending = @($pending | Select-Object -Skip 1); $children = @($all | Where-Object { $_.ParentProcessId -eq $parent }); $pending += @($children | ForEach-Object { [int]$_.ProcessId }); $names += @($children | ForEach-Object { $_.Name }) }; ConvertTo-Json -Compress -InputObject @($names)`,
+  ])
+  const parsed: unknown = JSON.parse(output)
+  const names = Array.isArray(parsed) ? parsed : [parsed]
+  if (!names.every(name => typeof name === 'string')) throw new Error('子進程樹輸出無效')
+  return names
+}
+
 /**
  * Windows file-sharing codes seen when a live daemon still holds
  * daemon-console.log open for write (shell >> or inherited stdio).
@@ -213,11 +229,14 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
   const pid = lock.pid
   const heartbeatAgeMs = heartbeat.value
   const runCommand = options.runCommand ?? defaultRunCommand
+  const staleThresholdMs = options.staleThresholdMs ?? config.staleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS
+  const wedgeHardCapMs = options.wedgeHardCapMs ?? config.wedgeHardCapMs ?? DEFAULT_WEDGE_HARD_CAP_MS
   const probeErrors = [lock.error, heartbeat.error].filter((error): error is string => error !== undefined)
   let probeFailed = probeErrors.length > 0
 
   let pidAlive = false
   let childCount = 0
+  let hasEngineChild: boolean | null = null
   if (pid !== null) {
     let tasklistSucceeded = true
     try {
@@ -238,6 +257,14 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
         probeFailed = true
         probeErrors.push(`child-process: ${errorText(error)}`)
       }
+      if (childCount > 0 && heartbeatAgeMs != null && heartbeatAgeMs > wedgeHardCapMs) {
+        try {
+          hasEngineChild = hasEngineProcess(listDescendantProcessNames(pid, runCommand))
+        } catch (error) {
+          probeFailed = true
+          probeErrors.push(`child-process-tree: ${errorText(error)}`)
+        }
+      }
     }
   }
 
@@ -247,7 +274,9 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
       pidAlive,
       heartbeatAgeMs,
       childCount,
-      staleThresholdMs: options.staleThresholdMs ?? config.staleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS,
+      staleThresholdMs,
+      hardCapMs: wedgeHardCapMs,
+      hasEngineChild,
     })
 
   let launchedPid: number | undefined

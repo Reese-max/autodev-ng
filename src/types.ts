@@ -82,6 +82,7 @@ export type EngineConfig = z.infer<typeof EngineConfigSchema>
 // 改從此常數鏡像（M10.5 缺欄低估事故的根因就是兩處預設不一致）。台灣 +8。
 export const DEFAULT_TIMEZONE_OFFSET_HOURS = 8
 export const DEFAULT_STALE_THRESHOLD_MS = 30 * 60_000
+export const DEFAULT_WEDGE_HARD_CAP_MS = 120 * 60_000
 
 export const ConfigSchema = z.object({
   projectPath: z.string().min(1),
@@ -97,6 +98,8 @@ export const ConfigSchema = z.object({
   cooldownMs: z.number().int().nonnegative().default(60_000),
   // supervisor：heartbeat 過期門檻；未設時保守維持 30 分鐘，覆寫不得低於 15 分鐘。
   staleThresholdMs: z.number().int().min(900_000).default(DEFAULT_STALE_THRESHOLD_MS),
+  // supervisor：有子進程時的 wedge 硬上限；預設 120 分鐘。
+  wedgeHardCapMs: z.number().int().min(900_001).default(DEFAULT_WEDGE_HARD_CAP_MS),
   // M4 Task 3（成本記帳）：本地日界線與失敗成本估計。台灣預設 +8；成本日界線與 digest 報日共用同一個 offset。
   timezoneOffsetHours: z.number().int().min(-12).max(14).default(DEFAULT_TIMEZONE_OFFSET_HOURS),
   failureCostEstimateUsd: z.number().nonnegative().default(1),
@@ -138,6 +141,8 @@ export const ConfigSchema = z.object({
 })
   .superRefine((c, ctx) => {
     if (!c.engines && !c.engine) ctx.addIssue({ code: 'custom', path: ['engine'], message: 'engines map 與 legacy engine 欄位至少須設一個' })
+    if (c.wedgeHardCapMs <= c.staleThresholdMs)
+      ctx.addIssue({ code: 'custom', path: ['wedgeHardCapMs'], message: 'wedgeHardCapMs 必須大於 staleThresholdMs' })
     for (const [tag, ec] of Object.entries(c.engines ?? {})) {
       if (ec.adapter === 'agy' && ec.env) ctx.addIssue({ code: 'custom', path: ['engines', tag, 'env'], message: `engines.${tag}：agy 不消費 env（WSL 邊界不透傳），設了會靜默無效` })
       if (!['claude-cli', 'mock', 'opencode'].includes(ec.adapter) && ec.costPerRunUsd === undefined)
