@@ -94,6 +94,8 @@ export const ConfigSchema = z.object({
   // M10.5 全域日頂：跨專案真金總帳防線。未設＝無全域防線（現狀）。
   globalDailyHardUsd: z.number().positive().optional(),
   cooldownMs: z.number().int().nonnegative().default(60_000),
+  // supervisor：heartbeat 過期門檻；未設時保守維持 30 分鐘。
+  staleThresholdMs: z.number().int().positive().default(30 * 60_000),
   // M4 Task 3（成本記帳）：本地日界線與失敗成本估計。台灣預設 +8；成本日界線與 digest 報日共用同一個 offset。
   timezoneOffsetHours: z.number().int().min(-12).max(14).default(DEFAULT_TIMEZONE_OFFSET_HOURS),
   failureCostEstimateUsd: z.number().nonnegative().default(1),

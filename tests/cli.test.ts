@@ -226,6 +226,16 @@ test('小修輪#6：純新形狀 config（只寫 engines map、無 legacy engine
   expect(r.success).toBe(true)
 })
 
+test('supervisor staleThresholdMs：未設採保守預設，且只接受正整數', () => {
+  const base = { projectPath: './p', backlogFile: './p/B.md', dataDir: './d', engine: 'mock' as const }
+  const defaulted = ConfigSchema.parse(base)
+  expect(defaulted.staleThresholdMs).toBeGreaterThanOrEqual(900_000)
+  expect(ConfigSchema.safeParse({ ...base, staleThresholdMs: 0 }).success).toBe(false)
+  expect(ConfigSchema.safeParse({ ...base, staleThresholdMs: -1 }).success).toBe(false)
+  expect(ConfigSchema.safeParse({ ...base, staleThresholdMs: 1.5 }).success).toBe(false)
+  expect(ConfigSchema.safeParse({ ...base, staleThresholdMs: 900_001 }).success).toBe(true)
+})
+
 test('小修輪#5：非真值 adapter 未設 costPerRunUsd → 拒（防成功路徑靜默記 $0）；opencode/claude-cli/mock 豁免', () => {
   const base = { projectPath: './p', backlogFile: './p/B.md', dataDir: './d', engine: 'claude-cli' as const }
   // qwen 無 costPerRunUsd → 拒，訊息點名該 tag 的 costPerRunUsd

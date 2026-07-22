@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { ConfigSchema } from '../types.js'
 import { classifyDaemon, type DaemonAction } from './health.js'
@@ -47,27 +47,60 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function configDataDir(configPath: string): string {
-  const absolutePath = resolve(configPath)
-  const cfg = ConfigSchema.parse(JSON.parse(readFileSync(absolutePath, 'utf8')))
-  return resolve(dirname(absolutePath), cfg.dataDir)
+function isEnoent(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'ENOENT'
 }
 
-function readLockPid(dataDir: string): number | null {
-  try {
-    const raw: unknown = JSON.parse(readFileSync(join(dataDir, 'daemon.lock', 'pid.json'), 'utf8'))
-    const pid = (raw as { pid?: unknown } | null)?.pid
-    return typeof pid === 'number' && Number.isInteger(pid) && pid > 0 ? pid : null
-  } catch {
-    return null
+function configDataDir(configPath: string): { dataDir: string; staleThresholdMs: number } {
+  const absolutePath = resolve(configPath)
+  const cfg = ConfigSchema.parse(JSON.parse(readFileSync(absolutePath, 'utf8')))
+  return {
+    dataDir: resolve(dirname(absolutePath), cfg.dataDir),
+    staleThresholdMs: cfg.staleThresholdMs,
   }
 }
 
-function readHeartbeatAge(dataDir: string, nowMs: number): number | null {
+interface LockProbe {
+  lockPresent: boolean
+  pid: number | null
+  error?: string
+}
+
+function readLockProbe(dataDir: string): LockProbe {
+  const lockDir = join(dataDir, 'daemon.lock')
   try {
-    return Math.max(0, nowMs - statSync(join(dataDir, 'heartbeat.json')).mtimeMs)
-  } catch {
-    return null
+    statSync(lockDir)
+  } catch (error) {
+    if (isEnoent(error)) return { lockPresent: false, pid: null }
+    return { lockPresent: false, pid: null, error: `lock: ${errorText(error)}` }
+  }
+
+  try {
+    const raw: unknown = JSON.parse(readFileSync(join(lockDir, 'pid.json'), 'utf8'))
+    const pid = (raw as { pid?: unknown } | null)?.pid
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) {
+      return { lockPresent: true, pid: null, error: 'lock: pid.json 內容無效' }
+    }
+    return { lockPresent: true, pid }
+  } catch (error) {
+    return { lockPresent: true, pid: null, error: `lock: ${errorText(error)}` }
+  }
+}
+
+interface Probe<T> {
+  value: T
+  error?: string
+}
+
+function readHeartbeatAge(dataDir: string, nowMs: number): Probe<number | null> {
+  try {
+    const age = Math.max(0, nowMs - statSync(join(dataDir, 'heartbeat.json')).mtimeMs)
+    return Number.isFinite(age)
+      ? { value: age }
+      : { value: null, error: 'heartbeat: mtime 無效' }
+  } catch (error) {
+    if (isEnoent(error)) return { value: null }
+    return { value: null, error: `heartbeat: ${errorText(error)}` }
   }
 }
 
@@ -137,12 +170,16 @@ function reapDaemon(pid: number, runCommand: CommandRunner): void {
 
 export function superviseConfig(configPath: string, options: SuperviseOptions = {}): SuperviseResult {
   const absolutePath = resolve(configPath)
-  const dataDir = configDataDir(absolutePath)
-  const lockPresent = existsSync(join(dataDir, 'daemon.lock'))
-  const pid = readLockPid(dataDir)
-  const heartbeatAgeMs = readHeartbeatAge(dataDir, options.nowMs ?? Date.now())
+  const config = configDataDir(absolutePath)
+  const { dataDir } = config
+  const lock = readLockProbe(dataDir)
+  const heartbeat = readHeartbeatAge(dataDir, options.nowMs ?? Date.now())
+  const lockPresent = lock.lockPresent
+  const pid = lock.pid
+  const heartbeatAgeMs = heartbeat.value
   const runCommand = options.runCommand ?? defaultRunCommand
-  const probeErrors: string[] = []
+  const probeErrors = [lock.error, heartbeat.error].filter((error): error is string => error !== undefined)
+  let probeFailed = probeErrors.length > 0
 
   let pidAlive = false
   let childCount = 0
@@ -155,6 +192,7 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
       tasklistSucceeded = false
       pidAlive = true
       childCount = 1
+      probeFailed = true
       probeErrors.push(`tasklist: ${errorText(error)}`)
     }
     if (tasklistSucceeded && pidAlive) {
@@ -162,17 +200,20 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
         childCount = countChildProcesses(pid, runCommand)
       } catch (error) {
         childCount = 1
+        probeFailed = true
         probeErrors.push(`child-process: ${errorText(error)}`)
       }
     }
   }
 
-  const action = classifyDaemon({
-    pidAlive,
-    heartbeatAgeMs,
-    childCount,
-    staleThresholdMs: options.staleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS,
-  })
+  const action = probeFailed
+    ? 'keep'
+    : classifyDaemon({
+      pidAlive,
+      heartbeatAgeMs,
+      childCount,
+      staleThresholdMs: options.staleThresholdMs ?? config.staleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS,
+    })
 
   let launchedPid: number | undefined
   if (action !== 'keep') {

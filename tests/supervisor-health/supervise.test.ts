@@ -9,7 +9,7 @@ import {
   type CommandRunner,
 } from '../../src/supervisor/supervise.js'
 
-function writeConfig(root: string, name = 'project.json'): { configPath: string; dataDir: string } {
+function writeConfig(root: string, name = 'project.json', over: Record<string, unknown> = {}): { configPath: string; dataDir: string } {
   const configPath = join(root, name)
   const dataDir = join(root, `${name}.data`)
   writeFileSync(configPath, JSON.stringify({
@@ -17,6 +17,7 @@ function writeConfig(root: string, name = 'project.json'): { configPath: string;
     backlogFile: './BACKLOG.md',
     dataDir: `./${name}.data`,
     engine: 'mock',
+    ...over,
   }))
   mkdirSync(dataDir, { recursive: true })
   return { configPath, dataDir }
@@ -81,6 +82,25 @@ test('CIM 失敗時回退 wmic 並統計 ProcessId 行', () => {
   expect(count).toBe(2)
   expect(calls).toHaveLength(2)
   expect(calls[1]).toContain('wmic process where ParentProcessId=99')
+})
+
+test('supervisor 使用 config 的 staleThresholdMs', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-config-'))
+  const { configPath, dataDir } = writeConfig(root, 'threshold.json', { staleThresholdMs: 60_000 })
+  writePid(dataDir, 43)
+  const heartbeat = join(dataDir, 'heartbeat.json')
+  writeFileSync(heartbeat, '{}')
+  const nowMs = Date.now()
+  utimesSync(heartbeat, new Date(nowMs - 120_000), new Date(nowMs - 120_000))
+
+  const result = superviseConfig(configPath, {
+    nowMs,
+    runCommand: aliveRunner(43),
+    launch: () => 7001,
+    reap: () => undefined,
+  })
+
+  expect(result.action).toBe('reap')
 })
 
 test('launch／keep／reap 三決策接線；reap 完成後立即補啟 daemon', () => {
@@ -154,6 +174,47 @@ test('探測命令失敗時保守 keep，不誤殺存活 PID', () => {
 
   expect(result).toMatchObject({ pidAlive: true, childCount: 1, action: 'keep' })
   expect(result.probeErrors[0]).toContain('tasklist timeout')
+})
+
+test('lock pid 讀取失敗時 fail-open keep，不啟動或回收 daemon', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-lock-'))
+  const { configPath, dataDir } = writeConfig(root)
+  const lockDir = join(dataDir, 'daemon.lock')
+  mkdirSync(lockDir)
+  mkdirSync(join(lockDir, 'pid.json'))
+  const effects: string[] = []
+
+  const result = superviseConfig(configPath, {
+    launch: () => { effects.push('launch'); return 1 },
+    reap: () => { effects.push('reap') },
+  })
+
+  expect(result).toMatchObject({ lockPresent: true, pid: null, action: 'keep' })
+  expect(result.probeErrors[0]).toContain('lock:')
+  expect(effects).toEqual([])
+})
+
+test('子進程查詢失敗時 fail-open keep，不回收 daemon', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-child-'))
+  const { configPath, dataDir } = writeConfig(root)
+  writePid(dataDir, 56)
+  const heartbeat = join(dataDir, 'heartbeat.json')
+  writeFileSync(heartbeat, '{}')
+  const nowMs = Date.now()
+  utimesSync(heartbeat, new Date(nowMs - 120_000), new Date(nowMs - 120_000))
+
+  const result = superviseConfig(configPath, {
+    nowMs,
+    staleThresholdMs: 60_000,
+    runCommand: (command) => {
+      if (command === 'tasklist') return '"node.exe","56","Console","1","1,000 K"\r\n'
+      throw new Error('child query unavailable')
+    },
+    reap: () => { throw new Error('不應 reap') },
+  })
+
+  expect(result).toMatchObject({ pidAlive: true, childCount: 1, action: 'keep' })
+  expect(result.probeErrors[0]).toContain('child query unavailable')
 })
 
 test('目錄模式逐一處理排序後的 JSON；壞 config 不拖垮其他專案', () => {
