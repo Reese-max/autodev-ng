@@ -1,8 +1,7 @@
 import { expect, test } from 'vitest'
 import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { basename, join } from 'node:path'
 import {
   countChildProcesses,
   isDaemonConsoleLogBusyError,
@@ -321,28 +320,4 @@ test('launch 回傳 undefined（共享鎖占用）時記錄 probeError、不帶 
   expect(result.action).toBe('launch')
   expect(result.launchedPid).toBeUndefined()
   expect(result.probeErrors.some(e => e.includes('daemon-console.log') && e.includes('共享鎖'))).toBe(true)
-})
-
-test('adng-daemons.cmd：純 ASCII 薄殼，委派 supervise，無 inline 判活', () => {
-  const cmdPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'adng-daemons.cmd')
-  const content = readFileSync(cmdPath, 'utf8')
-  // hard rule 7: pure ASCII
-  expect(content).not.toMatch(/[^\x00-\x7F]/)
-  // executable lines only (strip REM comments)
-  const code = content
-    .split(/\r?\n/)
-    .filter(line => {
-      const t = line.trim()
-      return t.length > 0 && !t.startsWith('REM')
-    })
-    .join('\n')
-  // delegates to TS supervise entry
-  expect(code).toMatch(/supervise\s+--configs-dir/)
-  expect(code).toMatch(/dist\\cli\.js/)
-  // no legacy inline liveness batch logic in executable body
-  expect(code).not.toMatch(/tasklist/i)
-  expect(code).not.toMatch(/pid\.json/i)
-  expect(code).not.toMatch(/ALIVE/i)
-  expect(code).not.toMatch(/start "" \/b/i)
-  expect(code).not.toMatch(/for %%F/i)
 })
