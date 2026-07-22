@@ -112,8 +112,8 @@ export function isNodePidAlive(pid: number, runCommand: CommandRunner = defaultR
     '/NH',
   ])
   return output.split(/\r?\n/).some(line => {
-    const fields = line.match(/^"([^"]+)","([^"]+)"/)
-    return fields?.[1]?.toLowerCase() === 'node.exe' && Number(fields[2]?.replace(/\D/g, '')) === pid
+    const fields = line.trim().match(/^"([^"]+)","(\d+)"/)
+    return fields?.[1]?.toLowerCase() === 'node.exe' && Number(fields[2]) === pid
   })
 }
 
@@ -145,7 +145,11 @@ export function countChildProcesses(pid: number, runCommand: CommandRunner = def
     'ProcessId',
     '/value',
   ])
-  return output.replace(/\0/g, '').match(/^ProcessId=\d+\s*$/gm)?.length ?? 0
+  return output
+    .replace(/\0/g, '')
+    .split(/\r?\n/)
+    .filter(line => /^ProcessId=\d+$/.test(line.trim()))
+    .length
 }
 
 /**

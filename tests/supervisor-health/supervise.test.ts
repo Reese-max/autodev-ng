@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import {
   countChildProcesses,
   isDaemonConsoleLogBusyError,
+  isNodePidAlive,
   openDaemonConsoleLog,
   superviseConfig,
   superviseDirectory,
@@ -85,6 +86,17 @@ test('CIM 失敗時回退 wmic 並統計 ProcessId 行', () => {
   expect(count).toBe(2)
   expect(calls).toHaveLength(2)
   expect(calls[1]).toContain('wmic process where ParentProcessId=99')
+})
+
+test('tasklist／WMIC 輸出帶 BOM 或行首空白時仍正確判活與計數', () => {
+  expect(isNodePidAlive(1234, () => '\uFEFF  "node.exe","1234","Console","1","1,000 K"\r\n')).toBe(true)
+  expect(isNodePidAlive(1234, () => '"not-node.exe","1234","Console","1","1,000 K"\r\n')).toBe(false)
+
+  const count = countChildProcesses(99, command => {
+    if (command === 'powershell.exe') throw new Error('CIM unavailable')
+    return '\uFEFF  ProcessId=101\r\n  ProcessId=102\r\n'
+  })
+  expect(count).toBe(2)
 })
 
 test('supervisor 使用 config 的 staleThresholdMs', () => {
