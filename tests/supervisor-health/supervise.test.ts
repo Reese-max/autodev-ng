@@ -99,6 +99,15 @@ test('tasklist／WMIC 輸出帶 BOM 或行首空白時仍正確判活與計數',
   expect(count).toBe(2)
 })
 
+test('WMIC ProcessId=value 輸出在等號兩側帶空白時仍正確計數', () => {
+  const count = countChildProcesses(99, command => {
+    if (command === 'powershell.exe') throw new Error('CIM unavailable')
+    return 'ProcessId = 101\r\nProcessId= 102\r\n'
+  })
+
+  expect(count).toBe(2)
+})
+
 test('supervisor 使用 config 的 staleThresholdMs', () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-supervise-config-'))
   const { configPath, dataDir } = writeConfig(root, 'threshold.json', { staleThresholdMs: 900_000 })

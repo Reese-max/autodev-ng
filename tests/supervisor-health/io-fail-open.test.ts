@@ -142,3 +142,23 @@ test.each(IO_FAILURES)(
     expect(result.launchedPid).toBeUndefined()
   },
 )
+
+test('heartbeat mtime 非有限值時 fail-open keep，不誤啟動 daemon', () => {
+  readFileSync.mockReturnValue(JSON.stringify({
+    projectPath: './project',
+    backlogFile: './BACKLOG.md',
+    dataDir: './data',
+    engine: 'mock',
+  }))
+  statSync.mockImplementation((path: string) => {
+    if (String(path).endsWith('daemon.lock')) throw errorWithCode('ENOENT')
+    return { mtimeMs: Number.POSITIVE_INFINITY }
+  })
+
+  const launch = vi.fn(() => 9_001)
+  const result = superviseConfig('config.json', { nowMs: NOW_MS, launch })
+
+  expect(result.action).toBe('keep')
+  expect(result.probeErrors).toEqual(['heartbeat: mtime 無效'])
+  expect(launch).not.toHaveBeenCalled()
+})

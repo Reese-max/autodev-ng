@@ -94,10 +94,12 @@ interface Probe<T> {
 
 function readHeartbeatAge(dataDir: string, nowMs: number): Probe<number | null> {
   try {
-    const age = Math.max(0, nowMs - statSync(join(dataDir, 'heartbeat.json')).mtimeMs)
-    return Number.isFinite(age)
-      ? { value: age }
-      : { value: null, error: 'heartbeat: mtime 無效' }
+    const mtimeMs = statSync(join(dataDir, 'heartbeat.json')).mtimeMs
+    const rawAge = nowMs - mtimeMs
+    if (!Number.isFinite(mtimeMs) || !Number.isFinite(rawAge)) {
+      return { value: null, error: 'heartbeat: mtime 無效' }
+    }
+    return { value: Math.max(0, rawAge) }
   } catch (error) {
     if (isEnoent(error)) return { value: null }
     return { value: null, error: `heartbeat: ${errorText(error)}` }
@@ -148,7 +150,7 @@ export function countChildProcesses(pid: number, runCommand: CommandRunner = def
   return output
     .replace(/\0/g, '')
     .split(/\r?\n/)
-    .filter(line => /^ProcessId=\d+$/.test(line.trim()))
+    .filter(line => /^ProcessId\s*=\s*\d+$/.test(line.trim()))
     .length
 }
 
