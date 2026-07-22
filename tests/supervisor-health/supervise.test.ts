@@ -106,56 +106,84 @@ test('supervisor 使用 config 的 staleThresholdMs', () => {
   expect(result.action).toBe('reap')
 })
 
-test('launch／keep／reap 三決策接線；reap 完成後立即補啟 daemon', () => {
+interface SupervisorScenario {
+  name: string
+  pidAlive: boolean
+  childCount: number
+  expectedAction: 'launch' | 'reap' | 'keep'
+  expectedEffects: string[]
+}
+
+const SUPERVISOR_SCENARIOS: SupervisorScenario[] = [
+  {
+    name: 'pid 不活時 launch',
+    pidAlive: false,
+    childCount: 0,
+    expectedAction: 'launch',
+    expectedEffects: ['launch'],
+  },
+  {
+    name: 'pid 活著、heartbeat 過期且無子進程時 reap 後 launch',
+    pidAlive: true,
+    childCount: 0,
+    expectedAction: 'reap',
+    expectedEffects: ['taskkill:/PID 41 /T /F', 'launch'],
+  },
+  {
+    name: 'pid 活著且有子進程時，即使 heartbeat 過期仍 keep 合法長任務',
+    pidAlive: true,
+    childCount: 1,
+    expectedAction: 'keep',
+    expectedEffects: [],
+  },
+]
+
+function supervisorFixture(scenario: SupervisorScenario) {
   const root = mkdtempSync(join(tmpdir(), 'adng-supervise-actions-'))
-  const launchCfg = writeConfig(root, 'launch.json')
-  writePid(launchCfg.dataDir, 41)
-  const effects: string[] = []
-  const launch = (configPath: string): number => {
-    effects.push(`launch:${basename(configPath)}`)
-    return 7000 + effects.length
-  }
-  const reap = (pid: number): void => { effects.push(`reap:${pid}`) }
-
-  const launched = superviseConfig(launchCfg.configPath, {
-    runCommand: command => command === 'tasklist' ? 'INFO: No tasks are running which match the specified criteria.' : '0',
-    launch,
-    reap,
-  })
-  expect(launched.action).toBe('launch')
-  expect(effects).toEqual(['launch:launch.json'])
-
-  const keepCfg = writeConfig(root, 'keep.json')
-  writePid(keepCfg.dataDir, 42)
-  const kept = superviseConfig(keepCfg.configPath, {
-    runCommand: aliveRunner(42),
-    launch,
-    reap,
-  })
-  expect(kept.action).toBe('keep')
-  expect(effects).toEqual(['launch:launch.json'])
-
-  const reapCfg = writeConfig(root, 'reap.json')
-  writePid(reapCfg.dataDir, 43)
-  const heartbeat = join(reapCfg.dataDir, 'heartbeat.json')
-  writeFileSync(heartbeat, '{}')
+  const { configPath, dataDir } = writeConfig(root)
+  const pid = 41
   const nowMs = Date.now()
+  const heartbeat = join(dataDir, 'heartbeat.json')
+  writePid(dataDir, pid)
+  writeFileSync(heartbeat, '{}')
   utimesSync(heartbeat, new Date(nowMs - 120_000), new Date(nowMs - 120_000))
-  const reapProbe = aliveRunner(43)
-  const reaped = superviseConfig(reapCfg.configPath, {
+  const effects: string[] = []
+
+  const result = superviseConfig(configPath, {
     nowMs,
     staleThresholdMs: 60_000,
     runCommand: (command, args) => {
+      if (command === 'tasklist') {
+        return scenario.pidAlive
+          ? `"node.exe","${pid}","Console","1","1,000 K"\r\n`
+          : 'INFO: No tasks are running which match the specified criteria.'
+      }
+      if (command === 'powershell.exe') return `${scenario.childCount}\r\n`
       if (command === 'taskkill') {
         effects.push(`taskkill:${args.join(' ')}`)
         return ''
       }
-      return reapProbe(command, args)
+      throw new Error(`unexpected command: ${command}`)
     },
-    launch,
+    launch: () => {
+      effects.push('launch')
+      return 7001
+    },
   })
-  expect(reaped.action).toBe('reap')
-  expect(effects).toEqual(['launch:launch.json', 'taskkill:/PID 43 /T /F', 'launch:reap.json'])
+
+  return { result, effects }
+}
+
+test.each(SUPERVISOR_SCENARIOS)('$name', scenario => {
+  const { result, effects } = supervisorFixture(scenario)
+
+  expect(result).toMatchObject({
+    pidAlive: scenario.pidAlive,
+    childCount: scenario.childCount,
+    action: scenario.expectedAction,
+  })
+  expect(result.heartbeatAgeMs).toBeGreaterThan(60_000)
+  expect(effects).toEqual(scenario.expectedEffects)
 })
 
 test('探測命令失敗時保守 keep，不誤殺存活 PID', () => {
