@@ -22,17 +22,19 @@
   "perpetual": true,
   "defaultEngine": "opencode",
   "engineRotation": [
-    "codex-sol",
-    "codex-terra",
-    "codex-luna",
-    "grok",
+    "devin",
     "oc-deepseek",
+    "devin",
     "oc-nemotron",
+    "devin",
     "oc-hy3",
+    "devin",
     "oc-mimo",
+    "devin",
     "oc-north",
-    "agy",
-    "devin"
+    "devin",
+    "grok",
+    "codex-sol"
   ],
   "discordChannelId": "1492793288514863164",
   "engines": {
