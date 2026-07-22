@@ -148,9 +148,38 @@ export function countChildProcesses(pid: number, runCommand: CommandRunner = def
   return output.replace(/\0/g, '').match(/^ProcessId=\d+\s*$/gm)?.length ?? 0
 }
 
-function launchDaemon(configPath: string, dataDir: string, cliPath: string): number | undefined {
+/**
+ * Windows file-sharing codes seen when a live daemon still holds
+ * daemon-console.log open for write (shell >> or inherited stdio).
+ * Matches the empirical adng-daemons.cmd redirect failure path.
+ */
+export function isDaemonConsoleLogBusyError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const code = (error as NodeJS.ErrnoException).code
+  return code === 'EBUSY' || code === 'EPERM' || code === 'EACCES' || code === 'EEXIST'
+}
+
+/**
+ * Open dataDir/daemon-console.log for append. Holding this fd (and
+ * inheriting it as child stdout/stderr) is the shared-lock that
+ * blocks a second concurrent launcher from writing the same log.
+ */
+export function openDaemonConsoleLog(dataDir: string): number {
   mkdirSync(dataDir, { recursive: true })
-  const logFd = openSync(join(dataDir, 'daemon-console.log'), 'a')
+  return openSync(join(dataDir, 'daemon-console.log'), 'a')
+}
+
+/** Spawn detached daemon with stdout/stderr tied to daemon-console.log. */
+export function launchDaemon(configPath: string, dataDir: string, cliPath: string): number | undefined {
+  let logFd: number
+  try {
+    logFd = openDaemonConsoleLog(dataDir)
+  } catch (error) {
+    // Same as cmd ">>log" failing when another process holds the file:
+    // skip spawn; next supervise cycle retries.
+    if (isDaemonConsoleLogBusyError(error)) return undefined
+    throw error
+  }
   try {
     const child = spawn(process.execPath, [cliPath, 'daemon', '--config', configPath], {
       detached: true,
@@ -228,6 +257,10 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
       reap(pid)
     }
     launchedPid = launch(absolutePath, dataDir)
+    // openSync share-busy → launchDaemon returns undefined (batch-parity silent skip)
+    if (launchedPid === undefined) {
+      probeErrors.push('daemon-console.log: 檔案共享鎖占用，略過啟動')
+    }
   }
 
   return {

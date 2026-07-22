@@ -1,9 +1,12 @@
 import { expect, test } from 'vitest'
-import { mkdirSync, mkdtempSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   countChildProcesses,
+  isDaemonConsoleLogBusyError,
+  openDaemonConsoleLog,
   superviseConfig,
   superviseDirectory,
   type CommandRunner,
@@ -234,4 +237,63 @@ test('目錄模式逐一處理排序後的 JSON；壞 config 不拖垮其他專�
   expect(results[0]).toHaveProperty('error')
   expect(results[1]).toMatchObject({ configPath: join(root, 'b.json'), action: 'launch', launchedPid: 9 })
   expect(launched).toEqual(['b.json'])
+})
+
+test('isDaemonConsoleLogBusyError：辨識 Windows 檔案共享鎖錯誤碼', () => {
+  for (const code of ['EBUSY', 'EPERM', 'EACCES', 'EEXIST'] as const) {
+    const err = Object.assign(new Error(code), { code })
+    expect(isDaemonConsoleLogBusyError(err)).toBe(true)
+  }
+  expect(isDaemonConsoleLogBusyError(Object.assign(new Error('nope'), { code: 'ENOENT' }))).toBe(false)
+  expect(isDaemonConsoleLogBusyError(new Error('plain'))).toBe(false)
+  expect(isDaemonConsoleLogBusyError('string')).toBe(false)
+})
+
+test('openDaemonConsoleLog：建立 dataDir 並以 append 開啟 daemon-console.log', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-log-'))
+  const dataDir = join(root, 'nested', 'data')
+  const fd = openDaemonConsoleLog(dataDir)
+  try {
+    expect(statSync(join(dataDir, 'daemon-console.log')).isFile()).toBe(true)
+  } finally {
+    closeSync(fd)
+  }
+})
+
+test('launch 回傳 undefined（共享鎖占用）時記錄 probeError、不帶 launchedPid', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-share-'))
+  const { configPath } = writeConfig(root)
+
+  const result = superviseConfig(configPath, {
+    runCommand: () => { throw new Error('無 PID 時不應探測') },
+    launch: () => undefined,
+  })
+
+  expect(result.action).toBe('launch')
+  expect(result.launchedPid).toBeUndefined()
+  expect(result.probeErrors.some(e => e.includes('daemon-console.log') && e.includes('共享鎖'))).toBe(true)
+})
+
+test('adng-daemons.cmd：純 ASCII 薄殼，委派 supervise，無 inline 判活', () => {
+  const cmdPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'adng-daemons.cmd')
+  const content = readFileSync(cmdPath, 'utf8')
+  // hard rule 7: pure ASCII
+  expect(content).not.toMatch(/[^\x00-\x7F]/)
+  // executable lines only (strip REM comments)
+  const code = content
+    .split(/\r?\n/)
+    .filter(line => {
+      const t = line.trim()
+      return t.length > 0 && !t.startsWith('REM')
+    })
+    .join('\n')
+  // delegates to TS supervise entry
+  expect(code).toMatch(/supervise\s+--configs-dir/)
+  expect(code).toMatch(/dist\\cli\.js/)
+  // no legacy inline liveness batch logic in executable body
+  expect(code).not.toMatch(/tasklist/i)
+  expect(code).not.toMatch(/pid\.json/i)
+  expect(code).not.toMatch(/ALIVE/i)
+  expect(code).not.toMatch(/start "" \/b/i)
+  expect(code).not.toMatch(/for %%F/i)
 })
