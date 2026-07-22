@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { basename, dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { ZodError } from 'zod'
 import { BacklogStore } from './backlog.js'
 import { localDay, RunDb } from './db.js'
@@ -13,6 +13,7 @@ import { finalizeRunOnceHeartbeat, runOnce, subscriptionTags, type CycleResult, 
 import { runDaemon } from './daemon.js'
 import { LessonStore } from './learn/store.js'
 import { makeLessonsPort } from './learn/reflect.js'
+import { superviseConfig, superviseDirectory, type SuperviseDirectoryResult } from './supervisor/supervise.js'
 
 /** 引擎組裝邏輯（expandEnvValue/makeEngineRegistry）住在 src/engines/registry.ts——
  * 這裡 re-export 讓既有 import 點（tests/cli.test.ts 等）零改動。 */
@@ -284,6 +285,33 @@ async function cmdDaemon(cfgPath: string): Promise<void> {
   })
 }
 
+function printSuperviseResults(results: SuperviseDirectoryResult[]): void {
+  if (results.length === 0) return console.log('supervise：找不到 config，未執行任何動作')
+  for (const result of results) {
+    const name = basename(result.configPath, '.json')
+    if ('error' in result) {
+      console.error(`supervise ${name}: error=${result.error}`)
+      process.exitCode = 1
+      continue
+    }
+    const launched = result.launchedPid === undefined ? '' : ` launchedPid=${result.launchedPid}`
+    console.log(`supervise ${name}: ${result.action} pid=${result.pid ?? '-'} heartbeatAgeMs=${result.heartbeatAgeMs ?? '-'} childCount=${result.childCount}${launched}`)
+    result.probeErrors.forEach(error => console.error(`supervise ${name}: 探測降級（${error}）`))
+  }
+}
+
+function cmdSupervise(configPath?: string, configsDir?: string): void {
+  const options = { cliPath: fileURLToPath(import.meta.url) }
+  if (configsDir) {
+    return printSuperviseResults(superviseDirectory(configsDir, options))
+  }
+  try {
+    printSuperviseResults([superviseConfig(configPath!, options)])
+  } catch (err) {
+    printSuperviseResults([{ configPath: resolve(configPath!), error: err instanceof Error ? err.message : String(err) }])
+  }
+}
+
 /**
  * M4 Task 7：notify-test 子命令核心——組一則「adng 通道測試 <ISO 時刻>」送出去，回報
  * 送達與否。notifier 由呼叫端注入（cmdNotifyTest 用 assemble 組出的真 notifier；測試用
@@ -307,26 +335,40 @@ async function cmdNotifyTest(cfgPath: string): Promise<void> {
   })
 }
 
-export interface ParsedArgv { command: string; configPath?: string }
+export interface ParsedArgv { command: string; configPath?: string; configsDir?: string }
 
 /** argv 手解，不加依賴：`adng <command> --config <path>`。 */
 export function parseArgv(argv: string[]): ParsedArgv {
   const command = argv[0] ?? ''
   let configPath: string | undefined
+  let configsDir: string | undefined
   for (let i = 1; i < argv.length; i++) {
     if (argv[i] === '--config') {
       configPath = argv[i + 1]
       i++
+    } else if (argv[i] === '--configs-dir') {
+      configsDir = argv[i + 1]
+      i++
     }
   }
-  return { command, configPath }
+  return { command, configPath, configsDir }
 }
 
 async function main(): Promise<void> {
-  const { command, configPath } = parseArgv(process.argv.slice(2))
+  const { command, configPath, configsDir } = parseArgv(process.argv.slice(2))
+
+  if (command === 'supervise') {
+    if ((!configPath && !configsDir) || (configPath && configsDir)) {
+      console.error('用法：adng supervise (--config <path> | --configs-dir <dir>)')
+      process.exitCode = 1
+      return
+    }
+    cmdSupervise(configPath, configsDir)
+    return
+  }
 
   if (!configPath) {
-    console.error('用法：adng <status|run-once|daemon|notify-test> --config <path>')
+    console.error('用法：adng <status|run-once|daemon|notify-test> --config <path>，或 adng supervise --configs-dir <dir>')
     process.exitCode = 1
     return
   }
@@ -345,7 +387,7 @@ async function main(): Promise<void> {
       await cmdNotifyTest(configPath)
       break
     default:
-      console.error(`未知子命令：${command}（可用：status | run-once | daemon | notify-test）`)
+      console.error(`未知子命令：${command}（可用：status | run-once | daemon | notify-test | supervise）`)
       process.exitCode = 1
   }
 }

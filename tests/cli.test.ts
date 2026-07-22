@@ -127,10 +127,11 @@ test('formatStatus：無 currentTask 時不印該欄位；lastDigestDay 缺省�
 })
 
 test('parseArgv：解出子命令與 --config 值', () => {
-  expect(parseArgv(['status', '--config', '/a/b.json'])).toEqual({ command: 'status', configPath: '/a/b.json' })
-  expect(parseArgv(['daemon', '--config', 'c.json'])).toEqual({ command: 'daemon', configPath: 'c.json' })
-  expect(parseArgv(['run-once'])).toEqual({ command: 'run-once', configPath: undefined })
-  expect(parseArgv([])).toEqual({ command: '', configPath: undefined })
+  expect(parseArgv(['status', '--config', '/a/b.json'])).toEqual({ command: 'status', configPath: '/a/b.json', configsDir: undefined })
+  expect(parseArgv(['daemon', '--config', 'c.json'])).toEqual({ command: 'daemon', configPath: 'c.json', configsDir: undefined })
+  expect(parseArgv(['supervise', '--configs-dir', 'configs'])).toEqual({ command: 'supervise', configPath: undefined, configsDir: 'configs' })
+  expect(parseArgv(['run-once'])).toEqual({ command: 'run-once', configPath: undefined, configsDir: undefined })
+  expect(parseArgv([])).toEqual({ command: '', configPath: undefined, configsDir: undefined })
 })
 
 test('assemble：config 檔不存在 → throw 人話訊息含「設定檔不存在」與路徑', () => {
