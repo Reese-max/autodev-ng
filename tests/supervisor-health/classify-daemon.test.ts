@@ -93,7 +93,6 @@ test('pidAlive 但無 heartbeat 資訊 => keep', () => {
   expect(
     classifyDaemon({
       pidAlive: true,
-      heartbeatAgeMs: undefined,
       childCount: 0,
       staleThresholdMs: STALE,
     }),

@@ -11,8 +11,8 @@ export type DaemonAction = 'launch' | 'reap' | 'keep'
 
 export type ClassifyDaemonInput = {
   pidAlive: boolean
-  /** Age of last heartbeat in ms; null/undefined = no heartbeat info */
-  heartbeatAgeMs: number | null | undefined
+  /** Age of last heartbeat in ms; null/omitted = no heartbeat info */
+  heartbeatAgeMs?: number | null
   childCount: number
   staleThresholdMs: number
 }
