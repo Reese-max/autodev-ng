@@ -81,6 +81,7 @@ export type EngineConfig = z.infer<typeof EngineConfigSchema>
 // M10.6：timezoneOffsetHours 的 Zod 預設單一真相源——globalcost 讀 raw JSON 拿不到 Zod default，
 // 改從此常數鏡像（M10.5 缺欄低估事故的根因就是兩處預設不一致）。台灣 +8。
 export const DEFAULT_TIMEZONE_OFFSET_HOURS = 8
+export const DEFAULT_STALE_THRESHOLD_MS = 30 * 60_000
 
 export const ConfigSchema = z.object({
   projectPath: z.string().min(1),
@@ -95,7 +96,7 @@ export const ConfigSchema = z.object({
   globalDailyHardUsd: z.number().positive().optional(),
   cooldownMs: z.number().int().nonnegative().default(60_000),
   // supervisor：heartbeat 過期門檻；未設時保守維持 30 分鐘，覆寫不得低於 15 分鐘。
-  staleThresholdMs: z.number().int().min(900_000).default(30 * 60_000),
+  staleThresholdMs: z.number().int().min(900_000).default(DEFAULT_STALE_THRESHOLD_MS),
   // M4 Task 3（成本記帳）：本地日界線與失敗成本估計。台灣預設 +8；成本日界線與 digest 報日共用同一個 offset。
   timezoneOffsetHours: z.number().int().min(-12).max(14).default(DEFAULT_TIMEZONE_OFFSET_HOURS),
   failureCostEstimateUsd: z.number().nonnegative().default(1),

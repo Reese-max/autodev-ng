@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { assemble, expandEnvValue, finalizeRunOnceHeartbeat, formatStatus, makeEngineRegistry, parseArgv, runNotifyTest } from '../src/cli.js'
-import { ConfigSchema } from '../src/types.js'
+import { ConfigSchema, DEFAULT_STALE_THRESHOLD_MS } from '../src/types.js'
 import { MockEngine } from '../src/engines/mock.js'
 import { ClaudeCliEngine } from '../src/engines/claude-cli.js'
 import { CodexEngine } from '../src/engines/codex.js'
@@ -229,8 +229,10 @@ test('小修輪#6：純新形狀 config（只寫 engines map、無 legacy engine
 test('supervisor staleThresholdMs：預設至少 15 分鐘，合法覆寫生效，過小或非法值遭拒', () => {
   const base = { projectPath: './p', backlogFile: './p/B.md', dataDir: './d', engine: 'mock' as const }
   const defaulted = ConfigSchema.parse(base)
+  expect(defaulted.staleThresholdMs).toBe(DEFAULT_STALE_THRESHOLD_MS)
   expect(defaulted.staleThresholdMs).toBeGreaterThanOrEqual(900_000)
   expect(ConfigSchema.parse({ ...base, staleThresholdMs: 900_000 }).staleThresholdMs).toBe(900_000)
+  expect(ConfigSchema.parse({ ...base, staleThresholdMs: 900_001 }).staleThresholdMs).toBe(900_001)
   for (const staleThresholdMs of [899_999, 0, -1, 900_000.5, '900000', null]) {
     expect(ConfigSchema.safeParse({ ...base, staleThresholdMs }).success).toBe(false)
   }

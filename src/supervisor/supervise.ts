@@ -1,10 +1,10 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { ConfigSchema } from '../types.js'
+import { ConfigSchema, DEFAULT_STALE_THRESHOLD_MS } from '../types.js'
 import { classifyDaemon, type DaemonAction } from './health.js'
 
-export const DEFAULT_STALE_THRESHOLD_MS = 30 * 60_000
+export { DEFAULT_STALE_THRESHOLD_MS } from '../types.js'
 const COMMAND_TIMEOUT_MS = 10_000
 
 export type CommandRunner = (command: string, args: string[]) => string
