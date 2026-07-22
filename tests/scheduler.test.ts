@@ -1,7 +1,6 @@
 import { expect, test, beforeEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, writeFileSync, readFileSync, mkdirSync, openSync, closeSync } from 'node:fs'
-import { spawn } from 'node:child_process'
+import { existsSync, mkdtempSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runOnce, type Deps } from '../src/scheduler.js'
@@ -13,6 +12,7 @@ import { EventLog } from '../src/events.js'
 import { MockEngine } from '../src/engines/mock.js'
 import { ConfigSchema } from '../src/types.js'
 import { KernelVerifier } from '../src/verifier.js'
+import { acquireWindowsFileLock } from './helpers/windows-file-lock.js'
 
 /** M4 Task 6：scheduler 現在對每個任務執行 prepareWorktree/mergeBack，需要 projectPath 是
  * 真的 git repo——所有會走到 engine.run 的測試都靠這個 helper 建臨時 git repo（mkdtemp +
@@ -34,21 +34,6 @@ function commitFile(cwd: string, name: string, content: string, message: string)
   writeFileSync(join(cwd, name), content)
   execFileSync('git', ['add', '.'], { cwd, stdio: 'ignore' })
   execFileSync('git', ['commit', '-m', message], { cwd, stdio: 'ignore' })
-}
-
-// 同 tests/worktree.test.ts 的 2a929ec9 回歸測試手法（機器負載會抖動，輪詢不賭固定 sleep）。
-async function waitForWriteLockState(file: string, wantLocked: boolean, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    let isLocked = true
-    try {
-      closeSync(openSync(file, 'r+'))
-      isLocked = false
-    } catch { /* 開不了＝鎖著 */ }
-    if (isLocked === wantLocked) return
-    await new Promise(resolve => setTimeout(resolve, 100))
-  }
-  throw new Error(`waitForWriteLockState: ${file} 在 ${timeoutMs}ms 內未達到 locked=${wantLocked}`)
 }
 
 /** db.record 呼叫的窺視殼——鏡像既有 ThrowingReportStore 手法：繼承真實 RunDb，
@@ -403,12 +388,8 @@ test('worktree 殘留目錄被鎖定（前次中斷進程仍佔用檔案，rmSyn
   // 同 tests/worktree.test.ts 2a929ec9 回歸測試手法：Node fs.openSync 預設帶 FILE_SHARE_DELETE
   // 擋不住同進程 rmSync，改用獨立 PowerShell 子行程以 .NET FileStream（FileShare 不含 Delete）
   // 開檔，才是 Windows 上真會擋刪除的鎖法，貼近「前次中斷進程仍佔用」的場景。
-  const locker = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-    `$fs = [System.IO.File]::Open('${lockedFile}', 'Open', 'ReadWrite', 'Read'); Start-Sleep -Seconds 30`],
-    { stdio: 'ignore', windowsHide: true })
+  const locker = await acquireWindowsFileLock(lockedFile, { timeoutMs: 10_000 })
   try {
-    await waitForWriteLockState(lockedFile, true, 10000) // 輪詢等鎖真的生效，不賭固定時間
-
     const result = await runOnce(d)
     expect(result).toEqual({ kind: 'blocked', taskId: wtId, taskText: '任務一', reason: 'worktree-locked' })
     expect(e.calls).toHaveLength(0)
@@ -416,10 +397,7 @@ test('worktree 殘留目錄被鎖定（前次中斷進程仍佔用檔案，rmSyn
     expect(events).toContain('worktree-prepare-failed')
     expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('adng:blocked')
   } finally {
-    if (locker.pid !== undefined) {
-      try { execFileSync('taskkill', ['/F', '/T', '/PID', String(locker.pid)], { stdio: 'ignore' }) } catch { /* 行程可能已自然結束 */ }
-    }
-    await waitForWriteLockState(lockedFile, false, 10000) // 輪詢等 handle 真的釋放
+    await locker.release()
   }
 }, 40000)
 
