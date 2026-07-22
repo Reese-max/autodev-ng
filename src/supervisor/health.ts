@@ -33,7 +33,6 @@ export function classifyDaemon({
 }: ClassifyDaemonInput): DaemonAction {
   if (!pidAlive) return 'launch'
   if (
-    pidAlive &&
     heartbeatAgeMs != null &&
     heartbeatAgeMs > staleThresholdMs &&
     childCount === 0

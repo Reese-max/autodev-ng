@@ -81,7 +81,7 @@ test('childCount>0 且 heartbeat 過期 => keep（有 child 不 reap）', () => 
   ).toBe('keep')
 })
 
-test('pidAlive 但無 heartbeat 資訊 => keep', () => {
+test('pidAlive 但無 heartbeat 資訊 => fail-open keep', () => {
   expect(
     classifyDaemon({
       pidAlive: true,
