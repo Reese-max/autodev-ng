@@ -226,14 +226,14 @@ test('小修輪#6：純新形狀 config（只寫 engines map、無 legacy engine
   expect(r.success).toBe(true)
 })
 
-test('supervisor staleThresholdMs：未設採保守預設，且只接受正整數', () => {
+test('supervisor staleThresholdMs：預設至少 15 分鐘，合法覆寫生效，過小或非法值遭拒', () => {
   const base = { projectPath: './p', backlogFile: './p/B.md', dataDir: './d', engine: 'mock' as const }
   const defaulted = ConfigSchema.parse(base)
   expect(defaulted.staleThresholdMs).toBeGreaterThanOrEqual(900_000)
-  expect(ConfigSchema.safeParse({ ...base, staleThresholdMs: 0 }).success).toBe(false)
-  expect(ConfigSchema.safeParse({ ...base, staleThresholdMs: -1 }).success).toBe(false)
-  expect(ConfigSchema.safeParse({ ...base, staleThresholdMs: 1.5 }).success).toBe(false)
-  expect(ConfigSchema.safeParse({ ...base, staleThresholdMs: 900_001 }).success).toBe(true)
+  expect(ConfigSchema.parse({ ...base, staleThresholdMs: 900_000 }).staleThresholdMs).toBe(900_000)
+  for (const staleThresholdMs of [899_999, 0, -1, 900_000.5, '900000', null]) {
+    expect(ConfigSchema.safeParse({ ...base, staleThresholdMs }).success).toBe(false)
+  }
 })
 
 test('小修輪#5：非真值 adapter 未設 costPerRunUsd → 拒（防成功路徑靜默記 $0）；opencode/claude-cli/mock 豁免', () => {

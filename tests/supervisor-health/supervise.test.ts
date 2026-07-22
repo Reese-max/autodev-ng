@@ -101,12 +101,12 @@ test('tasklist／WMIC 輸出帶 BOM 或行首空白時仍正確判活與計數',
 
 test('supervisor 使用 config 的 staleThresholdMs', () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-supervise-config-'))
-  const { configPath, dataDir } = writeConfig(root, 'threshold.json', { staleThresholdMs: 60_000 })
+  const { configPath, dataDir } = writeConfig(root, 'threshold.json', { staleThresholdMs: 900_000 })
   writePid(dataDir, 43)
   const heartbeat = join(dataDir, 'heartbeat.json')
   writeFileSync(heartbeat, '{}')
   const nowMs = Date.now()
-  utimesSync(heartbeat, new Date(nowMs - 120_000), new Date(nowMs - 120_000))
+  utimesSync(heartbeat, new Date(nowMs - 1_200_000), new Date(nowMs - 1_200_000))
 
   const result = superviseConfig(configPath, {
     nowMs,
