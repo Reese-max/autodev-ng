@@ -37,6 +37,8 @@ describe('多源 survey 組裝器', () => {
       JSON.stringify({ ts: '2026-07-22T00:00:00Z', type: 'verify-fail', detail: 'first' }),
       '{broken',
       JSON.stringify({ ts: '2026-07-22T01:00:00Z', type: 'task-done' }),
+      JSON.stringify({ ts: '2026-07-22T01:10:00Z', type: 'preflight-failed', engine: 'qwen' }),
+      JSON.stringify({ ts: '2026-07-22T01:20:00Z', type: 'killed', task: 'goal-1' }),
       JSON.stringify({ ts: '2026-07-22T02:00:00Z', type: 'verify-fail', detail: 'latest' }),
     ].join('\n'))
     writeFileSync(join(dir, 'USER-SIGNALS.md'), '使用者要更快的回饋。')
@@ -51,6 +53,8 @@ describe('多源 survey 組裝器', () => {
     expect(output).toContain('qwen: attempts 1｜成功率 0%｜最常見失敗 1 次：verify timeout 30s')
     expect(output).toContain('verify-fail: 2 次')
     expect(output).toContain('"detail":"latest"')
+    expect(output).toContain('preflight-failed: 1 次｜最近樣本 {"ts":"2026-07-22T01:10:00Z","type":"preflight-failed","engine":"qwen"}')
+    expect(output).toContain('killed: 1 次｜最近樣本 {"ts":"2026-07-22T01:20:00Z","type":"killed","task":"goal-1"}')
     const sections = ['# 最高權重證據：USER-SIGNALS.md', '# 北極星價值判準：NORTHSTAR.md', '# 其他勘查訊號', '既有 surveyCommand 輸出', '# run.db', '# events.jsonl']
     expect(sections.map(section => output.indexOf(section))).toEqual([...sections].map(section => output.indexOf(section)).sort((a, b) => a - b))
     expect(output).toContain('使用者要更快的回饋。')
