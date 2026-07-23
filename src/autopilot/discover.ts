@@ -62,7 +62,7 @@ export function northstarFromSurvey(survey: string): string {
  */
 export function criticPrompt(cands: Candidate[], northstar: string, roiSummary = ''): string {
   const body = cands.map(c => `[${c.lens}] ${c.title}｜${c.detail}`).join('\n')
-  const roi = roiSummary.trim()
+  const roi = typeof roiSummary === 'string' ? roiSummary.trim() : ''
   return [
     '你是對抗式問題評審。以下是多視角候選問題。去重、挑戰每個（真問題嗎？夠高價值嗎？漏了更重要的嗎？）。',
     '【硬約束】排序主軸是北極星（NORTHSTAR）價值判準：候選問題必須依北極星價值判準排序（高對齊在前）。',

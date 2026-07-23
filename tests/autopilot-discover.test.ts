@@ -156,6 +156,13 @@ describe('discoverProblems', () => {
     expect(r.ranked[0]?.title).toBe('問題X')
     expect(prompts[0]).not.toContain('近期已完成 goal ROI')
   })
+  test('ROI 摘要回傳非字串 → 保留原 critic 流程', async () => {
+    const prompts: string[] = []
+    const r = await discoverProblems({ finderLlm: seqLlm(['問題X｜y']), criticLlm: seqLlm(['VALUE:7 | 問題X | tests | ok'], prompts),
+      readRoiSummary: () => null as unknown as string, lenses: ['tests'] }, goal, '/proj')
+    expect(r.ranked).toEqual([{ value: 7, title: '問題X', lens: 'tests', rationale: 'ok' }])
+    expect(prompts[0]).not.toContain('近期已完成 goal ROI')
+  })
   test('finder throw 該鏡頭跳過，其餘鏡頭仍出候選', async () => {
     let n = 0
     const finder = { url: 'http://x/v1', model: 'm', apiKey: 'k',
