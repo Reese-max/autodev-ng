@@ -87,6 +87,18 @@ describe('多源 survey 組裝器', () => {
     expect(output.endsWith('-tail')).toBe(true)
   })
 
+  test('大型多源摘要不會擠掉既有 surveyCommand 輸出', () => {
+    const dir = freshDir()
+    writeFileSync(join(dir, 'events.jsonl'), JSON.stringify({
+      type: 'large-event', ts: NOW, detail: 'x'.repeat(10_000),
+    }))
+
+    const output = assembleSurvey('survey-command-marker', dir, { nowIso: NOW })
+
+    expect(output.startsWith('survey-command-marker\n\n# events.jsonl')).toBe(true)
+    expect(output).toHaveLength(8000)
+  })
+
   test('低權重長輸出不會擠掉置頂的使用者訊號與北極星', () => {
     const dir = freshDir()
     writeFileSync(join(dir, 'USER-SIGNALS.md'), '使用者最在意可預期的回應時間。')

@@ -35,6 +35,16 @@ function markdownSource(dataDir: string, name: string, heading = name): string {
   } catch { return '' }
 }
 
+function fitContext(base: string, summaries: string, budget: number): string {
+  if (budget <= 0) return ''
+  if (!base) return summaries.slice(-budget)
+  if (base.length >= budget) return base.slice(-budget)
+  if (!summaries) return base
+  const separator = '\n\n'
+  const summaryBudget = budget - base.length - separator.length
+  return summaryBudget > 0 ? base + separator + summaries.slice(0, summaryBudget) : base
+}
+
 /** 各來源獨立 fail-open，且只以唯讀方式取得資料。 */
 export function assembleSurvey(base: string, dataDir: string, opts: SurveyOptions = {}): string {
   const nowIso = opts.nowIso ?? new Date().toISOString()
@@ -42,15 +52,15 @@ export function assembleSurvey(base: string, dataDir: string, opts: SurveyOption
     markdownSource(dataDir, 'USER-SIGNALS.md', '最高權重證據：USER-SIGNALS.md'),
     markdownSource(dataDir, 'NORTHSTAR.md', '北極星價值判準：NORTHSTAR.md'),
   ].filter(Boolean).join('\n\n')
-  const context = [
-    base,
+  const summaries = [
     runDbSummary(dataDir, nowIso),
     eventsSummary(dataDir),
   ].filter(Boolean).join('\n\n')
-  if (!highWeight) return context.slice(-MAX_SURVEY_LENGTH)
+  if (!highWeight) return fitContext(base, summaries, MAX_SURVEY_LENGTH)
   const contextHeader = '# 其他勘查訊號\n'
   const contextBudget = MAX_SURVEY_LENGTH - highWeight.length - 2 - contextHeader.length
-  const contextSection = contextBudget > 0 && context ? contextHeader + context.slice(-contextBudget) : ''
+  const context = fitContext(base, summaries, contextBudget)
+  const contextSection = context ? contextHeader + context : ''
   return [highWeight, contextSection].filter(Boolean).join('\n\n').slice(0, MAX_SURVEY_LENGTH)
 }
 
