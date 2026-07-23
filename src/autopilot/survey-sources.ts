@@ -5,7 +5,9 @@ import type { Config } from '../types.js'
 import { runDbSevenDaySummary } from '../engines/run-db-summary.js'
 import { summarizeEventsTail } from '../engines/events-tail-summary.js'
 
-const MAX_SURVEY_LENGTH = 8000
+export const MAX_SURVEY_LENGTH = 8000
+const CONTEXT_HEADER = '# 其他勘查訊號\n'
+const SEP = '\n\n'
 
 interface SurveyOptions { nowIso?: string }
 
@@ -35,14 +37,44 @@ function markdownSource(dataDir: string, name: string, heading = name): string {
   } catch { return '' }
 }
 
-function fitContext(base: string, summaries: string, budget: number): string {
-  if (budget <= 0) return ''
+/**
+ * 低權重區裝配：surveyCommand base 優先於 summaries。
+ * - budget > 0：base 保尾裝入後，剩餘再填 summaries 頭部
+ * - budget ≤ 0：仍不得整段移除 base（保尾至總上限），只放棄 summaries
+ */
+function fitLowWeight(base: string, summaries: string, budget: number): string {
+  if (!base && !summaries) return ''
+  if (budget <= 0) {
+    return base ? (base.length > MAX_SURVEY_LENGTH ? base.slice(-MAX_SURVEY_LENGTH) : base) : ''
+  }
   if (!base) return summaries.slice(-budget)
   if (base.length >= budget) return base.slice(-budget)
   if (!summaries) return base
-  const separator = '\n\n'
-  const summaryBudget = budget - base.length - separator.length
-  return summaryBudget > 0 ? base + separator + summaries.slice(0, summaryBudget) : base
+  const summaryBudget = budget - base.length - SEP.length
+  return summaryBudget > 0 ? base + SEP + summaries.slice(0, summaryBudget) : base
+}
+
+/**
+ * 依既定優先序套用字元總上限：
+ * 1) 高權重（USER-SIGNALS → NORTHSTAR，順序不可重排）
+ * 2) surveyCommand base（截斷時不得整段移除）
+ * 3) 其餘低權重 summaries（最先被截斷／丟棄）
+ *
+ * 高權重全文可單獨超過 maxLen（契約：不受低權重預算截斷）；
+ * 其餘情況組合結果長度 ≤ maxLen。
+ */
+export function applySurveyPriorityBudget(
+  highWeight: string,
+  base: string,
+  summaries: string,
+  maxLen = MAX_SURVEY_LENGTH,
+): string {
+  if (!highWeight) return fitLowWeight(base, summaries, maxLen)
+
+  const remaining = maxLen - highWeight.length - SEP.length - CONTEXT_HEADER.length
+  const low = fitLowWeight(base, summaries, remaining)
+  const contextSection = low ? CONTEXT_HEADER + low : ''
+  return [highWeight, contextSection].filter(Boolean).join(SEP)
 }
 
 /** 各來源獨立 fail-open，且只以唯讀方式取得資料。 */
@@ -51,17 +83,12 @@ export function assembleSurvey(base: string, dataDir: string, opts: SurveyOption
   const highWeight = [
     markdownSource(dataDir, 'USER-SIGNALS.md', '最高權重證據：USER-SIGNALS.md'),
     markdownSource(dataDir, 'NORTHSTAR.md', '北極星價值判準：NORTHSTAR.md'),
-  ].filter(Boolean).join('\n\n')
+  ].filter(Boolean).join(SEP)
   const summaries = [
     runDbSummary(dataDir, nowIso),
     eventsSummary(dataDir),
-  ].filter(Boolean).join('\n\n')
-  if (!highWeight) return fitContext(base, summaries, MAX_SURVEY_LENGTH)
-  const contextHeader = '# 其他勘查訊號\n'
-  const contextBudget = MAX_SURVEY_LENGTH - highWeight.length - 2 - contextHeader.length
-  const context = fitContext(base, summaries, contextBudget)
-  const contextSection = context ? contextHeader + context : ''
-  return [highWeight, contextSection].filter(Boolean).join('\n\n')
+  ].filter(Boolean).join(SEP)
+  return applySurveyPriorityBudget(highWeight, base, summaries)
 }
 
 export function hasSurveySources(dataDir: string): boolean {
