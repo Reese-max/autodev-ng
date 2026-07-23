@@ -1,6 +1,7 @@
 import type { Goal } from './goal.js'
 import { callAgent, type LlmOpts } from './llm.js'
 import { gatherEvidence } from './evaluator.js'
+import { NORTHSTAR_HEADING } from './survey-sources.js'
 
 export interface Candidate { lens: string; title: string; detail: string }
 export interface RankedProblem { title: string; lens: string; value: number; rationale: string }
@@ -46,7 +47,7 @@ function finderPrompt(lens: string, survey: string, evidence: string): string {
 }
 /** 自 survey 抽出 NORTHSTAR 段落（置於「北極星價值判準」標頭與「其他勘查訊號」之間）。 */
 export function northstarFromSurvey(survey: string): string {
-  const header = '# 北極星價值判準：NORTHSTAR.md\n'
+  const header = `# ${NORTHSTAR_HEADING}\n`
   const start = survey.indexOf(header)
   if (start < 0) return ''
   const contentStart = start + header.length
@@ -55,15 +56,16 @@ export function northstarFromSurvey(survey: string): string {
 }
 
 /**
- * critic 評審 prompt：排序主軸是 NORTHSTAR 價值判準；
+ * critic 評審 prompt：排序主軸是 NORTHSTAR 價值判準（硬約束）；
  * 對齊者優先，與北極星無關的候選必須降權（不得排在高對齊候選之前）。
  */
 export function criticPrompt(cands: Candidate[], northstar: string): string {
   const body = cands.map(c => `[${c.lens}] ${c.title}｜${c.detail}`).join('\n')
   return [
     '你是對抗式問題評審。以下是多視角候選問題。去重、挑戰每個（真問題嗎？夠高價值嗎？漏了更重要的嗎？）。',
-    '排序主軸是北極星（NORTHSTAR）價值判準：候選問題必須依北極星價值判準排序（高對齊在前）。',
-    '與北極星無關的候選降權：VALUE 應明顯偏低，且不得排在高對齊候選之前；理由需點明是否對回北極星。',
+    '【硬約束】排序主軸是北極星（NORTHSTAR）價值判準：候選問題必須依北極星價值判準排序（高對齊在前）。',
+    '【硬約束】與北極星無關的候選降權：VALUE 應明顯偏低，且不得排在高對齊候選之前；理由需點明是否對回北極星。',
+    '不得僅因語意相近或技術熱點把無關候選排在前面；對不回北極星價值判準者一律降權。',
     '嚴格照格式，每行一問題（高價值在前）：VALUE:<0~10> | <標題> | <lens> | <一句理由>',
     '若逐一挑戰後認為沒有任何候選值得處理，只回一行 NONE。',
     `\n北極星價值判準：\n${northstar || '（無）'}`,

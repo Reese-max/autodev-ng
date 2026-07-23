@@ -6,6 +6,10 @@ import { runDbSevenDaySummary } from '../engines/run-db-summary.js'
 import { summarizeEventsTail } from '../engines/events-tail-summary.js'
 
 export const MAX_SURVEY_LENGTH = 8000
+/** 組合訊號最高權重標頭（USER-SIGNALS 置頂標記）。 */
+export const USER_SIGNALS_HEADING = '最高權重證據：USER-SIGNALS.md'
+/** 組合訊號次高權重標頭（NORTHSTAR 緊接 USER-SIGNALS）。 */
+export const NORTHSTAR_HEADING = '北極星價值判準：NORTHSTAR.md'
 const CONTEXT_HEADER = '# 其他勘查訊號\n'
 const SEP = '\n\n'
 
@@ -30,23 +34,21 @@ function eventsSummary(dataDir: string): string {
   )].join('\n')
 }
 
-function markdownSource(dataDir: string, name: string, heading = name): string {
+/** 讀取 dataDir 下 markdown 全文；缺檔/讀失敗 → 空字串（fail-open）。 */
+function readMarkdownBody(dataDir: string, name: string): string {
   try {
-    const content = readFileSync(join(dataDir, name), 'utf8')
-    return content ? `# ${heading}\n${content}` : ''
+    return readFileSync(join(dataDir, name), 'utf8')
   } catch { return '' }
 }
 
 /**
  * 低權重區裝配：surveyCommand base 優先於 summaries。
  * - budget > 0：base 保尾裝入後，剩餘再填 summaries 頭部
- * - budget ≤ 0：仍不得整段移除 base（保尾至總上限），只放棄 summaries
+ * - budget ≤ 0：低權重整段放棄（高權重已佔滿；不得因此溢出身分上限）
  */
 function fitLowWeight(base: string, summaries: string, budget: number): string {
   if (!base && !summaries) return ''
-  if (budget <= 0) {
-    return base ? (base.length > MAX_SURVEY_LENGTH ? base.slice(-MAX_SURVEY_LENGTH) : base) : ''
-  }
+  if (budget <= 0) return ''
   if (!base) return summaries.slice(-budget)
   if (base.length >= budget) return base.slice(-budget)
   if (!summaries) return base
@@ -55,13 +57,23 @@ function fitLowWeight(base: string, summaries: string, budget: number): string {
 }
 
 /**
+ * 組裝高權重區：USER-SIGNALS 全文置頂並標最高權重，NORTHSTAR 全文緊接其後。
+ * 順序為硬約束，呼叫端不得重排。
+ */
+export function packHighWeightSources(userSignals: string, northstar: string): string {
+  return [
+    userSignals ? `# ${USER_SIGNALS_HEADING}\n${userSignals}` : '',
+    northstar ? `# ${NORTHSTAR_HEADING}\n${northstar}` : '',
+  ].filter(Boolean).join(SEP)
+}
+
+/**
  * 依既定優先序套用字元總上限：
- * 1) 高權重（USER-SIGNALS → NORTHSTAR，順序不可重排）
- * 2) surveyCommand base（截斷時不得整段移除）
+ * 1) 高權重全文（USER-SIGNALS → NORTHSTAR，順序不可重排；可塞入時絕不為低權重截斷）
+ * 2) surveyCommand base（截斷時不得整段移除；僅在高權重已超上限時才預留尾端窗口）
  * 3) 其餘低權重 summaries（最先被截斷／丟棄）
  *
- * 所有來源合併後皆不得超過 maxLen。為維持既有 surveyCommand，
- * 超額時仍保留其尾端四分之一窗口，再依優先序收納高權重與其餘摘要。
+ * 所有來源合併後皆不得超過 maxLen。
  */
 export function applySurveyPriorityBudget(
   highWeight: string,
@@ -72,25 +84,38 @@ export function applySurveyPriorityBudget(
   if (maxLen <= 0) return ''
   if (!highWeight) return fitLowWeight(base, summaries, maxLen)
 
-  // surveyCommand 是既有相容入口；即使高權重來源過大，也要保留其尾端。
-  const reservedContext = base
-    ? CONTEXT_HEADER.length + Math.min(base.length, Math.floor(maxLen / 4)) + SEP.length
-    : 0
-  const high = highWeight.slice(0, Math.max(0, maxLen - reservedContext))
+  // 高權重可完整塞入 maxLen → 全文保留；僅在高權重本身已超上限時，
+  // 才為 surveyCommand 預留尾端窗口（向後相容，避免整段移除 base）。
+  let high: string
+  if (highWeight.length <= maxLen) {
+    high = highWeight
+  } else if (base) {
+    const reservedContext = CONTEXT_HEADER.length + Math.min(base.length, Math.floor(maxLen / 4)) + SEP.length
+    high = highWeight.slice(0, Math.max(0, maxLen - reservedContext))
+  } else {
+    high = highWeight.slice(0, maxLen)
+  }
+
   const hasContext = Boolean(base || summaries)
-  const lowBudget = maxLen - high.length - (high && hasContext ? SEP.length : 0) - (hasContext ? CONTEXT_HEADER.length : 0)
+  if (!hasContext) return high.slice(0, maxLen)
+
+  const framing = (high ? SEP.length : 0) + CONTEXT_HEADER.length
+  const lowBudget = maxLen - high.length - framing
+  if (lowBudget <= 0) return high.slice(0, maxLen)
+
   const low = fitLowWeight(base, summaries, lowBudget)
-  const contextSection = low ? CONTEXT_HEADER + low : ''
-  return [high, contextSection].filter(Boolean).join(SEP)
+  if (!low) return high
+  const out = high + SEP + CONTEXT_HEADER + low
+  return out.length > maxLen ? out.slice(0, maxLen) : out
 }
 
 /** 各來源獨立 fail-open，且只以唯讀方式取得資料。 */
 export function assembleSurvey(base: string, dataDir: string, opts: SurveyOptions = {}): string {
   const nowIso = opts.nowIso ?? new Date().toISOString()
-  const highWeight = [
-    markdownSource(dataDir, 'USER-SIGNALS.md', '最高權重證據：USER-SIGNALS.md'),
-    markdownSource(dataDir, 'NORTHSTAR.md', '北極星價值判準：NORTHSTAR.md'),
-  ].filter(Boolean).join(SEP)
+  const highWeight = packHighWeightSources(
+    readMarkdownBody(dataDir, 'USER-SIGNALS.md'),
+    readMarkdownBody(dataDir, 'NORTHSTAR.md'),
+  )
   const summaries = [
     runDbSummary(dataDir, nowIso),
     eventsSummary(dataDir),

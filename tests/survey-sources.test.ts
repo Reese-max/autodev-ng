@@ -2,7 +2,10 @@ import { afterEach, describe, expect, test } from 'vitest'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
-import { applySurveyPriorityBudget, assembleSurvey, collectSurvey, MAX_SURVEY_LENGTH } from '../src/autopilot/survey-sources.js'
+import {
+  applySurveyPriorityBudget, assembleSurvey, collectSurvey, packHighWeightSources,
+  MAX_SURVEY_LENGTH, USER_SIGNALS_HEADING, NORTHSTAR_HEADING,
+} from '../src/autopilot/survey-sources.js'
 import { runDbSevenDaySummary } from '../src/engines/run-db-summary.js'
 
 const dirs: string[] = []
@@ -110,13 +113,31 @@ describe('多源 survey 組裝器', () => {
 
     const output = assembleSurvey(`discard-${'x'.repeat(8000)}-tail`, dir, { nowIso: NOW })
 
-    expect(output.startsWith('# 最高權重證據：USER-SIGNALS.md')).toBe(true)
-    expect(output.indexOf('# 北極星價值判準：NORTHSTAR.md')).toBeGreaterThan(0)
-    expect(output.indexOf('# 其他勘查訊號')).toBeGreaterThan(output.indexOf('# 北極星價值判準：NORTHSTAR.md'))
+    expect(output.startsWith(`# ${USER_SIGNALS_HEADING}`)).toBe(true)
+    expect(output.indexOf(`# ${NORTHSTAR_HEADING}`)).toBeGreaterThan(0)
+    expect(output.indexOf('# 其他勘查訊號')).toBeGreaterThan(output.indexOf(`# ${NORTHSTAR_HEADING}`))
     expect(output).toContain('使用者最在意可預期的回應時間。')
     expect(output).toContain('以可靠度與可預期性決定優先順序。')
     expect(output).toHaveLength(8000)
     expect(output.endsWith('-tail')).toBe(true)
+  })
+
+  test('USER-SIGNALS 與 NORTHSTAR 全文在可塞入時完整保留（不因長 base 被砍）', () => {
+    const dir = freshDir()
+    const user = `user-head-${'U'.repeat(1800)}-user-tail-FULL`
+    const north = `north-head-${'N'.repeat(1800)}-north-tail-FULL`
+    writeFileSync(join(dir, 'USER-SIGNALS.md'), user)
+    writeFileSync(join(dir, 'NORTHSTAR.md'), north)
+
+    const output = assembleSurvey(`base-${'B'.repeat(6000)}-base-end`, dir, { nowIso: NOW })
+
+    expect(output.startsWith(`# ${USER_SIGNALS_HEADING}\n${user}`)).toBe(true)
+    expect(output).toContain(`# ${NORTHSTAR_HEADING}\n${north}`)
+    expect(output).toContain('-user-tail-FULL')
+    expect(output).toContain('-north-tail-FULL')
+    expect(output.indexOf(USER_SIGNALS_HEADING)).toBeLessThan(output.indexOf(NORTHSTAR_HEADING))
+    expect(output.indexOf(NORTHSTAR_HEADING)).toBeLessThan(output.indexOf('# 其他勘查訊號'))
+    expect(output.length).toBeLessThanOrEqual(MAX_SURVEY_LENGTH)
   })
 
   test('高權重佔滿預算時仍保留 surveyCommand，且最終結果不超過 8000 字元', () => {
@@ -152,11 +173,27 @@ describe('多源 survey 組裝器', () => {
   })
 })
 
+describe('packHighWeightSources', () => {
+  test('USER-SIGNALS 全文置頂標最高權重，NORTHSTAR 全文緊接其後', () => {
+    const packed = packHighWeightSources('user-full-body', 'north-full-body')
+    expect(packed.startsWith(`# ${USER_SIGNALS_HEADING}\nuser-full-body`)).toBe(true)
+    expect(packed).toContain(`# ${NORTHSTAR_HEADING}\nnorth-full-body`)
+    expect(packed.indexOf(USER_SIGNALS_HEADING)).toBeLessThan(packed.indexOf(NORTHSTAR_HEADING))
+    expect(packed).toBe([
+      `# ${USER_SIGNALS_HEADING}\nuser-full-body`,
+      `# ${NORTHSTAR_HEADING}\nnorth-full-body`,
+    ].join('\n\n'))
+  })
+
+  test('單源缺席時不留空標頭', () => {
+    expect(packHighWeightSources('', 'only-north')).toBe(`# ${NORTHSTAR_HEADING}\nonly-north`)
+    expect(packHighWeightSources('only-user', '')).toBe(`# ${USER_SIGNALS_HEADING}\nonly-user`)
+    expect(packHighWeightSources('', '')).toBe('')
+  })
+})
+
 describe('applySurveyPriorityBudget 優先序截斷', () => {
-  const high = [
-    '# 最高權重證據：USER-SIGNALS.md\nuser-body',
-    '# 北極星價值判準：NORTHSTAR.md\nnorth-body',
-  ].join('\n\n')
+  const high = packHighWeightSources('user-body', 'north-body')
 
   test('無高權重：總長 ≤ 8000，base 優先於 summaries', () => {
     const out = applySurveyPriorityBudget('', 'BASE-MARKER', `${'s'.repeat(10_000)}-sum-tail`)
@@ -168,21 +205,38 @@ describe('applySurveyPriorityBudget 優先序截斷', () => {
   test('有高權重且總長可塞入：結果 ≤ 8000，順序高權重→base→summaries', () => {
     const out = applySurveyPriorityBudget(high, 'BASE-MARKER', '# run.db\nrow')
     expect(out.length).toBeLessThanOrEqual(MAX_SURVEY_LENGTH)
-    expect(out.indexOf('# 最高權重證據：USER-SIGNALS.md')).toBeLessThan(out.indexOf('# 北極星價值判準：NORTHSTAR.md'))
-    expect(out.indexOf('# 北極星價值判準：NORTHSTAR.md')).toBeLessThan(out.indexOf('# 其他勘查訊號'))
+    expect(out.indexOf(`# ${USER_SIGNALS_HEADING}`)).toBeLessThan(out.indexOf(`# ${NORTHSTAR_HEADING}`))
+    expect(out.indexOf(`# ${NORTHSTAR_HEADING}`)).toBeLessThan(out.indexOf('# 其他勘查訊號'))
     expect(out.indexOf('# 其他勘查訊號')).toBeLessThan(out.indexOf('BASE-MARKER'))
     expect(out.indexOf('BASE-MARKER')).toBeLessThan(out.indexOf('# run.db'))
   })
 
-  test('剩餘預算不足時先砍 summaries，且絕不整段移除 base', () => {
-    // 高權重幾乎填滿 8000 時先壓縮高權重，讓 base 仍可完整保留；summaries 整段捨棄。
+  test('高權重全文可塞入時不被 surveyCommand 四分之一預留截斷', () => {
+    const user = `USER-FULL-${'U'.repeat(2000)}-USER-END`
+    const north = `NORTH-FULL-${'N'.repeat(2000)}-NORTH-END`
+    const fullHigh = packHighWeightSources(user, north)
+    expect(fullHigh.length).toBeLessThan(MAX_SURVEY_LENGTH)
+
+    const out = applySurveyPriorityBudget(fullHigh, 'B'.repeat(5000), `# events\n${'e'.repeat(3000)}`)
+
+    expect(out.startsWith(fullHigh)).toBe(true)
+    expect(out).toContain('-USER-END')
+    expect(out).toContain('-NORTH-END')
+    expect(out).toContain('# 其他勘查訊號')
+    expect(out).not.toContain('# events') // summaries 先砍
+    expect(out.length).toBeLessThanOrEqual(MAX_SURVEY_LENGTH)
+  })
+
+  test('剩餘預算不足時先砍 summaries，高權重全文保留並保 base 尾端', () => {
+    // 高權重幾乎填滿但仍 ≤ 8000：全文保留，剩餘給 base 尾；summaries 整段捨棄。
     const fatHigh = `${high}\n${'H'.repeat(MAX_SURVEY_LENGTH - high.length - 20)}`
+    expect(fatHigh.length).toBeLessThanOrEqual(MAX_SURVEY_LENGTH)
     const out = applySurveyPriorityBudget(fatHigh, `discard-${'b'.repeat(500)}-BT`, `# events\n${'e'.repeat(2000)}`)
+    expect(out.startsWith(fatHigh)).toBe(true)
     expect(out).toContain('-BT')
-    expect(out).toContain('discard-')
     expect(out).not.toContain('# events')
     expect(out.length).toBeLessThanOrEqual(MAX_SURVEY_LENGTH)
-    expect(out.indexOf('# 最高權重證據：USER-SIGNALS.md')).toBeLessThan(out.indexOf('# 北極星價值判準：NORTHSTAR.md'))
+    expect(out.indexOf(`# ${USER_SIGNALS_HEADING}`)).toBeLessThan(out.indexOf(`# ${NORTHSTAR_HEADING}`))
     expect(out.indexOf('# 其他勘查訊號')).toBeLessThan(out.indexOf('-BT'))
   })
 
