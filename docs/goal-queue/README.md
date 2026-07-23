@@ -11,9 +11,11 @@ session 間(idle),避免打斷進行中工作。
 
 | 檔案 | 一句話 | 狀態 |
 |---|---|---|
-| GOAL-reap-idlechild.md | supervisor 硬化:帶閒置殘留子進程的 wedge 也能自動 reap | 排入(等 self idle 自動 swap) |
-| GOAL-restart.md | restart.request 哨兵,消滅 config-rename 部署稅 | 待派 |
+| GOAL-reap-idlechild.md | supervisor 硬化:帶閒置殘留子進程的 wedge 也能自動 reap | ✅ 2026-07-23 上線 |
+| GOAL-restart.md | restart.request 哨兵,消滅 config-rename 部署稅 | 🔄 執行中(self) |
 | GOAL-survey.md | survey 多源化(run.db + events + USER-SIGNALS + NORTHSTAR) | 待派 |
+| GOAL-adaptive-rotation.md | 成功率加權輪替:輪替權重從 run.db 滾動成功率自動調 | 待派(2026-07-23 核准) |
+| GOAL-review-gate.md | 免費二審閘:swe-check(0 ACU)對 diff 對抗式審查,REJECT 走 rollback | 待派(2026-07-23 核准) |
 | GOAL-author.md | 自動 GOAL 逐題紅→綠驗證,修「繼承全域 verifyCommand 的空驗證」 | 待派 |
 | GOAL-roi.md | ProblemsLedger 加成本/結果欄,session 末結算 ROI | 待派 |
 | GOAL-northstar.md | 北極星節流自我迭代(機器提議、人核准 APPROVED 才併) | 待派 |
