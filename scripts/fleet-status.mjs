@@ -5,7 +5,36 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
+
+// 與 supervisor 一致的 engine 進程名（src/supervisor/health.ts）——殼進程 wsl/cmd/conhost 不算。
+const ENGINE_PROCESS_NAMES = new Set(['node.exe','codex.exe','opencode.exe','devin.exe','python.exe','bun.exe','grok.exe'])
+// 一次抓全系統 pid→{ppid,name}，node 端建樹（fail-open：抓不到回 null → 視為有 engine，不誤報 wedge）
+function buildProcMap() {
+  try {
+    const out = execSync('powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | ForEach-Object { \\"$($_.ProcessId),$($_.ParentProcessId),$($_.Name)\\" }"', { encoding: 'utf8', timeout: 15000 })
+    const map = new Map()
+    for (const line of out.split('\n')) {
+      const [pid, ppid, name] = line.trim().split(',')
+      if (pid) map.set(Number(pid), { ppid: Number(ppid), name: (name||'').toLowerCase() })
+    }
+    return map
+  } catch { return null }
+}
+function hasEngineDescendant(rootPid, procMap) {
+  if (!procMap) return true // fail-open：探測失敗當作有 engine，寧可不報 wedge
+  const kids = new Map()
+  for (const [pid, info] of procMap) { if (!kids.has(info.ppid)) kids.set(info.ppid, []); kids.get(info.ppid).push(pid) }
+  const stack = [...(kids.get(rootPid) ?? [])]
+  const seen = new Set()
+  while (stack.length) {
+    const pid = stack.pop(); if (seen.has(pid)) continue; seen.add(pid)
+    if (ENGINE_PROCESS_NAMES.has(procMap.get(pid)?.name)) return true
+    stack.push(...(kids.get(pid) ?? []))
+  }
+  return false
+}
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const now = Date.now()
@@ -41,6 +70,7 @@ const daemons = configs.map(f => {
 console.log(`\n autodev-ng fleet 狀態   ${nowIso}`)
 console.log('='.repeat(72))
 
+const procMap = buildProcMap() // 一次抓全系統進程樹，供 wedge 判定
 const fleetAttempts = {} // engine -> {n,ok}
 for (const d of daemons) {
   const hb = readJson(join(d.dataDir, 'heartbeat.json'))
@@ -48,7 +78,9 @@ for (const d of daemons) {
   const pid = lock?.pid
   const alive = pid ? pidAlive(pid) : false
   const hbAge = hb?.ts ? now - Date.parse(hb.ts) : -1
-  const wedged = alive && hbAge > STALE_MS
+  const stale = alive && hbAge > STALE_MS
+  const engineChild = stale && pid ? hasEngineDescendant(pid, procMap) : false
+  const wedged = stale && !engineChild // 有 engine 子進程＝合法長任務，不算 wedge（對齊 supervisor）
   // 當前 GOAL 首行
   let goal = '—'
   try {
@@ -59,7 +91,8 @@ for (const d of daemons) {
   const dot = wedged ? '⚠' : alive ? '●' : '○'
   console.log(`\n ${dot} ${d.name.padEnd(20)} pid ${String(pid ?? '—').padEnd(7)} ${(alive ? (hb?.state ?? '?') : 'DEAD').padEnd(9)} hb ${ageStr(hbAge).padEnd(7)}`)
   console.log(`   GOAL: ${goal}`)
-  if (wedged) console.log(`   ⚠ 疑似 wedge：存活但 heartbeat 已 ${ageStr(hbAge)}（>30分）`)
+  if (wedged) console.log(`   ⚠ 疑似 wedge：存活但 heartbeat 已 ${ageStr(hbAge)}（>30分）且無 engine 子進程`)
+  else if (stale) console.log(`   ⏳ 長任務執行中：heartbeat ${ageStr(hbAge)}，但有 engine 子進程在跑（正常）`)
   // 今日 attempts（heartbeat todayAttempts）
   const ta = hb?.todayAttempts ?? {}
   const engs = Object.keys(ta)
