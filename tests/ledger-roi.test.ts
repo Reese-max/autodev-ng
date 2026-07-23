@@ -5,9 +5,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProblemsLedger, problemFingerprint } from '../src/autopilot/ledger.js'
 import { collectGoalAttemptStats, readRecentGoalRoiSummary, settleProblemRoi } from '../src/autopilot/roi.js'
+import { discoverProblems } from '../src/autopilot/discover.js'
+import { AUTO_GOAL_MARKER } from '../src/autopilot/author.js'
+import { runPerpetualCycle, type PerpetualConfig, type PerpetualHooks } from '../src/autopilot/perpetual.js'
+import type { GoalOutcome } from '../src/autopilot/orchestrator.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
 import { taskId } from '../src/backlog.js'
+import { ConfigSchema } from '../src/types.js'
 
 const dirs: string[] = []
 afterEach(() => { while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true }) })
@@ -32,6 +37,45 @@ function tempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), 'adng-ledger-roi-'))
   dirs.push(dir)
   return dir
+}
+
+const START = '2026-07-02T00:00:00.000Z'
+const END = new Date('2026-07-02T01:00:00.000Z')
+
+function cycleCfg(dir: string): PerpetualConfig {
+  return {
+    ...ConfigSchema.parse({
+      projectPath: dir, backlogFile: join(dir, 'BACKLOG.md'), dataDir: dir,
+      goalFile: join(dir, 'GOAL.md'), stopFile: join(dir, '.adng.stop'),
+      engine: 'mock', verifyCommand: 'npm test', dailyHardUsd: 100
+    }),
+    perpetual: true, perpetualCooldownMs: 1, perpetualValueThreshold: 6
+  }
+}
+
+function autoGoal(fp: string): string {
+  return `${AUTO_GOAL_MARKER} problem:${fp} -->\n# GOAL\n\n修復 ROI 問題\n\n## 驗收\n\n\`\`\`sh\nnpm test\n\`\`\`\n`
+}
+
+function cycleHooks(outcome: GoalOutcome): PerpetualHooks {
+  return {
+    now: () => END,
+    discover: vi.fn(async () => ({ survey: '', ranked: [] })),
+    author: vi.fn(async () => null),
+    runSession: vi.fn(async () => ({ goalId: 'g1', outcome })),
+    billedToday: () => 0
+  }
+}
+
+function llm(response: string, prompts?: string[]) {
+  return {
+    url: 'http://x/v1', model: 'm', apiKey: 'k',
+    fetchFn: (async (_url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> }
+      prompts?.push(body.messages[0]!.content)
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: response } }] }) }
+    }) as unknown as typeof fetch
+  }
 }
 
 describe('ProblemsLedger ROI 相容落盤', () => {
@@ -175,5 +219,85 @@ describe('ProblemsLedger ROI 相容落盤', () => {
       : []
     expect(logged).toContain('perpetual-roi-write-failed')
     ledger.close()
+  })
+})
+
+describe('goal ROI 主流程', () => {
+  test.each([
+    [{ kind: 'achieved', rounds: 1 }, 'fixed'],
+    [{ kind: 'no-progress', rounds: 1 }, 'deferred'],
+    [{ kind: 'stuck', rounds: 1, reason: '無法繼續' }, 'deferred']
+  ] as const)('$0.kind 結束後由 perpetual closeout 回寫 ROI 並轉為 $1', async (outcome, status) => {
+    const dir = tempDir(), cfg = cycleCfg(dir), fp = problemFingerprint('ROI 問題')
+    writeFileSync(cfg.backlogFile, '')
+    writeFileSync(cfg.goalFile!, autoGoal(fp))
+    const ledger = new ProblemsLedger(join(dir, 'run.db'))
+    ledger.upsertSeen({ title: 'ROI 問題', lens: 'tests', value: 8 }, START)
+    ledger.setStatus(fp, 'in-progress', '', 'g1')
+    ledger.setRoi(fp, { startedAt: START })
+    ledger.close()
+
+    expect(await runPerpetualCycle(cfg, dir, new EventLog(dir), async () => true, cycleHooks(outcome))).toBe(true)
+
+    const settled = new ProblemsLedger(join(dir, 'run.db'))
+    expect(settled.get(fp)).toMatchObject({
+      status, goalResults: outcome.kind, attemptsTotal: 0, successCount: 0,
+      startedAt: START, endedAt: END.toISOString()
+    })
+    settled.close()
+  })
+
+  test('ledger 連線 I/O 失敗仍完成 discover→author→session', async () => {
+    const dir = tempDir(), cfg = cycleCfg(dir), fp = problemFingerprint('無台帳問題')
+    writeFileSync(cfg.backlogFile, '')
+    const hooks = cycleHooks({ kind: 'achieved', rounds: 1 })
+    hooks.discover = vi.fn(async () => ({
+      survey: '', ranked: [{ title: '無台帳問題', lens: 'tests', value: 8, rationale: '值得修' }]
+    }))
+    hooks.author = vi.fn(async () => autoGoal(fp))
+    const notify = vi.fn(async () => true)
+    const ioFailure = vi.spyOn(Database.prototype, 'pragma').mockImplementation(() => { throw new Error('ledger I/O failed') })
+    try {
+      expect(await runPerpetualCycle(cfg, dir, new EventLog(dir), notify, hooks)).toBe(true)
+      expect(hooks.author).toHaveBeenCalledTimes(1)
+      expect(hooks.runSession).toHaveBeenCalledTimes(1)
+      expect(notify).toHaveBeenCalledTimes(1)
+    } finally { ioFailure.mockRestore() }
+  })
+})
+
+describe('critic ROI 回饋主流程', () => {
+  test('critic prompt 帶入近期 ROI 摘要', async () => {
+    const dir = tempDir(), file = join(dir, 'run.db')
+    const ledger = new ProblemsLedger(file)
+    const fp = ledger.upsertSeen({ title: '歷史問題', lens: 'tests', value: 8 }, START).row.fingerprint
+    ledger.setRoi(fp, {
+      goalResults: 'achieved', attemptsTotal: 2, successCount: 1,
+      startedAt: START, endedAt: END.toISOString()
+    })
+    ledger.close()
+    const prompts: string[] = []
+
+    const result = await discoverProblems({
+      finderLlm: llm('新問題｜回歸缺口'),
+      criticLlm: llm('VALUE:8 | 新問題 | tests | ROI 穩定', prompts),
+      readRoiSummary: () => readRecentGoalRoiSummary(file), lenses: ['tests']
+    }, { objective: '持續改善', noProgressLimit: 2, evidenceFiles: [] }, dir)
+
+    expect(result.ranked[0]?.title).toBe('新問題')
+    expect(prompts[0]).toContain('# 近期已完成 goal ROI')
+    expect(prompts[0]).toContain('tests：1 goals｜預估 value avg 8.0｜實際成本 2 attempts（1 成功）、1.0h')
+  })
+
+  test('ROI 摘要 I/O 失敗時略過摘要且 discovery 正常完成', async () => {
+    const prompts: string[] = []
+    const result = await discoverProblems({
+      finderLlm: llm('新問題｜回歸缺口'),
+      criticLlm: llm('VALUE:7 | 新問題 | tests | 可處理', prompts),
+      readRoiSummary: () => { throw new Error('summary I/O failed') }, lenses: ['tests']
+    }, { objective: '持續改善', noProgressLimit: 2, evidenceFiles: [] }, tempDir())
+
+    expect(result.ranked[0]?.title).toBe('新問題')
+    expect(prompts[0]).not.toContain('近期已完成 goal ROI')
   })
 })

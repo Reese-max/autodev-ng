@@ -34,6 +34,7 @@ export function problemFingerprint(title: string): string {
 export class ProblemsLedger {
   private db?: Database.Database
   private hasRoiColumns = false
+  private ioFailed = false
   constructor(dbFile: string) {
     try {
       this.db = new Database(dbFile)
@@ -57,6 +58,7 @@ export class ProblemsLedger {
       )`)
       this.hasRoiColumns = this.migrateRoiColumns()
     } catch {
+      this.ioFailed = true
       try { this.db?.close() } catch { /* fail-open */ }
       this.db = undefined
     }
@@ -120,6 +122,8 @@ export class ProblemsLedger {
     })
   }
 
+  isOperational(): boolean { return this.db !== undefined && !this.ioFailed }
+
   private migrateRoiColumns(): boolean {
     try {
       const columns = new Set((this.db!.prepare('PRAGMA table_info(problems)').all() as { name: string }[]).map(column => column.name))
@@ -130,7 +134,7 @@ export class ProblemsLedger {
   }
 
   private safe<T>(fallback: T, action: (db: Database.Database) => T): T {
-    try { return this.db ? action(this.db) : fallback } catch { return fallback }
+    try { return this.db ? action(this.db) : fallback } catch { this.ioFailed = true; return fallback }
   }
 
   close(): void { this.safe(undefined, db => db.close()) }

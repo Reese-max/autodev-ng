@@ -140,7 +140,11 @@ async function runBody(
   }
 
   // 候選：ledger status=open 且 value≥門檻，按 value DESC 取前 3（listByStatus 已排序）。
-  const candidates = ledger.listByStatus('open').filter(r => r.value >= threshold).slice(0, 3)
+  const open = ledger.listByStatus('open')
+  const candidates = (ledger.isOperational()
+    ? open
+    : discovered.ranked.map(p => ({ ...p, fingerprint: problemFingerprint(p.title) })))
+    .filter(r => r.value >= threshold).slice(0, 3)
 
   let authored: { md: string; fp: string; title: string } | undefined
   for (const row of candidates) {
