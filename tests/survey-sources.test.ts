@@ -213,12 +213,27 @@ describe('run.db 近七個 UTC 日彙總', () => {
     ])
   })
 
-  test('缺檔、查詢失敗、欄位格式異常與無效時間皆回空摘要', () => {
+  test('缺 run.db 時回空摘要', () => {
     const dir = freshDir()
     expect(runDbSevenDaySummary(join(dir, 'missing.db'), NOW)).toEqual([])
+  })
+
+  test('attempts schema 缺必要欄位時回空摘要', () => {
+    const dir = freshDir()
+    const db = new Database(join(dir, 'wrong-schema.db'))
+    db.exec('CREATE TABLE attempts(ts TEXT, ok INTEGER, detail TEXT)')
+    db.close()
+    expect(runDbSevenDaySummary(join(dir, 'wrong-schema.db'), NOW)).toEqual([])
+  })
+
+  test('查詢損壞的 SQLite 時回空摘要', () => {
+    const dir = freshDir()
     writeFileSync(join(dir, 'broken.db'), 'not sqlite')
     expect(runDbSevenDaySummary(join(dir, 'broken.db'), NOW)).toEqual([])
+  })
 
+  test('欄位格式異常與無效時間皆回空摘要', () => {
+    const dir = freshDir()
     const db = new Database(join(dir, 'malformed.db'))
     db.exec('CREATE TABLE attempts(ts TEXT, ok TEXT, detail TEXT, engine TEXT)')
     db.prepare('INSERT INTO attempts VALUES (?,?,?,?)').run('2026-07-22T00:00:00.000Z', 'yes', 'bad', 'codex')
