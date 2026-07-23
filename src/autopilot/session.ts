@@ -12,6 +12,7 @@ import { evaluate } from './evaluator.js'
 import { verifyAndSupplement } from './supplement.js'
 import { discoverProblems, type DiscoverResult } from './discover.js'
 import { runGoalSession, type OrchestratorDeps, type GoalOutcome } from './orchestrator.js'
+import { collectSurvey, hasSurveySources } from './survey-sources.js'
 
 export interface SessionResult {
   goalId: string
@@ -63,7 +64,7 @@ export async function runGoalWithDeps(
     let discovered: DiscoverResult | undefined
     if (opts?.discovered) {
       discovered = opts.discovered
-    } else if (cfg.surveyCommand) {
+    } else if (cfg.surveyCommand || hasSurveySources(cfg.dataDir)) {
       // spec：auditModel 未設時 critic 退用 judgeModel，獨立性降級——記一筆稽核事件提醒（fail-open，不擋 discovery 主流程）。
       if (!cfg.auditModel) {
         try { appendFileSync(auditFile, JSON.stringify({ discoveryNote: 'critic 用 judgeModel（auditModel 未設，獨立性降級）' }) + '\n') } catch { /* fail-open */ }
@@ -72,10 +73,7 @@ export async function runGoalWithDeps(
         discovered = await discoverProblems({
           finderLlm: llm,
           criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey },
-          runSurvey: (_c, wd) => {
-            try { return { output: execSync(cfg.surveyCommand!, { cwd: wd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: cfg.surveyTimeoutMs, windowsHide: true }).slice(-8000) } }
-            catch (e) { const er = e as { stdout?: string }; return { output: (er.stdout ?? '').slice(-8000) } }
-          },
+          runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd) }),
           lenses: cfg.discoverLenses
         }, goal, cfg.projectPath)
       } catch (e) { console.error('discovery 故障（fail-open，無 discovered）:', String(e)) }
