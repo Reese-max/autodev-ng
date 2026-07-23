@@ -228,13 +228,17 @@ describe('ProblemsLedger ROI 相容落盤', () => {
     ledger.close()
   })
 
-  test.each(['achieved', 'no-progress', 'stuck'] as const)('%s session 結束依 goal_id 回寫完整 ROI', result => {
+  test.each(['achieved', 'no-progress', 'stuck'] as const)('%s session 結束依 goal_id 定位原 problem 並回寫完整 ROI', result => {
     const dir = tempDir(), file = join(dir, 'run.db'), backlog = join(dir, 'BACKLOG.md')
     writeFileSync(backlog, '- [x] 任務甲 <!-- adng:autopilot goal:g1 round:1 --> <!-- adng:done abc -->\n')
     const runDb = new RunDb(file)
     runDb.record({ taskId: taskId('任務甲'), ts: '2026-07-02T00:10:00Z', ok: true, costUsd: 0, detail: '' })
     runDb.close()
     const ledger = new ProblemsLedger(file)
+    // 干擾列：其他 goal / 尚未綁定——回寫必須只命中 goal_id=g1 那一列
+    const otherFp = ledger.upsertSeen({ title: '其他問題', lens: 'perf', value: 9 }, '2026-07-01T00:00:00Z').row.fingerprint
+    ledger.setStatus(otherFp, 'in-progress', '', 'g2')
+    const openFp = ledger.upsertSeen({ title: '未立案問題', lens: 'design', value: 5 }, '2026-07-01T00:00:00Z').row.fingerprint
     const fp = ledger.upsertSeen({ title: '問題', lens: 'tests', value: 8 }, '2026-07-01T00:00:00Z').row.fingerprint
     ledger.setStatus(fp, 'in-progress', '', 'g1')
     ledger.setRoi(fp, { startedAt: '2026-07-02T00:00:00Z' })
@@ -246,11 +250,62 @@ describe('ProblemsLedger ROI 相容落盤', () => {
     })).not.toThrow()
 
     const settled = new ProblemsLedger(file)
+    expect(settled.findByGoalId('g1')?.fingerprint).toBe(fp)
     expect(settled.get(fp)).toMatchObject({
       goalResults: result, attemptsTotal: 1, successCount: 1,
       startedAt: '2026-07-02T00:00:00Z', endedAt: '2026-07-02T01:00:00Z'
     })
+    expect(settled.get(otherFp)?.goalResults).toBeUndefined()
+    expect(settled.get(openFp)?.goalResults).toBeUndefined()
     settled.close()
+  })
+
+  test('重複收案：同 problem 再次 settle 覆寫成本與結果且不拋錯', () => {
+    const dir = tempDir(), file = join(dir, 'run.db'), backlog = join(dir, 'BACKLOG.md')
+    writeFileSync(backlog, [
+      '- [x] 首輪 <!-- adng:autopilot goal:g1 round:1 --> <!-- adng:done a1 -->',
+      '- [x] 次輪甲 <!-- adng:autopilot goal:g1 round:2 --> <!-- adng:done a2 -->',
+      '- [x] 次輪乙 <!-- adng:autopilot goal:g1 round:2 --> <!-- adng:done a3 -->'
+    ].join('\n'))
+    const runDb = new RunDb(file)
+    runDb.record({ taskId: taskId('首輪'), ts: '2026-07-02T00:10:00Z', ok: true, costUsd: 0, detail: '' })
+    runDb.record({ taskId: taskId('次輪甲'), ts: '2026-07-03T00:10:00Z', ok: true, costUsd: 0, detail: '' })
+    runDb.record({ taskId: taskId('次輪乙'), ts: '2026-07-03T00:20:00Z', ok: false, costUsd: 0, detail: '' })
+    runDb.close()
+
+    const ledger = new ProblemsLedger(file)
+    const fp = ledger.upsertSeen({ title: '問題', lens: 'tests', value: 8 }, '2026-07-01T00:00:00Z').row.fingerprint
+    ledger.setStatus(fp, 'in-progress', '', 'g1')
+    ledger.setRoi(fp, { startedAt: '2026-07-02T00:00:00Z' })
+
+    // 首輪收案：achieved + 1 attempt
+    settleProblemRoi({
+      ledger, events: new EventLog(dir), dbFile: file, backlogFile: backlog,
+      fingerprint: fp, goalId: 'g1', result: 'achieved',
+      startedAt: '2026-07-02T00:00:00Z', endedAt: '2026-07-02T01:00:00Z'
+    })
+    expect(ledger.get(fp)).toMatchObject({
+      goalResults: 'achieved', attemptsTotal: 1, successCount: 1,
+      startedAt: '2026-07-02T00:00:00Z', endedAt: '2026-07-02T01:00:00Z'
+    })
+
+    // 重複收案（session settleGoalRoi + 再一次 fingerprint 路徑）：改寫為 stuck 與新時間窗成本
+    expect(() => settleGoalRoi({
+      events: new EventLog(dir), dbFile: file, backlogFile: backlog, goalId: 'g1', result: 'stuck',
+      startedAt: '2026-07-03T00:00:00Z', endedAt: '2026-07-03T02:00:00Z'
+    })).not.toThrow()
+    settleProblemRoi({
+      ledger, events: new EventLog(dir), dbFile: file, backlogFile: backlog,
+      fingerprint: fp, goalId: 'g1', result: 'no-progress',
+      startedAt: '2026-07-03T00:00:00Z', endedAt: '2026-07-03T02:00:00Z'
+    })
+
+    expect(ledger.findByGoalId('g1')?.fingerprint).toBe(fp)
+    expect(ledger.get(fp)).toMatchObject({
+      goalResults: 'no-progress', attemptsTotal: 2, successCount: 1,
+      startedAt: '2026-07-03T00:00:00Z', endedAt: '2026-07-03T02:00:00Z'
+    })
+    ledger.close()
   })
 
   test('找不到對應 goal_id 時靜默略過', () => {
@@ -357,6 +412,45 @@ describe('goal ROI 主流程', () => {
       .map(line => (JSON.parse(line) as { type: string }).type)
     expect(eventTypes).toContain('perpetual-roi-write-failed')
     expect(eventTypes).toContain('perpetual-session-done')
+  })
+
+  test('重複收案：已寫 ROI 的 auto-goal 再跑 closeout 可覆寫終態', async () => {
+    const dir = tempDir(), cfg = cycleCfg(dir), fp = problemFingerprint('ROI 問題')
+    // goalId = sha1('修復 ROI 問題').slice(0,4) —— 與 residual closeout 的 goalIdOf(objective) 對齊
+    const goalId = 'fdea'
+    writeFileSync(cfg.backlogFile, `- [x] 重跑任務 <!-- adng:autopilot goal:${goalId} round:1 --> <!-- adng:done z9 -->\n`)
+    writeFileSync(cfg.goalFile!, autoGoal(fp))
+    const runDb = new RunDb(join(dir, 'run.db'))
+    runDb.record({ taskId: taskId('重跑任務'), ts: '2026-07-02T00:30:00Z', ok: true, costUsd: 0, detail: '' })
+    runDb.close()
+
+    const ledger = new ProblemsLedger(join(dir, 'run.db'))
+    ledger.upsertSeen({ title: 'ROI 問題', lens: 'tests', value: 8 }, START)
+    ledger.setStatus(fp, 'deferred', 'no-progress 首輪', goalId)
+    // 首輪已收案 ROI
+    ledger.setRoi(fp, {
+      goalResults: 'no-progress', attemptsTotal: 0, successCount: 0,
+      startedAt: START, endedAt: '2026-07-02T00:15:00.000Z'
+    })
+    ledger.close()
+
+    // 殘留 auto-goal 再跑，終態改 stuck 並重算成本
+    expect(await runPerpetualCycle(
+      cfg, dir, new EventLog(dir), async () => true,
+      cycleHooks({ kind: 'stuck', rounds: 2, reason: '缺依賴' })
+    )).toBe(true)
+
+    const settled = new ProblemsLedger(join(dir, 'run.db'))
+    expect(settled.get(fp)).toMatchObject({
+      status: 'deferred',
+      goalResults: 'stuck',
+      attemptsTotal: 1,
+      successCount: 1,
+      startedAt: START,
+      endedAt: END.toISOString()
+    })
+    settled.close()
+    expect(existsSync(cfg.goalFile!)).toBe(false)
   })
 })
 
