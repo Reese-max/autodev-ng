@@ -14,7 +14,7 @@ import { callAgent } from './llm.js'
 import { authorGoal, isAutoGoal, loadPerpetualState, savePerpetualState } from './author.js'
 import { runGoalWithDeps, type SessionResult } from './session.js'
 import { collectSurvey, hasSurveySources } from './survey-sources.js'
-import { settleProblemRoi } from './roi.js'
+import { readRecentGoalRoiSummary, settleProblemRoi } from './roi.js'
 
 /** 外環主邏輯（M10.0 perpetual engineer）。fail-open 是治理鐵律（#4）：本函式由 daemon
  * idle loop 呼叫，任何 throw 都不得逸出——整體包 try/catch，異常記 perpetual-error 回 false。 */
@@ -265,6 +265,7 @@ export async function maybeRunPerpetual(
         finderLlm: judgeLlm,
         criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey },
         runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd) }),
+        readRoiSummary: () => readRecentGoalRoiSummary(join(cfg.dataDir, 'run.db')),
         lenses: cfg.discoverLenses
       }, { objective: '', noProgressLimit: 2 }, cfg.projectPath)
     },

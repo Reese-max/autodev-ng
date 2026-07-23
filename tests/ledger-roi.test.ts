@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProblemsLedger, problemFingerprint } from '../src/autopilot/ledger.js'
-import { collectGoalAttemptStats, settleProblemRoi } from '../src/autopilot/roi.js'
+import { collectGoalAttemptStats, readRecentGoalRoiSummary, settleProblemRoi } from '../src/autopilot/roi.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
 import { taskId } from '../src/backlog.js'
@@ -35,6 +35,36 @@ function tempDir(): string {
 }
 
 describe('ProblemsLedger ROI 相容落盤', () => {
+  test('近期完成 goals 依 lens 彙總預估 value、實際成本與結果', () => {
+    const file = join(tempDir(), 'run.db')
+    const ledger = new ProblemsLedger(file)
+    const rows = [
+      { title: '測試甲', lens: 'tests', value: 8, result: 'achieved', attempts: 2, successes: 2, start: '2026-07-02T00:00:00Z', end: '2026-07-02T01:00:00Z' },
+      { title: '測試乙', lens: 'tests', value: 6, result: 'stuck', attempts: 4, successes: 1, start: '2026-07-03T00:00:00Z', end: '2026-07-03T02:00:00Z' },
+      { title: '效能甲', lens: 'perf', value: 9, result: 'no-progress', attempts: 3, successes: 0, start: '2026-07-04T00:00:00Z', end: '2026-07-04T00:30:00Z' }
+    ] as const
+    for (const row of rows) {
+      const fp = ledger.upsertSeen(row, row.start).row.fingerprint
+      ledger.setRoi(fp, { goalResults: row.result, attemptsTotal: row.attempts, successCount: row.successes, startedAt: row.start, endedAt: row.end })
+    }
+    ledger.upsertSeen({ title: '尚未完成', lens: 'design', value: 10 }, '2026-07-05T00:00:00Z')
+    ledger.close()
+
+    const summary = readRecentGoalRoiSummary(file)
+    expect(summary).toContain('tests：2 goals｜預估 value avg 7.0｜實際成本 6 attempts（3 成功）、3.0h｜結果 achieved 1/no-progress 0/stuck 1')
+    expect(summary).toContain('perf：1 goals｜預估 value avg 9.0｜實際成本 3 attempts（0 成功）、0.5h｜結果 achieved 0/no-progress 1/stuck 0')
+    expect(summary).not.toContain('design')
+    expect(summary.length).toBeLessThanOrEqual(1500)
+  })
+
+  test('無 ROI 歷史或資料庫讀取失敗時摘要為空', () => {
+    const file = join(tempDir(), 'run.db')
+    const ledger = new ProblemsLedger(file)
+    ledger.close()
+    expect(readRecentGoalRoiSummary(file)).toBe('')
+    expect(readRecentGoalRoiSummary(join(tempDir(), 'missing.db'))).toBe('')
+  })
+
   test('舊 schema 自動補欄，既有資料與 ROI 都可讀寫', () => {
     const file = oldLedgerFile()
     const ledger = new ProblemsLedger(file)

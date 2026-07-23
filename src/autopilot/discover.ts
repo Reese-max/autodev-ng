@@ -33,6 +33,7 @@ export interface DiscoverDeps {
   criticLlm: LlmOpts
   runSurvey?: (cmd: string, cwd: string) => { output: string }
   readEvidence?: (absPath: string) => string
+  readRoiSummary?: () => string
   lenses: string[]
 }
 export interface DiscoverResult { survey: string; ranked: RankedProblem[] }
@@ -59,13 +60,18 @@ export function northstarFromSurvey(survey: string): string {
  * critic 評審 prompt：排序主軸是 NORTHSTAR 價值判準（硬約束）；
  * 對齊者優先，與北極星無關的候選必須降權（不得排在高對齊候選之前）。
  */
-export function criticPrompt(cands: Candidate[], northstar: string): string {
+export function criticPrompt(cands: Candidate[], northstar: string, roiSummary = ''): string {
   const body = cands.map(c => `[${c.lens}] ${c.title}｜${c.detail}`).join('\n')
+  const roi = roiSummary.trim()
   return [
     '你是對抗式問題評審。以下是多視角候選問題。去重、挑戰每個（真問題嗎？夠高價值嗎？漏了更重要的嗎？）。',
     '【硬約束】排序主軸是北極星（NORTHSTAR）價值判準：候選問題必須依北極星價值判準排序（高對齊在前）。',
     '【硬約束】與北極星無關的候選降權：VALUE 應明顯偏低，且不得排在高對齊候選之前；理由需點明是否對回北極星。',
     '不得僅因語意相近或技術熱點把無關候選排在前面；對不回北極星價值判準者一律降權。',
+    ...(roi ? [
+      '【硬約束】依近期 ROI 史實調整候選排序：高成本低成果的 lens 降權，低成本且成果穩定的 lens 優先；理由需引用相關史實。',
+      `\n# 近期已完成 goal ROI\n${roi}`
+    ] : []),
     '嚴格照格式，每行一問題（高價值在前）：VALUE:<0~10> | <標題> | <lens> | <一句理由>',
     '若逐一挑戰後認為沒有任何候選值得處理，只回一行 NONE。',
     `\n北極星價值判準：\n${northstar || '（無）'}`,
@@ -89,7 +95,9 @@ export async function discoverProblems(deps: DiscoverDeps, goal: Goal, cwd: stri
   let ranked: RankedProblem[] = []
   let vetoed = false
   try {
-    const text = (await callAgent(deps.criticLlm, criticPrompt(candidates, northstarFromSurvey(survey)))).text.trim()
+    let roiSummary = ''
+    try { roiSummary = deps.readRoiSummary?.() ?? '' } catch { /* fail-open */ }
+    const text = (await callAgent(deps.criticLlm, criticPrompt(candidates, northstarFromSurvey(survey), roiSummary))).text.trim()
     const firstLine = text.split(/\r?\n/).map(l => l.trim()).find(Boolean) ?? ''
     if (/^NONE\b/i.test(firstLine)) vetoed = true
     else ranked = parseRanked(text)

@@ -13,6 +13,7 @@ import { verifyAndSupplement } from './supplement.js'
 import { discoverProblems, type DiscoverResult } from './discover.js'
 import { runGoalSession, type OrchestratorDeps, type GoalOutcome } from './orchestrator.js'
 import { collectSurvey, hasSurveySources } from './survey-sources.js'
+import { readRecentGoalRoiSummary } from './roi.js'
 
 export interface SessionResult {
   goalId: string
@@ -74,6 +75,7 @@ export async function runGoalWithDeps(
           finderLlm: llm,
           criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey },
           runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd) }),
+          readRoiSummary: () => readRecentGoalRoiSummary(join(cfg.dataDir, 'run.db')),
           lenses: cfg.discoverLenses
         }, goal, cfg.projectPath)
       } catch (e) { console.error('discovery 故障（fail-open，無 discovered）:', String(e)) }

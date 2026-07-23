@@ -88,6 +88,12 @@ describe('criticPrompt', () => {
     expect(p).toContain('【硬約束】')
     expect(p).toContain('候選：\n（無）')
   })
+  test('有 ROI 摘要時明確要求依史實調整排序', () => {
+    const p = criticPrompt(cands, '', '- tests：2 goals｜預估 value avg 7.0｜實際成本 6 attempts（3 成功）、3.0h｜結果 achieved 1/no-progress 0/stuck 1')
+    expect(p).toContain('依近期 ROI 史實調整候選排序')
+    expect(p).toContain('# 近期已完成 goal ROI')
+    expect(p).toContain('tests：2 goals')
+  })
 })
 
 const goal: Goal = { objective: '持續改善品質', noProgressLimit: 3, evidenceFiles: ['a.py'] }
@@ -142,6 +148,13 @@ describe('discoverProblems', () => {
     const r = await discoverProblems({ finderLlm: seqLlm(['NONE']), criticLlm: seqLlm(['']),
       runSurvey: () => { throw new Error('survey boom') }, readEvidence: () => 'c', lenses: ['correctness'] }, goal, '/proj')
     expect(r.survey).toBe(''); expect(r.ranked).toEqual([])
+  })
+  test('ROI 摘要讀取失敗 → 略過摘要且候選照常產生', async () => {
+    const prompts: string[] = []
+    const r = await discoverProblems({ finderLlm: seqLlm(['問題X｜y']), criticLlm: seqLlm(['VALUE:7 | 問題X | tests | ok'], prompts),
+      readRoiSummary: () => { throw new Error('roi boom') }, lenses: ['tests'] }, goal, '/proj')
+    expect(r.ranked[0]?.title).toBe('問題X')
+    expect(prompts[0]).not.toContain('近期已完成 goal ROI')
   })
   test('finder throw 該鏡頭跳過，其餘鏡頭仍出候選', async () => {
     let n = 0

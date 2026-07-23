@@ -98,6 +98,13 @@ export class ProblemsLedger {
       FROM problems WHERE status=? ORDER BY value DESC, id ASC LIMIT ?`).all(status, limit) as Record<string, unknown>[]).map(toRow))
   }
 
+  listRecentCompleted(limit = 20): ProblemRow[] {
+    if (!this.hasRoiColumns) return []
+    return this.safe([], db => (db.prepare(`SELECT fingerprint,title,lens,value,status,goal_id,first_seen,last_seen,note${ROI_SELECT}
+      FROM problems WHERE goal_results IS NOT NULL AND ended_at IS NOT NULL ORDER BY ended_at DESC, id DESC LIMIT ?`)
+      .all(limit) as Record<string, unknown>[]).map(toRow))
+  }
+
   counts(): Record<string, number> {
     return this.safe({}, db => {
       const rows = db.prepare(`SELECT status, COUNT(*) n FROM problems GROUP BY status`).all() as { status: string; n: number }[]
