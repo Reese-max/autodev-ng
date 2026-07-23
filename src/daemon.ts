@@ -1,10 +1,11 @@
-import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { freemem, totalmem } from 'node:os'
 import { join } from 'node:path'
 import { acquireLock, releaseLock } from './lock.js'
 import { localDay } from './db.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
 import { runOnce, subscriptionTags, type Deps, type CycleResult, type BlockedReason } from './scheduler.js'
+import { consumeRestartSentinel } from './autopilot/restart-sentinel.js'
 import { isSilenced } from './bot/silence.js'
 import { quiet, type EventLog } from './events.js'
 import { maybeRunPerpetual, perpetualDigestLine } from './autopilot/perpetual.js'
@@ -273,19 +274,8 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
         return 'config-gone'
       }
 
-      // restart.request 哨兵：優雅重啟（部署換版免 rename dance／taskkill）。只在 cycle 邊界
-      // 檢查——attempt 進行中絕不中斷。先刪哨兵再退：刪失敗不退（否則 supervisor 重拉後
-      // 又見哨兵又退＝無限翻抖），記事件等人工處理。
-      const restartSentinel = join(deps.cfg.dataDir, 'restart.request')
-      if (existsSync(restartSentinel)) {
-        try {
-          (opts.unlinkFn ?? unlinkSync)(restartSentinel)
-          quiet(() => deps.events.append('daemon-restart-requested', {}))
-          return 'restart-requested'
-        } catch (err) {
-          quiet(() => deps.events.append('daemon-restart-unlink-failed', { error: String(err) }))
-        }
-      }
+      // restart.request 哨兵（見 autopilot/restart-sentinel.ts）：cycle 邊界檢查優雅重啟，attempt 進行中不中斷。
+      if (consumeRestartSentinel(deps.cfg.dataDir, deps.events, opts.unlinkFn)) return 'restart-requested'
 
       // M7.5:OOM 閘——可用記憶體 <15% 跳過本輪派工(舊系統教訓:高壓下 spawn 只會雪崩)
       // stop 優先於 OOM 跳輪——否則低記憶體期間操作者停不下 daemon(全分支審查 IMPORTANT)
