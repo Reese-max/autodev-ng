@@ -25,6 +25,7 @@ const NOW = '2026-07-21T12:00:00.000Z'
 const roots: string[] = []
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
@@ -324,6 +325,10 @@ test.each(SMOKE_SCENARIOS)(
 test.each(SMOKE_SCENARIOS)(
   'CLI smoke：$name → 輸出穩定且 dataDir 完全唯讀',
   scenario => {
+    // routingStatusMain 內部用真實時鐘（不吃 nowIso）；釘在 NOW 使隔離窗判定確定性，
+    // 否則 fixture 的 untilTs 過期後此測試會隨真實日期崩掉（時間炸彈）。
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(NOW))
     const { dataDir, stateFile, configPath } = prepareSmokeRoot(scenario)
     expect(loadRoutingStatusInput(configPath)).toEqual({ dataDir, offsetHours: 8 })
 
