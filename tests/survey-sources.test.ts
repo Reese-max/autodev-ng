@@ -3,6 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'n
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { assembleSurvey } from '../src/autopilot/survey-sources.js'
+import { runDbSevenDaySummary } from '../src/engines/run-db-summary.js'
 
 const dirs: string[] = []
 const NOW = '2026-07-23T12:00:00.000Z'
@@ -46,7 +47,8 @@ describe('多源 survey 組裝器', () => {
 
     expect(output).toContain('codex: attempts 2｜成功率 50%')
     expect(output).toContain('qwen: attempts 1｜成功率 0%')
-    expect(output).toContain('2 次｜verify timeout 30s')
+    expect(output).toContain('codex: attempts 2｜成功率 50%｜最常見失敗 1 次：verify timeout 30s')
+    expect(output).toContain('qwen: attempts 1｜成功率 0%｜最常見失敗 1 次：verify timeout 30s')
     expect(output).toContain('verify-fail: 2 次')
     expect(output).toContain('"detail":"latest"')
     const sections = ['# 最高權重證據：USER-SIGNALS.md', '# 北極星價值判準：NORTHSTAR.md', '# 其他勘查訊號', '既有 surveyCommand 輸出', '# run.db', '# events.jsonl']
@@ -99,5 +101,40 @@ describe('多源 survey 組裝器', () => {
     expect(output).toContain('以可靠度與可預期性決定優先順序。')
     expect(output).toHaveLength(8000)
     expect(output.endsWith('-tail')).toBe(true)
+  })
+})
+
+describe('run.db 近七個 UTC 日彙總', () => {
+  test('依 UTC 日界彙總各引擎，並選出各自最常見失敗 detail', () => {
+    const dir = freshDir()
+    const db = new Database(join(dir, 'run.db'))
+    db.exec('CREATE TABLE attempts(seq INTEGER PRIMARY KEY, task_id TEXT, ts TEXT, ok INTEGER, cost_usd REAL, detail TEXT, engine TEXT)')
+    const add = db.prepare('INSERT INTO attempts(task_id,ts,ok,cost_usd,detail,engine) VALUES (?,?,?,?,?,?)')
+    add.run('before', '2026-07-16T23:59:59.999Z', 0, 0, 'outside', 'codex')
+    add.run('start', '2026-07-17T00:00:00.000Z', 1, 0, 'done', 'codex')
+    add.run('c1', '2026-07-20T00:00:00.000Z', 0, 0, 'timeout', 'codex')
+    add.run('c2', '2026-07-21T00:00:00.000Z', 0, 0, 'timeout', 'codex')
+    add.run('q1', '2026-07-22T00:00:00.000Z', 0, 0, 'quota', 'qwen')
+    add.run('end', '2026-07-24T00:00:00.000Z', 1, 0, 'outside', 'qwen')
+    db.close()
+
+    expect(runDbSevenDaySummary(join(dir, 'run.db'), NOW)).toEqual([
+      { engine: 'codex', attempts: 3, successRate: 1 / 3, topFailure: { detail: 'timeout', count: 2 } },
+      { engine: 'qwen', attempts: 1, successRate: 0, topFailure: { detail: 'quota', count: 1 } },
+    ])
+  })
+
+  test('缺檔、查詢失敗、欄位格式異常與無效時間皆回空摘要', () => {
+    const dir = freshDir()
+    expect(runDbSevenDaySummary(join(dir, 'missing.db'), NOW)).toEqual([])
+    writeFileSync(join(dir, 'broken.db'), 'not sqlite')
+    expect(runDbSevenDaySummary(join(dir, 'broken.db'), NOW)).toEqual([])
+
+    const db = new Database(join(dir, 'malformed.db'))
+    db.exec('CREATE TABLE attempts(ts TEXT, ok TEXT, detail TEXT, engine TEXT)')
+    db.prepare('INSERT INTO attempts VALUES (?,?,?,?)').run('2026-07-22T00:00:00.000Z', 'yes', 'bad', 'codex')
+    db.close()
+    expect(runDbSevenDaySummary(join(dir, 'malformed.db'), NOW)).toEqual([])
+    expect(runDbSevenDaySummary(join(dir, 'malformed.db'), 'not-a-date')).toEqual([])
   })
 })

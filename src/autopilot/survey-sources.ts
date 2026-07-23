@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { join } from 'node:path'
-import Database from 'better-sqlite3'
 import type { Config } from '../types.js'
+import { runDbSevenDaySummary } from '../engines/run-db-summary.js'
 
 const MAX_SURVEY_LENGTH = 8000
 const EVENT_TAIL_LINES = 200
@@ -10,29 +10,14 @@ const EVENT_TAIL_LINES = 200
 interface SurveyOptions { nowIso?: string }
 
 function runDbSummary(dataDir: string, nowIso: string): string {
-  let db: Database.Database | undefined
-  try {
-    db = new Database(join(dataDir, 'run.db'), { readonly: true, fileMustExist: true, timeout: 50 })
-    const sinceIso = new Date(Date.parse(nowIso) - 7 * 24 * 3600_000).toISOString()
-    const engines = db.prepare(
-      "SELECT COALESCE(NULLIF(engine,''),'(未標)') engine, COUNT(*) n, COALESCE(SUM(ok),0) ok FROM attempts WHERE ts >= ? AND ts <= ? GROUP BY 1 ORDER BY n DESC, engine ASC"
-    ).all(sinceIso, nowIso) as { engine: string; n: number; ok: number }[]
-    const failures = db.prepare(
-      "SELECT detail, COUNT(*) n FROM attempts WHERE ts >= ? AND ts <= ? AND ok=0 AND trim(detail) != '' GROUP BY detail ORDER BY n DESC, detail ASC LIMIT 5"
-    ).all(sinceIso, nowIso) as { detail: string; n: number }[]
-    if (engines.length === 0 && failures.length === 0) return ''
-    const lines = ['# run.db 近 7 日']
-    for (const row of engines) lines.push(`- ${row.engine}: attempts ${row.n}｜成功率 ${Math.round(row.ok / row.n * 100)}%`)
-    if (failures.length) {
-      lines.push('常見失敗 detail 模式：')
-      for (const row of failures) lines.push(`- ${row.n} 次｜${row.detail.replace(/\s+/g, ' ').slice(0, 240)}`)
-    }
-    return lines.join('\n')
-  } catch {
-    return ''
-  } finally {
-    try { db?.close() } catch { /* fail-open */ }
-  }
+  const engines = runDbSevenDaySummary(join(dataDir, 'run.db'), nowIso)
+  if (engines.length === 0) return ''
+  return ['# run.db 近 7 日', ...engines.map(row => {
+    const failure = row.topFailure
+      ? `｜最常見失敗 ${row.topFailure.count} 次：${row.topFailure.detail.replace(/\s+/g, ' ').slice(0, 240)}`
+      : ''
+    return `- ${row.engine}: attempts ${row.attempts}｜成功率 ${Math.round(row.successRate * 100)}%${failure}`
+  })].join('\n')
 }
 
 function eventsSummary(dataDir: string): string {
