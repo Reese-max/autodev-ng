@@ -1,9 +1,8 @@
-import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import type { Config, Job, RunResult } from './types.js'
 import { runVerify } from './verify.js'
 import { judgeCommit } from './judge.js'
+import { runReviewGate } from './engines/review-gate.js'
+import { defaultRollback, defaultGetDiff, tail } from './engines/verify-helpers.js'
 
 export interface VerifierCheck { pass: boolean; reason?: string; alerts: string[] }
 
@@ -13,6 +12,9 @@ export interface KernelVerifierOpts {
   getDiff?: (cwd: string, baseCommitHash?: string) => string
   /** 測試注入用：轉給 judgeCommit 的 fetchFn（additive，正常執行走 judgeCommit 內建的 global fetch）。 */
   judgeFetchFn?: typeof fetch
+  /** review gate：對 diff 做審查，回傳原始文字（契約首行 `REVIEW: PASS` / `REVIEW: REJECT <理由>`）。
+   * 由 scheduler 接 cfg.reviewEngine 指定的引擎注入；未接＝跳過 review（fail-open）。 */
+  reviewRun?: (args: { diff: string; taskText: string }) => Promise<string>
 }
 
 /**
@@ -24,12 +26,14 @@ export class KernelVerifier {
   private readonly rollback: (cwd: string, toHash: string) => boolean
   private readonly getDiff: (cwd: string, baseCommitHash?: string) => string
   private readonly judgeFetchFn?: typeof fetch
+  private readonly reviewRun?: (args: { diff: string; taskText: string }) => Promise<string>
 
   constructor(opts: KernelVerifierOpts) {
     this.cfg = opts.cfg
     this.rollback = opts.rollback ?? defaultRollback
     this.getDiff = opts.getDiff ?? defaultGetDiff
     this.judgeFetchFn = opts.judgeFetchFn
+    this.reviewRun = opts.reviewRun
   }
 
   async check(job: Job, res: RunResult): Promise<VerifierCheck> {
@@ -66,6 +70,16 @@ export class KernelVerifier {
     }
     if (jOut.verdict === 'SKIP') alerts.push(`judge-skip: ${jOut.detail}`)
 
+    // review gate（第三層，見 engines/review-gate.ts）：只有明確 REJECT 才拒收＋rollback，其餘 fail-open。
+    if (this.cfg.reviewEngine) {
+      const rv = await runReviewGate(this.reviewRun, { diff, taskText: job.task.text })
+      if (rv.kind === 'reject') {
+        this.tryRollback(job.projectPath, res.baseCommitHash, alerts)
+        return { pass: false, reason: `review-reject:${rv.reason}`, alerts }
+      }
+      if (rv.kind === 'skip') alerts.push(rv.alert)
+    }
+
     return { pass: true, alerts }
   }
 
@@ -78,37 +92,4 @@ export class KernelVerifier {
       alerts.push(`rollback-exception: ${String(err).slice(0, 200)}`)
     }
   }
-}
-
-/** worktree marker：只有經 adng worktree 管理器建立的目錄才會有這個檔，防止 reset --hard 誤毀
- *  使用者在一般專案目錄（非 adng 管理）裡未提交的工作（紅線 3）。 */
-const WORKTREE_MARKER = '.adng-worktree'
-
-function defaultRollback(cwd: string, toHash: string): boolean {
-  if (!existsSync(join(cwd, WORKTREE_MARKER))) {
-    // 拒絕執行：throw 讓 tryRollback 的 catch 記成 rollback-exception，
-    // 與真正 reset 失敗的 rollback-failed 區分開來，兩者在 alerts 都可見但語意不同。
-    throw new Error('rollback-refused: not an adng worktree')
-  }
-  try {
-    execFileSync('git', ['-C', cwd, 'reset', '--hard', toHash], { stdio: 'ignore', timeout: 30_000, windowsHide: true })
-    return true
-  } catch {
-    return false
-  }
-}
-
-function defaultGetDiff(cwd: string, baseCommitHash?: string): string {
-  if (!baseCommitHash) return ''
-  try {
-    return execFileSync('git', ['-C', cwd, 'diff', `${baseCommitHash}..HEAD`], {
-      encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true
-    })
-  } catch {
-    return ''
-  }
-}
-
-function tail(s: string, n: number): string {
-  return s.length > n ? s.slice(-n) : s
 }
