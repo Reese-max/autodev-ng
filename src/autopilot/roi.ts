@@ -22,7 +22,8 @@ export function readRecentGoalRoiSummary(dbFile: string): string {
   }
 }
 
-function summarizeRecentGoalRoi(rows: ProblemRow[]): string {
+/** 依 lens 彙總近期已完成 goal：預估 value avg、attempts/成功、耗時、achieved/no-progress/stuck。 */
+export function summarizeRecentGoalRoi(rows: ProblemRow[]): string {
   const byLens = new Map<string, {
     goals: number; value: number; attempts: number; successes: number; unknownAttempts: number
     durationMs: number; unknownDuration: number; achieved: number; noProgress: number; stuck: number

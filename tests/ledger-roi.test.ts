@@ -4,8 +4,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProblemsLedger, problemFingerprint } from '../src/autopilot/ledger.js'
-import { collectGoalAttemptStats, readRecentGoalRoiSummary, settleGoalRoi, settleProblemRoi } from '../src/autopilot/roi.js'
-import { discoverProblems } from '../src/autopilot/discover.js'
+import { collectGoalAttemptStats, readRecentGoalRoiSummary, settleGoalRoi, settleProblemRoi, summarizeRecentGoalRoi } from '../src/autopilot/roi.js'
+import { criticPrompt, discoverProblems } from '../src/autopilot/discover.js'
+import type { ProblemRow } from '../src/autopilot/ledger.js'
 import { AUTO_GOAL_MARKER } from '../src/autopilot/author.js'
 import { runPerpetualCycle, type PerpetualConfig, type PerpetualHooks } from '../src/autopilot/perpetual.js'
 import type { GoalOutcome } from '../src/autopilot/orchestrator.js'
@@ -77,6 +78,94 @@ function llm(response: string, prompts?: string[]) {
     }) as unknown as typeof fetch
   }
 }
+
+function roiRow(partial: Partial<ProblemRow> & Pick<ProblemRow, 'title' | 'lens' | 'value'>): ProblemRow {
+  return {
+    fingerprint: partial.fingerprint ?? problemFingerprint(partial.title),
+    title: partial.title,
+    lens: partial.lens,
+    value: partial.value,
+    status: partial.status ?? 'fixed',
+    goalId: partial.goalId ?? 'g1',
+    firstSeen: partial.firstSeen ?? '2026-07-01T00:00:00Z',
+    lastSeen: partial.lastSeen ?? '2026-07-01T00:00:00Z',
+    note: partial.note ?? '',
+    goalResults: partial.goalResults,
+    attemptsTotal: partial.attemptsTotal,
+    successCount: partial.successCount,
+    startedAt: partial.startedAt,
+    endedAt: partial.endedAt
+  }
+}
+
+describe('summarizeRecentGoalRoi 純函式', () => {
+  test('無歷史資料 → 空字串', () => {
+    expect(summarizeRecentGoalRoi([])).toBe('')
+  })
+
+  test('分組統計：同 lens 彙總預估 value avg、attempts/成功、耗時與結果數', () => {
+    const summary = summarizeRecentGoalRoi([
+      roiRow({
+        title: '測試甲', lens: 'tests', value: 8, goalResults: 'achieved',
+        attemptsTotal: 2, successCount: 2, startedAt: '2026-07-02T00:00:00Z', endedAt: '2026-07-02T01:00:00Z'
+      }),
+      roiRow({
+        title: '測試乙', lens: 'tests', value: 6, goalResults: 'stuck',
+        attemptsTotal: 4, successCount: 1, startedAt: '2026-07-03T00:00:00Z', endedAt: '2026-07-03T02:00:00Z'
+      }),
+      roiRow({
+        title: '效能甲', lens: 'perf', value: 9, goalResults: 'no-progress',
+        attemptsTotal: 3, successCount: 0, startedAt: '2026-07-04T00:00:00Z', endedAt: '2026-07-04T00:30:00Z'
+      })
+    ])
+    expect(summary).toContain('tests：2 goals｜預估 value avg 7.0｜實際成本 6 attempts（3 成功）、3.0h｜結果 achieved 1/no-progress 0/stuck 1')
+    expect(summary).toContain('perf：1 goals｜預估 value avg 9.0｜實際成本 3 attempts（0 成功）、0.5h｜結果 achieved 0/no-progress 1/stuck 0')
+  })
+
+  test('attempts 或耗時缺失時標註未知，不計入總數', () => {
+    const summary = summarizeRecentGoalRoi([
+      roiRow({
+        title: '缺 attempts', lens: 'design', value: 5, goalResults: 'achieved',
+        startedAt: '2026-07-02T00:00:00Z', endedAt: '2026-07-02T02:00:00Z'
+      }),
+      roiRow({
+        title: '缺時間', lens: 'design', value: 7, goalResults: 'stuck',
+        attemptsTotal: 2, successCount: 0
+      })
+    ])
+    expect(summary).toContain('design：2 goals｜預估 value avg 6.0｜實際成本 2 attempts（0 成功；1 goal 未知）、2.0h（1 goal 未知）｜結果 achieved 1/no-progress 0/stuck 1')
+  })
+})
+
+describe('listRecentCompleted 近期篩選', () => {
+  test('只含有 goal_results+ended_at 的列，並依 ended_at 新→舊、limit 截斷', () => {
+    const file = join(tempDir(), 'run.db')
+    const ledger = new ProblemsLedger(file)
+    const seeds = [
+      { title: '舊完成', lens: 'tests', value: 5, end: '2026-07-01T00:00:00Z', result: 'achieved' as const },
+      { title: '中完成', lens: 'perf', value: 6, end: '2026-07-02T00:00:00Z', result: 'stuck' as const },
+      { title: '新完成', lens: 'design', value: 7, end: '2026-07-03T00:00:00Z', result: 'no-progress' as const }
+    ]
+    for (const s of seeds) {
+      const fp = ledger.upsertSeen(s, s.end).row.fingerprint
+      ledger.setRoi(fp, {
+        goalResults: s.result, attemptsTotal: 1, successCount: 1,
+        startedAt: s.end, endedAt: s.end
+      })
+    }
+    // 未完成：有 seen 但無 ROI 終態
+    ledger.upsertSeen({ title: '未完成', lens: 'security', value: 9 }, '2026-07-04T00:00:00Z')
+    // 僅 started、尚無 ended/results → 不應入選
+    const half = ledger.upsertSeen({ title: '進行中', lens: 'tests', value: 4 }, '2026-07-04T01:00:00Z').row.fingerprint
+    ledger.setRoi(half, { startedAt: '2026-07-04T01:00:00Z' })
+
+    const recent = ledger.listRecentCompleted(2)
+    expect(recent.map(r => r.title)).toEqual(['新完成', '中完成'])
+    expect(recent.every(r => r.goalResults && r.endedAt)).toBe(true)
+    expect(ledger.listRecentCompleted().map(r => r.title)).toEqual(['新完成', '中完成', '舊完成'])
+    ledger.close()
+  })
+})
 
 describe('ProblemsLedger ROI 相容落盤', () => {
   test('近期完成 goals 依 lens 彙總預估 value、實際成本與結果', () => {
@@ -455,6 +544,23 @@ describe('goal ROI 主流程', () => {
 })
 
 describe('critic ROI 回饋主流程', () => {
+  test('prompt 內容：含 ROI 硬約束、lens 彙總欄位，且空白歷史不附加段落', () => {
+    const withRoi = criticPrompt(
+      [{ lens: 'tests', title: '候選', detail: '理由' }],
+      '可靠度優先',
+      '- tests：1 goals｜預估 value avg 8.0｜實際成本 2 attempts（1 成功）、1.0h｜結果 achieved 1/no-progress 0/stuck 0'
+    )
+    expect(withRoi).toContain('【硬約束】依近期 ROI 史實調整候選排序')
+    expect(withRoi).toContain('# 近期已完成 goal ROI')
+    expect(withRoi).toContain('預估 value avg 8.0')
+    expect(withRoi).toContain('實際成本 2 attempts（1 成功）')
+    expect(withRoi).toContain('結果 achieved 1/no-progress 0/stuck 0')
+
+    const empty = criticPrompt([{ lens: 'tests', title: '候選', detail: '理由' }], '可靠度優先', '')
+    expect(empty).not.toContain('近期已完成 goal ROI')
+    expect(empty).not.toContain('依近期 ROI 史實調整候選排序')
+  })
+
   test('critic prompt 帶入近期 ROI 摘要', async () => {
     const dir = tempDir(), file = join(dir, 'run.db')
     const ledger = new ProblemsLedger(file)
@@ -475,6 +581,20 @@ describe('critic ROI 回饋主流程', () => {
     expect(result.ranked[0]?.title).toBe('新問題')
     expect(prompts[0]).toContain('# 近期已完成 goal ROI')
     expect(prompts[0]).toContain('tests：1 goals｜預估 value avg 8.0｜實際成本 2 attempts（1 成功）、1.0h')
+  })
+
+  test('無歷史資料時不注入 ROI 段落且 discovery 正常完成', async () => {
+    const prompts: string[] = []
+    const dir = tempDir(), file = join(dir, 'empty-run.db')
+    new ProblemsLedger(file).close()
+    const result = await discoverProblems({
+      finderLlm: llm('新問題｜回歸缺口'),
+      criticLlm: llm('VALUE:7 | 新問題 | tests | 可處理', prompts),
+      readRoiSummary: () => readRecentGoalRoiSummary(file), lenses: ['tests']
+    }, { objective: '持續改善', noProgressLimit: 2, evidenceFiles: [] }, dir)
+
+    expect(result.ranked[0]?.title).toBe('新問題')
+    expect(prompts[0]).not.toContain('近期已完成 goal ROI')
   })
 
   test('ROI 摘要 I/O 失敗時略過摘要且 discovery 正常完成', async () => {
