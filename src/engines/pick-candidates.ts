@@ -8,6 +8,7 @@
  * 各段皆可經 hooks 替換；缺資料／讀取失敗時維持原 candidateEngines 路徑。
  */
 import { candidateEngines } from './rotation.js'
+import { weightedRotation, type EngineStat } from './adaptive-rotation.js'
 import {
   defaultCandidateTailEnhancer,
   type CandidateTailEnhancer,
@@ -46,6 +47,8 @@ export interface PickCandidateInput {
   dailyAttemptCaps?: ReadonlyMap<string, number>
   /** tag → 今日 attempts；未設／空＝視為 0（不觸發 cap，fail-open） */
   todayAttemptCounts?: ReadonlyMap<string, number>
+  /** 近期各引擎成功率；未設／空＝不加權，走靜態 rotation（向後相容） */
+  engineStats?: readonly EngineStat[]
 }
 
 export interface PickCandidateHooks {
@@ -77,8 +80,13 @@ export function pickCandidateTags(
   input: PickCandidateInput,
   hooks: PickCandidateHooks = {}
 ): string[] {
+  // 成功率加權：有 stats 時把靜態 rotation 展開為有效 rotation（高成功率多槽、保底1）；
+  // 無 stats／空一律用原 rotation（fail-open，行為不變）。顯式 engineTag 不受影響（candidateEngines 內短路）。
+  const effectiveRotation = input.engineStats && input.engineStats.length > 0 && input.rotation
+    ? weightedRotation(input.rotation, input.engineStats)
+    : input.rotation
   const base = candidateEngines(
-    input.rotation,
+    effectiveRotation,
     input.defaultEngine,
     input.task,
     input.failCount

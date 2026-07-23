@@ -136,5 +136,12 @@ export class RunDb {
     ).all(startIso, endIso) as { engine: string; n: number; ok: number; costUsd: number }[]
   }
 
+  /** 加權輪替用：sinceIso 起各引擎 attempts 聚合（滾動窗）；空欄歷史列排除。 */
+  engineStatsSince(sinceIso: string): { engine: string; n: number; ok: number }[] {
+    return this.db.prepare(
+      "SELECT engine, COUNT(*) AS n, COALESCE(SUM(ok),0) AS ok FROM attempts WHERE ts >= ? AND engine != '' GROUP BY engine"
+    ).all(sinceIso) as { engine: string; n: number; ok: number }[]
+  }
+
   close(): void { this.db.close() }
 }
