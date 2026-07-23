@@ -13,7 +13,7 @@ import { verifyAndSupplement } from './supplement.js'
 import { discoverProblems, type DiscoverResult } from './discover.js'
 import { runGoalSession, type OrchestratorDeps, type GoalOutcome } from './orchestrator.js'
 import { collectSurvey, hasSurveySources } from './survey-sources.js'
-import { readRecentGoalRoiSummary } from './roi.js'
+import { readRecentGoalRoiSummary, settleGoalRoi } from './roi.js'
 
 export interface SessionResult {
   goalId: string
@@ -51,6 +51,7 @@ export async function runGoalWithDeps(
     const goalMd = readFileSync(cfg.goalFile, 'utf8')
     const goal = parseGoal(goalMd)
     const goalId = createHash('sha1').update(goal.objective).digest('hex').slice(0, 4)
+    const startedAt = new Date().toISOString()
     // GOAL 指定的免費引擎覆寫 defaultEngine（沙盒 config 白名單須含此引擎）
     const kernelDeps = goal.engine
       ? { ...deps, cfg: { ...cfg, defaultEngine: goal.engine } }
@@ -116,6 +117,12 @@ export async function runGoalWithDeps(
         appendFileSync(auditFile, JSON.stringify({ supplement: sup }) + '\n')
         console.log(`supplement: ${JSON.stringify(sup)}`)
       } catch (e) { console.error('supplement 階段故障（fail-open，保留 achieved）:', String(e)) }
+    }
+    if (outcome.kind !== 'killed') {
+      settleGoalRoi({
+        events: deps.events, dbFile: join(cfg.dataDir, 'run.db'), backlogFile: cfg.backlogFile,
+        goalId, result: outcome.kind, startedAt, endedAt: new Date().toISOString()
+      })
     }
     const alert = stopAlertMessage(goalId, outcome)
     if (alert) await notifier.send(alert) // 一次性停機告警；send 永不 throw（fail-open）

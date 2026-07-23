@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProblemsLedger, problemFingerprint } from '../src/autopilot/ledger.js'
-import { collectGoalAttemptStats, readRecentGoalRoiSummary, settleProblemRoi } from '../src/autopilot/roi.js'
+import { collectGoalAttemptStats, readRecentGoalRoiSummary, settleGoalRoi, settleProblemRoi } from '../src/autopilot/roi.js'
 import { discoverProblems } from '../src/autopilot/discover.js'
 import { AUTO_GOAL_MARKER } from '../src/autopilot/author.js'
 import { runPerpetualCycle, type PerpetualConfig, type PerpetualHooks } from '../src/autopilot/perpetual.js'
@@ -200,6 +200,39 @@ describe('ProblemsLedger ROI 相容落盤', () => {
       startedAt: '2026-07-02T00:00:00Z', endedAt: '2026-07-02T01:00:00Z'
     })
     ledger.close()
+  })
+
+  test.each(['achieved', 'no-progress', 'stuck'] as const)('%s session 結束依 goal_id 回寫完整 ROI', result => {
+    const dir = tempDir(), file = join(dir, 'run.db'), backlog = join(dir, 'BACKLOG.md')
+    writeFileSync(backlog, '- [x] 任務甲 <!-- adng:autopilot goal:g1 round:1 --> <!-- adng:done abc -->\n')
+    const runDb = new RunDb(file)
+    runDb.record({ taskId: taskId('任務甲'), ts: '2026-07-02T00:10:00Z', ok: true, costUsd: 0, detail: '' })
+    runDb.close()
+    const ledger = new ProblemsLedger(file)
+    const fp = ledger.upsertSeen({ title: '問題', lens: 'tests', value: 8 }, '2026-07-01T00:00:00Z').row.fingerprint
+    ledger.setStatus(fp, 'in-progress', '', 'g1')
+    ledger.setRoi(fp, { startedAt: '2026-07-02T00:00:00Z' })
+    ledger.close()
+
+    expect(() => settleGoalRoi({
+      events: new EventLog(dir), dbFile: file, backlogFile: backlog, goalId: 'g1', result,
+      startedAt: '2026-07-01T00:00:00Z', endedAt: '2026-07-02T01:00:00Z'
+    })).not.toThrow()
+
+    const settled = new ProblemsLedger(file)
+    expect(settled.get(fp)).toMatchObject({
+      goalResults: result, attemptsTotal: 1, successCount: 1,
+      startedAt: '2026-07-02T00:00:00Z', endedAt: '2026-07-02T01:00:00Z'
+    })
+    settled.close()
+  })
+
+  test('找不到對應 goal_id 時靜默略過', () => {
+    const dir = tempDir(), file = join(dir, 'run.db')
+    expect(() => settleGoalRoi({
+      events: new EventLog(dir), dbFile: file, backlogFile: join(dir, 'missing.md'), goalId: 'missing', result: 'achieved',
+      startedAt: START, endedAt: END.toISOString()
+    })).not.toThrow()
   })
 
   test('run.db attempts 不可讀時 counts 留 NULL；ROI 回寫失敗只記事件', () => {

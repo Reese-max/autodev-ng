@@ -122,6 +122,14 @@ export class ProblemsLedger {
     })
   }
 
+  findByGoalId(goalId: string): ProblemRow | undefined {
+    return this.safe(undefined, db => {
+      const r = db.prepare(`SELECT fingerprint,title,lens,value,status,goal_id,first_seen,last_seen,note${this.hasRoiColumns ? ROI_SELECT : ''}
+        FROM problems WHERE goal_id=? ORDER BY id DESC LIMIT 1`).get(goalId) as Record<string, unknown> | undefined
+      return r ? toRow(r) : undefined
+    })
+  }
+
   isOperational(): boolean { return this.db !== undefined && !this.ioFailed }
 
   private migrateRoiColumns(): boolean {

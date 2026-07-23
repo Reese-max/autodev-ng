@@ -97,3 +97,21 @@ export function settleProblemRoi(input: {
   } catch { /* fail-open，統一記錄於下方 */ }
   quiet(() => events.append('perpetual-roi-write-failed', { fingerprint, goalId }))
 }
+
+/** session 結束時依 goal_id 找回問題列；找不到或任何 ROI I/O 故障皆不影響 GOAL 結果。 */
+export function settleGoalRoi(input: {
+  events: EventLog; dbFile: string; backlogFile: string; goalId: string
+  result: 'achieved' | 'no-progress' | 'stuck'; startedAt: string; endedAt: string
+}): void {
+  let ledger: ProblemsLedger | undefined
+  try {
+    ledger = new ProblemsLedger(input.dbFile)
+    const problem = ledger.findByGoalId(input.goalId)
+    if (!problem) return
+    settleProblemRoi({ ...input, ledger, fingerprint: problem.fingerprint, startedAt: problem.startedAt ?? input.startedAt })
+  } catch {
+    quiet(() => input.events.append('perpetual-roi-lookup-failed', { goalId: input.goalId }))
+  } finally {
+    try { ledger?.close() } catch { /* fail-open */ }
+  }
+}
