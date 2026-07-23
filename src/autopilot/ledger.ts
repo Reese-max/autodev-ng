@@ -134,13 +134,16 @@ export class ProblemsLedger {
 
   private migrateRoiColumns(): boolean {
     try {
-      const columns = new Set((this.db!.prepare('PRAGMA table_info(problems)').all() as { name: string }[]).map(column => column.name))
+      const columns = this.problemColumns()
       this.db!.transaction(() => {
         for (const [name, type] of ROI_COLUMNS) if (!columns.has(name)) this.db!.exec(`ALTER TABLE problems ADD COLUMN ${name} ${type}`)
       })()
-      const migrated = new Set((this.db!.prepare('PRAGMA table_info(problems)').all() as { name: string }[]).map(column => column.name))
-      return ROI_COLUMNS.every(([name]) => migrated.has(name))
-    } catch { return false }
+    } catch { /* 另一個連線可能已完成同一批可重入遷移，改以最終 schema 判定。 */ }
+    try { return ROI_COLUMNS.every(([name]) => this.problemColumns().has(name)) } catch { return false }
+  }
+
+  private problemColumns(): Set<string> {
+    return new Set((this.db!.prepare('PRAGMA table_info(problems)').all() as { name: string }[]).map(column => column.name))
   }
 
   private safe<T>(fallback: T, action: (db: Database.Database) => T): T {

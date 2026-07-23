@@ -132,6 +132,24 @@ describe('ProblemsLedger ROI 相容落盤', () => {
     expect(columns).toEqual(expect.arrayContaining(['goal_results', 'attempts_total', 'success_count', 'started_at', 'ended_at']))
   })
 
+  test('部分升級的 schema 只補缺欄，重開後不覆寫既有 ROI', () => {
+    const file = oldLedgerFile()
+    const db = new Database(file)
+    db.exec('ALTER TABLE problems ADD COLUMN goal_results TEXT')
+    db.prepare('UPDATE problems SET goal_results=?').run('stuck')
+    db.close()
+
+    const fp = problemFingerprint('舊問題')
+    const ledger = new ProblemsLedger(file)
+    expect(ledger.get(fp)).toMatchObject({ goalResults: 'stuck' })
+    expect(ledger.setRoi(fp, { attemptsTotal: 3, successCount: 1 })).toBe(true)
+    ledger.close()
+
+    const reopened = new ProblemsLedger(file)
+    expect(reopened.get(fp)).toMatchObject({ goalResults: 'stuck', attemptsTotal: 3, successCount: 1 })
+    reopened.close()
+  })
+
   test('遷移中途失敗時不留半套 schema，並保留舊台帳讀寫', () => {
     const file = oldLedgerFile()
     const exec = Database.prototype.exec
