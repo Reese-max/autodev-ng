@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { assembleSurvey } from '../src/autopilot/survey-sources.js'
@@ -64,6 +64,25 @@ describe('survey 來源契約', () => {
     const dir = freshDir()
     writeAllSources(dir)
     rmSync(join(dir, missing))
+
+    const output = assembleSurvey('base-marker', dir, { nowIso: NOW })
+
+    expect(output).toContain('base-marker')
+    for (const marker of ['db-marker', 'event-marker', 'user-marker', 'northstar-marker']) {
+      if (marker !== absentMarker) expect(output).toContain(marker)
+    }
+    expect(output).not.toContain(absentMarker)
+  })
+
+  test.each([
+    ['run.db 損壞', (dir: string) => writeFileSync(join(dir, 'run.db'), 'not sqlite'), 'db-marker'],
+    ['events.jsonl 無法讀取', (dir: string) => { rmSync(join(dir, 'events.jsonl')); mkdirSync(join(dir, 'events.jsonl')) }, 'event-marker'],
+    ['USER-SIGNALS.md 無法讀取', (dir: string) => { rmSync(join(dir, 'USER-SIGNALS.md')); mkdirSync(join(dir, 'USER-SIGNALS.md')) }, 'user-marker'],
+    ['NORTHSTAR.md 無法讀取', (dir: string) => { rmSync(join(dir, 'NORTHSTAR.md')); mkdirSync(join(dir, 'NORTHSTAR.md')) }, 'northstar-marker'],
+  ])('來源 %s 時，其他來源與 surveyCommand 仍獨立 fail-open 保留', (_failure, breakSource, absentMarker) => {
+    const dir = freshDir()
+    writeAllSources(dir)
+    breakSource(dir)
 
     const output = assembleSurvey('base-marker', dir, { nowIso: NOW })
 
