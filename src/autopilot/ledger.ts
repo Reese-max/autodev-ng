@@ -82,15 +82,15 @@ export class ProblemsLedger {
       .run(status, note, goalId, goalId, fingerprint))
   }
 
-  setRoi(fingerprint: string, roi: ProblemRoi): void {
-    if (!this.hasRoiColumns) return
+  setRoi(fingerprint: string, roi: ProblemRoi): boolean {
+    if (!this.hasRoiColumns) return false
     const fields = [
       ['goal_results', roi.goalResults], ['attempts_total', roi.attemptsTotal], ['success_count', roi.successCount],
       ['started_at', roi.startedAt], ['ended_at', roi.endedAt]
     ].filter(([, value]) => value !== undefined) as [string, string | number][]
-    if (fields.length === 0) return
-    this.safe(undefined, db => db.prepare(`UPDATE problems SET ${fields.map(([name]) => `${name}=?`).join(',')} WHERE fingerprint=?`)
-      .run(...fields.map(([, value]) => value), fingerprint))
+    if (fields.length === 0) return true
+    return this.safe(false, db => db.prepare(`UPDATE problems SET ${fields.map(([name]) => `${name}=?`).join(',')} WHERE fingerprint=?`)
+      .run(...fields.map(([, value]) => value), fingerprint).changes > 0)
   }
 
   listByStatus(status: ProblemRow['status'], limit = 50): ProblemRow[] {
@@ -105,7 +105,7 @@ export class ProblemsLedger {
     })
   }
 
-  private get(fp: string): ProblemRow | undefined {
+  get(fp: string): ProblemRow | undefined {
     return this.safe(undefined, db => {
       const r = db.prepare(`SELECT fingerprint,title,lens,value,status,goal_id,first_seen,last_seen,note${this.hasRoiColumns ? ROI_SELECT : ''}
         FROM problems WHERE fingerprint=?`).get(fp) as Record<string, unknown> | undefined

@@ -14,6 +14,7 @@ import { callAgent } from './llm.js'
 import { authorGoal, isAutoGoal, loadPerpetualState, savePerpetualState } from './author.js'
 import { runGoalWithDeps, type SessionResult } from './session.js'
 import { collectSurvey, hasSurveySources } from './survey-sources.js'
+import { settleProblemRoi } from './roi.js'
 
 /** 外環主邏輯（M10.0 perpetual engineer）。fail-open 是治理鐵律（#4）：本函式由 daemon
  * idle loop 呼叫，任何 throw 都不得逸出——整體包 try/catch，異常記 perpetual-error 回 false。 */
@@ -114,8 +115,11 @@ async function runBody(
     // 雜湊得出（與 session 內部算法一致），不取 result.goalId——回寫的 goalId 須與台帳一致。
     const fp = fingerprintFromMarker(content)
     const objective = parseGoal(content).objective
+    const startedAt = ledger.get(fp)?.startedAt ?? hooks.now().toISOString()
+    ledger.setRoi(fp, { startedAt })
     const result = await hooks.runSession({})
-    return closeout(cfg, dataDir, events, notify, ledger, state, now, fp, objective.slice(0, 40), goalIdOf(objective), result)
+    return closeout(cfg, dataDir, events, notify, ledger, state, now, fp, objective.slice(0, 40),
+      goalIdOf(objective), result, startedAt, hooks.now().toISOString())
   }
 
   // ── 無 GOAL：discover → 立案 ──
@@ -170,6 +174,8 @@ async function runBody(
   renameSync(tmp, goalFile!)
   ledger.setStatus(authored.fp, 'in-progress', '', goalId)
   quiet(() => events.append('perpetual-goal-authored', { fingerprint: authored.fp, goalId, title: authored.title }))
+  const startedAt = hooks.now().toISOString()
+  ledger.setRoi(authored.fp, { startedAt })
 
   // 終審 finding 2/g：runSession 前先武裝冷卻——涵蓋 session throw（外層 catch 也會補，
   // 這裡是主線）與 session 回 'lock-busy'/'no-goal'（closeout 對非 object result 直接回 false
@@ -179,7 +185,8 @@ async function runBody(
   savePerpetualState(dataDir, state)
 
   const result = await hooks.runSession({ discovered })
-  return closeout(cfg, dataDir, events, notify, ledger, state, now, authored.fp, authored.title, goalId, result)
+  return closeout(cfg, dataDir, events, notify, ledger, state, now, authored.fp, authored.title, goalId,
+    result, startedAt, hooks.now().toISOString())
 }
 
 // 收案回寫（step 6）：achieved→fixed，其餘→deferred；僅 isAutoGoal 才刪 GOAL；更新狀態＋通知。
@@ -187,7 +194,8 @@ async function closeout(
   cfg: PerpetualConfig, dataDir: string, events: EventLog,
   notify: (t: string) => Promise<boolean>, ledger: ProblemsLedger,
   state: ReturnType<typeof loadPerpetualState>, now: Date,
-  fp: string, title: string, goalId: string, result: SessionResult | 'no-goal' | 'lock-busy'
+  fp: string, title: string, goalId: string, result: SessionResult | 'no-goal' | 'lock-busy',
+  startedAt: string, endedAt: string
 ): Promise<boolean> {
   if (typeof result !== 'object') return false // 沒真的跑（lock-busy/no-goal）：不回寫、不刪、留待下輪
 
@@ -199,6 +207,12 @@ async function closeout(
   } else {
     const reason = outcome.kind === 'stuck' ? outcome.reason : ''
     ledger.setStatus(fp, 'deferred', `${outcome.kind} ${reason}`.trim(), goalId)
+  }
+  if (outcome.kind !== 'killed') {
+    settleProblemRoi({
+      ledger, events, dbFile: join(dataDir, 'run.db'), backlogFile: cfg.backlogFile,
+      fingerprint: fp, goalId, result: outcome.kind, startedAt, endedAt
+    })
   }
 
   // 刪 GOAL 前重讀檔內容確認仍是 auto-goal（鐵律：絕不誤刪手動 GOAL）。

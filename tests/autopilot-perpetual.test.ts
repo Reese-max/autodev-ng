@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { ConfigSchema, type Config } from '../src/types.js'
 import { EventLog } from '../src/events.js'
-import { BacklogStore } from '../src/backlog.js'
+import { BacklogStore, taskId } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import type { Deps } from '../src/scheduler.js'
 import { ProblemsLedger, problemFingerprint } from '../src/autopilot/ledger.js'
@@ -223,10 +223,18 @@ describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {
   test('成案全流程：value 8 → author 合法 GOAL → 寫檔 → runSession(achieved) → fixed → GOAL 刪 → true', async () => {
     const cfg = makeCfg(dir)
     const fp = problemFingerprint('高價問題')
+    const goalId = goalIdOf('修高價問題')
+    writeFileSync(cfg.backlogFile, '')
     const author = vi.fn(async () => autoGoalMd(fp, '修高價問題'))
     const notify = vi.fn(async () => true)
     const discover = vi.fn(async () => ({ survey: 's', ranked: [{ title: '高價問題', lens: 'tests', value: 8, rationale: 'r' }] }))
-    const hooks = makeHooks({ discover, author, runSession: vi.fn(async (): Promise<SessionResult> => achieved) })
+    const hooks = makeHooks({ discover, author, runSession: vi.fn(async (): Promise<SessionResult> => {
+      new BacklogStore(cfg.backlogFile).append('ROI 子任務', { goalId, round: 1 })
+      const db = new RunDb(join(dir, 'run.db'))
+      db.record({ taskId: taskId('ROI 子任務'), ts: NOW.toISOString(), ok: true, costUsd: 0, detail: '' })
+      db.close()
+      return achieved
+    }) })
     const r = await runPerpetualCycle(cfg, dir, events, notify, hooks)
     expect(r).toBe(true)
     expect(author).toHaveBeenCalledTimes(1)
@@ -234,7 +242,10 @@ describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {
     const l = new ProblemsLedger(join(dir, 'run.db'))
     const fixed = l.listByStatus('fixed')
     expect(fixed.map(x => x.fingerprint)).toContain(fp)
-    expect(fixed[0]!.goalId).toBe(goalIdOf('修高價問題'))
+    expect(fixed[0]).toMatchObject({
+      goalId, goalResults: 'achieved', attemptsTotal: 1, successCount: 1,
+      startedAt: NOW.toISOString(), endedAt: NOW.toISOString()
+    })
     l.close()
     expect(existsSync(cfg.goalFile!)).toBe(false)
     const evs = eventTypes(dir)
