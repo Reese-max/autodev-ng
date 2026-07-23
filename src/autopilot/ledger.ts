@@ -127,7 +127,9 @@ export class ProblemsLedger {
   private migrateRoiColumns(): boolean {
     try {
       const columns = new Set((this.db!.prepare('PRAGMA table_info(problems)').all() as { name: string }[]).map(column => column.name))
-      for (const [name, type] of ROI_COLUMNS) if (!columns.has(name)) this.db!.exec(`ALTER TABLE problems ADD COLUMN ${name} ${type}`)
+      this.db!.transaction(() => {
+        for (const [name, type] of ROI_COLUMNS) if (!columns.has(name)) this.db!.exec(`ALTER TABLE problems ADD COLUMN ${name} ${type}`)
+      })()
       const migrated = new Set((this.db!.prepare('PRAGMA table_info(problems)').all() as { name: string }[]).map(column => column.name))
       return ROI_COLUMNS.every(([name]) => migrated.has(name))
     } catch { return false }

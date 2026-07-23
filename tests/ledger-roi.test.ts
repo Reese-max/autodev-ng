@@ -129,11 +129,12 @@ describe('ProblemsLedger ROI 相容落盤', () => {
     expect(columns).toEqual(expect.arrayContaining(['goal_results', 'attempts_total', 'success_count', 'started_at', 'ended_at']))
   })
 
-  test('遷移失敗時保留舊台帳讀寫，不阻斷 discovery', () => {
+  test('遷移中途失敗時不留半套 schema，並保留舊台帳讀寫', () => {
     const file = oldLedgerFile()
     const exec = Database.prototype.exec
+    let alters = 0
     const spy = vi.spyOn(Database.prototype, 'exec').mockImplementation(function (this: Database.Database, sql: string) {
-      if (sql.startsWith('ALTER TABLE problems')) throw new Error('migration blocked')
+      if (sql.startsWith('ALTER TABLE problems') && ++alters === 2) throw new Error('migration blocked')
       return exec.call(this, sql)
     })
     try {
@@ -143,6 +144,10 @@ describe('ProblemsLedger ROI 相容落盤', () => {
       expect(() => ledger.setRoi(problemFingerprint('舊問題'), { attemptsTotal: 1 })).not.toThrow()
       ledger.close()
     } finally { spy.mockRestore() }
+    const db = new Database(file, { readonly: true })
+    const columns = (db.prepare('PRAGMA table_info(problems)').all() as { name: string }[]).map(column => column.name)
+    db.close()
+    expect(columns).not.toEqual(expect.arrayContaining(['goal_results', 'attempts_total']))
   })
 
   test('讀寫失敗時回傳安全預設，不拋出例外', () => {
