@@ -255,7 +255,8 @@ export async function maybeRunPerpetual(
       }, { objective: '', noProgressLimit: 2 }, cfg.projectPath)
     },
     author: (problem, fingerprint) =>
-      authorGoal((prompt: string) => callAgent(judgeLlm, prompt).then(r => r.text), problem, cfg, fingerprint),
+      authorGoal((prompt: string) => callAgent(judgeLlm, prompt).then(r => r.text), problem, cfg, fingerprint,
+        { onEvent: (type, data) => quiet(() => deps.events.append(type, data)) }),
     runSession: (opts) => runGoalWithDeps(deps, notifier, cfg, opts),
     billedToday: () => deps.db.billedCostForLocalDay(localDay(new Date().toISOString(), offset), offset, subscriptionTags(cfg))
   }

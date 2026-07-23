@@ -3,6 +3,7 @@ import { resolve, sep, join } from 'node:path'
 import type { Config } from '../types.js'
 import type { RankedProblem } from './discover.js'
 import { parseGoal } from './goal.js'
+import { runVerify } from '../verify.js'
 
 export type { RankedProblem }
 
@@ -14,12 +15,15 @@ export function isAutoGoal(md: string): boolean {
   return !!firstLine && firstLine.includes(AUTO_GOAL_MARKER)
 }
 
-function buildPrompt(problem: RankedProblem): string {
+function buildPrompt(problem: RankedProblem, cfg: Config, fingerprint: string): string {
   const lines = [
     `問題：${problem.title}（視角：${problem.lens}）`,
     `理由：${problem.rationale}`,
-    '請輸出兩段：',
+    '請輸出三段：',
     'OBJECTIVE: <目標描述，含完成定義>',
+    'VERIFY: <此案專屬驗收指令，單行>',
+    `（由專案驗收工具鏈推導——現行全域驗收：${cfg.verifyCommand}——指向一個尚不存在的測試檔，` +
+    `紅→綠；測試檔名須含「${fingerprint}」前綴避免撞名，例：tests/${fingerprint}-<slug>）`,
     'EVIDENCE:',
     '<每行一個佐證檔相對路徑，0~4 個，無則留空>'
   ]
@@ -38,16 +42,53 @@ function isInProject(projectPath: string, rel: string): boolean {
   return existsSync(abs)
 }
 
+export type RedCheckOutcome = 'red' | 'green' | 'broken'
+
+export interface AuthorGateOpts {
+  /** 紅燈檢查：執行候選驗收指令。red=非零退出（期望）、green=已綠（空洞）、broken=檢查故障。 */
+  redCheck?: (command: string) => Promise<RedCheckOutcome>
+  onEvent?: (type: string, data: Record<string, unknown>) => void
+}
+
+// 預設紅燈檢查走 runVerify（沿用 verifyTimeoutMs；timeout/command-not-found 皆 skip → broken）。
+async function defaultRedCheck(command: string, cfg: Config): Promise<RedCheckOutcome> {
+  const o = await runVerify({ command, cwd: cfg.projectPath, timeoutMs: cfg.verifyTimeoutMs })
+  return o.status === 'fail' ? 'red' : o.status === 'pass' ? 'green' : 'broken'
+}
+
 export async function authorGoal(
   chat: (prompt: string) => Promise<string>,
-  problem: RankedProblem, cfg: Config, fingerprint: string
+  problem: RankedProblem, cfg: Config, fingerprint: string,
+  opts: AuthorGateOpts = {}
 ): Promise<string | null> {
   if (!cfg.verifyCommand) return null // 無機械驗收不立案
+  // 觀測面故障不擋立案主流程
+  const emit = (type: string, data: Record<string, unknown>): void => {
+    try { opts.onEvent?.(type, data) } catch { /* ignore */ }
+  }
 
-  const raw = await chat(buildPrompt(problem))
-  const objMatch = raw.match(/OBJECTIVE:\s*([\s\S]*?)(?=\r?\nEVIDENCE:|$)/i)
-  const objective = objMatch?.[1]?.trim()
+  const raw = await chat(buildPrompt(problem, cfg, fingerprint))
+  const objMatch = raw.match(/OBJECTIVE:\s*([\s\S]*?)(?=\r?\nVERIFY:|\r?\nEVIDENCE:|$)/i)
+  let objective = objMatch?.[1]?.trim()
   if (!objective) return null
+
+  // 專屬驗收 + 紅燈檢查。任何不合格/故障一律 fail-open 沿用全域 verifyCommand（現行為）。
+  let verifyCommand = cfg.verifyCommand
+  const candidate = raw.match(/^VERIFY:\s*(.+)$/im)?.[1]?.trim()
+  if (candidate && candidate.includes(fingerprint)) {
+    let outcome: RedCheckOutcome
+    try {
+      outcome = await (opts.redCheck ? opts.redCheck(candidate) : defaultRedCheck(candidate, cfg))
+    } catch { outcome = 'broken' }
+    emit('author-red-check', { fingerprint, outcome, command: candidate })
+    if (outcome === 'red') {
+      verifyCommand = candidate
+    } else if (outcome === 'green') {
+      // 候選驗收立案當下已綠＝空洞：改走 failing-test-first 協議
+      verifyCommand = candidate
+      objective = `首任務：先寫可重現問題的 failing test（紅燈），再實作轉綠。\n${objective}`
+    }
+  }
 
   const evMatch = raw.match(/EVIDENCE:\s*([\s\S]*)$/i)
   const evidenceFiles = (evMatch?.[1]?.split(/\r?\n/) ?? [])
@@ -64,7 +105,7 @@ export async function authorGoal(
     '## 驗收',
     '',
     '```sh',
-    cfg.verifyCommand,
+    verifyCommand,
     '```',
     '',
     '連續無進展上限：2'
@@ -79,13 +120,17 @@ export async function authorGoal(
   // parseGoal 對全文做首個符合正則抽取，會被覆蓋掉模板真正寫入的值）
   const expectedEvidence = evidenceFiles.length ? evidenceFiles : undefined
   const g = parseGoal(md)
-  if (
-    !g.objective ||
-    g.verifyCommand !== cfg.verifyCommand ||
-    g.noProgressLimit !== 2 ||
-    g.engine !== undefined ||
-    JSON.stringify(g.evidenceFiles) !== JSON.stringify(expectedEvidence)
-  ) return null
+  const lintReason =
+    !g.objective ? 'objective-empty'
+    : g.verifyCommand !== verifyCommand ? 'verify-command'
+    : g.noProgressLimit !== 2 ? 'no-progress-limit'
+    : g.engine !== undefined ? 'engine-injected'
+    : JSON.stringify(g.evidenceFiles) !== JSON.stringify(expectedEvidence) ? 'evidence-files'
+    : null
+  if (lintReason) {
+    emit('author-lint-reject', { fingerprint, reason: lintReason })
+    return null
+  }
   return md
 }
 
