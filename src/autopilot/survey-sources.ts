@@ -3,9 +3,9 @@ import { execSync } from 'node:child_process'
 import { join } from 'node:path'
 import type { Config } from '../types.js'
 import { runDbSevenDaySummary } from '../engines/run-db-summary.js'
+import { summarizeEventsTail } from '../engines/events-tail-summary.js'
 
 const MAX_SURVEY_LENGTH = 8000
-const EVENT_TAIL_LINES = 200
 
 interface SurveyOptions { nowIso?: string }
 
@@ -21,28 +21,11 @@ function runDbSummary(dataDir: string, nowIso: string): string {
 }
 
 function eventsSummary(dataDir: string): string {
-  try {
-    const events = readFileSync(join(dataDir, 'events.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).slice(-EVENT_TAIL_LINES)
-      .flatMap(line => {
-        try {
-          const event = JSON.parse(line) as Record<string, unknown>
-          return typeof event.type === 'string' ? [event] : []
-        } catch { return [] }
-      })
-    if (events.length === 0) return ''
-    const counts = new Map<string, number>(), latest = new Map<string, Record<string, unknown>>()
-    for (const event of events) {
-      const type = event.type as string
-      counts.set(type, (counts.get(type) ?? 0) + 1)
-      latest.set(type, event)
-    }
-    const frequent = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 8)
-    return ['# events.jsonl 尾部高頻事件', ...frequent.map(([type, n]) =>
-      `- ${type}: ${n} 次｜最近樣本 ${JSON.stringify(latest.get(type))}`
-    )].join('\n')
-  } catch {
-    return ''
-  }
+  const frequent = summarizeEventsTail(dataDir)
+  if (frequent.length === 0) return ''
+  return ['# events.jsonl 尾部高頻事件', ...frequent.map(({ type, count, latest }) =>
+    `- ${type}: ${count} 次｜最近樣本 ${JSON.stringify(latest)}`
+  )].join('\n')
 }
 
 function markdownSource(dataDir: string, name: string, heading = name): string {
