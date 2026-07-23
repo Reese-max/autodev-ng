@@ -1,5 +1,8 @@
 import { describe, test, expect } from 'vitest'
-import { parseCandidates, parseRanked, discoverProblems } from '../src/autopilot/discover.js'
+import {
+  parseCandidates, parseRanked, discoverProblems,
+  criticPrompt, northstarFromSurvey
+} from '../src/autopilot/discover.js'
 import type { Goal } from '../src/autopilot/goal.js'
 
 describe('parseCandidates', () => {
@@ -34,6 +37,53 @@ describe('parseRanked', () => {
   test('value 超界夾 0~10', () => { expect(parseRanked('VALUE:15 | X | perf | y')[0]!.value).toBe(10) })
   test('不符格式行跳過、全空 → 空陣列', () => {
     expect(parseRanked('我覺得都還好\n沒有明確問題')).toEqual([])
+  })
+})
+
+describe('northstarFromSurvey', () => {
+  test('抽出 NORTHSTAR 段落並在其他勘查訊號前截斷', () => {
+    const survey = [
+      '# 最高權重證據：USER-SIGNALS.md',
+      '使用者痛點',
+      '',
+      '# 北極星價值判準：NORTHSTAR.md',
+      '可靠度與可預期性優先。',
+      '只做對回北極星的事。',
+      '',
+      '# 其他勘查訊號',
+      'coverage 40%'
+    ].join('\n')
+    expect(northstarFromSurvey(survey)).toBe('可靠度與可預期性優先。\n只做對回北極星的事。')
+  })
+  test('無 NORTHSTAR 標頭 → 空字串', () => {
+    expect(northstarFromSurvey('coverage 40%')).toBe('')
+  })
+  test('有標頭無後續截斷點 → 取至文末', () => {
+    expect(northstarFromSurvey('# 北極星價值判準：NORTHSTAR.md\n方向 A')).toBe('方向 A')
+  })
+})
+
+describe('criticPrompt', () => {
+  const cands = [
+    { lens: 'correctness', title: '核心可靠度缺口', detail: '重試耗盡' },
+    { lens: 'design', title: '命名不一致', detail: '風格' }
+  ]
+  test('明確要求依 NORTHSTAR 價值判準排序並降權無關候選', () => {
+    const p = criticPrompt(cands, '可靠度與可預期性優先。')
+    expect(p).toContain('依北極星價值判準排序')
+    expect(p).toContain('與北極星無關的候選降權')
+    expect(p).toContain('排序主軸是北極星（NORTHSTAR）價值判準')
+    expect(p).toContain('不得排在高對齊候選之前')
+    expect(p).toContain('可靠度與可預期性優先。')
+    expect(p).toContain('[correctness] 核心可靠度缺口｜重試耗盡')
+    expect(p).toContain('[design] 命名不一致｜風格')
+  })
+  test('無北極星時仍注入空位標示，不省略排序/降權指示', () => {
+    const p = criticPrompt([], '')
+    expect(p).toContain('北極星價值判準：\n（無）')
+    expect(p).toContain('依北極星價值判準排序')
+    expect(p).toContain('與北極星無關的候選降權')
+    expect(p).toContain('候選：\n（無）')
   })
 })
 
