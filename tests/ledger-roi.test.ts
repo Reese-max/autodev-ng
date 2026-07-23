@@ -105,8 +105,11 @@ describe('ProblemsLedger ROI 相容落盤', () => {
     const file = join(tempDir(), 'run.db')
     const ledger = new ProblemsLedger(file)
     ledger.close()
+    const corrupt = join(tempDir(), 'corrupt.db')
+    writeFileSync(corrupt, 'not a sqlite database')
     expect(readRecentGoalRoiSummary(file)).toBe('')
     expect(readRecentGoalRoiSummary(join(tempDir(), 'missing.db'))).toBe('')
+    expect(readRecentGoalRoiSummary(corrupt)).toBe('')
   })
 
   test('舊 schema 自動補欄，既有資料與 ROI 都可讀寫', () => {
@@ -148,6 +151,11 @@ describe('ProblemsLedger ROI 相容落盤', () => {
     const columns = (db.prepare('PRAGMA table_info(problems)').all() as { name: string }[]).map(column => column.name)
     db.close()
     expect(columns).not.toEqual(expect.arrayContaining(['goal_results', 'attempts_total']))
+
+    const recovered = new ProblemsLedger(file)
+    expect(recovered.listByStatus('open').map(row => row.title)).toEqual(['新問題', '舊問題'])
+    expect(recovered.setRoi(problemFingerprint('舊問題'), { attemptsTotal: 1 })).toBe(true)
+    recovered.close()
   })
 
   test('讀寫失敗時回傳安全預設，不拋出例外', () => {
@@ -262,10 +270,10 @@ describe('ProblemsLedger ROI 相容落盤', () => {
 
 describe('goal ROI 主流程', () => {
   test.each([
-    [{ kind: 'achieved', rounds: 1 }, 'fixed'],
-    [{ kind: 'no-progress', rounds: 1 }, 'deferred'],
-    [{ kind: 'stuck', rounds: 1, reason: '無法繼續' }, 'deferred']
-  ] as const)('$0.kind 結束後由 perpetual closeout 回寫 ROI 並轉為 $1', async (outcome, status) => {
+    ['achieved', 'fixed', { kind: 'achieved', rounds: 1 }],
+    ['no-progress', 'deferred', { kind: 'no-progress', rounds: 1 }],
+    ['stuck', 'deferred', { kind: 'stuck', rounds: 1, reason: '無法繼續' }]
+  ] as const)('%s 結束後由 perpetual closeout 回寫 ROI 並轉為 %s', async (_kind, status, outcome) => {
     const dir = tempDir(), cfg = cycleCfg(dir), fp = problemFingerprint('ROI 問題')
     writeFileSync(cfg.backlogFile, '')
     writeFileSync(cfg.goalFile!, autoGoal(fp))
@@ -301,6 +309,36 @@ describe('goal ROI 主流程', () => {
       expect(hooks.runSession).toHaveBeenCalledTimes(1)
       expect(notify).toHaveBeenCalledTimes(1)
     } finally { ioFailure.mockRestore() }
+  })
+
+  test('ROI 寫入失敗仍完成 session、收案與通知', async () => {
+    const dir = tempDir(), cfg = cycleCfg(dir), fp = problemFingerprint('ROI 問題')
+    writeFileSync(cfg.backlogFile, '')
+    writeFileSync(cfg.goalFile!, autoGoal(fp))
+    const ledger = new ProblemsLedger(join(dir, 'run.db'))
+    ledger.upsertSeen({ title: 'ROI 問題', lens: 'tests', value: 8 }, START)
+    ledger.setStatus(fp, 'in-progress', '', 'g1')
+    ledger.setRoi(fp, { startedAt: START })
+    ledger.close()
+    const hooks = cycleHooks({ kind: 'achieved', rounds: 1 })
+    const notify = vi.fn(async () => true)
+    const roiWrite = vi.spyOn(ProblemsLedger.prototype, 'setRoi').mockReturnValue(false)
+
+    try {
+      expect(await runPerpetualCycle(cfg, dir, new EventLog(dir), notify, hooks)).toBe(true)
+      expect(hooks.runSession).toHaveBeenCalledTimes(1)
+      expect(notify).toHaveBeenCalledTimes(1)
+      expect(existsSync(cfg.goalFile!)).toBe(false)
+    } finally { roiWrite.mockRestore() }
+
+    const settled = new ProblemsLedger(join(dir, 'run.db'))
+    expect(settled.get(fp)).toMatchObject({ status: 'fixed' })
+    expect(settled.get(fp)?.goalResults).toBeUndefined()
+    settled.close()
+    const eventTypes = readFileSync(join(dir, 'events.jsonl'), 'utf8').split('\n').filter(Boolean)
+      .map(line => (JSON.parse(line) as { type: string }).type)
+    expect(eventTypes).toContain('perpetual-roi-write-failed')
+    expect(eventTypes).toContain('perpetual-session-done')
   })
 })
 
