@@ -39,11 +39,15 @@ describe('parseRanked', () => {
 
 const goal: Goal = { objective: '持續改善品質', noProgressLimit: 3, evidenceFiles: ['a.py'] }
 // 依「呼叫序」回應：前 N 次是 finder（每鏡頭一次），最後一次是 critic
-const seqLlm = (responses: string[]) => {
+const seqLlm = (responses: string[], prompts?: string[]) => {
   let i = 0
   return { url: 'http://x/v1', model: 'm', apiKey: 'k',
-    fetchFn: (async () => ({ ok: true, status: 200,
-      json: async () => ({ choices: [{ message: { content: responses[Math.min(i++, responses.length - 1)] } }] }) })) as unknown as typeof fetch }
+    fetchFn: (async (_url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> }
+      prompts?.push(body.messages[0]!.content)
+      return { ok: true, status: 200,
+        json: async () => ({ choices: [{ message: { content: responses[Math.min(i++, responses.length - 1)] } }] }) }
+    }) as unknown as typeof fetch }
 }
 
 describe('discoverProblems', () => {
@@ -54,6 +58,18 @@ describe('discoverProblems', () => {
       runSurvey: () => ({ output: 'coverage 40%' }), readEvidence: () => 'code', lenses: ['correctness', 'tests', 'perf', 'design', 'security'] }, goal, '/proj')
     expect(r.survey).toContain('coverage 40%')
     expect(r.ranked).toEqual([{ value: 8, title: '問題A', lens: 'correctness', rationale: '高價值' }])
+  })
+  test('critic 取得北極星價值判準，要求依其排序並降權無關候選', async () => {
+    const prompts: string[] = []
+    const finder = seqLlm(['問題A｜理由a'], prompts)
+    const critic = seqLlm(['VALUE:8 | 問題A | correctness | 高價值'], prompts)
+    await discoverProblems({ finderLlm: finder, criticLlm: critic,
+      runSurvey: () => ({ output: '# 北極星價值判準：NORTHSTAR.md\n可靠度與可預期性優先。\n\n# 其他勘查訊號\ncoverage 40%' }),
+      readEvidence: () => 'code', lenses: ['correctness'] }, goal, '/proj')
+    const criticPrompt = prompts.at(-1) ?? ''
+    expect(criticPrompt).toContain('依北極星價值判準排序')
+    expect(criticPrompt).toContain('與北極星無關的候選降權')
+    expect(criticPrompt).toContain('可靠度與可預期性優先。')
   })
   test('critic 亂格式（非 NONE）且候選非空 → 視為故障，退回原始候選（value 5），不崩、不白費', async () => {
     const finder = seqLlm(['問題X｜y'])

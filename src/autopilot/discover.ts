@@ -44,12 +44,23 @@ function finderPrompt(lens: string, survey: string, evidence: string): string {
     `\n# 佐證檔案\n${evidence || '（無）'}`
   ].join('\n')
 }
-function criticPrompt(cands: Candidate[]): string {
+function northstarFromSurvey(survey: string): string {
+  const header = '# 北極星價值判準：NORTHSTAR.md\n'
+  const start = survey.indexOf(header)
+  if (start < 0) return ''
+  const contentStart = start + header.length
+  const end = survey.indexOf('\n\n# 其他勘查訊號', contentStart)
+  return survey.slice(contentStart, end < 0 ? undefined : end).trim()
+}
+
+function criticPrompt(cands: Candidate[], northstar: string): string {
   const body = cands.map(c => `[${c.lens}] ${c.title}｜${c.detail}`).join('\n')
   return [
     '你是對抗式問題評審。以下是多視角候選問題。去重、挑戰每個（真問題嗎？夠高價值嗎？漏了更重要的嗎？），按修復價值排序。',
+    '候選問題必須依北極星價值判準排序；與北極星無關的候選降權。',
     '嚴格照格式，每行一問題（高價值在前）：VALUE:<0~10> | <標題> | <lens> | <一句理由>',
     '若逐一挑戰後認為沒有任何候選值得處理，只回一行 NONE。',
+    `\n北極星價值判準：\n${northstar || '（無）'}`,
     `\n候選：\n${body || '（無）'}`
   ].join('\n')
 }
@@ -71,7 +82,7 @@ export async function discoverProblems(deps: DiscoverDeps, goal: Goal, cwd: stri
   let ranked: RankedProblem[] = []
   let vetoed = false
   try {
-    const text = (await callAgent(deps.criticLlm, criticPrompt(candidates))).text.trim()
+    const text = (await callAgent(deps.criticLlm, criticPrompt(candidates, northstarFromSurvey(survey)))).text.trim()
     const firstLine = text.split(/\r?\n/).map(l => l.trim()).find(Boolean) ?? ''
     if (/^NONE\b/i.test(firstLine)) vetoed = true
     else ranked = parseRanked(text)

@@ -60,23 +60,30 @@ function eventsSummary(dataDir: string): string {
   }
 }
 
-function markdownSource(dataDir: string, name: string): string {
+function markdownSource(dataDir: string, name: string, heading = name): string {
   try {
     const content = readFileSync(join(dataDir, name), 'utf8')
-    return content ? `# ${name}\n${content}` : ''
+    return content ? `# ${heading}\n${content}` : ''
   } catch { return '' }
 }
 
 /** 各來源獨立 fail-open，且只以唯讀方式取得資料。 */
 export function assembleSurvey(base: string, dataDir: string, opts: SurveyOptions = {}): string {
   const nowIso = opts.nowIso ?? new Date().toISOString()
-  return [
+  const highWeight = [
+    markdownSource(dataDir, 'USER-SIGNALS.md', '最高權重證據：USER-SIGNALS.md'),
+    markdownSource(dataDir, 'NORTHSTAR.md', '北極星價值判準：NORTHSTAR.md'),
+  ].filter(Boolean).join('\n\n')
+  const context = [
     base,
     runDbSummary(dataDir, nowIso),
     eventsSummary(dataDir),
-    markdownSource(dataDir, 'USER-SIGNALS.md'),
-    markdownSource(dataDir, 'NORTHSTAR.md'),
-  ].filter(Boolean).join('\n\n').slice(-MAX_SURVEY_LENGTH)
+  ].filter(Boolean).join('\n\n')
+  if (!highWeight) return context.slice(-MAX_SURVEY_LENGTH)
+  const contextHeader = '# 其他勘查訊號\n'
+  const contextBudget = MAX_SURVEY_LENGTH - highWeight.length - 2 - contextHeader.length
+  const contextSection = contextBudget > 0 && context ? contextHeader + context.slice(-contextBudget) : ''
+  return [highWeight, contextSection].filter(Boolean).join('\n\n').slice(0, MAX_SURVEY_LENGTH)
 }
 
 export function hasSurveySources(dataDir: string): boolean {

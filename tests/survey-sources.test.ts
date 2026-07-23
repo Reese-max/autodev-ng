@@ -29,7 +29,7 @@ afterEach(() => {
 })
 
 describe('多源 survey 組裝器', () => {
-  test('全源可用：依序保留基底、7 日戰績、事件、使用者訊號與北極星，且不改來源', () => {
+  test('全源可用：使用者訊號與北極星置頂為高權重區段，其餘來源隨後，且不改來源', () => {
     const dir = freshDir()
     seedDb(dir)
     writeFileSync(join(dir, 'events.jsonl'), [
@@ -49,7 +49,7 @@ describe('多源 survey 組裝器', () => {
     expect(output).toContain('2 次｜verify timeout 30s')
     expect(output).toContain('verify-fail: 2 次')
     expect(output).toContain('"detail":"latest"')
-    const sections = ['既有 surveyCommand 輸出', '# run.db', '# events.jsonl', '# USER-SIGNALS.md', '# NORTHSTAR.md']
+    const sections = ['# 最高權重證據：USER-SIGNALS.md', '# 北極星價值判準：NORTHSTAR.md', '# 其他勘查訊號', '既有 surveyCommand 輸出', '# run.db', '# events.jsonl']
     expect(sections.map(section => output.indexOf(section))).toEqual([...sections].map(section => output.indexOf(section)).sort((a, b) => a - b))
     expect(output).toContain('使用者要更快的回饋。')
     expect(output).toContain('北極星：優先改善可靠度。')
@@ -82,6 +82,22 @@ describe('多源 survey 組裝器', () => {
     const output = assembleSurvey(`discard-${'x'.repeat(8000)}-tail`, dir, { nowIso: NOW })
     expect(output).toHaveLength(8000)
     expect(output).not.toContain('discard-')
+    expect(output.endsWith('-tail')).toBe(true)
+  })
+
+  test('低權重長輸出不會擠掉置頂的使用者訊號與北極星', () => {
+    const dir = freshDir()
+    writeFileSync(join(dir, 'USER-SIGNALS.md'), '使用者最在意可預期的回應時間。')
+    writeFileSync(join(dir, 'NORTHSTAR.md'), '以可靠度與可預期性決定優先順序。')
+
+    const output = assembleSurvey(`discard-${'x'.repeat(8000)}-tail`, dir, { nowIso: NOW })
+
+    expect(output.startsWith('# 最高權重證據：USER-SIGNALS.md')).toBe(true)
+    expect(output.indexOf('# 北極星價值判準：NORTHSTAR.md')).toBeGreaterThan(0)
+    expect(output.indexOf('# 其他勘查訊號')).toBeGreaterThan(output.indexOf('# 北極星價值判準：NORTHSTAR.md'))
+    expect(output).toContain('使用者最在意可預期的回應時間。')
+    expect(output).toContain('以可靠度與可預期性決定優先順序。')
+    expect(output).toHaveLength(8000)
     expect(output.endsWith('-tail')).toBe(true)
   })
 })
