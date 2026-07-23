@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { freemem, totalmem } from 'node:os'
 import { join } from 'node:path'
 import { acquireLock, releaseLock } from './lock.js'
@@ -29,9 +29,11 @@ export interface DaemonOpts {
   memFreeRatioFn?: () => number
   /** M10.5：config 檔絕對路徑。有設時每輪自查檔案是否仍存在，消失→優雅退出（多專案退場語意）。測試可不設（跳過檢查）。 */
   cfgPath?: string
+  /** 供測試注入：restart.request 哨兵刪除。生產不傳，走真實 unlinkSync。 */
+  unlinkFn?: (path: string) => void
 }
 
-export type DaemonResult = 'lock-busy' | 'stopped' | 'max-cycles' | 'config-gone'
+export type DaemonResult = 'lock-busy' | 'stopped' | 'max-cycles' | 'config-gone' | 'restart-requested'
 
 const OOM_FREE_RATIO = 0.15
 const MAX_BACKOFF_MS = 10 * 60 * 1000
@@ -269,6 +271,20 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       if (opts.cfgPath && !existsSync(opts.cfgPath)) {
         quiet(() => deps.events.append('daemon-config-gone', { cfgPath: opts.cfgPath }))
         return 'config-gone'
+      }
+
+      // restart.request 哨兵：優雅重啟（部署換版免 rename dance／taskkill）。只在 cycle 邊界
+      // 檢查——attempt 進行中絕不中斷。先刪哨兵再退：刪失敗不退（否則 supervisor 重拉後
+      // 又見哨兵又退＝無限翻抖），記事件等人工處理。
+      const restartSentinel = join(deps.cfg.dataDir, 'restart.request')
+      if (existsSync(restartSentinel)) {
+        try {
+          (opts.unlinkFn ?? unlinkSync)(restartSentinel)
+          quiet(() => deps.events.append('daemon-restart-requested', {}))
+          return 'restart-requested'
+        } catch (err) {
+          quiet(() => deps.events.append('daemon-restart-unlink-failed', { error: String(err) }))
+        }
       }
 
       // M7.5:OOM 閘——可用記憶體 <15% 跳過本輪派工(舊系統教訓:高壓下 spawn 只會雪崩)
