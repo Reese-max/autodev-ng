@@ -116,8 +116,9 @@ export const ConfigSchema = z.object({
   judgeApiKey: z.string().default('sk-any'),
   // M9.6 verify-and-supplement：對抗式稽核用模型（異於 judgeModel 以獲獨立性），未設＝不啟動此階段。
   auditModel: z.string().optional(),
-  // review gate：commit 後對 diff 做對抗式審查的 review 引擎 tag（如 swe-check，0 ACU），未設＝關閉此層（行為不變）。
+  // review gate：對 diff 對抗式審查的 review 模型名 + 端點（未設 reviewEngine＝關閉；未設 reviewUrl 沿用 judgeUrl，apiKey 沿用 judgeApiKey）
   reviewEngine: z.string().optional(),
+  reviewUrl: z.string().optional(),
   supplementLimit: z.number().int().positive().default(2),
   // M9.7 informed problem-finding：surveyCommand 未設＝discovery 不啟動（planner 維持 "round N"）。
   surveyCommand: z.string().optional(),

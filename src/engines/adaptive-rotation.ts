@@ -23,8 +23,10 @@ export function loadEngineStatsForWeighting(
       let prev = ''
       try { prev = readFileSync(cacheFile, 'utf8') } catch { /* 無快取＝首次 */ }
       if (prev !== snapshot) {
-        quiet(() => events.append('rotation-weights', { counts }))
-        try { writeFileSync(cacheFile, snapshot) } catch { /* 寫快取失敗不影響派工 */ }
+        // 先寫快取成功才 append event：否則快取寫不進去時 prev 永遠是舊值，每輪都判「變化」而無界刷屏（修 #7）
+        let persisted = false
+        try { writeFileSync(cacheFile, snapshot); persisted = true } catch { /* 寫失敗不影響派工 */ }
+        if (persisted) quiet(() => events.append('rotation-weights', { counts }))
       }
     }
     return stats
@@ -46,20 +48,22 @@ export interface EngineStat {
 }
 
 export interface WeightedRotationOpts {
-  /** 樣本 <minSamples 的引擎用基礎權重（不升不降），防小樣本亂跳。預設 5。 */
+  /** 樣本 <minSamples 的引擎 bonus=0（維持手動基礎權重），防小樣本亂跳。預設 5。 */
   minSamples?: number
-  /** 有效 rotation 列表長度上限，防爆長。預設 24。 */
+  /** 有效 rotation 列表長度上限，防爆長。預設 24（但每引擎保底 1，故實際不低於 unique 引擎數）。 */
   maxSlots?: number
-  /** 每引擎最大槽數，防單一引擎壟斷。預設 6。 */
-  maxPerEngine?: number
+  /** 成功率加成幅度：bonus = round((rate-0.5) * bonusSpan)，落在 ±bonusSpan/2。預設 4。 */
+  bonusSpan?: number
 }
 
 /**
- * 依成功率把基礎 rotation 展開為有效 rotation（複製槽位表達權重）。
- * - 樣本足（n>=minSamples）：權重 = 1 + round(successRate * (maxPerEngine-1))，落在 [1, maxPerEngine]。
- * - 樣本不足或無 stats：權重 = 1（基礎）。
+ * 依成功率把基礎 rotation 展開為有效 rotation。核心：base 的「重複次數」＝操作者手動基礎權重
+ * （如 devin×6），成功率只在其上做**有界加減**，絕不抹掉手動意圖（修 #2 去重回歸）：
+ * - effectiveWeight = max(1, baseCount + bonus)；bonus = round((successRate-0.5) * bonusSpan)。
+ *   → 成功率 0.5＝不動、高於 0.5 加、低於 0.5 減；bonus 有界（±bonusSpan/2）故不暴衝（修 #5）。
+ * - 樣本不足（n<minSamples）或無 stats：bonus=0（維持手動權重）。
  * - 每引擎保底 1 槽；base 中所有引擎必留。
- * - 總長超過 maxSlots 時，等比縮回但保底 1（先砍高權重引擎的多餘槽）。
+ * - 總長超 maxSlots 時從高權重引擎砍到保底 1；unique 引擎數本身超上限時以 unique 數為準（修 #6）。
  */
 export function weightedRotation(
   base: readonly string[],
@@ -68,41 +72,45 @@ export function weightedRotation(
 ): string[] {
   if (base.length === 0) return []
   const minSamples = opts.minSamples ?? 5
-  const maxPerEngine = opts.maxPerEngine ?? 6
-  const maxSlots = opts.maxSlots ?? 24
+  const bonusSpan = opts.bonusSpan ?? 4
 
-  const statByEngine = new Map(stats.map(s => [s.engine, s]))
-  // 每引擎權重（槽數）
-  const weight = new Map<string, number>()
+  // 手動基礎權重＝各引擎在 base 出現次數（保留 devin×6 這類人工配重）
+  const baseCount = new Map<string, number>()
+  const order: string[] = []
   for (const engine of base) {
-    if (weight.has(engine)) continue // base 若有重複，只算一次基礎
-    const s = statByEngine.get(engine)
-    if (!s || s.n < minSamples || s.n <= 0) {
-      weight.set(engine, 1) // 樣本不足／無 stats → 基礎權重
-      continue
-    }
-    const rate = Math.max(0, Math.min(1, s.ok / s.n))
-    weight.set(engine, 1 + Math.round(rate * (maxPerEngine - 1))) // [1, maxPerEngine]
+    if (!baseCount.has(engine)) order.push(engine)
+    baseCount.set(engine, (baseCount.get(engine) ?? 0) + 1)
   }
 
-  const uniqueEngines = [...weight.keys()]
-  // 總長超上限 → 逐步從當前最高權重引擎砍 1（保底 1）直到符合
-  let total = () => [...weight.values()].reduce((a, b) => a + b, 0)
+  const statByEngine = new Map(stats.map(s => [s.engine, s]))
+  const weight = new Map<string, number>()
+  for (const engine of order) {
+    const s = statByEngine.get(engine)
+    let bonus = 0
+    if (s && s.n >= minSamples && s.n > 0) {
+      const rate = Math.max(0, Math.min(1, s.ok / s.n))
+      bonus = Math.round((rate - 0.5) * bonusSpan)
+    }
+    weight.set(engine, Math.max(1, (baseCount.get(engine) ?? 1) + bonus)) // 保底 1
+  }
+
+  // maxSlots 為軟上限；每引擎保底 1，故不可能低於 unique 引擎數（修 #6：以較大者為準，契約誠實）
+  const maxSlots = Math.max(opts.maxSlots ?? 24, order.length)
+  const total = () => [...weight.values()].reduce((a, b) => a + b, 0)
   while (total() > maxSlots) {
-    // 找權重 >1 的最大者砍 1；全為 1 仍超則無法再縮（引擎數本身就超上限），跳出
     let target: string | undefined
     let max = 1
-    for (const e of uniqueEngines) {
+    for (const e of order) {
       const w = weight.get(e)!
       if (w > max) { max = w; target = e }
     }
-    if (!target) break
+    if (!target) break // 全為保底 1 仍超（unique>maxSlots，上面已夾住不會發生）
     weight.set(target, weight.get(target)! - 1)
   }
 
-  // 展開為列表：依 base 順序，各引擎重複其權重次數（保序、確定性）
+  // 展開：依 base 首現順序，各引擎重複其權重次數（保序、確定性）
   const out: string[] = []
-  for (const engine of uniqueEngines) {
+  for (const engine of order) {
     const w = weight.get(engine)!
     for (let i = 0; i < w; i++) out.push(engine)
   }

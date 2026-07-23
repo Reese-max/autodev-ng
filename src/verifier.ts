@@ -70,8 +70,7 @@ export class KernelVerifier {
     }
     if (jOut.verdict === 'SKIP') alerts.push(`judge-skip: ${jOut.detail}`)
 
-    // review gate（第三層，見 engines/review-gate.ts）：只有明確 REJECT 才拒收＋rollback，其餘 fail-open。
-    if (this.cfg.reviewEngine) {
+    if (this.cfg.reviewEngine) { // review gate（engines/review-gate.ts）：僅明確 REJECT 才拒收+rollback，其餘 fail-open
       const rv = await runReviewGate(this.reviewRun, { diff, taskText: job.task.text })
       if (rv.kind === 'reject') {
         this.tryRollback(job.projectPath, res.baseCommitHash, alerts)

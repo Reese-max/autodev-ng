@@ -7,6 +7,7 @@ import { localDay, RunDb } from './db.js'
 import { EventLog } from './events.js'
 import { DiscordNotifier } from './notify.js'
 import { KernelVerifier } from './verifier.js'
+import { reviewDiff } from './engines/review-gate.js'
 import { makeEngineRegistry } from './engines/registry.js'
 import { ConfigSchema, type Config } from './types.js'
 import { finalizeRunOnceHeartbeat, runOnce, subscriptionTags, type CycleResult, type Deps } from './scheduler.js'
@@ -102,7 +103,9 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
 
   const engines = makeEngineRegistry(cfg)
 
-  const verifier = new KernelVerifier({ cfg })
+  // review gate 生產接線（#1）：reviewEngine 設定時掛 reviewDiff（複用 judgeUrl/apiKey），未設＝關閉
+  const reviewRun = cfg.reviewEngine ? (a: { diff: string; taskText: string }) => reviewDiff({ url: cfg.reviewUrl ?? cfg.judgeUrl, model: cfg.reviewEngine!, apiKey: cfg.judgeApiKey }, a.diff, a.taskText) : undefined
+  const verifier = new KernelVerifier({ cfg, reviewRun })
 
   const notifier = new DiscordNotifier({
     channelId: cfg.discordChannelId,

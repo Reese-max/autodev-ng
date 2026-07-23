@@ -49,6 +49,30 @@ test('有效列表長度不超過上限（防爆長）', () => {
   expect(out).toContain('b') // 保底仍在
 })
 
+// #2 回歸守門：base 的重複次數＝手動基礎權重，加權不得抹掉它
+test('#2 手動權重（base 重複槽）被尊重，不因去重塌成 1 槽', () => {
+  // devin×6 手動主力；有 stats 時仍應維持約 6 槽（±有界 bonus），絕不塌成 1
+  const base = ['devin','oc','devin','x','devin','y','devin','z','devin','g','devin']
+  const out = weightedRotation(base, [S('devin', 72, 46), S('oc', 15, 13)]) // devin 64%, oc 87%
+  const devin = out.filter(e => e === 'devin').length
+  expect(devin).toBeGreaterThanOrEqual(5) // 手動 6 槽 + 64% 微幅 → ~6-7，絕不是 1
+  expect(out.filter(e => e === 'oc').length).toBeGreaterThanOrEqual(1)
+})
+
+test('#5 小樣本剛過門檻不暴衝：單槽 5/5 只小幅加成，不跳到滿權重', () => {
+  const base = ['solo']
+  const out = weightedRotation(base, [S('solo', 5, 5)]) // 100% 但單槽 base
+  // 加法有界：baseCount(1) + bonus(≤bonusSpan/2=2) → 至多 3，不會是舊版的 6
+  expect(out.filter(e => e === 'solo').length).toBeLessThanOrEqual(3)
+})
+
+test('#6 unique 引擎數超過 maxSlots：以 unique 數為準保底 1，不丟引擎', () => {
+  const base = ['a','b','c','d','e']
+  const out = weightedRotation(base, [], { maxSlots: 3 }) // 5 unique > maxSlots 3
+  for (const e of base) expect(out).toContain(e) // 全保留（保底勝過軟上限）
+  expect(out.length).toBe(5)
+})
+
 test('基礎 rotation 中不在 stats 的引擎全部保留（不遺漏任何引擎）', () => {
   const base = ['a', 'b', 'c', 'd']
   const out = weightedRotation(base, [S('a', 20, 20), S('b', 20, 0)])
