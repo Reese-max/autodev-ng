@@ -473,6 +473,34 @@ describe('goal ROI 主流程', () => {
     } finally { ioFailure.mockRestore() }
   })
 
+  test('台帳 ROI 遷移失敗仍完成 discover→author→session', async () => {
+    const dir = tempDir(), file = join(dir, 'run.db'), cfg = cycleCfg(dir), fp = problemFingerprint('遷移失敗問題')
+    writeFileSync(cfg.backlogFile, '')
+    const db = new Database(file)
+    db.exec(`CREATE TABLE problems (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, fingerprint TEXT NOT NULL UNIQUE, title TEXT NOT NULL,
+      lens TEXT NOT NULL DEFAULT '', value INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'open',
+      goal_id TEXT NOT NULL DEFAULT '', first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, note TEXT NOT NULL DEFAULT ''
+    )`)
+    db.close()
+    const hooks = cycleHooks({ kind: 'achieved', rounds: 1 })
+    hooks.discover = vi.fn(async () => ({
+      survey: '', ranked: [{ title: '遷移失敗問題', lens: 'tests', value: 8, rationale: '值得修' }]
+    }))
+    hooks.author = vi.fn(async () => autoGoal(fp))
+    const exec = Database.prototype.exec
+    const migrate = vi.spyOn(Database.prototype, 'exec').mockImplementation(function (this: Database.Database, sql: string) {
+      if (sql.startsWith('ALTER TABLE problems')) throw new Error('migration blocked')
+      return exec.call(this, sql)
+    })
+
+    try {
+      expect(await runPerpetualCycle(cfg, dir, new EventLog(dir), async () => true, hooks)).toBe(true)
+      expect(hooks.author).toHaveBeenCalledTimes(1)
+      expect(hooks.runSession).toHaveBeenCalledTimes(1)
+    } finally { migrate.mockRestore() }
+  })
+
   test('ROI 寫入失敗仍完成 session、收案與通知', async () => {
     const dir = tempDir(), cfg = cycleCfg(dir), fp = problemFingerprint('ROI 問題')
     writeFileSync(cfg.backlogFile, '')
@@ -607,5 +635,25 @@ describe('critic ROI 回饋主流程', () => {
 
     expect(result.ranked[0]?.title).toBe('新問題')
     expect(prompts[0]).not.toContain('近期已完成 goal ROI')
+  })
+
+  test('台帳 ROI 摘要讀取失敗時 discovery 仍正常完成', async () => {
+    const prompts: string[] = []
+    const file = join(tempDir(), 'run.db')
+    new ProblemsLedger(file).close()
+    const readFailure = vi.spyOn(ProblemsLedger.prototype, 'listRecentCompleted').mockImplementation(() => {
+      throw new Error('ROI summary read failed')
+    })
+
+    try {
+      const result = await discoverProblems({
+        finderLlm: llm('新問題｜回歸缺口'),
+        criticLlm: llm('VALUE:7 | 新問題 | tests | 可處理', prompts),
+        readRoiSummary: () => readRecentGoalRoiSummary(file), lenses: ['tests']
+      }, { objective: '持續改善', noProgressLimit: 2, evidenceFiles: [] }, tempDir())
+
+      expect(result.ranked[0]?.title).toBe('新問題')
+      expect(prompts[0]).not.toContain('近期已完成 goal ROI')
+    } finally { readFailure.mockRestore() }
   })
 })
