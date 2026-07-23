@@ -15,8 +15,8 @@ session 間(idle),避免打斷進行中工作。
 | GOAL-restart.md | restart.request 哨兵,消滅 config-rename 部署稅 | ✅ 2026-07-23 手作上線(46baa5f) |
 | GOAL-adaptive-rotation.md | 成功率加權輪替:輪替權重從 run.db 滾動成功率自動調 | ✅ 2026-07-23 手作上線(3f450ff) |
 | GOAL-review-gate.md | 免費二審閘:swe-check(0 ACU)對 diff 對抗式審查,REJECT 走 rollback | ✅ 2026-07-23 手作上線(f12cb88,預設關閉待配 swe-check) |
-| GOAL-survey.md | survey 多源化(run.db + events + USER-SIGNALS + NORTHSTAR) | 🔄 執行中(self) |
-| GOAL-author.md | 自動 GOAL 逐題紅→綠驗證,修「繼承全域 verifyCommand 的空驗證」 | 待派 |
+| GOAL-survey.md | survey 多源化(run.db + events + USER-SIGNALS + NORTHSTAR) | ✅ 2026-07-23 上線(9ce33d3,daemon 自跑 achieved) |
+| GOAL-author.md | 自動 GOAL 逐題紅→綠驗證,修「繼承全域 verifyCommand 的空驗證」 | ✅ 2026-07-23 手作上線(6827e91) |
 | GOAL-roi.md | ProblemsLedger 加成本/結果欄,session 末結算 ROI | 待派 |
 | GOAL-northstar.md | 北極星節流自我迭代(機器提議、人核准 APPROVED 才併) | 待派 |
 
