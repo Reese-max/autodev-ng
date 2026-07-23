@@ -88,6 +88,28 @@ describe('survey 來源契約', () => {
     expect(output.indexOf('# 北極星價值判準：NORTHSTAR.md')).toBeLessThan(output.indexOf('# 其他勘查訊號'))
   })
 
+  test('高權重全文不受 8000 字元低權重預算截斷，並完整注入 finder', async () => {
+    const dir = freshDir()
+    const user = `${'u'.repeat(8000)}-user-tail`
+    const northstar = `${'n'.repeat(8000)}-northstar-tail`
+    const finderPrompts: string[] = []
+    writeFileSync(join(dir, 'USER-SIGNALS.md'), user)
+    writeFileSync(join(dir, 'NORTHSTAR.md'), northstar)
+
+    const survey = assembleSurvey('base-marker', dir, { nowIso: NOW })
+    expect(survey).toContain('-user-tail')
+    expect(survey).toContain('-northstar-tail')
+    expect(survey.indexOf('# 最高權重證據：USER-SIGNALS.md')).toBeLessThan(survey.indexOf('# 北極星價值判準：NORTHSTAR.md'))
+
+    await discoverProblems({
+      finderLlm: llm('NONE', finderPrompts), criticLlm: llm('NONE'),
+      runSurvey: () => ({ output: survey }), readEvidence: () => '', lenses: ['correctness']
+    }, goal, process.cwd())
+
+    expect(finderPrompts[0]).toContain('-user-tail')
+    expect(finderPrompts[0]).toContain('-northstar-tail')
+  })
+
   test('critic prompt 注入北極星排序與降權指示', async () => {
     const dir = freshDir()
     writeFileSync(join(dir, 'USER-SIGNALS.md'), 'user-marker')

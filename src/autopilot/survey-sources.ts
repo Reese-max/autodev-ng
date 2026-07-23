@@ -61,7 +61,7 @@ export function assembleSurvey(base: string, dataDir: string, opts: SurveyOption
   const contextBudget = MAX_SURVEY_LENGTH - highWeight.length - 2 - contextHeader.length
   const context = fitContext(base, summaries, contextBudget)
   const contextSection = context ? contextHeader + context : ''
-  return [highWeight, contextSection].filter(Boolean).join('\n\n').slice(0, MAX_SURVEY_LENGTH)
+  return [highWeight, contextSection].filter(Boolean).join('\n\n')
 }
 
 export function hasSurveySources(dataDir: string): boolean {

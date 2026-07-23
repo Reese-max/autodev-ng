@@ -67,8 +67,7 @@ function criticPrompt(cands: Candidate[], northstar: string): string {
 
 export async function discoverProblems(deps: DiscoverDeps, goal: Goal, cwd: string): Promise<DiscoverResult> {
   let survey = ''
-  // 取尾部（錯誤/摘要通常在輸出尾端）——與 run.ts 的 execSync 輸出截長方向一致，避免頭尾互斬的 no-op
-  if (deps.runSurvey) { try { survey = deps.runSurvey('', cwd).output.slice(-8000) } catch { survey = '' } }
+  if (deps.runSurvey) { try { survey = deps.runSurvey('', cwd).output } catch { survey = '' } }
   const evidence = gatherEvidence(goal.evidenceFiles, cwd, deps.readEvidence)
   const found = await Promise.all(deps.lenses.map(async (lens) => {
     try { return parseCandidates(lens, (await callAgent(deps.finderLlm, finderPrompt(lens, survey, evidence))).text.trim()) }
