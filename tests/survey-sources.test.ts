@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'vitest'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
-import { applySurveyPriorityBudget, assembleSurvey, MAX_SURVEY_LENGTH } from '../src/autopilot/survey-sources.js'
+import { applySurveyPriorityBudget, assembleSurvey, collectSurvey, MAX_SURVEY_LENGTH } from '../src/autopilot/survey-sources.js'
 import { runDbSevenDaySummary } from '../src/engines/run-db-summary.js'
 
 const dirs: string[] = []
@@ -115,7 +115,7 @@ describe('多源 survey 組裝器', () => {
     expect(output.endsWith('-tail')).toBe(true)
   })
 
-  test('高權重佔滿 8000 預算時仍保留 surveyCommand，且不打亂高權重排序', () => {
+  test('高權重佔滿預算時仍保留 surveyCommand，且最終結果不超過 8000 字元', () => {
     const dir = freshDir()
     writeFileSync(join(dir, 'USER-SIGNALS.md'), `user-head-${'U'.repeat(4500)}-user-tail`)
     writeFileSync(join(dir, 'NORTHSTAR.md'), `north-head-${'N'.repeat(4500)}-north-tail`)
@@ -126,13 +126,25 @@ describe('多源 survey 組裝器', () => {
     const output = assembleSurvey('SURVEY-CMD-BASE-MARKER', dir, { nowIso: NOW })
 
     expect(output).toContain('SURVEY-CMD-BASE-MARKER')
-    expect(output).toContain('-user-tail')
-    expect(output).toContain('-north-tail')
+    expect(output).toContain('user-head-')
     expect(output.indexOf('# 最高權重證據：USER-SIGNALS.md')).toBeLessThan(output.indexOf('# 北極星價值判準：NORTHSTAR.md'))
     expect(output.indexOf('# 北極星價值判準：NORTHSTAR.md')).toBeLessThan(output.indexOf('# 其他勘查訊號'))
     expect(output.indexOf('# 其他勘查訊號')).toBeLessThan(output.indexOf('SURVEY-CMD-BASE-MARKER'))
-    // 預算被高權重吃光時，低權重 summaries 可捨棄，但 base 不得消失
+    expect(output.length).toBeLessThanOrEqual(MAX_SURVEY_LENGTH)
+    // 預算被高權重吃光時，低權重 summaries 可捨棄，但 base 不得消失。
     expect(output).not.toContain('noise-event')
+  })
+
+  test('collectSurvey 保留 surveyCommand 輸出並組裝可用來源', () => {
+    const dir = freshDir()
+    writeFileSync(join(dir, 'USER-SIGNALS.md'), 'user-marker')
+    const command = `\"${process.execPath}\" -e \"process.stdout.write('survey-command-marker')\"`
+
+    const output = collectSurvey({ surveyCommand: command, surveyTimeoutMs: 1_000, dataDir: dir }, process.cwd())
+
+    expect(output).toContain('survey-command-marker')
+    expect(output).toContain('user-marker')
+    expect(output.length).toBeLessThanOrEqual(MAX_SURVEY_LENGTH)
   })
 })
 
@@ -158,23 +170,24 @@ describe('applySurveyPriorityBudget 優先序截斷', () => {
     expect(out.indexOf('BASE-MARKER')).toBeLessThan(out.indexOf('# run.db'))
   })
 
-  test('剩餘預算不足時先砍 summaries，再保尾截斷 base，絕不整段移除 base', () => {
-    // 高權重幾乎填滿 8000，只留極小餘裕 → base 保尾、summaries 整段捨棄
+  test('剩餘預算不足時先砍 summaries，且絕不整段移除 base', () => {
+    // 高權重幾乎填滿 8000 時先壓縮高權重，讓 base 仍可完整保留；summaries 整段捨棄。
     const fatHigh = `${high}\n${'H'.repeat(MAX_SURVEY_LENGTH - high.length - 20)}`
     const out = applySurveyPriorityBudget(fatHigh, `discard-${'b'.repeat(500)}-BT`, `# events\n${'e'.repeat(2000)}`)
     expect(out).toContain('-BT')
-    expect(out).not.toContain('discard-')
+    expect(out).toContain('discard-')
     expect(out).not.toContain('# events')
+    expect(out.length).toBeLessThanOrEqual(MAX_SURVEY_LENGTH)
     expect(out.indexOf('# 最高權重證據：USER-SIGNALS.md')).toBeLessThan(out.indexOf('# 北極星價值判準：NORTHSTAR.md'))
     expect(out.indexOf('# 其他勘查訊號')).toBeLessThan(out.indexOf('-BT'))
   })
 
-  test('高權重單獨超過 8000 時全文保留，且仍附加 base', () => {
+  test('高權重單獨超過 8000 時仍受上限約束並保留 base', () => {
     const huge = `${'X'.repeat(9000)}-HIGH-TAIL`
     const out = applySurveyPriorityBudget(huge, 'BASE-KEEP', '# events\nnoise')
-    expect(out).toContain('-HIGH-TAIL')
     expect(out).toContain('BASE-KEEP')
-    expect(out.indexOf('-HIGH-TAIL')).toBeLessThan(out.indexOf('# 其他勘查訊號'))
+    expect(out).toHaveLength(MAX_SURVEY_LENGTH)
+    expect(out.indexOf('X')).toBeLessThan(out.indexOf('# 其他勘查訊號'))
     expect(out.indexOf('# 其他勘查訊號')).toBeLessThan(out.indexOf('BASE-KEEP'))
     expect(out).not.toContain('# events')
   })

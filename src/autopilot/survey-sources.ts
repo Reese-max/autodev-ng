@@ -60,8 +60,8 @@ function fitLowWeight(base: string, summaries: string, budget: number): string {
  * 2) surveyCommand base（截斷時不得整段移除）
  * 3) 其餘低權重 summaries（最先被截斷／丟棄）
  *
- * 高權重全文可單獨超過 maxLen（契約：不受低權重預算截斷）；
- * 其餘情況組合結果長度 ≤ maxLen。
+ * 所有來源合併後皆不得超過 maxLen。為維持既有 surveyCommand，
+ * 超額時仍保留其尾端四分之一窗口，再依優先序收納高權重與其餘摘要。
  */
 export function applySurveyPriorityBudget(
   highWeight: string,
@@ -69,12 +69,19 @@ export function applySurveyPriorityBudget(
   summaries: string,
   maxLen = MAX_SURVEY_LENGTH,
 ): string {
+  if (maxLen <= 0) return ''
   if (!highWeight) return fitLowWeight(base, summaries, maxLen)
 
-  const remaining = maxLen - highWeight.length - SEP.length - CONTEXT_HEADER.length
-  const low = fitLowWeight(base, summaries, remaining)
+  // surveyCommand 是既有相容入口；即使高權重來源過大，也要保留其尾端。
+  const reservedContext = base
+    ? CONTEXT_HEADER.length + Math.min(base.length, Math.floor(maxLen / 4)) + SEP.length
+    : 0
+  const high = highWeight.slice(0, Math.max(0, maxLen - reservedContext))
+  const hasContext = Boolean(base || summaries)
+  const lowBudget = maxLen - high.length - (high && hasContext ? SEP.length : 0) - (hasContext ? CONTEXT_HEADER.length : 0)
+  const low = fitLowWeight(base, summaries, lowBudget)
   const contextSection = low ? CONTEXT_HEADER + low : ''
-  return [highWeight, contextSection].filter(Boolean).join(SEP)
+  return [high, contextSection].filter(Boolean).join(SEP)
 }
 
 /** 各來源獨立 fail-open，且只以唯讀方式取得資料。 */
