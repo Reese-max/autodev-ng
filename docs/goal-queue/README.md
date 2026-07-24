@@ -33,13 +33,16 @@ nocommit-nudge、merge-rebase 的前置——kernel 現況 2700/2700 零餘裕,�
 
 ## devin-only 模式(免費模型模式,2026-07-24)
 
-`configs/autodev-self.devin-only.json` 是「只用 devin 免費模型(swe-1.6,0 credit multiplier)」
-的完整 config 變體:engines 白名單只留 devin、rotation=["devin"]——連 failover 補尾都不會
-流向訂閱檔,額度零消耗。切換(daemon 會在 cycle 邊界優雅重啟):
+`configs/modes/autodev-self.devin-only.json` 是「只用 devin 免費模型(swe-1.6,0 credit
+multiplier)」的完整 config 變體:engines 白名單只留 devin、rotation=["devin"]——連 failover
+補尾都不會流向訂閱檔,額度零消耗。
+**模式檔必須放 configs/modes/ 子目錄**:supervise 會把 configs/ 頂層每個 .json 當獨立專案
+拉 daemon(supervise.ts:318),變體檔放頂層會生出第二實例搶 autopilot.lock(2026-07-24
+lock-busy 實證)。切換(daemon 會在 cycle 邊界優雅重啟):
 
 ```sh
 cp configs/autodev-self.json configs/autodev-self.json.bak-$(date +%Y%m%d)
-cp configs/autodev-self.devin-only.json configs/autodev-self.json
+cp configs/modes/autodev-self.devin-only.json configs/autodev-self.json
 touch data/autodev-self/restart.request
 ```
 
