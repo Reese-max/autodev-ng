@@ -23,6 +23,22 @@ session 間(idle),避免打斷進行中工作。
 | GOAL-merge-rebase.md | merge-conflict 自動 rebase onto main 重試一次再 blocked | 待派 |
 | GOAL-northstar.md | 北極星節流自我迭代(機器提議、人核准 APPROVED 才併) | 待派 |
 
+## devin-only 模式(免費模型模式,2026-07-24)
+
+`configs/autodev-self.devin-only.json` 是「只用 devin 免費模型(swe-1.6,0 credit multiplier)」
+的完整 config 變體:engines 白名單只留 devin、rotation=["devin"]——連 failover 補尾都不會
+流向訂閱檔,額度零消耗。切換(daemon 會在 cycle 邊界優雅重啟):
+
+```sh
+cp configs/autodev-self.json configs/autodev-self.json.bak-$(date +%Y%m%d)
+cp configs/autodev-self.devin-only.json configs/autodev-self.json
+touch data/autodev-self/restart.request
+```
+
+切回:`git -C . checkout configs/autodev-self.json` + 再放一次 restart.request 哨兵。
+注意:devin swe-1.6 能力弱於 codex/grok,適合低難度 GOAL 或額度吃緊時段;maxAttempts=6
+但單一引擎失敗 6 次即 blocked,難案勿用。
+
 ## 格式鐵律(parseGoal)
 
 - 第一行 `# GOAL`(標題行本身會被 parseGoal 略過)
