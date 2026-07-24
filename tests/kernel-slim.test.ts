@@ -30,13 +30,31 @@ const SRC_DIR = join(ROOT, 'src')
 const CLI_TS = join(SRC_DIR, 'cli.ts')
 const CLI_DIR = join(SRC_DIR, 'cli')
 
-/** 對齊 kernel-budget：頂層 .ts 行數（不含子目錄）。 */
+/** 對齊 kernel-budget / spec：只算 src/ 頂層 .ts 行數（不含任何子目錄）。 */
 export function kernelLineCount(): { total: number; perFile: Record<string, number> } {
   const perFile: Record<string, number> = {}
   let total = 0
   for (const name of readdirSync(SRC_DIR)) {
     if (!name.endsWith('.ts')) continue
     const full = join(SRC_DIR, name)
+    if (!statSync(full).isFile()) continue
+    const lines = readFileSync(full, 'utf8').split('\n').length - 1
+    perFile[name] = lines
+    total += lines
+  }
+  return { total, perFile }
+}
+
+/**
+ * 僅計 src/cli/ 子目錄內 .ts（用來證明 kernel 計數未納入此目錄）。
+ * 與 kernelLineCount 對稱：只算該目錄一層、不遞迴更深。
+ */
+export function cliSubdirLineCount(): { total: number; perFile: Record<string, number> } {
+  const perFile: Record<string, number> = {}
+  let total = 0
+  for (const name of readdirSync(CLI_DIR)) {
+    if (!name.endsWith('.ts')) continue
+    const full = join(CLI_DIR, name)
     if (!statSync(full).isFile()) continue
     const lines = readFileSync(full, 'utf8').split('\n').length - 1
     perFile[name] = lines
@@ -111,20 +129,67 @@ function formatBreakdown(perFile: Record<string, number>): string {
 }
 
 describe('kernel-slim 守門', () => {
-  it('kernel 頂層總行數 ≤ 2450（≥250 緩衝相對 2700 工作上限）', () => {
+  it('明確計算 spec 定義的 kernel 頂層行數並斷言總量 ≤ 2450', () => {
+    // spec 計法（對齊 kernel-budget）：只列 src/ 頂層 .ts 一般檔，行數 = 換行字元數
     const { total, perFile } = kernelLineCount()
+    const sumFromBreakdown = Object.values(perFile).reduce((a, b) => a + b, 0)
+
+    // 計數本身必須可重現：total 與各檔加總一致
+    expect(total).toBe(sumFromBreakdown)
+    expect(Object.keys(perFile).length).toBeGreaterThan(0)
+
+    // 關鍵守門：外移後鎖定上限
     try {
       assertWithinCap(total, KERNEL_SLIM_CAP, 'kernel 頂層')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       throw new Error(
-        `${msg}\n依 GOAL-kernel-slim：先外移/精簡，不得把業務邏輯堆回 src/*.ts 頂層。\n各檔行數：\n${formatBreakdown(perFile)}`,
+        `${msg}\n依 GOAL-kernel-slim：先外移/精簡，不得把業務邏輯堆回 src/*.ts 頂層。\n` +
+          `明確計算結果 total=${total}（上限 ${KERNEL_SLIM_CAP}）。\n各檔行數：\n${formatBreakdown(perFile)}`,
       )
     }
     expect(total).toBeLessThanOrEqual(KERNEL_SLIM_CAP)
+    expect(total).toBeLessThanOrEqual(2450)
     expect(KERNEL_BEFORE_RELOCATION - total).toBeGreaterThanOrEqual(KERNEL_MIN_RECLAIMED_LINES)
     // 防守門空轉：計數壞掉回 0 時不得永遠通過
     expect(total).toBeGreaterThan(2000)
+  })
+
+  it('src/cli/ 子目錄未被計入 kernel 頂層行數', () => {
+    const kernel = kernelLineCount()
+    const cliSub = cliSubdirLineCount()
+    const kernelKeys = Object.keys(kernel.perFile)
+
+    // 子目錄必須存在且有實作（外移成果非空）
+    expect(statSync(CLI_DIR).isDirectory()).toBe(true)
+    expect(cliSub.total).toBeGreaterThan(0)
+    expect(Object.keys(cliSub.perFile).length).toBeGreaterThan(0)
+
+    // kernel 明細只含頂層 basename，不得出現路徑鍵（含 cli/…）
+    expect(kernelKeys.every(k => !k.includes('/') && !k.includes('\\'))).toBe(true)
+    expect(kernelKeys.some(k => k.startsWith('cli/'))).toBe(false)
+
+    // 頂層 cli.ts 薄殼要計入；僅存在於 src/cli/ 的檔不得出現在 kernel 明細
+    expect(kernel.perFile['cli.ts']).toBeDefined()
+    expect(kernel.perFile['cli.ts']).toBe(fileLineCount(CLI_TS))
+    expect(kernel.perFile['entry.ts']).toBeUndefined()
+    expect(kernel.perFile['golden.ts']).toBeUndefined()
+    expect(cliSub.perFile['entry.ts']).toBeDefined()
+
+    // 頂層與子目錄可同名（如 daemon.ts）——kernel 必須用頂層檔行數，不是子目錄
+    if (kernel.perFile['daemon.ts'] != null && cliSub.perFile['daemon.ts'] != null) {
+      expect(kernel.perFile['daemon.ts']).toBe(fileLineCount(join(SRC_DIR, 'daemon.ts')))
+      expect(kernel.perFile['daemon.ts']).not.toBe(cliSub.perFile['daemon.ts'])
+    }
+
+    // 若誤把 src/cli/ 加進 kernel，總量會明顯膨脹且突破 slim 上限
+    const wronglyIncludingCli = kernel.total + cliSub.total
+    expect(wronglyIncludingCli).toBeGreaterThan(kernel.total)
+    expect(wronglyIncludingCli).toBeGreaterThan(KERNEL_SLIM_CAP)
+
+    // 再次釘死：kernel 總量本身仍 ≤2450（未含 cli 子目錄）
+    expect(kernel.total).toBeLessThanOrEqual(KERNEL_SLIM_CAP)
+    expect(kernel.total).toBeLessThanOrEqual(2450)
   })
 
   it('src/cli.ts 行數 ≤ 薄殼上限', () => {
