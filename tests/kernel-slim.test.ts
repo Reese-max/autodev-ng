@@ -26,6 +26,7 @@ export const CLI_SHELL_MAX_LINES = 50
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SRC_DIR = join(ROOT, 'src')
 const CLI_TS = join(SRC_DIR, 'cli.ts')
+const CLI_DIR = join(SRC_DIR, 'cli')
 
 /** 對齊 kernel-budget：頂層 .ts 行數（不含子目錄）。 */
 export function kernelLineCount(): { total: number; perFile: Record<string, number> } {
@@ -137,6 +138,17 @@ describe('kernel-slim 守門', () => {
   it('src/cli.ts 只剩薄殼責任（委派 runCli + re-export，無業務實作）', () => {
     const source = readFileSync(CLI_TS, 'utf8')
     expect(() => assertCliIsThinShell(source)).not.toThrow()
+  })
+
+  it('所有子指令實作都由 src/cli/ 承接', () => {
+    const modules = readdirSync(CLI_DIR)
+    expect(modules).toEqual(expect.arrayContaining([
+      'daemon.ts', 'notify-test.ts', 'run-once.ts', 'status.ts', 'supervise.ts',
+    ]))
+    const entry = readFileSync(join(CLI_DIR, 'entry.ts'), 'utf8')
+    for (const command of ['cmdDaemon', 'cmdNotifyTest', 'cmdRunOnce', 'cmdStatus', 'cmdSupervise']) {
+      expect(entry).toContain(command)
+    }
   })
 
   it('超限時 assertWithinCap 必須失敗（守門不可空轉）', () => {
