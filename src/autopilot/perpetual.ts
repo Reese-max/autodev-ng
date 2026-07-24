@@ -98,7 +98,13 @@ async function runBody(
     if (!isAutoGoal(content)) {
       // 手動 GOAL：跑一次，記錄 manualGoalDone 防重跑；絕不代刪。
       const goalId = goalIdOf(parseGoal(content).objective)
-      if (goalId === state.manualGoalDone) return false // 已跑過同一份，安靜略過
+      if (goalId === state.manualGoalDone) {
+        // 已跑過同一份：無聲空轉會讓整台停擺無人知（2026-07-24 實證）——appendOnce 24h 提醒一次
+        if (events.appendOnce('manual-goal-idle', { goalId })) {
+          await notify(`自主工程師：手動 GOAL ${goalId} 已完成但 GOAL.md 仍佔位——請派下一棒，或移除 GOAL.md 讓 auto-goal 接手`)
+        }
+        return false
+      }
       const result = await hooks.runSession({})
       if (typeof result !== 'object') return false // lock-busy / no-goal：沒真的跑，不記狀態
       // killed＝外力中斷（stopFile/config-gone/daemon 輪替），不消耗一次性執行權也不寫冷卻

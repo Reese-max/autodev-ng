@@ -158,6 +158,23 @@ describe('runPerpetualCycle 手動 GOAL', () => {
     expect(r).toBe(false)
     expect(hooks.runSession).not.toHaveBeenCalled()
   })
+
+  // 空轉雷（2026-07-24 實證）：已 done 手動 GOAL 佔位時不得無聲空轉——記事件+每 24h 提醒一次
+  test('已 done 手動 GOAL 佔位 → 記 manual-goal-idle 事件並 notify 提醒；同 24h 第二次 cycle 不重複提醒', async () => {
+    const cfg = makeCfg(dir)
+    writeFileSync(cfg.goalFile!, manualMd)
+    savePerpetualState(dir, { lastSessionTs: '', consecutiveEmpty: 0, currentCooldownMs: 6000, manualGoalDone: goalIdOf('手動目標甲') })
+    const sent: string[] = []
+    const notify = async (t: string): Promise<boolean> => { sent.push(t); return true }
+    const hooks = makeHooks()
+    expect(await runPerpetualCycle(cfg, dir, events, notify, hooks)).toBe(false)
+    expect(eventTypes(dir)).toContain('manual-goal-idle')
+    expect(sent.length).toBe(1)
+    expect(sent[0]).toContain(goalIdOf('手動目標甲'))
+    expect(await runPerpetualCycle(cfg, dir, events, notify, hooks)).toBe(false)
+    expect(sent.length).toBe(1) // appendOnce 24h 去重，不轟炸
+    expect(hooks.runSession).not.toHaveBeenCalled()
+  })
 })
 
 describe('runPerpetualCycle auto-goal 殘留', () => {
