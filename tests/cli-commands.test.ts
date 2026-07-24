@@ -1,4 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import * as cli from '../src/cli.js'
 import { parseArgv, runCli } from '../src/cli/entry.js'
 import { formatCycleResult } from '../src/cli/run-once.js'
@@ -7,6 +10,59 @@ import { printSuperviseResults } from '../src/cli/supervise.js'
 afterEach(() => {
   vi.restoreAllMocks()
   process.exitCode = undefined
+})
+
+async function captureCli(argv: string[]): Promise<{ stdout: string[]; stderr: string[]; exitCode: number }> {
+  const stdout: string[] = []
+  const stderr: string[] = []
+  const log = vi.spyOn(console, 'log').mockImplementation((...args) => stdout.push(args.map(String).join(' ')))
+  const error = vi.spyOn(console, 'error').mockImplementation((...args) => stderr.push(args.map(String).join(' ')))
+  process.exitCode = undefined
+  try {
+    await runCli(argv, 'cli.js')
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err))
+    process.exitCode = 1
+  } finally {
+    log.mockRestore()
+    error.mockRestore()
+  }
+  return { stdout, stderr, exitCode: process.exitCode ?? 0 }
+}
+
+test('CLI 搬移回歸：代表性子指令維持搬移前的輸出快照與 exit code', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-cli-snapshot-'))
+  const project = join(root, 'project')
+  const config = join(root, 'config.json')
+  const configsDir = join(root, 'configs')
+  mkdirSync(project)
+  mkdirSync(configsDir)
+  writeFileSync(join(project, 'BACKLOG.md'), '')
+  writeFileSync(config, JSON.stringify({
+    projectPath: './project', backlogFile: './project/BACKLOG.md', dataDir: './data', engine: 'mock',
+  }))
+
+  try {
+    const actual = {
+      status: await captureCli(['status', '--config', config]),
+      'run-once': await captureCli(['run-once', '--config', config]),
+      supervise: await captureCli(['supervise', '--configs-dir', configsDir]),
+      unknown: await captureCli(['unknown', '--config', config]),
+    }
+
+    expect(actual).toEqual({
+      status: { stdout: ['daemon 未跑過'], stderr: [], exitCode: 0 },
+      'run-once': { stdout: ['CycleResult: idle'], stderr: [], exitCode: 0 },
+      supervise: { stdout: ['supervise：找不到 config，未執行任何動作'], stderr: [], exitCode: 0 },
+      unknown: {
+        stdout: [],
+        stderr: ['未知子命令：unknown（可用：status | run-once | daemon | notify-test | supervise）'],
+        exitCode: 1,
+      },
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('cli 公開匯出維持既有介面', () => {
