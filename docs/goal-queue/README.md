@@ -17,9 +17,9 @@ session 間(idle),避免打斷進行中工作。
 | GOAL-review-gate.md | 免費二審閘:swe-check(0 ACU)對 diff 對抗式審查,REJECT 走 rollback | ✅ 2026-07-23 手作上線(f12cb88,預設關閉待配 swe-check) |
 | GOAL-survey.md | survey 多源化(run.db + events + USER-SIGNALS + NORTHSTAR) | ✅ 2026-07-23 上線(9ce33d3,daemon 自跑 achieved) |
 | GOAL-author.md | 自動 GOAL 逐題紅→綠驗證,修「繼承全域 verifyCommand 的空驗證」 | ✅ 2026-07-23 手作上線(6827e91) |
-| GOAL-roi.md | ProblemsLedger 加成本/結果欄,session 末結算 ROI | 🔄 執行中(已派 2026-07-23,鎖 codex-terra-xhigh) |
-| GOAL-verify-tiered.md | 分層驗收:輪內先跑 GOAL 專屬指令,綠了才跑全套——砍紅→綠迭代的 14 分鐘全套稅 | 待派 |
-| GOAL-kernel-slim.md | kernel 減壓:cli.ts 子指令外移 src/cli/,騰回 ≥250 行——後續 kernel 改動的前置 | 待派 |
+| GOAL-roi.md | ProblemsLedger 加成本/結果欄,session 末結算 ROI | ✅ 2026-07-24 上線(ledger-roi 33/33 綠;supplement 稽核殘 5 條證據缺口,屬文書層) |
+| GOAL-kernel-slim.md | kernel 減壓:cli.ts 子指令外移 src/cli/,騰回 ≥250 行——後續 kernel 改動的前置 | 🔄 執行中(已派 2026-07-24) |
+| GOAL-verify-tiered.md | 分層驗收:輪內先跑 GOAL 專屬指令,綠了才跑全套——砍紅→綠迭代的 14 分鐘全套稅 | 待派(調到 kernel-slim 後:要動 verifier.ts 接線,kernel 零餘裕時必撞) |
 | GOAL-visibility.md | 產出可見性:digest+立案通知經 notify 送達使用者(北極星判準 3,USER-SIGNALS 頭兩痛) | 待派 |
 | GOAL-signal-quality.md | 發掘器訊號源:repo 健康指標+run.db 72h/前4日雙段+cost/observability 雙鏡頭 | 待派 |
 | GOAL-verifyfail-detail.md | verify-fail detail 修繕:strip ANSI+擷取失敗區塊,失敗紀錄可診斷 | 待派 |
@@ -28,8 +28,14 @@ session 間(idle),避免打斷進行中工作。
 | GOAL-critic-probe.md | critic 實證探針:候選宣稱機械查證(實跑測試/數事件),矛盾者重降權 | 待派 |
 | GOAL-northstar.md | 北極星節流自我迭代(機器提議、人核准 APPROVED 才併) | 待派 |
 
-依賴註記:kernel-slim 是 signal-quality(types.ts lens 一行)、verifyfail-detail、
-nocommit-nudge、merge-rebase 的前置——kernel 現況 2700/2700 零餘裕,不先減壓全撞行數牆。
+依賴註記:kernel-slim 是 verify-tiered(verifier.ts 接線)、signal-quality(types.ts lens
+一行)、verifyfail-detail、nocommit-nudge、merge-rebase 的前置——kernel 現況 2700/2700
+零餘裕,不先減壓全撞行數牆。
+
+流程雷註記(2026-07-24 實證):手派 GOAL 收案後必須人工移走/覆蓋 GOAL.md——
+manualGoalDone 記錄後 daemon 對同一 GOAL.md 安靜略過,既不補課也不進 discover,
+整台空轉。收案動作=備份 GOAL.md + 派下一棒(或刪除讓 perpetual 回 auto-goal 模式)。
+中期修法併入 GOAL-visibility(done 通知提醒派工)。
 
 ## devin-only 模式(免費模型模式,2026-07-24)
 
