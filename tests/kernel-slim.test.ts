@@ -16,6 +16,8 @@ import { dirname, join } from 'node:path'
 
 /** 外移後鎖定的 kernel 頂層上限（2700 工作上限 − ≥250 緩衝）。 */
 export const KERNEL_SLIM_CAP = 2450
+export const KERNEL_BEFORE_RELOCATION = 2700
+export const KERNEL_MIN_RECLAIMED_LINES = 250
 
 /**
  * cli.ts 薄殼行數上限。現況 ~22；給 re-export 擴充留少量餘裕，
@@ -117,6 +119,7 @@ describe('kernel-slim 守門', () => {
       )
     }
     expect(total).toBeLessThanOrEqual(KERNEL_SLIM_CAP)
+    expect(KERNEL_BEFORE_RELOCATION - total).toBeGreaterThanOrEqual(KERNEL_MIN_RECLAIMED_LINES)
     // 防守門空轉：計數壞掉回 0 時不得永遠通過
     expect(total).toBeGreaterThan(2000)
   })
