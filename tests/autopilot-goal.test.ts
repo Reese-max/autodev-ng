@@ -77,3 +77,18 @@ describe('parseGoal', () => {
     expect(parseGoal('# GOAL\n只有目標。').evidenceFiles).toBeUndefined()
   })
 })
+
+// GOAL 級引擎鎖定：defaultEngine+rotation 一併覆蓋（rotation 淹沒縫隙的回歸測試）
+import { pinGoalEngine } from '../src/autopilot/session.js'
+
+test('pinGoalEngine：指定引擎 → defaultEngine 與 rotation 同時鎖死', () => {
+  const cfg = { defaultEngine: 'codex-sol', engineRotation: ['codex-sol', 'grok'] } as never
+  const pinned = pinGoalEngine(cfg, 'codex-terra-xhigh')
+  expect(pinned.defaultEngine).toBe('codex-terra-xhigh')
+  expect(pinned.engineRotation).toEqual(['codex-terra-xhigh'])
+})
+
+test('pinGoalEngine：未指定 → cfg 原樣返回（向後相容）', () => {
+  const cfg = { defaultEngine: 'codex-sol', engineRotation: ['codex-sol', 'grok'] } as never
+  expect(pinGoalEngine(cfg, undefined)).toBe(cfg)
+})

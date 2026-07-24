@@ -49,7 +49,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
-          timeoutMs: ec.timeoutMs
+          effort: ec.effort, timeoutMs: ec.timeoutMs
         })
       case 'copilot':
         return new CopilotEngine({

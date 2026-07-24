@@ -19,6 +19,8 @@ export interface CodexOpts {
   env?: Record<string, string>
   /** 指定 --model 旗標（未設用 CLI 預設 gpt-5.5）。 */
   model?: string
+  /** reasoning effort（-c model_reasoning_effort=<值>）；只注入 run 的 baseArgs，ping 不燒推理。 */
+  effort?: string
 }
 
 /** M5 Task 3：codex exec 引擎（規格卡 m5-cli-engines-research.md 卡 1）。
@@ -41,7 +43,8 @@ export class CodexEngine implements Engine {
     this.id = opts.id ?? 'codex'
     this.command = opts.command ?? 'codex'
     const modelArgs = opts.model ? ['--model', opts.model] : []
-    this.baseArgs = [...(opts.baseArgs ?? ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox']), ...modelArgs]
+    const effortArgs = opts.effort ? ['-c', `model_reasoning_effort=${opts.effort}`] : []
+    this.baseArgs = [...(opts.baseArgs ?? ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox']), ...modelArgs, ...effortArgs]
     this.pingArgs = [...(opts.pingArgs ?? ['exec', '--json', '-s', 'read-only', '--ephemeral', '--skip-git-repo-check']), ...modelArgs]
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 90 * 1000

@@ -34,6 +34,12 @@ export function stopAlertMessage(goalId: string, outcome: GoalOutcome): string |
   return outcome.kind === 'stuck' ? `${base}——${outcome.reason}` : base
 }
 
+/** GOAL 指定引擎時鎖死選擎：defaultEngine 與 engineRotation 一併覆蓋——
+ * 只蓋 defaultEngine 會被非空 rotation 淹沒（candidateEngines 規則），GOAL 級指定形同虛設。 */
+export function pinGoalEngine(cfg: Config, engine: string | undefined): Config {
+  return engine ? { ...cfg, defaultEngine: engine, engineRotation: [engine] } : cfg
+}
+
 export async function runGoalWithDeps(
   deps: Deps, notifier: { send(text: string): Promise<boolean> }, cfg: Config,
   opts?: { discovered?: DiscoverResult }
@@ -52,9 +58,9 @@ export async function runGoalWithDeps(
     const goal = parseGoal(goalMd)
     const goalId = createHash('sha1').update(goal.objective).digest('hex').slice(0, 4)
     const startedAt = new Date().toISOString()
-    // GOAL 指定的免費引擎覆寫 defaultEngine（沙盒 config 白名單須含此引擎）
+    // GOAL 指定引擎時鎖死選擎（config 白名單須含此引擎）
     const kernelDeps = goal.engine
-      ? { ...deps, cfg: { ...cfg, defaultEngine: goal.engine } }
+      ? { ...deps, cfg: pinGoalEngine(cfg, goal.engine) }
       : deps
     const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }
     const auditFile = join(cfg.dataDir, `goal-${goalId}.jsonl`)

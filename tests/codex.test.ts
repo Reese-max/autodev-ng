@@ -104,3 +104,17 @@ test('preflight：exit 0 但無 turn.completed（如 silent-fail）判失敗且 
   process.env.FAKE_CODEX_MODE = 'ok'
   expect((await e.preflight()).ok).toBe(false) // 仍是 cache 的壞結果
 })
+
+test('effort 設定 → baseArgs 注入 -c model_reasoning_effort，pingArgs 不注入（ping 不燒推理）', () => {
+  const cache = new PreflightCache(join(mkdtempSync(join(tmpdir(), 'adng-cx-')), 'pf.json'))
+  const e = new CodexEngine({ cache, model: 'gpt-5.6-terra', effort: 'xhigh' }) as never as { baseArgs: string[]; pingArgs: string[] }
+  expect(e.baseArgs).toContain('model_reasoning_effort=xhigh')
+  expect(e.baseArgs.join(' ')).toContain('-c model_reasoning_effort=xhigh')
+  expect(e.pingArgs).not.toContain('model_reasoning_effort=xhigh')
+})
+
+test('effort 未設 → args 與舊版一致（向後相容）', () => {
+  const cache = new PreflightCache(join(mkdtempSync(join(tmpdir(), 'adng-cx-')), 'pf.json'))
+  const e = new CodexEngine({ cache, model: 'gpt-5.6-terra' }) as never as { baseArgs: string[] }
+  expect(e.baseArgs.join(' ')).not.toContain('model_reasoning_effort')
+})

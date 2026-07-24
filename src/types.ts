@@ -72,6 +72,7 @@ export const EngineConfigSchema = z.object({
   subscription: z.boolean().optional(), // M9.9：訂閱制引擎（邊際成本≈0）——估值照記帳但不踩日頂
   env: z.record(z.string(), z.string()).optional(),
   model: z.string().optional(),
+  effort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(), // codex reasoning effort；enum 擋非法值（max 會 400，proxy 實測 2026-07-05）
   timeoutMs: z.number().int().positive().optional(),
   /** 單引擎每日 attempts 上限（可選）；未設＝不限。正整數，與 today-attempts 聚合對齊。 */
   dailyAttemptCap: z.number().int().positive().optional(),
