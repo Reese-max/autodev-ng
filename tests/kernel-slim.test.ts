@@ -65,6 +65,9 @@ export function assertCliIsThinShell(source: string): void {
   if (!/\brunCli\b/.test(source)) {
     throw new Error('src/cli.ts 必須委派 runCli（不得在頂層實作子指令）')
   }
+  if (!/export\s*\{[^}]*\bparseArgv\b[^}]*\}\s*from\s+['"]\.\/cli\/entry\.js['"]/s.test(source)) {
+    throw new Error('src/cli.ts 必須直接從 ./cli/entry.js 轉匯出 parseArgv（不得保留本機解析實作）')
+  }
 
   // 禁止把業務/組裝邏輯寫回頂層（外移前的肥殼特徵）
   const forbidden: Array<{ name: string; re: RegExp }> = [

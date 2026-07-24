@@ -203,13 +203,13 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
         'run-once': await captureCli(['run-once', '--config', config]),
         supervise: await captureCli(['supervise', '--configs-dir', configsDir]),
       }
-      assertCliCapturesEqual(matrix.status, {
+      assertCliCapturesEqual(matrix.status!, {
         stdout: 'daemon 未跑過', stderr: '', exitCode: 0,
       })
-      assertCliCapturesEqual(matrix['run-once'], {
+      assertCliCapturesEqual(matrix['run-once']!, {
         stdout: 'CycleResult: idle', stderr: '', exitCode: 0,
       })
-      assertCliCapturesEqual(matrix.supervise, {
+      assertCliCapturesEqual(matrix.supervise!, {
         stdout: 'supervise：找不到 config，未執行任何動作', stderr: '', exitCode: 0,
       })
     } finally {
