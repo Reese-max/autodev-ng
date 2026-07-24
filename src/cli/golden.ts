@@ -31,9 +31,9 @@ export interface CliGoldenDiff {
 
 const ISO_RE = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/g
 
-/** console.log / error 的多行輸出合成為單一字串（行間 \n，尾端不加多餘換行）。 */
+/** console.log / error 的輸出合成為 CLI 實際位元組（每次呼叫尾端皆有 \n）。 */
 export function joinCapturedLines(lines: readonly string[]): string {
-  return lines.join('\n')
+  return lines.map(line => `${line}\n`).join('')
 }
 
 /** 由 captureCli 的 lines + exitCode 組成 golden capture。 */

@@ -16,7 +16,7 @@
 
 `tests/cli-commands.test.ts` 的快照覆蓋 `status`、`run-once`、空目錄 `supervise` 與未知子指令的 stdout、stderr、exit code；同時確認既有 `src/cli.ts` 公開匯出與 argv 解析契約不變。
 
-`src/cli/golden.ts` + `tests/cli-golden.test.ts` 建立公開子指令搬移前後 golden 矩陣：對 `status` / `run-once` / `daemon` / `notify-test` / `supervise` 以 UTF-8 逐位元比對 stdout、stderr、exit code，涵蓋正常流程、錯誤參數、`--help`、`--version`、未知子命令與設定失敗情境（`daemon` 僅鎖用法／設定失敗出口，不啟動長駐進程）。volatile 路徑與 ISO 時刻經 `stabilizeCliCapture` 正規化後再比對。
+`src/cli/golden.ts` + `tests/cli-golden.test.ts` 建立公開子指令搬移前後 golden 矩陣：基準由搬移前 `80825e5^` 的 `src/cli.ts` 擷取，搬移後逐一實跑 `status` / `run-once` / `daemon` / `notify-test` / `supervise`，以 UTF-8 逐位元比對 stdout、stderr（包含尾端換行）與 exit code。主矩陣固定時鐘並對搬移前後使用相同缺檔路徑，不做正規化；矩陣涵蓋正常流程與安全的失敗出口（`daemon` 僅鎖設定失敗出口，不啟動長駐進程）。其餘測試覆蓋錯誤參數、`--help`、`--version`、未知子命令及設定失敗，僅這些額外案例的 volatile 路徑與 ISO 時刻經 `stabilizeCliCapture` 正規化後再比對。
 
 `tests/kernel-slim.test.ts` 新增子指令模組承接檢查，並既有驗證 `src/cli.ts` 僅委派 `runCli`、不含業務實作。`tests/kernel-budget.test.ts` 持續守住 `src/*.ts` 頂層 2700 行上限。
 

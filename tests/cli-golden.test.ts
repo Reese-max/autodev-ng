@@ -7,7 +7,6 @@
  */
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { runCli } from '../src/cli/entry.js'
 import {
@@ -22,7 +21,25 @@ import {
   stabilizeCliCapture,
   toCliCapture,
   type CliGoldenCapture,
+  type PublicCliCommand,
 } from '../src/cli/golden.js'
+
+const FIXED_NOTIFY_ISO = '2026-07-24T00:00:00.000Z'
+
+/** 由搬移前 80825e5^ 的 src/cli.ts 以相同輸入擷取。 */
+function beforeRelocationGoldens(missingConfig: string): Record<PublicCliCommand, CliGoldenCapture> {
+  return {
+    status: { stdout: 'daemon 未跑過\n', stderr: '', exitCode: 0 },
+    'run-once': { stdout: 'CycleResult: idle\n', stderr: '', exitCode: 0 },
+    daemon: { stdout: '', stderr: `設定檔不存在: ${missingConfig}\n`, exitCode: 1 },
+    'notify-test': {
+      stdout: `送達失敗（已寫入 DLQ，detail 見 dataDir/notify-dlq.jsonl）：adng 通道測試 ${FIXED_NOTIFY_ISO}\n`,
+      stderr: '',
+      exitCode: 1,
+    },
+    supervise: { stdout: 'supervise：找不到 config，未執行任何動作\n', stderr: '', exitCode: 0 },
+  }
+}
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -51,7 +68,7 @@ async function captureCli(argv: string[]): Promise<CliGoldenCapture> {
   return toCliCapture(stdout, stderr, process.exitCode ?? 0)
 }
 
-function writeMockConfig(dir: string, over: Record<string, unknown> = {}): string {
+function writeMockConfig(dir: string): string {
   const project = join(dir, 'project')
   mkdirSync(project, { recursive: true })
   writeFileSync(join(project, 'BACKLOG.md'), '')
@@ -61,7 +78,6 @@ function writeMockConfig(dir: string, over: Record<string, unknown> = {}): strin
     backlogFile: './project/BACKLOG.md',
     dataDir: './data',
     engine: 'mock',
-    ...over,
   }))
   return cfgPath
 }
@@ -79,9 +95,9 @@ describe('cli golden 純函式', () => {
   test('bytesEqual / joinCapturedLines / toCliCapture 合成與逐位元相等', () => {
     expect(bytesEqual('中文✓', '中文✓')).toBe(true)
     expect(bytesEqual('a', 'b')).toBe(false)
-    expect(joinCapturedLines(['a', 'b'])).toBe('a\nb')
+    expect(joinCapturedLines(['a', 'b'])).toBe('a\nb\n')
     expect(toCliCapture(['out'], ['err'], 1)).toEqual({
-      stdout: 'out', stderr: 'err', exitCode: 1,
+      stdout: 'out\n', stderr: 'err\n', exitCode: 1,
     })
   })
 
@@ -148,7 +164,7 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
       { name: 'daemon --version', argv: ['daemon', '--version'] },
     ]
 
-    const expected: CliGoldenCapture = { stdout: '', stderr: USAGE, exitCode: 1 }
+    const expected: CliGoldenCapture = { stdout: '', stderr: `${USAGE}\n`, exitCode: 1 }
 
     for (const c of cases) {
       const actual = await captureCli(c.argv)
@@ -161,7 +177,7 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
   })
 
   test('supervise：缺參數與雙參數互斥用法錯誤（逐位元）', async () => {
-    const expected: CliGoldenCapture = { stdout: '', stderr: SUPERVISE_USAGE, exitCode: 1 }
+    const expected: CliGoldenCapture = { stdout: '', stderr: `${SUPERVISE_USAGE}\n`, exitCode: 1 }
     for (const argv of [
       ['supervise'],
       ['supervise', '--help'],
@@ -173,12 +189,12 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
   })
 
   test('未知子命令（含 --help/--version 當 command 已有 --config）失敗情境', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'adng-cli-gold-unk-'))
+    const root = mkdtempSync(join(process.cwd(), '.tmp-adng-cli-gold-unk-'))
     try {
       const config = writeMockConfig(root)
       const expected = (cmd: string): CliGoldenCapture => ({
         stdout: '',
-        stderr: `未知子命令：${cmd}（可用：status | run-once | daemon | notify-test | supervise）`,
+        stderr: `未知子命令：${cmd}（可用：status | run-once | daemon | notify-test | supervise）\n`,
         exitCode: 1,
       })
       for (const cmd of ['unknown', '--help', '--version', 'help', 'version', 'foo']) {
@@ -192,33 +208,39 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
     }
   })
 
-  test('正常流程：status / run-once / supervise（空目錄）逐位元鎖定', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'adng-cli-gold-ok-'))
+  test('五個公開子指令：搬移前 golden 與搬移後 stdout/stderr/exit code 逐位元一致', async () => {
+    const root = mkdtempSync(join(process.cwd(), '.tmp-adng-cli-gold-ok-'))
     const configsDir = join(root, 'configs')
     mkdirSync(configsDir)
     try {
       const config = writeMockConfig(root)
-      const matrix: Record<string, CliGoldenCapture> = {
+      const missing = join(root, 'missing.json')
+      vi.useFakeTimers()
+      let notify: CliGoldenCapture
+      try {
+        vi.setSystemTime(new Date(FIXED_NOTIFY_ISO))
+        notify = await captureCli(['notify-test', '--config', config])
+      } finally {
+        vi.useRealTimers()
+      }
+      const matrix: Record<PublicCliCommand, CliGoldenCapture> = {
         status: await captureCli(['status', '--config', config]),
         'run-once': await captureCli(['run-once', '--config', config]),
+        daemon: await captureCli(['daemon', '--config', missing]),
+        'notify-test': notify,
         supervise: await captureCli(['supervise', '--configs-dir', configsDir]),
       }
-      assertCliCapturesEqual(matrix.status!, {
-        stdout: 'daemon 未跑過', stderr: '', exitCode: 0,
-      })
-      assertCliCapturesEqual(matrix['run-once']!, {
-        stdout: 'CycleResult: idle', stderr: '', exitCode: 0,
-      })
-      assertCliCapturesEqual(matrix.supervise!, {
-        stdout: 'supervise：找不到 config，未執行任何動作', stderr: '', exitCode: 0,
-      })
+      const before = beforeRelocationGoldens(resolve(missing))
+      for (const command of PUBLIC_CLI_COMMANDS) {
+        assertCliCapturesEqual(matrix[command], before[command])
+      }
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })
 
   test('子指令失敗：設定檔不存在 / JSON 壞掉 / 缺欄位（路徑穩定化後逐位元）', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'adng-cli-gold-fail-'))
+    const root = mkdtempSync(join(process.cwd(), '.tmp-adng-cli-gold-fail-'))
     try {
       const missing = join(root, 'no-such.json')
       const badJson = join(root, 'bad.json')
@@ -238,7 +260,7 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
         )
         assertCliCapturesEqual(actual, {
           stdout: '',
-          stderr: '設定檔不存在: <ROOT>',
+          stderr: '設定檔不存在: <ROOT>\n',
           exitCode: 1,
         })
       }
@@ -266,26 +288,8 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
     }
   })
 
-  test('notify-test 失敗情境：未設定 channel → 送達失敗（ISO 穩定化後逐位元）', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'adng-cli-gold-nt-'))
-    try {
-      // 不設 discordChannelId → not-configured → exit 1；訊息含 ISO 時刻
-      const config = writeMockConfig(root, {
-        discordTokenFile: join(root, 'no-token.env'),
-      })
-      const actual = stabilizeCliCapture(await captureCli(['notify-test', '--config', config]))
-      assertCliCapturesEqual(actual, {
-        stdout: '送達失敗（已寫入 DLQ，detail 見 dataDir/notify-dlq.jsonl）：adng 通道測試 <ISO>',
-        stderr: '',
-        exitCode: 1,
-      })
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
   test('supervise 單檔失敗：不存在的 config → stderr + exit 1（路徑穩定化）', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'adng-cli-gold-sup-'))
+    const root = mkdtempSync(join(process.cwd(), '.tmp-adng-cli-gold-sup-'))
     try {
       const missing = join(root, 'ghost.json')
       const abs = resolve(missing)
@@ -308,7 +312,7 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
   })
 
   test('status 有 heartbeat：完整 formatStatus 輸出逐位元（固定 fixture）', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'adng-cli-gold-hb-'))
+    const root = mkdtempSync(join(process.cwd(), '.tmp-adng-cli-gold-hb-'))
     try {
       const config = writeMockConfig(root)
       const dataDir = join(root, 'data')
@@ -330,7 +334,7 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
         '最後 digest 日期：2026-07-23',
       ].join('\n')
       assertCliCapturesEqual(actual, {
-        stdout: expectedStdout,
+        stdout: `${expectedStdout}\n`,
         stderr: '',
         exitCode: 0,
       })
@@ -343,7 +347,7 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
     // parseArgv 把 --config 後一格當 path；若無下一格則 configPath=undefined
     assertCliCapturesEqual(await captureCli(['status', '--config']), {
       stdout: '',
-      stderr: USAGE,
+      stderr: `${USAGE}\n`,
       exitCode: 1,
     })
   })
