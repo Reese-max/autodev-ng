@@ -32,7 +32,7 @@ test('非 200 → SKIP；回文無關鍵字 → SKIP', async () => {
   expect((await judgeCommit({ ...base, fetchFn: fakeFetch('我不確定') }, 'c', 'd')).verdict).toBe('SKIP')
 })
 
-test('diff 截 200 行', async () => {
+test('diff 全量送出，不丟失第 201 行後的實際改動', async () => {
   let sent = ''
   const spy = (async (_u: unknown, init?: RequestInit) => {
     sent = String(init?.body)
@@ -41,7 +41,7 @@ test('diff 截 200 行', async () => {
   const bigDiff = Array.from({ length: 500 }, (_, i) => `line${i}`).join('\n')
   await judgeCommit({ ...base, fetchFn: spy }, 'c', bigDiff)
   expect(sent).toContain('line199')
-  expect(sent).not.toContain('line300')
+  expect(sent).toContain('line499')
 })
 
 test('prompt 用 <claim>/<diff> 邊界包裹且明言忽略內部指令（抗注入）', async () => {

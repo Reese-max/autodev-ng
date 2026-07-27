@@ -99,13 +99,13 @@ test('#3 首行純 PASS → pass', () => {
   expect(parseReviewVerdict('REVIEW: PASS 沒問題').kind).toBe('pass')
 })
 
-// #4 reviewDiff 截尾 + fail-open
+// #4 reviewDiff 完整 diff + fail-open
 test('#4 reviewDiff 無 url → 回 skip 字串（fail-open）', async () => {
   const out = await reviewDiff({ url: undefined, model: 'm', apiKey: 'k' }, 'x', 't')
   expect(out).toMatch(/review-skip/)
 })
 
-test('#4 reviewDiff 只送截尾後的 diff（前 200 行）', async () => {
+test('#4 reviewDiff 送出完整 diff，不丟失後段檔案', async () => {
   let sentBody = ''
   const bigDiff = Array.from({ length: 500 }, (_, i) => `line${i}`).join('\n')
   const fakeFetch: typeof fetch = async (_u, init) => {
@@ -114,5 +114,5 @@ test('#4 reviewDiff 只送截尾後的 diff（前 200 行）', async () => {
   }
   await reviewDiff({ url: 'http://x', model: 'm', apiKey: 'k', fetchFn: fakeFetch }, bigDiff, 't')
   expect(sentBody).toContain('line199')
-  expect(sentBody).not.toContain('line200') // 第 201 行起被截掉
+  expect(sentBody).toContain('line499')
 })
