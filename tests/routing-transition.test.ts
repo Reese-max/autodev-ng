@@ -23,6 +23,10 @@ function empty(now = T0) {
   return defaultRoutingState(now)
 }
 
+function readyForNextIsolation(state: ReturnType<typeof defaultRoutingState>) {
+  return { ...state, isolated: {}, probes: {} }
+}
+
 describe('首次隔離', () => {
   test('空狀態首次隔離 → 寫入 isolated，untilTs = now + 24h', () => {
     const next = applyFirstIsolation(empty(), 'qwen', 'fail-streak', T0)
@@ -33,6 +37,45 @@ describe('首次隔離', () => {
     })
     expect(next.updatedAt).toBe(T0)
     expect(next.version).toBe(ROUTING_STATE_VERSION)
+  })
+
+  test('連續第 2/3 次隔離的試探間隔翻倍', () => {
+    const first = applyFirstIsolation(empty(), 'qwen', 'first', T0)
+    const second = applyFirstIsolation(readyForNextIsolation(first), 'qwen', 'second', AT_24H)
+    const thirdStart = second.isolated.qwen!.untilTs
+    const third = applyFirstIsolation(readyForNextIsolation(second), 'qwen', 'third', thirdStart)
+
+    expect(second.isolationCounts.qwen).toBe(2)
+    expect(second.isolated.qwen?.untilTs).toBe(
+      new Date(Date.parse(AT_24H) + 2 * ISOLATION_BEFORE_PROBE_MS).toISOString()
+    )
+    expect(third.isolationCounts.qwen).toBe(3)
+    expect(third.isolated.qwen?.untilTs).toBe(
+      new Date(Date.parse(thirdStart) + 4 * ISOLATION_BEFORE_PROBE_MS).toISOString()
+    )
+  })
+
+  test('第 4 次起試探間隔封頂 168h', () => {
+    const fourth = applyFirstIsolation(
+      { ...empty(), isolationCounts: { qwen: 3 } },
+      'qwen',
+      'fourth',
+      T0
+    )
+    const fifth = applyFirstIsolation(
+      readyForNextIsolation(fourth),
+      'qwen',
+      'fifth',
+      fourth.isolated.qwen!.untilTs
+    )
+
+    expect(fourth.isolated.qwen?.untilTs).toBe(
+      new Date(T0_MS + 7 * ISOLATION_BEFORE_PROBE_MS).toISOString()
+    )
+    expect(fifth.isolationCounts.qwen).toBe(5)
+    expect(fifth.isolated.qwen?.untilTs).toBe(
+      new Date(Date.parse(fourth.isolated.qwen!.untilTs) + 7 * ISOLATION_BEFORE_PROBE_MS).toISOString()
+    )
   })
 
   test('已隔離不再重設（非首次）', () => {
@@ -85,16 +128,19 @@ describe('試探成功解除', () => {
     expect(isIsolated(lifted, 'qwen')).toBe(false)
     expect(lifted.isolated).toEqual({})
     expect(lifted.probes).toEqual({})
+    expect(lifted.isolationCounts.qwen).toBe(0)
     expect(lifted.updatedAt).toBe(AFTER_24H)
   })
 
-  test('解除後可再次首次隔離', () => {
+  test('試探成功歸零，下一次隔離回到 24h', () => {
     const lifted = applyProbeSuccess(
       recordProbeAttempt(applyFirstIsolation(empty(), 'qwen', 'r', T0), 'qwen', AT_24H),
       'qwen',
       AFTER_24H
     )
     const again = applyFirstIsolation(lifted, 'qwen', 'again', AFTER_24H)
+    expect(lifted.isolationCounts.qwen).toBe(0)
+    expect(again.isolationCounts.qwen).toBe(1)
     expect(again.isolated.qwen?.reason).toBe('again')
     expect(again.isolated.qwen?.untilTs).toBe(
       new Date(Date.parse(AFTER_24H) + ISOLATION_BEFORE_PROBE_MS).toISOString()
@@ -104,6 +150,15 @@ describe('試探成功解除', () => {
   test('未隔離時 applyProbeSuccess 為 no-op', () => {
     const base = empty()
     expect(applyProbeSuccess(base, 'qwen', T0)).toBe(base)
+  })
+
+  test('已清理隔離但仍有回退計數時，成功試探仍會歸零', () => {
+    const reset = applyProbeSuccess(
+      { ...empty(), isolationCounts: { qwen: 2 } },
+      'qwen',
+      T0
+    )
+    expect(reset.isolationCounts.qwen).toBe(0)
   })
 })
 

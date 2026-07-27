@@ -72,6 +72,7 @@ test('buildRoutingContext 所有失敗分支皆等於 routingContextUnavailable(
           version: 1,
           updatedAt: '2026-07-20T00:00:00.000Z',
           isolated: {},
+          isolationCounts: {},
           promoted: {},
           probes: {},
         },

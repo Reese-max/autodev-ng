@@ -36,6 +36,7 @@ describe('pruneRoutingState', () => {
         lifted: { untilTs: NOW, reason: 'expired-at-boundary' },
         invalid: { untilTs: 'bad-time', reason: 'invalid' },
       },
+      isolationCounts: { active: 1, lifted: 3 },
       promoted: {
         formal: { score: 5, promotedAt: iso(-DAY) },
         fresh: { score: 4, promotedAt: iso(-6 * DAY) },
@@ -56,6 +57,7 @@ describe('pruneRoutingState', () => {
     expect(Object.keys(next.isolated)).toEqual(['active', 'oldProbe'])
     expect(Object.keys(next.promoted)).toEqual(['fresh', 'boundary'])
     expect(next.probes).toEqual({ active: { hits: 1, lastTs: iso(-DAY) } })
+    expect(next.isolationCounts).toEqual({ active: 1, lifted: 3 })
     expect(Object.keys(state.isolated)).toContain('lifted')
     expect(Object.keys(state.promoted)).toContain('formal')
   })
@@ -65,6 +67,7 @@ describe('pruneRoutingState', () => {
       version: 1,
       updatedAt: NOW,
       isolated: { active: { untilTs: iso(DAY), reason: 'ok' } },
+      isolationCounts: {},
       promoted: { fresh: { score: 1, promotedAt: NOW } },
       probes: { active: { hits: 1, lastTs: NOW } },
     }
@@ -82,6 +85,7 @@ describe('cleanupRoutingState', () => {
         version: 1,
         updatedAt: iso(-DAY),
         isolated: { lifted: { untilTs: iso(-1), reason: 'done' } },
+        isolationCounts: { lifted: 1 },
         promoted: { formal: { score: 2, promotedAt: iso(-DAY) } },
         probes: { lifted: { hits: 1, lastTs: iso(-DAY) } },
       })).toBe(true)

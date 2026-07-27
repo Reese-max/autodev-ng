@@ -125,6 +125,7 @@ function seedPreRestartState(dir: string): RoutingState {
     isolated: {
       qwen: { untilTs: UNTIL_TS, reason: 'prior-isolation-window' },
     },
+    isolationCounts: { qwen: 1 },
     promoted: {
       codex: { score: 4, promotedAt: PROMOTED_AT },
     },

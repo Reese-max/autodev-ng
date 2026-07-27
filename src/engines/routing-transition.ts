@@ -4,13 +4,14 @@
  * 契約：
  * - 輸入輸出皆為不可變 RoutingState；永不原地修改。
  * - 不碰 I/O、DB、scheduler；時間全靠呼叫端注入 nowIso。
- * - untilTs 語意：隔離後「最早可試探」時刻（首次隔離 = now + 24h）。
+ * - untilTs 語意：隔離後「最早可試探」時刻（依連續隔離次數退避）。
  * - 仍在 isolated map 即未解除；試探成功才刪除該 key。
  */
 import type { RoutingState } from './routing-state.js'
 
-/** 隔離滿此時長後才允許單次試探。 */
+/** 首次隔離滿此時長後才允許單次試探。 */
 export const ISOLATION_BEFORE_PROBE_MS = 24 * 60 * 60 * 1000
+const MAX_ISOLATION_BEFORE_PROBE_MS = 7 * 24 * 60 * 60 * 1000
 
 /** 晉升門檻：至少 4 筆樣本。 */
 export const PROMOTE_MIN_SAMPLES = 4
@@ -23,11 +24,25 @@ function parseMs(iso: string): number | null {
   return Number.isFinite(ms) ? ms : null
 }
 
+function isolationCount(state: RoutingState, tag: string): number {
+  const count = state.isolationCounts?.[tag]
+  if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) return 0
+  return Math.floor(count)
+}
+
+function reprobeIntervalMs(count: number): number {
+  return Math.min(
+    ISOLATION_BEFORE_PROBE_MS * 2 ** Math.max(0, count - 1),
+    MAX_ISOLATION_BEFORE_PROBE_MS
+  )
+}
+
 function cloneState(state: RoutingState, nowIso: string): RoutingState {
   return {
     version: state.version,
     updatedAt: nowIso,
     isolated: { ...state.isolated },
+    isolationCounts: { ...state.isolationCounts },
     promoted: { ...state.promoted },
     probes: { ...state.probes },
   }
@@ -39,7 +54,8 @@ export function isIsolated(state: RoutingState, tag: string): boolean {
 }
 
 /**
- * 首次隔離：tag 尚無 isolated entry 時寫入 untilTs = now + 24h。
+ * 首次隔離：tag 尚無 isolated entry 時寫入下一次試探時刻。
+ * 同引擎連續隔離間隔依序為 24h → 48h → 96h，封頂 168h。
  * 已隔離則原樣回傳（不重設時鐘、不重複觸發）。
  */
 export function applyFirstIsolation(
@@ -53,17 +69,19 @@ export function applyFirstIsolation(
   const now = parseMs(nowIso)
   if (now === null) return state
   const next = cloneState(state, nowIso)
+  const count = isolationCount(state, tag) + 1
+  next.isolationCounts[tag] = count
   next.isolated[tag] = {
-    untilTs: new Date(now + ISOLATION_BEFORE_PROBE_MS).toISOString(),
+    untilTs: new Date(now + reprobeIntervalMs(count)).toISOString(),
     reason,
   }
   return next
 }
 
 /**
- * 隔離後滿 24h 且本輪尚未試探 → 允許單次試探。
+ * 隔離後滿目前退避間隔且本輪尚未試探 → 允許單次試探。
  * - untilTs 未到：不可試探
- * - 已有 probes[tag].lastTs 且 ≥ 本次隔離起算點（untilTs − 24h）：已用過單次額度
+ * - 已有 probes[tag].lastTs 且 ≥ 本次隔離起算點：已用過單次額度
  */
 export function isSingleProbeEligible(
   state: RoutingState,
@@ -78,7 +96,7 @@ export function isSingleProbeEligible(
   if (now === null || until === null) return false
   if (now < until) return false
 
-  const isolStart = until - ISOLATION_BEFORE_PROBE_MS
+  const isolStart = until - reprobeIntervalMs(isolationCount(state, tag))
   const probe = state.probes[tag]
   if (!probe?.lastTs) return true
   const last = parseMs(probe.lastTs)
@@ -104,16 +122,17 @@ export function recordProbeAttempt(
   return next
 }
 
-/** 試探成功 → 解除隔離，並清掉該 tag 的 probe 計數。 */
+/** 試探成功 → 解除隔離、清掉 probe 計數，並將退避計數歸零。 */
 export function applyProbeSuccess(
   state: RoutingState,
   tag: string,
   nowIso: string
 ): RoutingState {
-  if (!tag || !state.isolated[tag]) return state
+  if (!tag || (!state.isolated[tag] && isolationCount(state, tag) === 0)) return state
   const next = cloneState(state, nowIso)
   delete next.isolated[tag]
   delete next.probes[tag]
+  next.isolationCounts[tag] = 0
   return next
 }
 

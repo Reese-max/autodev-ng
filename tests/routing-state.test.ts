@@ -35,6 +35,7 @@ describe('routing-state path & defaults', () => {
       version: ROUTING_STATE_VERSION,
       updatedAt: NOW,
       isolated: {},
+      isolationCounts: {},
       promoted: {},
       probes: {},
     })
@@ -105,6 +106,7 @@ describe('loadRoutingState 版本相容與缺欄回填', () => {
       version: 1,
       updatedAt: '2026-07-19T12:00:00.000Z',
       isolated: { qwen: { untilTs: '2026-07-21T00:00:00.000Z', reason: 'probe-fail' } },
+      isolationCounts: { qwen: 2 },
       promoted: { codex: { score: 3, promotedAt: '2026-07-18T00:00:00.000Z' } },
       probes: { opencode: { hits: 2, lastTs: '2026-07-19T01:00:00.000Z' } },
     }
@@ -131,6 +133,7 @@ describe('loadRoutingState 版本相容與缺欄回填', () => {
     expect(result.state.version).toBe(1)
     expect(result.state.updatedAt).toBe(NOW)
     expect(result.state.isolated).toEqual({ a: { untilTs: 't', reason: 'r' } })
+    expect(result.state.isolationCounts).toEqual({})
     expect(result.state.promoted).toEqual({})
     expect(result.state.probes).toEqual({})
   })
@@ -163,6 +166,7 @@ describe('loadRoutingState 版本相容與缺欄回填', () => {
     })
     expect(result.state.promoted).toEqual({ p: { score: 0, promotedAt: '' } })
     expect(result.state.probes).toEqual({ pr: { hits: 0, lastTs: '' } })
+    expect(result.state.isolationCounts).toEqual({})
   })
 
   test('未來版本若仍帶 v1 map 欄位 → 降級讀取', () => {
@@ -192,6 +196,7 @@ describe('saveRoutingState', () => {
         version: ROUTING_STATE_VERSION,
         updatedAt: 'old',
         isolated: { e: { untilTs: 'u', reason: 'r' } },
+        isolationCounts: { e: 1 },
         promoted: {},
         probes: {},
       },
@@ -210,6 +215,7 @@ describe('saveRoutingState', () => {
     expect(loaded.kind).toBe('state')
     if (loaded.kind !== 'state') throw new Error('expected state')
     expect(loaded.state.isolated).toEqual({ e: { untilTs: 'u', reason: 'r' } })
+    expect(loaded.state.isolationCounts).toEqual({ e: 1 })
   })
 
   test('dataDir 不存在時會建立目錄再寫', () => {
@@ -238,6 +244,11 @@ describe('normalizeRoutingState 純函式', () => {
   test('空物件可正規化為預設 v1', () => {
     expect(normalizeRoutingState({}, NOW)).toEqual(defaultRoutingState(NOW))
   })
+
+  test('舊格式無 isolationCounts 時視為 0', () => {
+    const state = normalizeRoutingState({ version: 1, isolated: {} }, NOW)
+    expect(state?.isolationCounts.qwen ?? 0).toBe(0)
+  })
 })
 
 describe('與既有派工路徑隔離', () => {
@@ -250,6 +261,7 @@ describe('與既有派工路徑隔離', () => {
         version: 1,
         updatedAt: NOW,
         isolated: { bad: { untilTs: '2099-01-01T00:00:00.000Z', reason: 'x' } },
+        isolationCounts: {},
         promoted: {},
         probes: {},
       },

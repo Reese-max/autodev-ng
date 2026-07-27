@@ -41,6 +41,8 @@ export interface RoutingState {
   version: typeof ROUTING_STATE_VERSION
   updatedAt: string
   isolated: Record<string, IsolationEntry>
+  /** 同一引擎未成功試探前的累計隔離次數；缺項視為 0。 */
+  isolationCounts: Record<string, number>
   promoted: Record<string, PromotionEntry>
   probes: Record<string, ProbeEntry>
 }
@@ -63,6 +65,7 @@ export function defaultRoutingState(nowIso = new Date().toISOString()): RoutingS
     version: ROUTING_STATE_VERSION,
     updatedAt: nowIso,
     isolated: {},
+    isolationCounts: {},
     promoted: {},
     probes: {},
   }
@@ -97,6 +100,7 @@ function pickField(obj: Record<string, unknown>, primary: string, ...aliases: st
 export function hasReadableRoutingMaps(raw: Record<string, unknown>): boolean {
   return (
     isPlainObject(pickField(raw, 'isolated', 'isolation'))
+    || isPlainObject(pickField(raw, 'isolationCounts'))
     || isPlainObject(pickField(raw, 'promoted', 'promotions'))
     || isPlainObject(pickField(raw, 'probes', 'probe'))
   )
@@ -141,6 +145,16 @@ function normalizeProbes(raw: unknown): Record<string, ProbeEntry> {
   return out
 }
 
+function normalizeIsolationCounts(raw: unknown): Record<string, number> {
+  if (!isPlainObject(raw)) return {}
+  const out: Record<string, number> = {}
+  for (const [tag, count] of Object.entries(raw)) {
+    if (!tag) continue
+    out[tag] = asNonNegInt(count, 0)
+  }
+  return out
+}
+
 /**
  * 將任意 JSON 正規化為 v1 狀態。
  * - 可辨識的物件（含缺 version / 缺欄）→ 回填預設
@@ -167,6 +181,7 @@ export function normalizeRoutingState(raw: unknown, nowIso = new Date().toISOStr
     version: ROUTING_STATE_VERSION,
     updatedAt: asString(updatedRaw, nowIso),
     isolated: normalizeIsolated(pickField(raw, 'isolated', 'isolation')),
+    isolationCounts: normalizeIsolationCounts(pickField(raw, 'isolationCounts')),
     promoted: normalizePromoted(pickField(raw, 'promoted', 'promotions')),
     probes: normalizeProbes(pickField(raw, 'probes', 'probe')),
   }
@@ -258,6 +273,7 @@ export function saveRoutingState(
     version: ROUTING_STATE_VERSION,
     updatedAt: opts.nowIso ?? state.updatedAt ?? nowIso,
     isolated: state.isolated ?? {},
+    isolationCounts: state.isolationCounts ?? {},
     promoted: state.promoted ?? {},
     probes: state.probes ?? {},
   }

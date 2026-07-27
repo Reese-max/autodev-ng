@@ -48,6 +48,7 @@ describe('狀態檔升級相容：舊版 JSON 欄位名稱', () => {
       version: 1,
       updatedAt: '2026-07-18T00:00:00.000Z',
       isolated: { qwen: { untilTs: '2026-07-21T00:00:00.000Z', reason: 'old-name' } },
+      isolationCounts: {},
       promoted: { codex: { score: 2, promotedAt: '2026-07-17T00:00:00.000Z' } },
       probes: { opencode: { hits: 1, lastTs: '2026-07-18T01:00:00.000Z' } },
     })
@@ -85,6 +86,7 @@ describe('狀態檔升級相容：舊版 JSON 欄位名稱', () => {
     })
     expect(result.state.promoted).toEqual({})
     expect(result.state.probes).toEqual({})
+    expect(result.state.isolationCounts).toEqual({})
     expect(shouldApplyRoutingState(result)).toBe(true)
   })
 })
@@ -102,6 +104,7 @@ describe('狀態檔升級相容：缺少新版欄位', () => {
       version: 1,
       updatedAt: NOW,
       isolated: { x: { untilTs: 't', reason: 'r' } },
+      isolationCounts: {},
       promoted: {},
       probes: {},
     })
