@@ -6,6 +6,7 @@ export interface ProcResult {
   stdout: string
   stderr: string
   timedOut: boolean
+  timeoutReason?: 'wall' | 'idle'
   durationMs: number
 }
 
@@ -16,6 +17,10 @@ export function runProcess(opts: {
   cwd: string
   stdinText: string
   timeoutMs: number
+  /** 只在 stdout/stderr 完全無進度時觸發；與 timeoutMs=0（無總時限）可並用。 */
+  idleTimeoutMs?: number
+  /** 子進程有輸出時通知呼叫端續租；觀測 callback 失敗不可反殺子進程。 */
+  onActivity?: () => void
   maxOutputChars?: number
   /** M5 Task 1：附加環境變數（疊在 process.env 上），供 m3 檔位注入 ANTHROPIC_BASE_URL
    * 等相容端點設定。未設時不帶 env 參數，行為與舊版完全一致（繼承父進程環境）。 */
@@ -38,8 +43,11 @@ export function runProcess(opts: {
     let stdout = ''
     let stderr = ''
     let timedOut = false
+    let timeoutReason: ProcResult['timeoutReason']
     let settled = false
     let settleTimer: ReturnType<typeof setTimeout> | undefined
+    let wallTimer: ReturnType<typeof setTimeout> | undefined
+    let idleTimer: ReturnType<typeof setTimeout> | undefined
 
     const cap = opts.maxOutputChars ?? 2_000_000
     let stdoutTruncated = false
@@ -48,21 +56,42 @@ export function runProcess(opts: {
     const finish = (exitCode: number | null): void => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
+      if (wallTimer) clearTimeout(wallTimer)
+      if (idleTimer) clearTimeout(idleTimer)
       if (settleTimer) clearTimeout(settleTimer)
-      resolve({ exitCode, stdout, stderr, timedOut, durationMs: Date.now() - t0 })
+      resolve({
+        exitCode, stdout, stderr, timedOut,
+        ...(timeoutReason ? { timeoutReason } : {}),
+        durationMs: Date.now() - t0,
+      })
     }
 
-    const timer = setTimeout(() => {
+    const triggerTimeout = (reason: 'wall' | 'idle'): void => {
+      if (settled) return
       timedOut = true
+      timeoutReason = reason
       killTree(child.pid)
       // 樹斬後給 3s 收屍；若 close 仍不來，強制 settle（防 close 永不觸發）
       settleTimer = setTimeout(() => finish(null), 3000)
       settleTimer.unref()
-    }, opts.timeoutMs)
-    timer.unref()
+    }
+    const renewIdleTimer = (): void => {
+      if (!opts.idleTimeoutMs || opts.idleTimeoutMs <= 0 || settled) return
+      if (idleTimer) clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => triggerTimeout('idle'), opts.idleTimeoutMs)
+      idleTimer.unref()
+    }
+    const activity = (): void => {
+      try { opts.onActivity?.() } catch { /* 觀測 callback 不影響子進程。 */ }
+      renewIdleTimer()
+    }
+
+    wallTimer = opts.timeoutMs > 0 ? setTimeout(() => triggerTimeout('wall'), opts.timeoutMs) : undefined
+    wallTimer?.unref()
+    renewIdleTimer()
 
     child.stdout.on('data', d => {
+      activity()
       if (stdout.length >= cap) {
         if (!stdoutTruncated) { stdout += '\n[adng: output truncated]'; stdoutTruncated = true }
         return
@@ -77,6 +106,7 @@ export function runProcess(opts: {
       }
     })
     child.stderr.on('data', d => {
+      activity()
       if (stderr.length >= cap) {
         if (!stderrTruncated) { stderr += '\n[adng: output truncated]'; stderrTruncated = true }
         return

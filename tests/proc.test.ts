@@ -43,6 +43,41 @@ test('slow：慢但在時限內 → 正常完成', async () => {
   expect(r.exitCode).toBe(0)
 })
 
+test('timeoutMs=0：停用 wall timeout，不會立刻斬掉程序', async () => {
+  process.env.FAKE_MODE = 'slow'
+  const r = await runProcess({ ...base, stdinText: 'x', timeoutMs: 0 })
+  expect(r.timedOut).toBe(false)
+  expect(r.exitCode).toBe(0)
+})
+
+test('idleTimeoutMs：無輸出進度才斬樹，不能把 wall timeout 偷加回來', async () => {
+  const activity: number[] = []
+  const t0 = Date.now()
+  const r = await runProcess({
+    command: process.execPath,
+    args: ['-e', 'setInterval(() => {}, 1000)'],
+    cwd: process.cwd(), stdinText: '', timeoutMs: 0, idleTimeoutMs: 300,
+    onActivity: () => activity.push(Date.now()),
+  })
+  expect(r.timedOut).toBe(true)
+  expect(r.timeoutReason).toBe('idle')
+  expect(Date.now() - t0).toBeLessThan(5000)
+  expect(activity).toHaveLength(0)
+}, 10_000)
+
+test('idleTimeoutMs：stdout 持續前進會續租，合法長任務不因總時間被終止', async () => {
+  const activity: number[] = []
+  const r = await runProcess({
+    command: process.execPath,
+    args: ['-e', 'let n=0;const t=setInterval(()=>{console.log(++n);if(n===4){clearInterval(t)}},150)'],
+    cwd: process.cwd(), stdinText: '', timeoutMs: 0, idleTimeoutMs: 300,
+    onActivity: () => activity.push(Date.now()),
+  })
+  expect(r.timedOut).toBe(false)
+  expect(r.exitCode).toBe(0)
+  expect(activity.length).toBeGreaterThanOrEqual(4)
+})
+
 /** 用 signal 0 探測 pid 是否還活著（跨平台；Windows 上 Node 亦支援）。 */
 function isPidAlive(pid: number): boolean {
   try {
