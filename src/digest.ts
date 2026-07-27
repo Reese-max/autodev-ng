@@ -2,6 +2,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { RunDb } from './db.js'
 import { countDlqLines, countVerifyAlertsToday } from './engines/digest-counts.js'
+import { digestMechanismLines } from './engines/digest-mechanisms.js'
 import { digestQuotaLines } from './engines/today-attempts-view.js'
 
 export interface BuildDigestOpts {
@@ -39,6 +40,7 @@ export function buildDigest(opts: BuildDigestOpts): string {
   ]
   for (const e of engineStats) lines.push(`  引擎 ${e.engine}：${e.ok}/${e.n} 成，$${e.costUsd.toFixed(4)}`) // 每引擎戰績（路由決策依據）；零派工日自動省略
   lines.push(...digestQuotaLines(engineStats, opts.engines)) // 今日額度消耗表；無 attempts 且無 cap 時整段省略
+  lines.push(...digestMechanismLines(dataDir, isoDayUtc, offsetHours))
   // N=0 不印，避免雜訊；N>0 才浮出（鐵律 #4：fail-open-with-alert，不能只落 events.jsonl 沒人看）。
   if (verifySkip > 0) {
     lines.push(`⚠ 本日 verify 略過 ${verifySkip} 次（安全網未啟用，請檢查 verifyCommand）`)
@@ -59,11 +61,9 @@ export function buildDigest(opts: BuildDigestOpts): string {
 interface DigestStamp {
   lastSentDay?: string
 }
-
 function stampPath(dataDir: string): string {
   return join(dataDir, 'digest-stamp.json')
 }
-
 /** 損壞（缺檔/非法 JSON/欄位型別不符）一律視為「尚未發送過」——寧可多發一次，不可漏發（鐵律 #6）。 */
 function loadStamp(dataDir: string): DigestStamp {
   const file = stampPath(dataDir)

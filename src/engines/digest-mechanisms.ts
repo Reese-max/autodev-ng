@@ -1,0 +1,116 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import Database from 'better-sqlite3'
+import { localDay, localDayUtcRange } from '../db.js'
+
+const DAY_MS = 24 * 60 * 60 * 1000
+const WINDOW_DAYS = 7
+const EVENT_METRICS = [
+  { type: 'merge-rebased', label: 'merge-rebased' },
+  { type: 'author-northstar-reject', label: 'author-northstar-reject' },
+  { type: 'engine-route-isolated', label: 'engine-route-isolated（含簽名熔斷）' },
+] as const
+
+interface DigestWindow {
+  startMs: number
+  endMs: number
+  startIso: string
+  endIso: string
+  days: string[]
+  offsetHours: number
+}
+
+function digestWindow(isoDayUtc: string, offsetHours: number): DigestWindow | null {
+  const dayMs = Date.parse(`${isoDayUtc}T00:00:00.000Z`)
+  if (!Number.isFinite(dayMs) || !Number.isFinite(offsetHours)) return null
+  if (new Date(dayMs).toISOString().slice(0, 10) !== isoDayUtc) return null
+  try {
+    const endIso = localDayUtcRange(isoDayUtc, offsetHours).endIso
+    const endMs = Date.parse(endIso)
+    const startMs = endMs - WINDOW_DAYS * DAY_MS
+    return {
+      startMs,
+      endMs,
+      startIso: new Date(startMs).toISOString(),
+      endIso,
+      days: Array.from({ length: WINDOW_DAYS }, (_, i) =>
+        new Date(dayMs - (WINDOW_DAYS - 1 - i) * DAY_MS).toISOString().slice(0, 10)),
+      offsetHours,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** 單一事件指標獨立讀取；缺檔或讀取失敗回 null，壞行只跳過該行。 */
+function countRecentEvent(dataDir: string, type: string, window: DigestWindow): number | null {
+  try {
+    const file = join(dataDir, 'events.jsonl')
+    if (!existsSync(file)) return null
+    let count = 0
+    for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
+      if (!line) continue
+      try {
+        const event = JSON.parse(line) as Record<string, unknown>
+        const tsMs = typeof event.ts === 'string' ? Date.parse(event.ts) : Number.NaN
+        if (event.type === type && Number.isFinite(tsMs) && tsMs >= window.startMs && tsMs < window.endMs) count++
+      } catch { /* 壞行不影響其他事件或指標 */ }
+    }
+    return count
+  } catch {
+    return null
+  }
+}
+
+interface DailyCount { day: string; count: number }
+
+/** run.db 近七個本地日、detail 由 timeout 起頭的失敗趨勢；來源異常時獨立省略。 */
+function timeoutFailureTrend(dataDir: string, window: DigestWindow): DailyCount[] | null {
+  const file = join(dataDir, 'run.db')
+  if (!existsSync(file)) return null
+  let db: Database.Database | undefined
+  try {
+    db = new Database(file, { readonly: true, fileMustExist: true, timeout: 50 })
+    const rows = db.prepare(
+      "SELECT ts FROM attempts WHERE ok = 0 AND substr(detail, 1, 7) = 'timeout' AND ts >= ? AND ts < ?"
+    ).all(window.startIso, window.endIso) as Array<{ ts: unknown }>
+    const counts = new Map(window.days.map(day => [day, 0]))
+    for (const row of rows) {
+      if (typeof row.ts !== 'string') continue
+      const tsMs = Date.parse(row.ts)
+      if (!Number.isFinite(tsMs) || tsMs < window.startMs || tsMs >= window.endMs) continue
+      const day = localDay(row.ts, window.offsetHours)
+      if (counts.has(day)) counts.set(day, (counts.get(day) ?? 0) + 1)
+    }
+    return window.days.map(day => ({ day, count: counts.get(day) ?? 0 }))
+  } catch {
+    return null
+  } finally {
+    try { db?.close() } catch { /* fail-open */ }
+  }
+}
+
+/**
+ * 每日 digest 的機制成效段。任一來源失敗只省略自身統計；全數為零時整段省略。
+ * ponytail: events 最多 20k 行且每日只組一次；逐指標掃描換取真正獨立 fail-open，
+ * 若觀測事件型別明顯增加，再改成單次解析與逐欄容錯。
+ */
+export function digestMechanismLines(dataDir: string, isoDayUtc: string, offsetHours: number): string[] {
+  const window = digestWindow(isoDayUtc, offsetHours)
+  if (!window) return []
+  const events = EVENT_METRICS.map(metric => ({
+    ...metric,
+    count: countRecentEvent(dataDir, metric.type, window),
+  }))
+  const timeoutTrend = timeoutFailureTrend(dataDir, window)
+  if (!events.some(metric => (metric.count ?? 0) > 0) && !timeoutTrend?.some(day => day.count > 0)) return []
+
+  const lines = ['機制成效（近 7 日）：']
+  for (const metric of events) {
+    if (metric.count !== null) lines.push(`  ${metric.label}：${metric.count} 次`)
+  }
+  if (timeoutTrend) {
+    lines.push(`  run.db timeout 類失敗趨勢：${timeoutTrend.map(({ day, count }) => `${day.slice(5)} ${count}`).join('｜')}`)
+  }
+  return lines
+}
