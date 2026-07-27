@@ -153,6 +153,19 @@ export class ProblemsLedger {
   close(): void { this.safe(undefined, db => db.close()) }
 }
 
+/** 已處理清單（給 critic 語意去重）：in-progress/fixed/deferred/rejected 的 title，
+ * 依 last_seen DESC 取前 limit。獨立唯讀連線；缺檔/查詢失敗回 []（fail-open＝失憶不擋工）。 */
+export function readHandledProblemTitles(dbFile: string, limit = 30): string[] {
+  try {
+    const db = new Database(dbFile, { readonly: true })
+    try {
+      return (db.prepare(`SELECT title FROM problems
+        WHERE status IN ('in-progress','fixed','deferred','rejected')
+        ORDER BY last_seen DESC LIMIT ?`).all(limit) as { title: string }[]).map(r => r.title)
+    } finally { db.close() }
+  } catch { return [] }
+}
+
 function toRow(r: Record<string, unknown>): ProblemRow {
   const row: ProblemRow = {
     fingerprint: r.fingerprint as string, title: r.title as string, lens: r.lens as string,

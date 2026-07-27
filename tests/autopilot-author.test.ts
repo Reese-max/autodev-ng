@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { authorGoal, isAutoGoal, loadPerpetualState, savePerpetualState } from '../src/autopilot/author.js'
@@ -63,5 +63,43 @@ describe('PerpetualState', () => {
     expect(loadPerpetualState(dir, 6000)).toEqual({ lastSessionTs: 't1', consecutiveEmpty: 2, currentCooldownMs: 12000, manualGoalDone: 'ab' })
     writeFileSync(join(dir, 'perpetual-state.json'), '{{{')
     expect(loadPerpetualState(dir, 6000).currentCooldownMs).toBe(6000)  // 損壞→預設（fail-open）
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 北極星硬閘（2026-07-27）：author 對不回判準 → REJECT → null
+// ---------------------------------------------------------------------------
+
+describe('authorGoal 北極星硬閘', () => {
+  const problem = { title: 'CI workflow 盤點', lens: 'design', value: 6, rationale: '基建' }
+  test('opts.northstar 設定 → prompt 含判準全文與 REJECT 協議', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'adng-ns-'))
+    try {
+      const seen: string[] = []
+      await authorGoal((async (p: string) => { seen.push(p); return 'REJECT: 對不回判準' }) as never,
+        problem, cfgWith(dir), 'fpns'.padEnd(16, '0'), { northstar: '省使用者蒐集步驟才立案' })
+      expect(seen[0]).toContain('省使用者蒐集步驟才立案')
+      expect(seen[0]).toContain('REJECT')
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+  test('LLM 回 REJECT → null 並發 author-northstar-reject 事件', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'adng-ns2-'))
+    try {
+      const events: string[] = []
+      const md = await authorGoal((async () => 'REJECT: 基建未阻擋任何使用者價值') as never,
+        problem, cfgWith(dir), 'fpns'.padEnd(16, '0'),
+        { northstar: '判準', onEvent: t => events.push(t) })
+      expect(md).toBeNull()
+      expect(events).toContain('author-northstar-reject')
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+  test('未設 northstar → 不附閘段落，行為與現狀一致', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'adng-ns3-'))
+    try {
+      const seen: string[] = []
+      await authorGoal((async (p: string) => { seen.push(p); return '' }) as never,
+        problem, cfgWith(dir), 'fp', {})
+      expect(seen[0]).not.toContain('REJECT')
+    } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 })

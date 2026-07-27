@@ -15,10 +15,16 @@ export function isAutoGoal(md: string): boolean {
   return !!firstLine && firstLine.includes(AUTO_GOAL_MARKER)
 }
 
-function buildPrompt(problem: RankedProblem, cfg: Config, fingerprint: string): string {
+function buildPrompt(problem: RankedProblem, cfg: Config, fingerprint: string, northstar?: string): string {
   const lines = [
     `問題：${problem.title}（視角：${problem.lens}）`,
     `理由：${problem.rationale}`,
+    ...(northstar ? [
+      '先自檢北極星對齊（硬閘）：下方是本專案北極星價值判準全文。若此問題對不回任何一條判準',
+      '——基建/測試/CI 類問題必須指出它「直接阻擋」哪一條使用者價值，指不出即對不回——',
+      '不要輸出 OBJECTIVE，只輸出一行：REJECT: <一句理由>',
+      `\n# 北極星價值判準\n${northstar}\n`
+    ] : []),
     '請輸出三段：',
     'OBJECTIVE: <目標描述，含完成定義>',
     'VERIFY: <此案專屬驗收指令，單行>',
@@ -48,6 +54,8 @@ export interface AuthorGateOpts {
   /** 紅燈檢查：執行候選驗收指令。red=非零退出（期望）、green=已綠（空洞）、broken=檢查故障。 */
   redCheck?: (command: string) => Promise<RedCheckOutcome>
   onEvent?: (type: string, data: Record<string, unknown>) => void
+  /** 北極星價值判準全文（硬閘）：設定時 author 須先自檢對齊，對不回 → REJECT → 不立案。 */
+  northstar?: string
 }
 
 // 預設紅燈檢查走 runVerify（沿用 verifyTimeoutMs；timeout/command-not-found 皆 skip → broken）。
@@ -67,7 +75,13 @@ export async function authorGoal(
     try { opts.onEvent?.(type, data) } catch { /* ignore */ }
   }
 
-  const raw = await chat(buildPrompt(problem, cfg, fingerprint))
+  const raw = await chat(buildPrompt(problem, cfg, fingerprint, opts.northstar))
+  // 北極星硬閘：首個非空行 REJECT → 不立案（回 null 走既有 per-candidate fail-open 通道）
+  const firstLine = raw.split(/\r?\n/).map(l => l.trim()).find(Boolean) ?? ''
+  if (opts.northstar && /^REJECT\b/i.test(firstLine)) {
+    emit('author-northstar-reject', { fingerprint, title: problem.title, reason: firstLine.slice(0, 120) })
+    return null
+  }
   const objMatch = raw.match(/OBJECTIVE:\s*([\s\S]*?)(?=\r?\nVERIFY:|\r?\nEVIDENCE:|$)/i)
   let objective = objMatch?.[1]?.trim()
   if (!objective) return null

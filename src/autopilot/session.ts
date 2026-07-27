@@ -7,6 +7,7 @@ import type { Deps } from '../scheduler.js'
 import { finalizeRunOnceHeartbeat, runOnce } from '../scheduler.js'
 import { acquireLock, releaseLock } from '../lock.js'
 import { parseGoal } from './goal.js'
+import { readHandledProblemTitles } from './ledger.js'
 import { plan } from './planner.js'
 import { evaluate } from './evaluator.js'
 import { verifyAndSupplement } from './supplement.js'
@@ -83,6 +84,7 @@ export async function runGoalWithDeps(
           criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey },
           runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd) }),
           readRoiSummary: () => readRecentGoalRoiSummary(join(cfg.dataDir, 'run.db')),
+          readHandledTitles: () => readHandledProblemTitles(join(cfg.dataDir, 'run.db')),
           lenses: cfg.discoverLenses
         }, goal, cfg.projectPath)
       } catch (e) { console.error('discovery 故障（fail-open，無 discovered）:', String(e)) }

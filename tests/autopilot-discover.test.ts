@@ -174,3 +174,39 @@ describe('discoverProblems', () => {
     expect(r.ranked[0]!.title).toBe('問題B')
   })
 })
+
+// ---------------------------------------------------------------------------
+// 語意去重記憶（2026-07-27）：ledger 已處理清單餵 critic
+// ---------------------------------------------------------------------------
+
+describe('criticPrompt 已處理清單', () => {
+  test('有 handledTitles → 附硬約束段落、VALUE:0 指令與清單內容', () => {
+    const p = criticPrompt([{ lens: 'tests', title: 'A', detail: '' }], '', '',
+      ['8 個 deselected 測試未處理', '追溯性不足'])
+    expect(p).toContain('已處理過或已卡住')
+    expect(p).toContain('VALUE:0')
+    expect(p).toContain('8 個 deselected 測試未處理')
+    expect(p).toContain('追溯性不足')
+  })
+  test('無 handledTitles → 不附段落（原 prompt 完全不變）', () => {
+    expect(criticPrompt([], '')).not.toContain('已處理過或已卡住')
+  })
+})
+
+test('discoverProblems 把 readHandledTitles 餵進 critic prompt；throw 則 fail-open 略過', async () => {
+  const prompts: string[] = []
+  const finder = seqLlm(['問題A｜理由a'], prompts)
+  const critic = seqLlm(['VALUE:8 | 問題A | correctness | 高價值'], prompts)
+  await discoverProblems({ finderLlm: finder, criticLlm: critic,
+    runSurvey: () => ({ output: '' }), readEvidence: () => '',
+    readHandledTitles: () => ['deselected 測試處理'], lenses: ['correctness'] }, goal, '/proj')
+  expect(prompts.at(-1) ?? '').toContain('deselected 測試處理')
+
+  const prompts2: string[] = []
+  const finder2 = seqLlm(['問題A｜理由a'], prompts2)
+  const critic2 = seqLlm(['VALUE:8 | 問題A | correctness | 高價值'], prompts2)
+  await discoverProblems({ finderLlm: finder2, criticLlm: critic2,
+    runSurvey: () => ({ output: '' }), readEvidence: () => '',
+    readHandledTitles: () => { throw new Error('boom') }, lenses: ['correctness'] }, goal, '/proj')
+  expect(prompts2.at(-1) ?? '').not.toContain('已處理過或已卡住')
+})

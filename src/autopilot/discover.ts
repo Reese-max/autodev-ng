@@ -34,6 +34,8 @@ export interface DiscoverDeps {
   runSurvey?: (cmd: string, cwd: string) => { output: string }
   readEvidence?: (absPath: string) => string
   readRoiSummary?: () => string
+  /** ledger 已處理清單（in-progress/fixed/deferred/rejected 的 title）：餵 critic 做語意去重。 */
+  readHandledTitles?: () => string[]
   lenses: string[]
 }
 export interface DiscoverResult { survey: string; ranked: RankedProblem[] }
@@ -60,9 +62,10 @@ export function northstarFromSurvey(survey: string): string {
  * critic 評審 prompt：排序主軸是 NORTHSTAR 價值判準（硬約束）；
  * 對齊者優先，與北極星無關的候選必須降權（不得排在高對齊候選之前）。
  */
-export function criticPrompt(cands: Candidate[], northstar: string, roiSummary = ''): string {
+export function criticPrompt(cands: Candidate[], northstar: string, roiSummary = '', handledTitles: readonly string[] = []): string {
   const body = cands.map(c => `[${c.lens}] ${c.title}｜${c.detail}`).join('\n')
   const roi = typeof roiSummary === 'string' ? roiSummary.trim() : ''
+  const handled = handledTitles.filter(t => t && t.trim())
   return [
     '你是對抗式問題評審。以下是多視角候選問題。去重、挑戰每個（真問題嗎？夠高價值嗎？漏了更重要的嗎？）。',
     '【硬約束】排序主軸是北極星（NORTHSTAR）價值判準：候選問題必須依北極星價值判準排序（高對齊在前）。',
@@ -71,6 +74,10 @@ export function criticPrompt(cands: Candidate[], northstar: string, roiSummary =
     ...(roi ? [
       '【硬約束】依近期 ROI 史實調整候選排序：高成本低成果的 lens 降權，低成本且成果穩定的 lens 優先；理由需引用相關史實。',
       `\n# 近期已完成 goal ROI\n${roi}`
+    ] : []),
+    ...(handled.length ? [
+      '【硬約束】下列問題近期已處理過或已卡住（ledger 記憶）：候選中與其語意等同者（含換句話說、換角度重述）一律 VALUE:0，理由標明 DUP 與對應舊案。',
+      `\n# 已處理過或已卡住的問題\n${handled.map(t => `- ${t}`).join('\n')}`
     ] : []),
     '嚴格照格式，每行一問題（高價值在前）：VALUE:<0~10> | <標題> | <lens> | <一句理由>',
     '若逐一挑戰後認為沒有任何候選值得處理，只回一行 NONE。',
@@ -97,7 +104,9 @@ export async function discoverProblems(deps: DiscoverDeps, goal: Goal, cwd: stri
   try {
     let roiSummary = ''
     try { roiSummary = deps.readRoiSummary?.() ?? '' } catch { /* fail-open */ }
-    const text = (await callAgent(deps.criticLlm, criticPrompt(candidates, northstarFromSurvey(survey), roiSummary))).text.trim()
+    let handledTitles: string[] = []
+    try { handledTitles = deps.readHandledTitles?.() ?? [] } catch { /* fail-open：失憶不擋 discovery */ }
+    const text = (await callAgent(deps.criticLlm, criticPrompt(candidates, northstarFromSurvey(survey), roiSummary, handledTitles))).text.trim()
     const firstLine = text.split(/\r?\n/).map(l => l.trim()).find(Boolean) ?? ''
     if (/^NONE\b/i.test(firstLine)) vetoed = true
     else ranked = parseRanked(text)

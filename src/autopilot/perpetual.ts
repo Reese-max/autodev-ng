@@ -7,7 +7,7 @@ import { localDay } from '../db.js'
 import type { Deps } from '../scheduler.js'
 import { subscriptionTags } from '../scheduler.js'
 import { globalBilledToday } from '../globalcost.js'
-import { ProblemsLedger, problemFingerprint } from './ledger.js'
+import { ProblemsLedger, problemFingerprint, readHandledProblemTitles } from './ledger.js'
 import { discoverProblems, type DiscoverResult, type RankedProblem } from './discover.js'
 import { parseGoal } from './goal.js'
 import { callAgent } from './llm.js'
@@ -276,12 +276,16 @@ export async function maybeRunPerpetual(
         criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey },
         runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd) }),
         readRoiSummary: () => readRecentGoalRoiSummary(join(cfg.dataDir, 'run.db')),
+        readHandledTitles: () => readHandledProblemTitles(join(cfg.dataDir, 'run.db')),
         lenses: cfg.discoverLenses
       }, { objective: '', noProgressLimit: 2 }, cfg.projectPath)
     },
     author: (problem, fingerprint) =>
       authorGoal((prompt: string) => callAgent(judgeLlm, prompt).then(r => r.text), problem, cfg, fingerprint,
-        { onEvent: (type, data) => quiet(() => deps.events.append(type, data)) }),
+        {
+          onEvent: (type, data) => quiet(() => deps.events.append(type, data)),
+          northstar: ((): string => { try { return readFileSync(join(cfg.dataDir, 'NORTHSTAR.md'), 'utf8') } catch { return '' } })() || undefined,
+        }),
     runSession: (opts) => runGoalWithDeps(deps, notifier, cfg, opts),
     billedToday: () => deps.db.billedCostForLocalDay(localDay(new Date().toISOString(), offset), offset, subscriptionTags(cfg))
   }

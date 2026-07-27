@@ -42,3 +42,34 @@ describe('ProblemsLedger', () => {
     expect(ledger.listByStatus('open')).toHaveLength(1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// readHandledProblemTitles（2026-07-27）：critic 語意去重的記憶來源
+// ---------------------------------------------------------------------------
+
+test('readHandledProblemTitles：只回已處理狀態、last_seen DESC、limit 生效；缺檔回 []', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { ProblemsLedger, readHandledProblemTitles, problemFingerprint } = await import('../src/autopilot/ledger.js')
+  const dir = mkdtempSync(join(tmpdir(), 'adng-handled-'))
+  try {
+    const dbFile = join(dir, 'run.db')
+    const led = new ProblemsLedger(dbFile)
+    led.upsertSeen({ title: '還開著的問題', lens: 'tests', value: 5 }, '2026-07-20T00:00:00Z')
+    led.upsertSeen({ title: '修好的問題', lens: 'tests', value: 5 }, '2026-07-21T00:00:00Z')
+    led.setStatus(problemFingerprint('修好的問題'), 'fixed', '')
+    led.upsertSeen({ title: '卡住的問題', lens: 'tests', value: 5 }, '2026-07-22T00:00:00Z')
+    led.setStatus(problemFingerprint('卡住的問題'), 'deferred', 'stuck')
+    led.close()
+    const titles = readHandledProblemTitles(dbFile)
+    expect(titles).toContain('修好的問題')
+    expect(titles).toContain('卡住的問題')
+    expect(titles).not.toContain('還開著的問題')
+    expect(readHandledProblemTitles(dbFile, 1)).toHaveLength(1)
+    expect(readHandledProblemTitles(join(dir, 'no.db'))).toEqual([])
+  } finally {
+    // Windows 上 WAL 殘留 handle 偶發 EPERM：cleanup 失敗不掛測試，temp 目錄交給 OS 清
+    try { rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+})
