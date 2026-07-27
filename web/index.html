@@ -5,98 +5,212 @@
 <title>autodev-ng 控制台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root { color-scheme: dark; }
-  body { font-family: -apple-system, "Segoe UI", sans-serif; background: #0f1115; color: #e6e6e6; margin: 0; padding: 24px; }
-  h1 { font-size: 18px; margin: 0 0 4px; }
-  .sub { color: #8a8f98; font-size: 12px; margin-bottom: 20px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
-  .card { background: #171a21; border: 1px solid #2a2e37; border-radius: 8px; padding: 14px 16px; }
-  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #8a8f98; margin: 0 0 8px; }
-  .big { font-size: 22px; font-weight: 600; }
-  .state-running { color: #4caf50; } .state-idle { color: #64b5f6; }
-  .state-stopped, .state-cost-stopped { color: #ef5350; }
-  .bar { height: 6px; border-radius: 3px; background: #2a2e37; overflow: hidden; margin-top: 8px; }
-  .bar > i { display: block; height: 100%; background: #4caf50; }
-  .bar.warn > i { background: #ffb300; } .bar.hard > i { background: #ef5350; }
-  .btns { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-  button { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 10px 16px; font-size: 13px; cursor: pointer; }
-  button.stop { background: #ef5350; } button.ghost { background: #2a2e37; }
-  button:disabled { opacity: .5; cursor: not-allowed; }
+  :root {
+    color-scheme: dark;
+    --bg0: #0b0e13; --bg1: #10141b; --bg2: #161b24; --bg3: #1c222d;
+    --line: #222936; --line-strong: #2e3745;
+    --ink: #e8ecf3; --mut: #97a0b0; --dim: #6b7484;
+    --ok: #3ddc97; --ok-dim: rgba(61,220,151,.12);
+    --warn: #f5b83d; --warn-dim: rgba(245,184,61,.12);
+    --bad: #f0566a; --bad-dim: rgba(240,86,106,.12);
+    --idle: #5aa7f0;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+    background: var(--bg0); color: var(--ink); margin: 0; min-height: 100vh;
+    font-size: 13px; line-height: 1.55;
+  }
+  body::before { /* 頂部一絲信號綠——整站唯一的品牌筆觸 */
+    content: ""; display: block; height: 2px;
+    background: linear-gradient(90deg, var(--ok) 0%, rgba(61,220,151,.25) 40%, transparent 80%);
+  }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---------- 頂欄 ---------- */
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 28px; border-bottom: 1px solid var(--line);
+    background: var(--bg1);
+  }
+  .brand { font-size: 15px; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; }
+  .brand em { font-style: normal; color: var(--ok); }
+  .brand-sub { color: var(--dim); font-size: 11px; white-space: nowrap; }
+  header .spacer { flex: 1; }
+  #tokenBox { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--dim); }
+  #tokenBox input {
+    background: var(--bg0); border: 1px solid var(--line); color: var(--mut);
+    padding: 5px 10px; border-radius: 6px; font-size: 11px; width: 210px; font-family: var(--mono);
+  }
+  #tokenBox input:focus { outline: none; border-color: var(--line-strong); color: var(--ink); }
+
+  main { padding: 22px 28px 48px; max-width: 1280px; margin: 0 auto; }
+
+  /* ---------- 徽章 / 狀態燈 ---------- */
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600;
+    border: 1px solid transparent;
+  }
+  .badge-green { background: var(--ok-dim); color: var(--ok); }
+  .badge-red { background: var(--bad-dim); color: var(--bad); }
+  .badge-yellow { background: var(--warn-dim); color: var(--warn); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot-running { background: var(--ok); animation: pulse 2.2s ease-out infinite; }
+  .dot-idle { background: var(--idle); }
+  .dot-stopped, .dot-cost-stopped, .dot-unknown { background: var(--bad); }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(61,220,151,.45); }
+    70% { box-shadow: 0 0 0 7px rgba(61,220,151,0); }
+    100% { box-shadow: 0 0 0 0 rgba(61,220,151,0); }
+  }
+  .state-running { color: var(--ok); } .state-idle { color: var(--idle); }
+  .state-stopped, .state-cost-stopped, .state-unknown { color: var(--bad); }
+
+  /* ---------- 首頁:艦隊列 ---------- */
+  #project-list .listhead { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin: 4px 2px 10px; }
+  .fleet-row {
+    display: grid; grid-template-columns: 220px 1fr auto; align-items: center; gap: 18px;
+    background: var(--bg1); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 20px; margin-bottom: 10px; cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .fleet-row:hover { border-color: var(--line-strong); background: var(--bg2); }
+  .fleet-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .fleet-id .name { font-weight: 700; font-size: 14px; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fleet-task { color: var(--mut); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .fleet-task.none { color: var(--dim); }
+  .fleet-stats { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--mut); white-space: nowrap; }
+  .fleet-stats b { color: var(--ink); font-weight: 600; }
+  .fleet-stats .ok-n { color: var(--ok); font-weight: 700; }
+  .fleet-stats .fail-n { color: var(--bad); font-weight: 700; }
+  .fleet-row .panelErr { display: block; }
+
+  /* ---------- 內頁 ---------- */
+  .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .toolbar .grow { flex: 1; }
+  button {
+    background: var(--bg2); color: var(--ink); border: 1px solid var(--line-strong);
+    border-radius: 7px; padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: background .12s ease, border-color .12s ease;
+  }
+  button:hover { background: var(--bg3); }
+  button.primary { background: var(--ok); border-color: var(--ok); color: #08130e; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.stop { color: var(--bad); border-color: rgba(240,86,106,.4); background: transparent; }
+  button.stop:hover { background: var(--bad-dim); }
+  button.ghost { background: transparent; color: var(--mut); border-color: var(--line); }
+  button.ghost:hover { color: var(--ink); background: var(--bg2); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  #msg { font-size: 12px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-bottom: 22px; }
+  .card { background: var(--bg1); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .card h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); margin: 0 0 10px; }
+  .big { font-size: 21px; font-weight: 700; letter-spacing: -.01em; }
+  .sub { color: var(--mut); font-size: 11.5px; }
+  .bar { height: 5px; border-radius: 3px; background: var(--bg3); overflow: hidden; margin-top: 10px; }
+  .bar > i { display: block; height: 100%; background: var(--ok); border-radius: 3px; transition: width .4s ease; }
+  .bar.warn > i { background: var(--warn); } .bar.hard > i { background: var(--bad); }
+
+  section { margin-bottom: 26px; }
+  section > h2 {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--dim); margin: 0 0 10px 2px;
+  }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #23262e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
-  th { color: #8a8f98; font-weight: 500; }
-  .ok-true { color: #4caf50; } .ok-false { color: #ef5350; }
-  section { margin-bottom: 24px; }
-  #log { background: #0b0d11; border: 1px solid #2a2e37; border-radius: 8px; padding: 10px; height: 220px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; }
-  #tokenBox { margin-bottom: 16px; font-size: 12px; color: #8a8f98; }
-  #tokenBox input { background: #171a21; border: 1px solid #2a2e37; color: #e6e6e6; padding: 4px 8px; border-radius: 4px; font-size: 12px; width: 260px; }
-  #msg { font-size: 12px; margin-left: 8px; }
-  .panelgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 20px; }
-  .panelText { background: #0b0d11; border: 1px solid #23262e; border-radius: 6px; padding: 8px; margin: 0; height: 120px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; }
-  .card input[type="text"], .card input[type="number"] { width: 100%; box-sizing: border-box; background: #0b0d11; border: 1px solid #2a2e37; color: #e6e6e6; padding: 6px 8px; border-radius: 4px; font-size: 12px; margin: 8px 0; }
-  .card .btns { margin-bottom: 0; }
-  .card button { padding: 6px 10px; font-size: 12px; }
-  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-  .badge-green { background: #16301f; color: #4caf50; }
-  .badge-red { background: #331414; color: #ef5350; }
-  .badge-yellow { background: #332c14; color: #ffb300; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 380px; }
+  th { color: var(--dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  tbody tr:hover { background: var(--bg1); }
+  td { font-variant-numeric: tabular-nums; }
+  .ok-true { color: var(--ok); font-weight: 600; } .ok-false { color: var(--bad); font-weight: 600; }
+
+  #log {
+    background: #080b0f; border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; height: 230px; overflow-y: auto;
+    font-family: var(--mono); font-size: 11px; line-height: 1.7;
+    white-space: pre-wrap; color: var(--mut);
+  }
+  .panelgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
+  .panelText {
+    background: #080b0f; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; margin: 0; height: 150px; overflow-y: auto;
+    font-family: var(--mono); font-size: 11px; line-height: 1.65; white-space: pre-wrap; color: var(--mut);
+  }
+  .card input[type="text"], .card input[type="number"] {
+    width: 100%; background: var(--bg0); border: 1px solid var(--line); color: var(--ink);
+    padding: 7px 10px; border-radius: 6px; font-size: 12px; margin: 8px 0;
+  }
+  .card input:focus { outline: none; border-color: var(--line-strong); }
+  .card .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .card button { padding: 6px 12px; }
   .panelHead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .panelHead h2 { margin: 0; }
-  .refreshBtn { background: transparent; border: 1px solid #2a2e37; color: #8a8f98; padding: 2px 7px; font-size: 12px; border-radius: 4px; cursor: pointer; line-height: 1.4; }
-  .updatedAt { font-size: 10px; color: #5a5f68; margin-left: 6px; }
-  .panelErr { color: #ef5350; font-size: 11px; margin: 6px 0 0; }
+  .refreshBtn { background: transparent; border: 1px solid var(--line); color: var(--dim); padding: 1px 7px; font-size: 12px; border-radius: 5px; cursor: pointer; line-height: 1.5; }
+  .refreshBtn:hover { color: var(--ink); border-color: var(--line-strong); }
+  .updatedAt { font-size: 10px; color: var(--dim); margin-left: 6px; font-variant-numeric: tabular-nums; }
+  .panelErr { color: var(--bad); font-size: 11px; margin: 6px 0 0; }
+  .empty { color: var(--dim); }
+  .reopenBtn { padding: 3px 10px; font-size: 11px; background: transparent; color: var(--mut); border: 1px solid var(--line-strong); }
+  .reopenBtn:hover { color: var(--ok); border-color: rgba(61,220,151,.5); background: var(--ok-dim); }
+  @media (max-width: 760px) {
+    main, header { padding-left: 14px; padding-right: 14px; }
+    .fleet-row { grid-template-columns: 1fr; gap: 6px; }
+  }
 </style>
 </head>
 <body>
-<h1>autodev-ng 控制台</h1>
-<div class="sub">監看 + 一鍵 run-once + daemon 開關 + 教訓庫／GOAL／靜音遙控（127.0.0.1:3900，純手動操作）</div>
-
-<div id="tokenBox">CSRF token：<input id="tokenInput" placeholder="從啟動 console 印出的 URL 貼上，或帶 ?token= 開這頁"></div>
+<header>
+  <span class="brand">autodev<em>-ng</em></span>
+  <span class="brand-sub">艦隊控制台 · 127.0.0.1:3900</span>
+  <span class="spacer"></span>
+  <span id="badgeBot" class="badge badge-red">bot —</span>
+  <div id="tokenBox"><span>token</span><input id="tokenInput" placeholder="從啟動 console 的 URL 貼上"></div>
+</header>
+<main>
 
 <div id="project-list" style="display:none">
-  <div class="sub">選擇專案進入面板</div>
-  <div class="grid" id="projectCards"></div>
+  <div class="listhead">艦隊 · 選擇專案進入面板</div>
+  <div id="projectCards"></div>
 </div>
 
 <div id="panel">
-<div class="btns" id="backBar" style="display:none"><button class="ghost" id="btnBack">← 全部專案</button><span class="sub" id="currentProjectLabel"></span></div>
+<div class="toolbar" id="backBar" style="display:none"><button class="ghost" id="btnBack">← 全部專案</button><span class="sub" id="currentProjectLabel"></span></div>
 
-<div class="btns">
-  <span id="badgeBot" class="badge badge-red">bot —</span>
-  <span id="badgeSilence" class="badge badge-yellow" style="display:none"></span>
-  <span id="badgePaused" class="badge badge-red" style="display:none">已暫停</span>
-</div>
-
-<div class="btns">
-  <button id="btnRunOnce">▶ Run Once</button>
-  <button id="btnDaemonStart" class="ghost">⏻ Daemon Start</button>
+<div class="toolbar">
+  <button id="btnRunOnce" class="primary">▶ Run Once</button>
+  <button id="btnDaemonStart">⏻ Daemon Start</button>
   <button id="btnDaemonStop" class="stop">■ Daemon Stop</button>
   <button id="btnPause" class="stop">⏸ 暫停</button>
-  <button id="btnResume" class="ghost">▶ 恢復</button>
+  <button id="btnResume" class="ghost">恢復</button>
+  <span class="grow"></span>
+  <span id="badgeSilence" class="badge badge-yellow" style="display:none"></span>
+  <span id="badgePaused" class="badge badge-red" style="display:none">已暫停</span>
   <span id="msg"></span>
 </div>
 
 <div class="grid">
   <div class="card"><h2>Heartbeat</h2><div id="hbState" class="big">—</div><div id="hbDetail" class="sub"></div></div>
-  <div class="card"><h2>今日成本</h2><div id="costLine" class="big">—</div>
+  <div class="card"><h2>今日成本</h2><div id="costLine" class="big num">—</div>
     <div class="bar" id="costBar"><i style="width:0%"></i></div></div>
-  <div class="card"><h2>Backlog</h2><div id="backlogLine" class="big">—</div></div>
-  <div class="card"><h2>DLQ 積壓</h2><div id="dlqLine" class="big">—</div></div>
+  <div class="card"><h2>Backlog</h2><div id="backlogLine" class="big num">—</div></div>
+  <div class="card"><h2>DLQ 積壓</h2><div id="dlqLine" class="big num">—</div></div>
 </div>
 
 <section>
-  <h2>Attempts（近 10 筆）</h2>
+  <h2>Attempts · 近 10 筆</h2>
   <table><thead><tr><th>時間</th><th>task</th><th>結果</th><th>cost</th><th>detail</th></tr></thead>
   <tbody id="attemptsBody"></tbody></table>
 </section>
 
 <section>
-  <h2>Events 尾段（自動增量 + 每 3s 快照 50 筆）</h2>
+  <h2>Events 尾段 · 自動增量 + 每 3s 快照 50 筆</h2>
   <div id="log"></div>
 </section>
 
 <section>
-  <h2>面板（每 10s 自動輪詢；複用 bot 指令輸出）</h2>
+  <h2>面板 · 每 10s 自動輪詢</h2>
   <div class="panelgrid">
     <div class="card" data-panel="status">
       <div class="panelHead"><h2>Status</h2><span><button class="refreshBtn" data-refresh="status">↻</button><span class="updatedAt" data-updated="status"></span></span></div>
@@ -124,43 +238,44 @@
       <input id="goalInput" type="text" placeholder="設定 GOAL 文字">
       <div class="btns">
         <button id="btnGoalSet" class="ghost">設定</button>
-        <button id="btnGoalRun">▶ Run</button>
+        <button id="btnGoalRun" class="primary">▶ Run</button>
         <button id="btnGoalStop" class="stop">■ Stop</button>
       </div>
     </div>
     <div class="card" style="grid-column:1/-1">
-      <h2>引擎戰績（近 7 日）</h2>
+      <h2>引擎戰績 · 近 7 日</h2>
       <table><thead><tr><th>引擎</th><th>成/總</th><th>成功率</th><th>cap</th><th>隔離</th></tr></thead>
-      <tbody id="enginesBody"><tr><td colspan="5">—</td></tr></tbody></table>
+      <tbody id="enginesBody"><tr><td colspan="5" class="empty">—</td></tr></tbody></table>
     </div>
     <div class="card" style="grid-column:1/-1">
       <h2>Blocked 治理</h2>
       <table><thead><tr><th>任務</th><th>原因</th><th></th></tr></thead>
-      <tbody id="blockedBody"><tr><td colspan="3">—</td></tr></tbody></table>
+      <tbody id="blockedBody"><tr><td colspan="3" class="empty">—</td></tr></tbody></table>
     </div>
     <div class="card">
-      <h2>Guardian（最近 10 筆）</h2>
+      <h2>Guardian · 最近 10 筆</h2>
       <pre class="panelText" id="guardianText">—</pre>
     </div>
     <div class="card">
-      <h2>機制成效（近 7 日）</h2>
-      <div class="sub" id="mechanismsLine">—</div>
+      <h2>機制成效 · 近 7 日</h2>
+      <div class="sub num" id="mechanismsLine" style="font-size:13px;line-height:2">—</div>
     </div>
     <div class="card">
       <h2>投任務</h2>
-      <div class="sub">送入 backlog，成功後自動刷新 Backlog 面板</div>
+      <div class="sub">送入 backlog,成功後自動刷新 Backlog 面板</div>
       <input id="taskInput" type="text" placeholder="任務內容">
       <div class="btns"><button id="btnTaskSubmit" class="ghost">送出</button></div>
     </div>
     <div class="card">
       <h2>Silence</h2>
-      <div class="sub">1-1440 分鐘設定靜音窗，0 解除靜音</div>
-      <input id="silenceInput" type="number" placeholder="分鐘（0=解除）">
+      <div class="sub">1-1440 分鐘設定靜音窗,0 解除靜音</div>
+      <input id="silenceInput" type="number" placeholder="分鐘(0=解除)">
       <div class="btns"><button id="btnSilenceSet" class="ghost">套用</button></div>
     </div>
   </div>
 </section>
 </div>
+</main>
 
 <script>
 (function () {
@@ -169,9 +284,8 @@
   tokenInput.value = qs.get('token') || localStorage.getItem('adng_token') || ''
   tokenInput.addEventListener('change', () => localStorage.setItem('adng_token', tokenInput.value))
 
-  // ---- M10.5 Task 8：多專案首頁——currentProject 為 null 時代表「全部專案」首頁（或單專案模式，
-  // 該模式下伺服器本就忽略 project 參數，withProject 全程不掛參數＝原樣回歸）。projectsMode 只在
-  // 收到 /api/status 的彙總形狀（{projects:[...]}）時才會翻真，用來決定要不要擋面板/SSE 的請求。 ----
+  // ---- M10.5 Task 8:多專案首頁——currentProject 為 null 時代表「全部專案」首頁(或單專案模式,
+  // 該模式下伺服器本就忽略 project 參數,withProject 全程不掛參數＝原樣回歸)。 ----
   let currentProject = null
   let projectsMode = false
   function withProject(url) {
@@ -183,28 +297,27 @@
   const msg = document.getElementById('msg')
   function flash(text, isErr) {
     msg.textContent = text
-    msg.style.color = isErr ? '#ef5350' : '#4caf50'
+    msg.style.color = isErr ? 'var(--bad)' : 'var(--ok)'
     setTimeout(() => { msg.textContent = '' }, 4000)
   }
 
   async function post(path) {
     const res = await fetch(withProject(path), { method: 'POST', headers: { 'x-csrf-token': tokenInput.value } })
     const body = await res.json().catch(() => ({}))
-    if (res.status === 403) { flash('403：token 錯誤或缺失', true); return }
-    if (res.status === 409) { flash('已在執行中（pid=' + body.pid + '）', true); return }
+    if (res.status === 403) { flash('403:token 錯誤或缺失', true); return }
+    if (res.status === 409) { flash('已在執行中(pid=' + body.pid + ')', true); return }
     if (res.ok) {
-      // run-once 三態：completed＝已完成（快退 exit 0），started＝已啟動（長任務仍在跑）。
-      const label = body.status === 'completed' ? '已完成' : body.status === 'started' ? '已啟動' : ('OK：' + JSON.stringify(body))
+      // run-once 三態:completed＝已完成(快退 exit 0),started＝已啟動(長任務仍在跑)。
+      const label = body.status === 'completed' ? '已完成' : body.status === 'started' ? '已啟動' : ('OK:' + JSON.stringify(body))
       flash(label, false); return
     }
-    flash('失敗：' + JSON.stringify(body), true)
+    flash('失敗:' + JSON.stringify(body), true)
   }
 
   document.getElementById('btnRunOnce').onclick = () => post('/api/run-once')
   document.getElementById('btnDaemonStart').onclick = () => post('/api/daemon/start')
   document.getElementById('btnDaemonStop').onclick = () => post('/api/daemon/stop')
 
-  // ---- M9：panel 輪詢 + goal/silence 控制（複用既有 bot handler 輸出，web 只是另一張皮） ----
   async function postJson(path, payload) {
     const res = await fetch(withProject(path), {
       method: 'POST',
@@ -212,7 +325,7 @@
       body: JSON.stringify(payload || {}),
     })
     const body = await res.json().catch(() => ({}))
-    if (res.status === 403) { flash('403：token 錯誤或缺失', true); return }
+    if (res.status === 403) { flash('403:token 錯誤或缺失', true); return }
     flash(body.text ? String(body.text).slice(0, 80) : (res.ok ? '完成' : '失敗 ' + res.status), !res.ok || body.ok === false)
     pollPanels()
     return body
@@ -221,14 +334,13 @@
   document.getElementById('btnGoalSet').onclick = () =>
     postJson('/api/goal/set', { text: document.getElementById('goalInput').value })
   document.getElementById('btnGoalRun').onclick = () => {
-    if (!confirm('確定啟動 autopilot？這會真的派工並產生費用。')) return
+    if (!confirm('確定啟動 autopilot?這會真的派工並產生費用。')) return
     postJson('/api/goal/run')
   }
   document.getElementById('btnGoalStop').onclick = () => postJson('/api/goal/stop')
   document.getElementById('btnSilenceSet').onclick = () =>
     postJson('/api/silence', { minutes: Number(document.getElementById('silenceInput').value || 0) })
 
-  // ---- M9.1：暫停/恢復/投任務——比照 goal/silence，透傳 handleCommand 回應文案 ----
   document.getElementById('btnPause').onclick = () => postJson('/api/pause')
   document.getElementById('btnResume').onclick = () => postJson('/api/resume')
   document.getElementById('btnTaskSubmit').onclick = async () => {
@@ -237,11 +349,11 @@
     input.value = ''
   }
 
-  // ---- M9.1：面板卡片單獨刷新鈕 + 最後更新時間 + fetch 失敗顯示紅字（不默默停更） ----
+  // ---- 面板卡片單獨刷新鈕 + 最後更新時間 + fetch 失敗顯示紅字(不默默停更) ----
   const PANELS = ['status', 'cost', 'backlog', 'log', 'lessons', 'goal']
   function hhmmss() { return new Date().toLocaleTimeString('zh-TW', { hour12: false }) }
   async function loadPanel(name) {
-    if (projectsMode && !currentProject) return // 首頁專案卡清單中——尚未選定專案，不打面板端點
+    if (projectsMode && !currentProject) return
     const errEl = document.querySelector('[data-err="' + name + '"]')
     const updEl = document.querySelector('[data-updated="' + name + '"]')
     try {
@@ -253,7 +365,7 @@
       if (el) el.textContent = body.text ?? ''
       if (errEl) { errEl.style.display = 'none'; errEl.textContent = '' }
     } catch (err) {
-      if (errEl) { errEl.style.display = ''; errEl.textContent = '讀取失敗：' + err }
+      if (errEl) { errEl.style.display = ''; errEl.textContent = '讀取失敗:' + err }
     } finally {
       if (updEl) updEl.textContent = hhmmss()
     }
@@ -263,7 +375,7 @@
     await loadCockpit()
   }
 
-  // ---- 駕駛艙面板（GOAL cockpit）：JSON 端點各自渲染；單一面板失敗不拖垮其餘 ----
+  // ---- 駕駛艙面板(GOAL cockpit):JSON 端點各自渲染;單一面板失敗不拖垮其餘 ----
   async function fetchJson(path) {
     const res = await fetch(withProject(path))
     if (!res.ok) throw new Error('HTTP ' + res.status)
@@ -279,14 +391,14 @@
         ? r.engines.map(e => `<tr><td>${esc(e.engine || '(未標)')}</td><td>${e.ok}/${e.n}</td>
             <td>${e.n ? Math.round(100 * e.ok / e.n) + '%' : '—'}</td><td>${e.dailyAttemptCap ?? '—'}</td>
             <td>${isoMap[e.engine] ? '<span class="badge badge-red">' + esc(String(isoMap[e.engine]).slice(0, 40)) + '</span>' : '—'}</td></tr>`).join('')
-        : '<tr><td colspan="5">近 7 日無派工</td></tr>'
+        : '<tr><td colspan="5" class="empty">近 7 日無派工</td></tr>'
     } catch { /* 面板獨立 fail-open */ }
     try {
       const r = await fetchJson('/api/cockpit/blocked')
       document.getElementById('blockedBody').innerHTML = r.blocked.length
         ? r.blocked.map(b => `<tr><td>${esc(b.text.slice(0, 70))}</td><td>${esc(b.reason.slice(0, 40))}</td>
-            <td><button class="ghost" style="padding:3px 8px;font-size:11px" data-reopen="${b.line}" data-match="${esc(b.text.slice(0, 20))}">重開</button></td></tr>`).join('')
-        : '<tr><td colspan="3">無積壓 🎉</td></tr>'
+            <td><button class="reopenBtn" data-reopen="${b.line}" data-match="${esc(b.text.slice(0, 20))}">重開</button></td></tr>`).join('')
+        : '<tr><td colspan="3" class="empty">無積壓 🎉</td></tr>'
       document.querySelectorAll('[data-reopen]').forEach(btn => {
         btn.addEventListener('click', async () => {
           const res = await fetch(withProject('/api/backlog/reopen'), {
@@ -294,8 +406,8 @@
             body: JSON.stringify({ line: Number(btn.getAttribute('data-reopen')), match: btn.getAttribute('data-match') }),
           })
           const body = await res.json().catch(() => ({}))
-          if (res.status === 403) { flash('403：token 錯誤或缺失', true); return }
-          flash(body.changed ? '已重開，daemon 下輪自動撿起' : '未變更（可能已重開或檔案已變動）', !body.ok)
+          if (res.status === 403) { flash('403:token 錯誤或缺失', true); return }
+          flash(body.changed ? '已重開,daemon 下輪自動撿起' : '未變更(可能已重開或檔案已變動)', !body.ok)
           loadCockpit()
         })
       })
@@ -309,7 +421,7 @@
     try {
       const r = await fetchJson('/api/cockpit/mechanisms')
       document.getElementById('mechanismsLine').textContent =
-        `rebase 救回 ${r.mergeRebased}｜北極星攔截 ${r.northstarReject}｜引擎隔離 ${r.engineIsolated}`
+        `rebase 救回 ${r.mergeRebased}|北極星攔截 ${r.northstarReject}|引擎隔離 ${r.engineIsolated}`
     } catch { /* fail-open */ }
   }
   document.querySelectorAll('[data-refresh]').forEach(btn => {
@@ -325,7 +437,7 @@
     hbState.textContent = hb ? hb.state : '(未跑過)'
     hbState.className = 'big state-' + (hb ? hb.state : 'idle')
     document.getElementById('hbDetail').textContent = hb
-      ? `ts=${hb.ts}${hb.currentTask ? '｜task=' + hb.currentTask : ''}` : 'heartbeat.json 不存在'
+      ? `ts=${hb.ts}${hb.currentTask ? '|task=' + hb.currentTask : ''}` : 'heartbeat.json 不存在'
 
     const softUnlimited = s.cost.soft === 0
     const hardUnlimited = s.cost.hard === 0
@@ -337,10 +449,9 @@
 
     document.getElementById('backlogLine').textContent = s.backlogError
       ? s.backlogError
-      : `open=${s.backlog.open}｜blocked=${s.backlog.blocked}｜done=${s.backlog.done}`
+      : `open=${s.backlog.open}|blocked=${s.backlog.blocked}|done=${s.backlog.done}`
     document.getElementById('dlqLine').textContent = s.dlqCount + ' 筆'
 
-    // M9.1：總覽徽章——bot 存活恆顯示，靜音/暫停僅在有狀態時顯示。
     const badgeBot = document.getElementById('badgeBot')
     badgeBot.textContent = 'bot ' + (s.botAlive ? '存活' : '未偵測到')
     badgeBot.className = 'badge ' + (s.botAlive ? 'badge-green' : 'badge-red')
@@ -368,7 +479,7 @@
     if (atBottom) log.scrollTop = log.scrollHeight
   }
 
-  // ---- M10.5 Task 8：#project-list（首頁卡）與 #panel（既有單專案面板）二選一顯示 ----
+  // ---- M10.5 Task 8:#project-list(首頁艦隊列)與 #panel(既有單專案面板)二選一顯示 ----
   function showList() {
     document.getElementById('project-list').style.display = ''
     document.getElementById('panel').style.display = 'none'
@@ -377,27 +488,36 @@
     document.getElementById('project-list').style.display = 'none'
     document.getElementById('panel').style.display = ''
     document.getElementById('backBar').style.display = projectsMode ? '' : 'none'
-    document.getElementById('currentProjectLabel').textContent = currentProject ? ('專案：' + currentProject) : ''
+    document.getElementById('currentProjectLabel').textContent = currentProject ? ('專案:' + currentProject) : ''
   }
   function esc(s) {
     if (typeof s !== 'string') return ''
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
   }
 
+  let lastProjectsJson = ''
   function renderProjectList(projects) {
+    // 3 秒輪詢下整列 innerHTML 重繪會吃掉使用者進行中的點擊/hover——內容沒變就不動 DOM。
+    const snapshot = JSON.stringify(projects)
+    if (snapshot === lastProjectsJson) return
+    lastProjectsJson = snapshot
     document.getElementById('projectCards').innerHTML = projects.map(p => {
       if (p.error) {
-        return `<div class="card">
-          <h2>${esc(p.name)}</h2><div class="panelErr" style="display:block">讀取失敗：${esc(p.error)}</div></div>`
+        return `<div class="fleet-row"><div class="fleet-id"><span class="dot dot-unknown"></span>
+          <span class="name">${esc(p.name)}</span></div>
+          <div class="panelErr">讀取失敗:${esc(p.error)}</div><div></div></div>`
       }
-      const daemonBadge = p.daemonAlive ? '<span class="badge badge-green">daemon 活</span>' : '<span class="badge badge-red">daemon 死</span>'
-      const blockedBadge = p.backlogBlocked > 0 ? `<span class="badge badge-yellow">blocked ${p.backlogBlocked}</span>` : ''
-      return `<div class="card" data-project="${esc(p.name)}" style="cursor:pointer">
-        <h2>${esc(p.name)}</h2>
-        <div class="big state-${esc(p.state)}">${esc(p.state)}</div>
-        ${p.currentTask ? `<div class="sub">▶ ${esc(String(p.currentTask).slice(0, 60))}</div>` : ''}
-        <div class="sub">今日 ✅${p.todayOk ?? 0}／❌${p.todayFail ?? 0}｜成本 $${fmt(p.todayCostUsd)}｜未完 ${p.backlogOpen}</div>
-        ${daemonBadge} ${blockedBadge}
+      const blockedBadge = p.backlogBlocked > 0 ? `<span class="badge badge-yellow num">blocked ${p.backlogBlocked}</span>` : ''
+      const daemonBadge = p.daemonAlive ? '<span class="badge badge-green">daemon</span>' : '<span class="badge badge-red">daemon 死</span>'
+      return `<div class="fleet-row" data-project="${esc(p.name)}">
+        <div class="fleet-id"><span class="dot dot-${esc(p.state)}"></span><span class="name">${esc(p.name)}</span></div>
+        <div class="fleet-task ${p.currentTask ? '' : 'none'}">${p.currentTask ? esc(String(p.currentTask).slice(0, 90)) : '待命中'}</div>
+        <div class="fleet-stats num">
+          <span><span class="ok-n">${p.todayOk ?? 0}</span> 成 · <span class="fail-n">${p.todayFail ?? 0}</span> 敗</span>
+          <span>$<b>${fmt(p.todayCostUsd)}</b></span>
+          <span>未完 <b>${p.backlogOpen}</b></span>
+          ${daemonBadge} ${blockedBadge}
+        </div>
       </div>`
     }).join('')
     document.querySelectorAll('#projectCards [data-project]').forEach(el => {
@@ -418,12 +538,12 @@
   }
 
   let es = null
-  let sseFor // undefined＝尚未連過；之後追蹤 es 目前連的是哪個 project（null＝單專案／未選定）
+  let sseFor // undefined＝尚未連過;之後追蹤 es 目前連的是哪個 project(null＝單專案/未選定)
   function ensureSse() {
     if (sseFor === currentProject) return
     if (es) { es.close(); es = null }
     sseFor = currentProject
-    if (projectsMode && !currentProject) return // 首頁卡清單——沒有專案上下文，不開 SSE
+    if (projectsMode && !currentProject) return // 首頁艦隊列——沒有專案上下文,不開 SSE
     try {
       es = new EventSource(withProject('/api/logs'))
       es.onmessage = (ev) => {
@@ -432,7 +552,7 @@
         log.textContent += '\n[live] ' + ev.data
         if (atBottom) log.scrollTop = log.scrollHeight
       }
-    } catch { /* SSE 非必要，輪詢仍可運作 */ }
+    } catch { /* SSE 非必要,輪詢仍可運作 */ }
   }
 
   let panelsBootstrapped = false
@@ -451,7 +571,7 @@
         ensureSse()
         if (!panelsBootstrapped) { panelsBootstrapped = true; pollPanels() }
       }
-    } catch (err) { flash('status 讀取失敗：' + err, true) }
+    } catch (err) { flash('status 讀取失敗:' + err, true) }
   }
   poll()
   setInterval(poll, 3000)
