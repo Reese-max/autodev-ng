@@ -72,14 +72,17 @@ describe('scheduler 教訓注入', () => {
     const d = deps(e, lessons)
     expect(await runOnce(d)).toBe('done')
     expect(e.calls).toHaveLength(1)
-    expect(e.calls[0]!.directive).toBeUndefined()
+    expect(e.calls[0]!.directive).not.toContain('教訓') // 教訓不注入，但恆附 commit 自證行
+    expect(e.calls[0]!.directive).toContain('git log -1')
   })
 
-  test('未接 lessons 時行為與現狀完全一致(directive 僅 extraDirective 語意)', async () => {
+  test('未接 lessons 時 directive 僅任務文字＋commit 自證行（無教訓、無 extraDirective）', async () => {
     const e = new MockEngine([{ ok: true }])
     const d = deps(e)
     expect(await runOnce(d)).toBe('done')
     expect(e.calls).toHaveLength(1)
-    expect(e.calls[0]!.directive).toBeUndefined()
+    expect(e.calls[0]!.directive).toContain('任務一')
+    expect(e.calls[0]!.directive).not.toContain('教訓')
+    expect(e.calls[0]!.directive).toContain('git log -1')
   })
 })

@@ -12,6 +12,11 @@ import {
   selectEnginesToIsolate,
   type IsolateTarget,
 } from './isolation-policy.js'
+import {
+  loadRecentBreakerRows,
+  selectBreakerTargets,
+  type BreakerAttemptRow,
+} from './signature-breaker.js'
 import { activeIsolatedTags } from './quarantine-gate.js'
 import {
   finalizeIsolationForPick,
@@ -66,6 +71,8 @@ export interface ApplyStatsIsolationInput {
   timeoutMs?: number
   /** 測試注入 */
   statsFn?: (dbFile: string, opts?: RunStatsOptions) => RunStatsResult
+  /** 測試注入：簽名熔斷器的近期 attempts 來源（seq DESC）。 */
+  breakerRowsFn?: (dbFile: string) => BreakerAttemptRow[]
   loadStateFn?: (dataDir: string, opts?: { nowIso?: string }) => LoadRoutingStateResult
   saveStateFn?: (dataDir: string, state: RoutingState, opts?: { nowIso?: string }) => boolean
 }
@@ -155,7 +162,15 @@ export function applyStatsIsolation(input: ApplyStatsIsolationInput): ApplyStats
       return emptyResult('reuse-current', dataDir, nowIso, stats.reason)
     }
 
-    const targets = selectEnginesToIsolate(stats.engines, input.rotation)
+    // 簽名熔斷器與統計隔離共用 targets 管道：同引擎重複時統計 reason 優先；
+    // 熔斷查詢任何失敗 → 空清單（fail-open，不影響統計隔離路徑）。
+    const policyTargets = selectEnginesToIsolate(stats.engines, input.rotation)
+    let breakerTargets: IsolateTarget[] = []
+    try {
+      breakerTargets = selectBreakerTargets((input.breakerRowsFn ?? loadRecentBreakerRows)(dbFile), input.rotation)
+    } catch { /* fail-open */ }
+    const seen = new Set(policyTargets.map(t => t.engine))
+    const targets = [...policyTargets, ...breakerTargets.filter(t => !seen.has(t.engine))]
     if (targets.length === 0) {
       return emptyResult('unchanged', dataDir, nowIso, 'no-targets')
     }

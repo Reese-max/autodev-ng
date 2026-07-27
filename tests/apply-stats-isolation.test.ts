@@ -365,3 +365,72 @@ describe('applyStatsIsolation', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// 簽名熔斷器併入 targets 管道（2026-07-27）
+// ---------------------------------------------------------------------------
+
+const CODEX_SIG = "exit 1: 'codex' 不是內部或外部命令、可執行的程式或批次檔。"
+
+test('簽名熔斷：統計面健康但同簽名 5 連敗 → applied，reason 帶簽名熔斷', () => {
+  const dir = tmpDir()
+  try {
+    const healthy = {
+      kind: 'stats',
+      days: ['2026-07-20', '2026-07-19', '2026-07-18'],
+      sampleCount: 6,
+      engines: [{ engine: 'codex', sampleCount: 6, ok: 5, fail: 1, successRate: 5 / 6 }],
+    } satisfies RunStatsResult
+    const r = applyStatsIsolation({
+      dataDir: dir,
+      rotation: ROT,
+      nowIso: NOW,
+      statsFn: () => healthy,
+      breakerRowsFn: () => Array.from({ length: 5 }, () => ({ engine: 'codex', ok: 0, detail: CODEX_SIG })),
+    })
+    expect(r.kind).toBe('applied')
+    expect(r.newlyIsolated).toHaveLength(1)
+    expect(r.newlyIsolated[0]!.engine).toBe('codex')
+    expect(r.newlyIsolated[0]!.reason).toContain('簽名熔斷')
+    expect(r.activeIsolatedTags).toEqual(['codex'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('簽名熔斷整合：真 run.db 5 筆同簽名連敗（樣本<統計門檻 6）→ 仍熔斷', () => {
+  const dir = tmpDir()
+  try {
+    const dbFile = join(dir, 'run.db')
+    const db = new RunDb(dbFile)
+    for (let i = 0; i < 5; i++) {
+      db.record({ taskId: `t${i}`, ok: false, costUsd: 0, detail: CODEX_SIG, engine: 'codex', ts: `2026-07-20T0${i}:00:00.000Z` })
+    }
+    db.close()
+    const r = applyStatsIsolation({ dataDir: dir, rotation: ROT, nowIso: NOW, offsetHours: 0 })
+    expect(r.kind).toBe('applied')
+    expect(r.newlyIsolated.map(e => e.engine)).toEqual(['codex'])
+    expect(r.newlyIsolated[0]!.reason).toContain('簽名熔斷')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('簽名熔斷與統計隔離同引擎 → 只隔離一次（統計 reason 優先）', () => {
+  const dir = tmpDir()
+  try {
+    const r = applyStatsIsolation({
+      dataDir: dir,
+      rotation: ROT,
+      nowIso: NOW,
+      statsFn: () => BAD_QWEN_STATS,
+      breakerRowsFn: () => Array.from({ length: 5 }, () => ({ engine: 'qwen', ok: 0, detail: 'timeout' })),
+    })
+    expect(r.kind).toBe('applied')
+    expect(r.newlyIsolated).toHaveLength(1)
+    expect(r.newlyIsolated[0]!.engine).toBe('qwen')
+    expect(r.newlyIsolated[0]!.reason).not.toContain('簽名熔斷')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

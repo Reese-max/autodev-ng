@@ -345,11 +345,12 @@ test('extraDirective 設定時附加到 job.directive 尾（供 engine 讀取專
   expect(e.calls[0]!.directive).toContain('KPI-impact 標籤')
 })
 
-test('extraDirective 未設定時 job.directive 為 undefined', async () => {
+test('extraDirective 未設定時 job.directive 仍恆附任務文字＋commit 自證行（幻影完成對策）', async () => {
   const e = new MockEngine([{ ok: true }])
   const d = deps(e)
   await runOnce(d)
-  expect(e.calls[0]!.directive).toBeUndefined()
+  expect(e.calls[0]!.directive).toContain('任務一')
+  expect(e.calls[0]!.directive).toContain('git log -1')
 })
 
 test('engine.run 收到的 job.projectPath 是 worktree cwd（非主 repo 路徑），且 worktree 於 done 後被清掉', async () => {
@@ -697,4 +698,30 @@ test('M10.5 回歸：未設 globalDailyHardUsd → 不受兄弟專案超標影�
   const d = deps(new MockEngine([{ ok: true, costUsd: 0.1 }]))
   // globalDailyHardUsd 未設；cfgPath 有給——若閘門誤判「有 cfgPath 就查帳」會誤觸 cost-hard-stop。
   expect(await runOnce({ ...d, cfgPath })).toBe('done')
+})
+
+// ---------------------------------------------------------------------------
+// 簽名熔斷告警接線（2026-07-27）：隔離事件 → deps.notify（fail-open）
+// ---------------------------------------------------------------------------
+
+test('簽名熔斷觸發時 deps.notify 收到告警（含引擎名與簽名熔斷事由）', async () => {
+  const e = new MockEngine([{ ok: true }])
+  const d = deps(e)
+  mkdirSync(d.cfg.dataDir, { recursive: true })
+  const pickDb = new RunDb(join(d.cfg.dataDir, 'run.db'))
+  for (let i = 0; i < 5; i++) {
+    pickDb.record({ taskId: `t${i}`, ok: false, costUsd: 0, detail: "exit 1: 'codex' 不是內部或外部命令", engine: 'codex' })
+  }
+  pickDb.close()
+  const sent: string[] = []
+  const customCfg = {
+    ...d.cfg,
+    engineRotation: ['codex', 'fallback'],
+    engines: { codex: { adapter: 'codex' }, fallback: { adapter: 'mock' } },
+  } as Deps['cfg']
+  const r = await runOnce({ ...d, cfg: customCfg, notify: async t => { sent.push(t); return true } })
+  expect(r).toBe('done') // codex 熔斷後輪替到 fallback 照常派工
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toContain('codex')
+  expect(sent[0]).toContain('簽名熔斷')
 })

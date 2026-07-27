@@ -27,6 +27,8 @@ export interface Deps {
   /** M5 Task 1：per-config 單例改為 per-task 解析（registry 按需建、可 cache，實作在
    * assemble 層）。任務 engineTag（或 cfg.defaultEngine）先過 cfg.engines 白名單再 resolve。 */
   engines: EngineResolver
+  /** 告警面（可選）：引擎隔離等route事故推 Discord；未設或送失敗不影響派工（fail-open）。 */
+  notify?: (text: string) => Promise<boolean>
   events: EventLog
   verifier?: { check(job: Job, res: RunResult): Promise<VerifierCheck> }
   /** M7：未接線時 undefined，行為與現狀完全一致（fail-open 硬線）。 */
@@ -59,7 +61,7 @@ export type CycleResult =
   | { kind: 'blocked'; taskId: string; taskText: string; reason: BlockedReason }
 
 export async function runOnce(deps: Deps): Promise<CycleResult> {
-  const { cfg, store, db, engines, events, verifier } = deps
+  const { cfg, store, db, engines, events, verifier, notify } = deps
   if (existsSync(cfg.stopFile)) {
     writeHeartbeat(events, cfg, { state: 'stopped', todayCostUsd: todayCost(db, cfg) })
     return 'stopped'
@@ -95,7 +97,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   const dups = store.duplicateIds()
   if (dups.length > 0) quiet(() => events.appendOnce('duplicate-tasks', { ids: dups }))
 
-  const picked = await pickReadyTask({ cfg, store, db, events, engines }, openTasks)
+  const picked = await pickReadyTask({ cfg, store, db, events, engines, notify }, openTasks)
   if (typeof picked === 'string' || 'kind' in picked) {
     if (picked === 'preflight-failed') writeHeartbeat(events, cfg, { state: 'idle', todayCostUsd: spent })
     return picked
@@ -124,6 +126,8 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   let lessonsText = ''
   try { lessonsText = deps.lessons?.inject() ?? '' } catch { /* 教訓面故障不擋派工 */ }
   if (lessonsText) directive = `${directive ?? task.text}\n\n${lessonsText}`
+  // 幻影完成對策（run.db 四大失敗來源分析 2026-07-27）：自證硬指令恆附派工尾。
+  directive = `${directive ?? task.text}\n\n完成的定義＝已產生新 git commit。結束前執行 git log -1 --oneline 自證；沒有 commit 就如實回報失敗原因，不得宣稱完成。`
 
   // try 只包 engine.run 本身：db.record／store.report／events 的下游 I/O 故障
   // 不該被誤判成「引擎錯誤」而污染 failCount。
@@ -247,13 +251,16 @@ function blockTask(
 
 /** 戰績隔離→輪替候選→preflight；全壞→preflight-failed；白名單外/單候選 resolve 拋→blocked。 */
 export async function pickReadyTask(
-  { cfg, store, db, events, engines }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines'>,
+  { cfg, store, db, events, engines, notify }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines' | 'notify'>,
   openTasks: Task[]
 ): Promise<{ task: Task; engine: Engine; engineTag: string; fixedCost: number | undefined } | CycleResult> {
   const routingKey = JSON.stringify([cfg.dataDir, cfg.engineRotation, cfg.timezoneOffsetHours])
   const isolatedTags = await singleFlightPickRouting(routingKey, () => loadIsolatedTagsForPick(
     { dataDir: cfg.dataDir, rotation: cfg.engineRotation, offsetHours: cfg.timezoneOffsetHours },
-    ev => quiet(() => events.append('engine-route-isolated', { ...ev })),
+    ev => { // 告警 fire-and-forget：notify 依契約自吞錯，絕不反殺派工（鐵律 #2）
+      quiet(() => events.append('engine-route-isolated', { ...ev }))
+      void notify?.(`⛔ 引擎隔離：${ev.engine} — ${ev.reason}（24h 後單次試探）`)
+    },
   )), subs = subscriptionTags(cfg)
   // 日額度守門：helper/run.db 失敗 → 空 caps/counts，維持原派工路徑（fail-open）
   const { dailyAttemptCaps, todayAttemptCounts } = loadDailyAttemptCapContext(cfg.engines, cfg.dataDir)
