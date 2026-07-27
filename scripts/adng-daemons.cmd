@@ -5,7 +5,7 @@ REM Pure ASCII only (hard rule 7).
 REM
 REM Startup preprocess only: resolve ADNG_ROOT, require built
 REM dist\cli.js, then delegate ALL liveness / reap / launch to:
-REM   node dist\cli.js supervise --configs-dir <configs>
+REM   node dist\cli.js supervise --configs-dir <configs> --guardian off
 REM
 REM Legacy batch pre-checks are intentionally removed.
 REM daemon-console.log Windows file-sharing lock behavior
@@ -22,5 +22,5 @@ if not exist "%ADNG_ROOT%\dist\cli.js" (
   exit /b 1
 )
 
-node "%ADNG_ROOT%\dist\cli.js" supervise --configs-dir "%ADNG_ROOT%\configs"
+node "%ADNG_ROOT%\dist\cli.js" supervise --configs-dir "%ADNG_ROOT%\configs" --guardian off
 exit /b %ERRORLEVEL%

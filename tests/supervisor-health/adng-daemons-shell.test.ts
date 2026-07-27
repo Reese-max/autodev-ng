@@ -44,6 +44,7 @@ test('adng-daemons.cmd：薄殼只委派 node dist\\cli.js supervise --configs-d
 
   expect(code).toMatch(/node\s+"%ADNG_ROOT%\\dist\\cli\.js"\s+supervise\s+--configs-dir/)
   expect(code).toMatch(/%ADNG_ROOT%\\configs/)
+  expect(code).toMatch(/--guardian\s+off/)
   // single node invocation — no per-config spawn loop in the shell
   expect((code.match(/\bnode\b/gi) ?? []).length).toBe(1)
   // preprocess: refuse to run without a built CLI

@@ -7,6 +7,7 @@
 - **微核心 + 插件**：kernel（`src/*.ts`，帳 ≤2500 行）只管任務庫/排程/引擎轉接/驗證閘/心跳；教訓記憶、GOAL 自主、Discord bot 全是掛在旁邊的插件目錄，不吃 kernel 帳。
 - **失敗學習迴圈**：任務失敗或 blocked 時，reflect 用 LLM 從證據提煉一條教訓寫進 `learnings.md`，下一輪派工 prompt 自動附上——不會重蹈覆轍。
 - **三操作面**：CLI（`node dist/cli.js`）、Discord bot（雙向指令）、Web 控制台（唯讀監看+一鍵控制），三者共用同一份 handler 邏輯，零重複實作。
+- **Fleet Guardian**：多專案 supervisor 每輪只把新失敗、探測降級、重啟／回收或超過 wedge hard-cap 的事故交給單一 `gpt-5.6-sol`（reasoning `max`）診斷、修復與實證驗證；健康專案不呼叫 LLM。
 - **有界自主 GOAL**：可選開一個「連續無進展就自動停」的自主迴圈，由 planner LLM 自己拆任務、派工、驗證，唯一煞車是「連續 N 輪沒進展」；受控例外——只有帶 `autopilot` 標記的行才算系統自產任務，鐵律 #1（任務只能來自使用者）不破。
 
 ## 架構總覽
@@ -104,7 +105,12 @@ node dist/cli.js status --config <path>       # 唯讀狀態（heartbeat/成本/
 node dist/cli.js run-once --config <path>      # 跑一輪就退出
 node dist/cli.js daemon --config <path>        # 24/7 常駐主迴圈
 node dist/cli.js notify-test --config <path>   # Discord 告警通道送達自檢
+node dist/cli.js supervise --configs-dir configs                         # 相容模式：保活後 inline Guardian
+node dist/cli.js supervise --configs-dir configs --guardian off          # 只跑 supervisor（建議獨立排程）
+node dist/cli.js supervise --configs-dir configs --guardian only         # 獨立 Guardian 排程；仍先做一次安全探測
 ```
+
+Guardian 不啟動 subagent，也不另設專案任務總時間／成本上限；Codex 完全無輸出進度 30 分鐘才由 idle watchdog 精準終止。相同事故以 supervisor 狀態與位元組事件游標去重，`failed`／`needs_attention`／卡死會送 Discord 告警；LLM 只在 `workspace-write` 內修復，重啟與驗收由宿主白名單執行。每次決策、token、耗時與獨立驗收證據寫入各專案 `<dataDir>/guardian-runs.jsonl`，跨專案租約與輸出 schema 位於 `data/guardian/`。
 
 ### 4. Discord bot（可選）
 

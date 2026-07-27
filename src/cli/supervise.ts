@@ -1,5 +1,9 @@
 import { basename, resolve } from 'node:path'
+import { runFleetGuardian, type GuardianReport } from '../guardian/fleet.js'
 import { superviseConfig, superviseDirectory, type SuperviseDirectoryResult } from '../supervisor/supervise.js'
+import { assemble } from './assemble.js'
+
+export type GuardianMode = 'inline' | 'off' | 'only'
 
 export function printSuperviseResults(results: SuperviseDirectoryResult[]): void {
   if (results.length === 0) return console.log('supervise：找不到 config，未執行任何動作')
@@ -16,10 +20,42 @@ export function printSuperviseResults(results: SuperviseDirectoryResult[]): void
   }
 }
 
-export function cmdSupervise(cliPath: string, configPath?: string, configsDir?: string): void {
+function printGuardianReports(reports: GuardianReport[]): void {
+  for (const report of reports) {
+    const name = basename(report.configPath, '.json')
+    if (report.kind === 'completed') {
+      console.log(`guardian ${name}: ${report.decision.status} ${report.decision.summary}`)
+    } else if (report.kind === 'failed') {
+      console.error(`guardian ${name}: error=${report.error}`)
+      process.exitCode = 1
+    } else if (report.reason === 'locked') {
+      console.log('guardian：已有巡檢執行中，本輪略過')
+      break
+    }
+  }
+}
+
+async function sendGuardianNotification(configPath: string, text: string): Promise<boolean> {
+  try {
+    const assembled = assemble(configPath)
+    try { return await assembled.notifier.send(text) } finally { assembled.deps.db.close() }
+  } catch { return false }
+}
+
+export async function cmdSupervise(
+  cliPath: string, configPath?: string, configsDir?: string, guardianMode: GuardianMode = 'inline',
+): Promise<void> {
   const options = { cliPath }
   if (configsDir) {
-    return printSuperviseResults(superviseDirectory(configsDir, options))
+    const results = superviseDirectory(configsDir, options)
+    printSuperviseResults(results)
+    if (guardianMode === 'off') return
+    printGuardianReports(await runFleetGuardian(results, {
+      cliPath,
+      fleetDataDir: resolve(configsDir, '..', 'data', 'guardian'),
+      notifyFn: sendGuardianNotification,
+    }))
+    return
   }
   try {
     printSuperviseResults([superviseConfig(configPath!, options)])

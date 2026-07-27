@@ -29,6 +29,8 @@ export interface SuperviseResult {
   pidAlive: boolean
   heartbeatAgeMs: number | null
   childCount: number
+  staleThresholdMs: number
+  wedgeHardCapMs: number
   action: DaemonAction
   launchedPid?: number
   probeErrors: string[]
@@ -215,7 +217,8 @@ export function launchDaemon(configPath: string, dataDir: string, cliPath: strin
   }
 }
 
-function reapDaemon(pid: number, runCommand: CommandRunner): void {
+export function reapDaemonTree(pid: number, runCommand: CommandRunner = defaultRunCommand): void {
+  if (!Number.isInteger(pid) || pid <= 0) throw new Error(`無效 daemon PID: ${pid}`)
   runCommand('taskkill', ['/PID', String(pid), '/T', '/F'])
 }
 
@@ -288,7 +291,7 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
     })
     if (action === 'reap') {
       if (pid === null) throw new Error('reap 決策缺少 PID')
-      const reap = options.reap ?? (targetPid => reapDaemon(targetPid, runCommand))
+      const reap = options.reap ?? (targetPid => reapDaemonTree(targetPid, runCommand))
       reap(pid)
     }
     launchedPid = launch(absolutePath, dataDir)
@@ -306,6 +309,8 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
     pidAlive,
     heartbeatAgeMs,
     childCount,
+    staleThresholdMs,
+    wedgeHardCapMs,
     action,
     ...(launchedPid === undefined ? {} : { launchedPid }),
     probeErrors,
