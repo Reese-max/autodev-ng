@@ -412,17 +412,16 @@ test('worktree 殘留目錄被鎖定（前次中斷進程仍佔用檔案，rmSyn
   }
 }, 40000)
 
-test('mergeBack ff 失敗（主分支同時被第三方推進且與 worktree 分支分岔）→ report blocked（reason=merge-conflict）+ 告警，worktree/分支保留', async () => {
-  // 第三方推進必須發生在 prepareWorktree 建出分支「之後」才會造成真分岔（若在那之前推進，
-  // worktree 分支反而會包含第三方那筆、對 main 是單純領先，ff 仍會成功）——用 beforeResult
-  // 鉤子（engine.run 內、prepareWorktree 之後才觸發）在提交 engine 自己的 feature.txt 後，
-  // 緊接著在主 repo（非 worktree）直接 commit，模擬使用者/第三方同時動了主分支。
+test('mergeBack 真衝突（主分支與 worktree 改同一檔）→ report blocked（reason=merge-conflict）+ 告警，worktree/分支保留', async () => {
+  // 第三方推進必須發生在 prepareWorktree 建出分支「之後」（若在那之前推進，worktree 分支
+  // 反而包含第三方那筆、對 main 單純領先，ff 仍成功）。rebase-before-merge 上線後，
+  // 不相干檔案的分岔會被 rebase 救回（見下一測試），只有「同檔真衝突」才 blocked。
   let projectPath = ''
   const e = new MockEngine([{
     ok: true,
     beforeResult: job => {
-      commitFile(job.projectPath, 'feature.txt', 'from engine\n', 'feat: engine 完成任務')
-      commitFile(projectPath, 'thirdparty.txt', 'third party\n', 'chore: 第三方推進')
+      commitFile(job.projectPath, 'same.txt', 'from engine\n', 'feat: engine 完成任務')
+      commitFile(projectPath, 'same.txt', 'third party\n', 'chore: 第三方改同一檔')
     }
   }])
   const d = deps(e)
@@ -724,4 +723,24 @@ test('簽名熔斷觸發時 deps.notify 收到告警（含引擎名與簽名熔�
   expect(sent).toHaveLength(1)
   expect(sent[0]).toContain('codex')
   expect(sent[0]).toContain('簽名熔斷')
+})
+
+test('mergeBack 假衝突（主分支前進但檔案不相干）→ rebase 救回、done、記 merge-rebased 事件', async () => {
+  let projectPath = ''
+  const e = new MockEngine([{
+    ok: true,
+    beforeResult: job => {
+      commitFile(job.projectPath, 'feature.txt', 'from engine\n', 'feat: engine 完成任務')
+      commitFile(projectPath, 'thirdparty.txt', 'third party\n', 'chore: 第三方推進不相干檔')
+    }
+  }])
+  const d = deps(e)
+  projectPath = d.cfg.projectPath
+
+  expect(await runOnce(d)).toBe('done')
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  expect(events).toContain('"type":"merge-rebased"')
+  const log = execFileSync('git', ['log', '--oneline', '-3'], { cwd: projectPath, encoding: 'utf8' })
+  expect(log).toContain('engine 完成任務')
+  expect(log).toContain('第三方推進不相干檔')
 })

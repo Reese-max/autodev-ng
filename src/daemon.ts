@@ -201,9 +201,12 @@ async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void>
   let perpetualLine: string | null = null
   try { perpetualLine = deps.cfg.perpetual ? perpetualDigestLine(dataDir) : null } catch { /* fail-open */ }
 
+  let blockedTasks: string[] = []
+  try { blockedTasks = deps.store.read().filter(t => t.status === 'blocked').map(t => t.text) } catch { /* fail-open：讀失敗省略該段 */ }
+
   let text: string
   try {
-    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayLocal(day), offsetHours, subscriptionEngines: subscriptionTags(deps.cfg), perpetualLine, engines: deps.cfg.engines })
+    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayLocal(day), offsetHours, subscriptionEngines: subscriptionTags(deps.cfg), perpetualLine, engines: deps.cfg.engines, blockedTasks })
   } catch {
     return
   }

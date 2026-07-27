@@ -266,3 +266,17 @@ test('buildDigest：零派工且無 cap → 不印今日額度消耗段（避免
   expect(text).not.toContain('今日額度消耗')
   db.close()
 })
+
+test('buildDigest：blocked 任務清單——有積壓列前 5 筆與總數，零積壓整段省略', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-digest-blocked-'))
+  const db = new RunDb(join(dir, 'run.db'))
+  const blocked = ['任務甲 merge-conflict', '任務乙 max-attempts', '任務丙', '任務丁', '任務戊', '任務己']
+  const text = buildDigest({ db, dataDir: dir, isoDayUtc: '2026-07-27', blockedTasks: blocked })
+  expect(text).toContain('blocked 積壓 6 筆')
+  expect(text).toContain('任務甲 merge-conflict')
+  expect(text).toContain('任務戊')
+  expect(text).not.toContain('任務己') // 只列前 5
+  const none = buildDigest({ db, dataDir: dir, isoDayUtc: '2026-07-27', blockedTasks: [] })
+  expect(none).not.toContain('blocked 積壓')
+  db.close()
+})

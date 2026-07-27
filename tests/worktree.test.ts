@@ -399,3 +399,46 @@ test('cleanupWorktree：rmSync 已成功、branch -d 失敗（未合併分支）
   const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
   expect(branches).toContain(wt.branch) // git 記錄殘留（branch -d 失敗的本體）
 })
+
+// ---------------------------------------------------------------------------
+// rebase-before-merge（2026-07-27）：消「主分支前進但檔案不相干」的假衝突
+// ---------------------------------------------------------------------------
+
+test('mergeBack＋worktreePath：主分支前進但檔案不相干 → worktree 內 rebase 後合回成功', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  commitFile(wt.cwd, 'feature.txt', 'from worktree\n', 'feat: worktree 端完成')
+  commitFile(repo, 'thirdparty.txt', 'third party\n', 'chore: 第三方推進')
+
+  const result = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd)
+  expect(result.merged).toBe(true)
+  expect(result.rebased).toBe(true)
+  const log = execFileSync('git', ['log', '--oneline', '-3'], { cwd: repo, encoding: 'utf8' })
+  expect(log).toContain('worktree 端完成')
+  expect(log).toContain('第三方推進')
+})
+
+test('mergeBack＋worktreePath：真衝突（同檔同行）→ rebase abort、現場乾淨、回 merge-conflict', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  commitFile(wt.cwd, 'same.txt', 'worktree version\n', 'feat: worktree 改 same.txt')
+  commitFile(repo, 'same.txt', 'main version\n', 'chore: 主分支改 same.txt')
+
+  const result = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd)
+  expect(result.merged).toBe(false)
+  expect(result.reason).toBe('merge-conflict')
+  // rebase 已 abort：worktree 無 rebase-in-progress 殘留、工作樹乾淨
+  const status = execFileSync('git', ['status', '--porcelain'], { cwd: wt.cwd, encoding: 'utf8' })
+  expect(status.trim()).toBe('')
+  expect(existsSync(wt.cwd)).toBe(true)
+})
+
+test('mergeBack 不帶 worktreePath：分岔行為與現狀完全一致（merge-conflict，不嘗試 rebase）', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  commitFile(wt.cwd, 'feature.txt', 'x\n', 'feat: x')
+  commitFile(repo, 'other.txt', 'y\n', 'chore: y')
+  const result = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead)
+  expect(result.merged).toBe(false)
+  expect(result.reason).toBe('merge-conflict')
+})

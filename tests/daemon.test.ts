@@ -519,7 +519,9 @@ test('⑲ 崩潰計數一次成功 cycle 後歸零：4 崩 → 1 成功 → 再�
     private calls = 0
     read(): Task[] {
       this.calls++
-      if (this.calls === 5) return super.read() // 第 5 輪放行：正常派工成功
+      // 第 6 次放行＝第 5 輪 cycle 的 runOnce 成功：首輪 digest 的 blocked 清單會多讀一次
+      // （checkAndSendDigest 讀 store 組 blocked 段，read throw 由其 fail-open 吞掉）。
+      if (this.calls === 6) return super.read()
       throw new Error('backlog 讀取炸裂（模擬陣發性 I/O 故障）')
     }
   }

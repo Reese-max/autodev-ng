@@ -19,6 +19,8 @@ export interface BuildDigestOpts {
   perpetualLine?: string | null
   /** engines 設定（取 dailyAttemptCap）；未傳＝額度表不顯示 cap／餘量。 */
   engines?: Record<string, { dailyAttemptCap?: number }>
+  /** blocked 任務文字清單；未傳/空＝整段省略。積壓需人工，只落 backlog 檔沒人看（鐵律 #4）。 */
+  blockedTasks?: string[]
 }
 
 /** 每日必達摘要（鐵律 #6）：即使今天零任務、零成本，也要產出一份文字證明通道還活著。 */
@@ -43,6 +45,11 @@ export function buildDigest(opts: BuildDigestOpts): string {
   }
   if (other > 0) {
     lines.push(`⚠ 本日驗證鏈其他告警 ${other} 次（詳見 events.jsonl）`)
+  }
+  const blockedTasks = opts.blockedTasks ?? []
+  if (blockedTasks.length > 0) {
+    lines.push(`⚠ blocked 積壓 ${blockedTasks.length} 筆（需人工重開或棄置）：`)
+    for (const t of blockedTasks.slice(0, 5)) lines.push(`  - ${t.slice(0, 60)}`)
   }
   lines.push(`adng 通道自檢 OK`)
   if (opts.perpetualLine != null) lines.push(opts.perpetualLine)

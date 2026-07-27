@@ -4,13 +4,15 @@ import { dirname, join } from 'node:path'
 
 export interface WorktreeHandle { cwd: string; branch: string; baseBranch: string; baseHead: string }
 export type MergeBackFailReason = 'branch-switched' | 'merge-conflict'
-export interface MergeBackResult { merged: boolean; commitHash?: string; reason?: MergeBackFailReason }
+export interface MergeBackResult { merged: boolean; commitHash?: string; reason?: MergeBackFailReason; rebased?: boolean }
 
 /** worktree 根目錄的旗標檔：verifier 的 defaultRollback 守門用它辨識「這是 adng 管理的
  * worktree」才允許 `git reset --hard`，防止誤傷使用者一般專案目錄裡未提交的工作。 */
 const WORKTREE_MARKER = '.adng-worktree'
 const ADD_REMOVE_TIMEOUT_MS = 30_000
 const QUICK_TIMEOUT_MS = 10_000
+/** rebase 需重放任務分支全部 commit，給寬於 QUICK 的上限。 */
+const REBASE_TIMEOUT_MS = 60_000
 
 function branchNameFor(taskId: string): string {
   return `adng/${taskId}`
@@ -164,7 +166,7 @@ export function prepareWorktree(projectPath: string, worktreesDir: string, taskI
  * cleanupWorktree 的 branch -d 一併清掉、靜默遺失）。身分不符一律回
  * `{merged:false, reason:'branch-switched'}`，不執行 merge、不拋——呼叫端決定 blocked。
  */
-export function mergeBack(projectPath: string, branch: string, expectedBaseBranch: string, expectedBaseHead: string): MergeBackResult {
+export function mergeBack(projectPath: string, branch: string, expectedBaseBranch: string, expectedBaseHead: string, worktreePath?: string): MergeBackResult {
   let nowBranch: string
   try {
     nowBranch = currentBranch(projectPath)
@@ -187,13 +189,30 @@ export function mergeBack(projectPath: string, branch: string, expectedBaseBranc
     }
   }
 
+  let rebased = false
   try {
     git(['merge', '--ff-only', branch], projectPath, QUICK_TIMEOUT_MS)
   } catch {
-    return { merged: false, reason: 'merge-conflict' }
+    // rebase-before-merge（2026-07-27）：ff-only 失敗多半是主分支前進造成的分岔，未必真衝突
+    // （實測一天 3+ 件假衝突 blocked）。有 worktreePath 才嘗試：在 worktree 內（隔離現場）
+    // rebase 到最新主分支，成功→分支重回直系後代，重試 ff-only；rebase 衝突→abort 還原現場
+    // →真衝突照舊 blocked。主 repo 全程不落任何 merge 狀態。
+    if (!worktreePath) return { merged: false, reason: 'merge-conflict' }
+    try {
+      git(['rebase', expectedBaseBranch], worktreePath, REBASE_TIMEOUT_MS)
+    } catch {
+      try { git(['rebase', '--abort'], worktreePath, QUICK_TIMEOUT_MS) } catch { /* 無進行中 rebase 亦安全 */ }
+      return { merged: false, reason: 'merge-conflict' }
+    }
+    try {
+      git(['merge', '--ff-only', branch], projectPath, QUICK_TIMEOUT_MS)
+    } catch {
+      return { merged: false, reason: 'merge-conflict' }
+    }
+    rebased = true
   }
   const commitHash = git(['rev-parse', 'HEAD'], projectPath, QUICK_TIMEOUT_MS).trim()
-  return { merged: true, commitHash }
+  return { merged: true, commitHash, ...(rebased ? { rebased } : {}) }
 }
 
 /** M5 Task 2：rmSync 成功「之後」的 git 記錄清理（prune／branch -d）失敗專用錯誤型別。
