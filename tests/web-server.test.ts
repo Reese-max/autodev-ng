@@ -36,6 +36,12 @@ test('makeToken：48 hex 字元、每次不同', () => {
   expect(a).not.toBe(b)
 })
 
+test('Web 成本面板將 0 上限顯示為無上限且不觸發紅色硬頂', () => {
+  const html = readFileSync(INDEX_HTML, 'utf8')
+  expect(html).toContain("s.cost.hard === 0")
+  expect(html).toContain("s.cost.soft === 0")
+})
+
 test('hasValidToken：header 或 query 對上任一即通過，都不對則拒絕', () => {
   const url1 = new URL('http://x/api/run-once?token=tok')
   expect(hasValidToken({ headers: {} }, url1, 'tok')).toBe(true)

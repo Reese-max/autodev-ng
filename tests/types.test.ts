@@ -14,6 +14,17 @@ test('合法設定通過驗證且套用預設值', () => {
   expect(cfg.stopFile).toBe('.adng.stop')
 })
 
+test('timeout 與專案成本軟硬頂可用 0 明確停用', () => {
+  const cfg = ConfigSchema.parse({
+    projectPath: 'D:/x/proj', backlogFile: 'D:/x/proj/BACKLOG.md', dataDir: 'D:/x/data',
+    dailySoftUsd: 0, dailyHardUsd: 0,
+    engines: { oc: { adapter: 'opencode', timeoutMs: 0 } }, defaultEngine: 'oc'
+  })
+  expect(cfg.dailySoftUsd).toBe(0)
+  expect(cfg.dailyHardUsd).toBe(0)
+  expect(cfg.engines.oc?.timeoutMs).toBe(0)
+})
+
 test('非法 engine 被拒', () => {
   expect(() => ConfigSchema.parse({
     projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'gpt99'

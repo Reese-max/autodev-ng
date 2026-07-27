@@ -66,7 +66,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   }
 
   const spent = todayCost(db, cfg)
-  if (spent >= cfg.dailyHardUsd) {
+  if (cfg.dailyHardUsd > 0 && spent >= cfg.dailyHardUsd) {
     quiet(() => events.appendOnce('cost-hard-stop', { spent }))
     writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
     return 'cost-hard-stop'
@@ -83,7 +83,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     }
   }
 
-  if (spent >= cfg.dailySoftUsd) quiet(() => events.appendOnce('cost-soft-warn', { spent }))
+  if (cfg.dailySoftUsd > 0 && spent >= cfg.dailySoftUsd) quiet(() => events.appendOnce('cost-soft-warn', { spent }))
 
   const openTasks = store.read().filter(t => t.status === 'open')
   if (openTasks.length === 0) {

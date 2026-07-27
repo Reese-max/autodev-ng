@@ -100,6 +100,16 @@ test('成本硬停：超過 dailyHardUsd 不再派工', async () => {
   expect(e.calls).toHaveLength(0)
 })
 
+test('dailySoftUsd/dailyHardUsd=0：停用專案日成本告警與硬停', async () => {
+  const e = new MockEngine()
+  const d = deps(e)
+  d.db.record({ taskId: 'z', ok: true, costUsd: 999, detail: 'burn' })
+  const cfg = { ...d.cfg, dailySoftUsd: 0, dailyHardUsd: 0 }
+  expect(await runOnce({ ...d, cfg })).toBe('done')
+  expect(e.calls).toHaveLength(1)
+  expect(readFileSync(join(cfg.dataDir, 'events.jsonl'), 'utf8')).not.toContain('cost-soft-warn')
+})
+
 test('M9.9：訂閱引擎花費不觸日頂，真金引擎照觸', async () => {
   const engines = {
     claude: { adapter: 'mock' as const },

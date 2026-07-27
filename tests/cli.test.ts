@@ -116,6 +116,15 @@ test('formatStatus：完整資料 → 內容含 heartbeat 狀態、成本軟硬�
   expect(text).toContain('最後 digest 日期：2026-07-05')
 })
 
+test('formatStatus：成本軟硬頂為 0 時顯示無上限', () => {
+  const text = formatStatus({
+    heartbeat: { ts: 't', state: 'idle', todayCostUsd: 123 },
+    dailySoftUsd: 0, dailyHardUsd: 0,
+    backlog: { open: 0, blocked: 0, done: 0 }, dlqCount: 0,
+  })
+  expect(text).toContain('軟頂 無上限 / 硬頂 無上限')
+})
+
 test('formatStatus：無 currentTask 時不印該欄位；lastDigestDay 缺省印「尚未發送過」', () => {
   const text = formatStatus({
     heartbeat: { ts: 't', state: 'idle', todayCostUsd: 0 },

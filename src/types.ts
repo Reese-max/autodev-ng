@@ -73,7 +73,7 @@ export const EngineConfigSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
   model: z.string().optional(),
   effort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(), // codex reasoning effort；enum 擋非法值（max 會 400，proxy 實測 2026-07-05）
-  timeoutMs: z.number().int().positive().optional(),
+  timeoutMs: z.number().int().nonnegative().optional(), // 0＝停用 wall timeout；未設＝adapter 預設
   /** 單引擎每日 attempts 上限（可選）；未設＝不限。正整數，與 today-attempts 聚合對齊。 */
   dailyAttemptCap: z.number().int().positive().optional(),
 })
@@ -92,8 +92,8 @@ export const ConfigSchema = z.object({
   dataDir: z.string().min(1),
   engine: z.enum(['mock', 'claude-cli']).optional(), // legacy 欄位：純新形狀（只寫 engines map）可缺；與 engines 全缺由 superRefine 拒
   maxAttempts: z.number().int().positive().default(2),
-  dailySoftUsd: z.number().positive().default(40),
-  dailyHardUsd: z.number().positive().default(100),
+  dailySoftUsd: z.number().nonnegative().default(40), // 0＝停用該專案日成本告警
+  dailyHardUsd: z.number().nonnegative().default(100),
   // M10.5 全域日頂：跨專案真金總帳防線。未設＝無全域防線（現狀）。
   globalDailyHardUsd: z.number().positive().optional(),
   cooldownMs: z.number().int().nonnegative().default(60_000),

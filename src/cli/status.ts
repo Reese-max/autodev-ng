@@ -22,6 +22,10 @@ export interface StatusInput {
   lastDigestDay?: string
 }
 
+function formatCostLimit(value: number): string {
+  return value === 0 ? '無上限' : `$${value.toFixed(2)}`
+}
+
 export function formatStatus(input: StatusInput): string {
   if (!input.heartbeat) return 'daemon 未跑過（heartbeat.json 不存在）'
 
@@ -33,7 +37,7 @@ export function formatStatus(input: StatusInput): string {
   return [
     'adng status',
     `heartbeat：${hb.ts}｜state=${hb.state}${taskLine}`,
-    `今日成本：$${hb.todayCostUsd.toFixed(4)}（軟頂 $${input.dailySoftUsd.toFixed(2)} / 硬頂 $${input.dailyHardUsd.toFixed(2)}）`,
+    `今日成本：$${hb.todayCostUsd.toFixed(4)}（軟頂 ${formatCostLimit(input.dailySoftUsd)} / 硬頂 ${formatCostLimit(input.dailyHardUsd)}）`,
     backlogLine,
     `DLQ 積壓：${input.dlqCount} 筆`,
     `最後 digest 日期：${input.lastDigestDay ?? '尚未發送過'}`,

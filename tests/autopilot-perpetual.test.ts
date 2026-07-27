@@ -107,6 +107,12 @@ describe('runPerpetualCycle 前置閘（安靜讓路）', () => {
     expect(eventTypes(dir)).toEqual([])
   })
 
+  test('dailyHardUsd=0 → 不套用成本硬停，仍可進入 discover', async () => {
+    const hooks = makeHooks({ billedToday: () => 999 })
+    await runPerpetualCycle(makeCfg(dir, { dailyHardUsd: 0 }), dir, events, async () => true, hooks)
+    expect(hooks.discover).toHaveBeenCalledOnce()
+  })
+
   test('冷卻窗內 → false，狀態不變、discover 未呼叫', async () => {
     savePerpetualState(dir, { lastSessionTs: '2026-07-13T23:59:59Z', consecutiveEmpty: 0, currentCooldownMs: 6000, manualGoalDone: '' })
     const hooks = makeHooks()

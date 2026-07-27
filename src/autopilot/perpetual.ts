@@ -61,7 +61,7 @@ export async function runPerpetualCycle(
     // 不得逸出 runPerpetualCycle（鐵律 #4）。閘門順序與安靜讓路行為不變。
     if (cfg.perpetual !== true) return false
     if (existsSync(cfg.stopFile)) return false
-    if (hooks.billedToday() >= cfg.dailyHardUsd) return false
+    if (cfg.dailyHardUsd > 0 && hooks.billedToday() >= cfg.dailyHardUsd) return false
 
     const cooldownDefault = cfg.perpetualCooldownMs ?? DEFAULT_COOLDOWN_MS
     const threshold = cfg.perpetualValueThreshold ?? DEFAULT_VALUE_THRESHOLD

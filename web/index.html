@@ -258,10 +258,12 @@
     document.getElementById('hbDetail').textContent = hb
       ? `ts=${hb.ts}${hb.currentTask ? '｜task=' + hb.currentTask : ''}` : 'heartbeat.json 不存在'
 
-    document.getElementById('costLine').textContent = `$${fmt(s.cost.today)} / 軟 $${s.cost.soft} · 硬 $${s.cost.hard}`
-    const pct = Math.min(100, (s.cost.today / s.cost.hard) * 100)
+    const softUnlimited = s.cost.soft === 0
+    const hardUnlimited = s.cost.hard === 0
+    document.getElementById('costLine').textContent = `$${fmt(s.cost.today)} / 軟 ${softUnlimited ? '無上限' : '$' + s.cost.soft} · 硬 ${hardUnlimited ? '無上限' : '$' + s.cost.hard}`
+    const pct = hardUnlimited ? 0 : Math.min(100, (s.cost.today / s.cost.hard) * 100)
     const bar = document.getElementById('costBar')
-    bar.className = 'bar' + (s.cost.today >= s.cost.hard ? ' hard' : s.cost.today >= s.cost.soft ? ' warn' : '')
+    bar.className = 'bar' + (!hardUnlimited && s.cost.today >= s.cost.hard ? ' hard' : !softUnlimited && s.cost.today >= s.cost.soft ? ' warn' : '')
     bar.querySelector('i').style.width = pct + '%'
 
     document.getElementById('backlogLine').textContent = s.backlogError
