@@ -77,6 +77,17 @@ test('pid.json 指向存活進程時，即使 mtime 極舊也不被 steal（PID 
   expect(acquireLock(dir, 30 * 60 * 1000)).toBe(false) // PID 活著，不看 mtime，不 steal
 })
 
+test.runIf(process.platform === 'win32')('pid.json 的 PID 已被較晚啟動程序重用時立即 steal', () => {
+  const dir = join(mkdtempSync(join(tmpdir(), 'adng-lk-')), 'lock')
+  mkdirSync(dir)
+  writeFileSync(join(dir, 'pid.json'), JSON.stringify({
+    pid: process.pid,
+    startedAt: '2000-01-01T00:00:00.000Z',
+  }))
+
+  expect(acquireLock(dir, 30 * 60 * 1000)).toBe(true)
+})
+
 function assertPidIsDead(pid: number): void {
   try {
     process.kill(pid, 0)

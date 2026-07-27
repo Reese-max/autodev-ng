@@ -1,4 +1,5 @@
 import { mkdirSync, rmSync, statSync, renameSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
 interface PidInfo {
@@ -16,6 +17,27 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
+/** Windows 會重用 PID；若目前程序的啟動時間晚於鎖建立時間，它不可能是原持鎖者。 */
+function isReusedWindowsPid(pid: number, lockStartedAt: string): boolean {
+  if (process.platform !== 'win32') return false
+  const lockStartedAtMs = Date.parse(lockStartedAt)
+  if (!Number.isFinite(lockStartedAtMs)) return false
+
+  try {
+    const raw = execFileSync('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
+    ], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
+    const processStartedAtMs = Date.parse(raw.trim())
+    return Number.isFinite(processStartedAtMs) && processStartedAtMs > lockStartedAtMs + 5_000
+  } catch {
+    // ponytail: Windows-only identity check; fail-safe as alive if the probe is unavailable.
+    return false
+  }
+}
+
 /** 讀 dir/pid.json 判定鎖主人是否存活。缺失/損壞/pid 非正整數一律回 'unknown'（fallback 舊 mtime 邏輯），
  *  讀取過程任何例外皆視為「損壞」（驗活是盡力而為，不 rethrow）。 */
 function checkLockOwner(dir: string): 'alive' | 'dead' | 'unknown' {
@@ -23,7 +45,9 @@ function checkLockOwner(dir: string): 'alive' | 'dead' | 'unknown' {
     const parsed = JSON.parse(readFileSync(join(dir, 'pid.json'), 'utf8')) as Partial<PidInfo>
     const pid = parsed.pid
     if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return 'unknown'
-    return isPidAlive(pid) ? 'alive' : 'dead'
+    if (!isPidAlive(pid)) return 'dead'
+    if (typeof parsed.startedAt === 'string' && isReusedWindowsPid(pid, parsed.startedAt)) return 'dead'
+    return 'alive'
   } catch {
     return 'unknown'
   }
