@@ -147,12 +147,22 @@ export function buildStatusPayload({ cfg, store, db, dbPath, localDayFn }) {
 export function buildProjectSummary(name, ctx) {
   try {
     const payload = buildStatusPayload({ cfg: ctx.cfg, store: ctx.store, db: ctx.db, dbPath: ctx.dbPath, localDayFn: ctx.localDayFn })
+    // 駕駛艙卡片欄位（GOAL cockpit）：今日成敗走 db.dayStats（與 digest 同源）；dayStats 失敗 fail-open 零值。
+    let todayOk = 0, todayFail = 0
+    try {
+      const day = ctx.localDayFn(new Date().toISOString(), ctx.cfg.timezoneOffsetHours)
+      const st = ctx.db.dayStats(day, ctx.cfg.timezoneOffsetHours)
+      todayOk = st.ok; todayFail = st.fail
+    } catch { /* fail-open */ }
     return {
       name,
       state: payload.heartbeat?.state ?? 'unknown',
       ts: payload.ts,
+      currentTask: payload.heartbeat?.currentTask,
       todayCostUsd: payload.cost.today,
+      todayOk, todayFail,
       backlogOpen: payload.backlog.open,
+      backlogBlocked: payload.backlog.blocked,
       daemonAlive: readDaemonLockOwner(ctx.cfg.dataDir) === 'alive',
     }
   } catch (err) {
@@ -230,6 +240,114 @@ export function readSilencedUntil(dataDir, now = new Date()) {
     return untilMs > now.getTime() ? untilIso : null
   } catch {
     return null
+  }
+}
+
+// ---------- 駕駛艙讀取層（GOAL cockpit 2026-07-28）：全部唯讀 fail-open，單一來源壞回空值。 ----------
+const COCKPIT_WINDOW_DAYS = 7
+
+/** 近 7 日各引擎成敗統計（獨立唯讀連線，鏡像 readRecentAttempts 慣例）。 */
+export function readEngineStats7d(dbPath) {
+  if (!existsSync(dbPath)) return []
+  let db
+  try {
+    db = new Database(dbPath, { readonly: true, fileMustExist: true })
+    const since = new Date(Date.now() - COCKPIT_WINDOW_DAYS * 86400000).toISOString()
+    return db.prepare(
+      'SELECT engine, COUNT(*) AS n, SUM(ok) AS ok FROM attempts WHERE ts >= ? GROUP BY engine ORDER BY n DESC'
+    ).all(since).map(r => ({ engine: r.engine, n: r.n, ok: r.ok ?? 0 }))
+  } catch { return [] } finally { try { db?.close() } catch { /* ignore */ } }
+}
+
+/** 隔離中引擎（engine-routing-state.json isolated，untilTs 未過期者）。 */
+export function readIsolatedEngines(dataDir, now = new Date()) {
+  try {
+    const raw = JSON.parse(readFileSync(join(dataDir, 'engine-routing-state.json'), 'utf8'))
+    const iso = raw && typeof raw === 'object' ? raw.isolated : null
+    if (!iso || typeof iso !== 'object') return []
+    const out = []
+    for (const [engine, entry] of Object.entries(iso)) {
+      if (!entry || typeof entry !== 'object') continue
+      const untilMs = new Date(entry.untilTs ?? '').getTime()
+      if (Number.isNaN(untilMs) || untilMs <= now.getTime()) continue
+      out.push({ engine, untilTs: entry.untilTs, reason: typeof entry.reason === 'string' ? entry.reason : '' })
+    }
+    return out
+  } catch { return [] }
+}
+
+/** guardian-runs.jsonl 尾 n 筆（最新在前）；純允許清單欄位輸出。 */
+export function readGuardianTail(dataDir, n = 10) {
+  const lines = readLines(join(dataDir, 'guardian-runs.jsonl')).slice(-n)
+  const out = []
+  for (const line of lines) {
+    try {
+      const r = JSON.parse(line)
+      out.push({
+        ts: r.ts, status: r.status, summary: typeof r.summary === 'string' ? r.summary : '',
+        durationMs: typeof r.durationMs === 'number' ? r.durationMs : null,
+        inputTokens: typeof r.inputTokens === 'number' ? r.inputTokens : null,
+        outputTokens: typeof r.outputTokens === 'number' ? r.outputTokens : null,
+        model: typeof r.model === 'string' ? r.model : '',
+      })
+    } catch { /* 壞行跳過 */ }
+  }
+  return out.reverse()
+}
+
+/** 近 7 日機制成效計數（merge-rebased / author-northstar-reject / engine-route-isolated）。 */
+export function readMechanismCounts(dataDir, now = new Date()) {
+  const sinceMs = now.getTime() - COCKPIT_WINDOW_DAYS * 86400000
+  const counts = { mergeRebased: 0, northstarReject: 0, engineIsolated: 0 }
+  for (const line of readLines(join(dataDir, 'events.jsonl'))) {
+    try {
+      const e = JSON.parse(line)
+      const tsMs = new Date(e.ts ?? '').getTime()
+      if (Number.isNaN(tsMs) || tsMs < sinceMs) continue
+      if (e.type === 'merge-rebased') counts.mergeRebased++
+      else if (e.type === 'author-northstar-reject') counts.northstarReject++
+      else if (e.type === 'engine-route-isolated') counts.engineIsolated++
+    } catch { /* 壞行跳過 */ }
+  }
+  return counts
+}
+
+const BLOCKED_NOTE_RE = /\s*<!--\s*adng:blocked\b[\s\S]*?-->/
+
+/** blocked 任務明細：直接掃 backlog 原始行（reason 只存在行內註記，Task 型別不帶）。 */
+export function readBlockedTasks(backlogFile) {
+  const out = []
+  const lines = readLines(backlogFile)
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]
+    if (!/^- \[ \]/.test(raw) || !/<!--\s*adng:blocked\b/.test(raw)) continue
+    const reason = raw.match(/adng:blocked\s+reason="([^"]*)"/)?.[1] ?? ''
+    const text = raw.replace(/<!--[\s\S]*?-->/g, '').replace(/^- \[ \]\s*/, '').trim()
+    out.push({ line: i + 1, text, reason })
+  }
+  return out
+}
+
+/** 一鍵重開：移除指定行的 adng:blocked 註記（其餘註記原樣保留）。line 為 1-based；
+ * 行號＋match 文字雙鍵核對（防 daemon 同時改檔造成行漂移誤改），對不上或已重開 → changed:false 冪等。
+ * ponytail: read-modify-write 無鎖——與人工手改同級的競態風險，daemon 每輪重讀 backlog 自癒。 */
+export function reopenBlockedLine(backlogFile, line, match) {
+  try {
+    if (!existsSync(backlogFile) || !Number.isInteger(line) || line < 1 || typeof match !== 'string' || !match) {
+      return { ok: true, changed: false }
+    }
+    const content = readFileSync(backlogFile, 'utf8')
+    const lines = content.split(/\r?\n/)
+    const idx = line - 1
+    const raw = lines[idx]
+    if (typeof raw !== 'string' || !raw.includes(match) || !/<!--\s*adng:blocked\b/.test(raw)) {
+      return { ok: true, changed: false }
+    }
+    lines[idx] = raw.replace(BLOCKED_NOTE_RE, '')
+    writeFileSync(backlogFile, lines.join('\n'))
+    return { ok: true, changed: true }
+  } catch (err) {
+    return { ok: false, changed: false, error: String(err) }
   }
 }
 
@@ -449,6 +567,28 @@ export function createRequestHandler(ctxOrMap) {
       attachLogsSse(req, res, cfg.dataDir)
       return
     }
+    // 駕駛艙讀取端點（GOAL cockpit）：GET 無副作用，鏡像 /api/status 不設 CSRF；各來源 fail-open。
+    if (req.method === 'GET' && url.pathname === '/api/cockpit/engines') {
+      const caps = {}
+      for (const [tag, e] of Object.entries(cfg.engines ?? {})) {
+        caps[tag] = { dailyAttemptCap: e.dailyAttemptCap ?? null, subscription: !!e.subscription }
+      }
+      const engines = readEngineStats7d(dbPath).map(r => ({ ...r, ...(caps[r.engine] ?? { dailyAttemptCap: null, subscription: false }) }))
+      send(200, { engines, isolated: readIsolatedEngines(cfg.dataDir) })
+      return
+    }
+    if (req.method === 'GET' && url.pathname === '/api/cockpit/blocked') {
+      send(200, { blocked: readBlockedTasks(cfg.backlogFile) })
+      return
+    }
+    if (req.method === 'GET' && url.pathname === '/api/cockpit/guardian') {
+      send(200, { runs: readGuardianTail(cfg.dataDir) })
+      return
+    }
+    if (req.method === 'GET' && url.pathname === '/api/cockpit/mechanisms') {
+      send(200, readMechanismCounts(cfg.dataDir))
+      return
+    }
     // 讀取層，鏡像 /api/status 不設 CSRF（GET 無副作用）。name 白名單外一律 404。
     if (req.method === 'GET' && url.pathname.startsWith('/api/panel/')) {
       const name = url.pathname.slice('/api/panel/'.length)
@@ -497,6 +637,13 @@ export function createRequestHandler(ctxOrMap) {
         const handleCommand = await getHandleCommand()
         const r = await handleCommand('resume', '', botDeps)
         send(200, { ok: r.ok, text: r.text })
+        return
+      }
+      // 駕駛艙控制：一鍵重開 blocked（行號＋文字雙鍵核對，冪等）。
+      if (req.method === 'POST' && url.pathname === '/api/backlog/reopen') {
+        const body = await readJsonBody(req)
+        const r = reopenBlockedLine(cfg.backlogFile, Number(body.line), String(body.match ?? ''))
+        send(r.ok ? 200 : 500, r)
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/task') {

@@ -128,6 +128,24 @@
         <button id="btnGoalStop" class="stop">■ Stop</button>
       </div>
     </div>
+    <div class="card" style="grid-column:1/-1">
+      <h2>引擎戰績（近 7 日）</h2>
+      <table><thead><tr><th>引擎</th><th>成/總</th><th>成功率</th><th>cap</th><th>隔離</th></tr></thead>
+      <tbody id="enginesBody"><tr><td colspan="5">—</td></tr></tbody></table>
+    </div>
+    <div class="card" style="grid-column:1/-1">
+      <h2>Blocked 治理</h2>
+      <table><thead><tr><th>任務</th><th>原因</th><th></th></tr></thead>
+      <tbody id="blockedBody"><tr><td colspan="3">—</td></tr></tbody></table>
+    </div>
+    <div class="card">
+      <h2>Guardian（最近 10 筆）</h2>
+      <pre class="panelText" id="guardianText">—</pre>
+    </div>
+    <div class="card">
+      <h2>機制成效（近 7 日）</h2>
+      <div class="sub" id="mechanismsLine">—</div>
+    </div>
     <div class="card">
       <h2>投任務</h2>
       <div class="sub">送入 backlog，成功後自動刷新 Backlog 面板</div>
@@ -242,6 +260,57 @@
   }
   async function pollPanels() {
     for (const name of PANELS) await loadPanel(name)
+    await loadCockpit()
+  }
+
+  // ---- 駕駛艙面板（GOAL cockpit）：JSON 端點各自渲染；單一面板失敗不拖垮其餘 ----
+  async function fetchJson(path) {
+    const res = await fetch(withProject(path))
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    return res.json()
+  }
+  async function loadCockpit() {
+    if (projectsMode && !currentProject) return
+    try {
+      const r = await fetchJson('/api/cockpit/engines')
+      const isoMap = {}
+      for (const i of r.isolated) isoMap[i.engine] = i.reason
+      document.getElementById('enginesBody').innerHTML = r.engines.length
+        ? r.engines.map(e => `<tr><td>${esc(e.engine || '(未標)')}</td><td>${e.ok}/${e.n}</td>
+            <td>${e.n ? Math.round(100 * e.ok / e.n) + '%' : '—'}</td><td>${e.dailyAttemptCap ?? '—'}</td>
+            <td>${isoMap[e.engine] ? '<span class="badge badge-red">' + esc(String(isoMap[e.engine]).slice(0, 40)) + '</span>' : '—'}</td></tr>`).join('')
+        : '<tr><td colspan="5">近 7 日無派工</td></tr>'
+    } catch { /* 面板獨立 fail-open */ }
+    try {
+      const r = await fetchJson('/api/cockpit/blocked')
+      document.getElementById('blockedBody').innerHTML = r.blocked.length
+        ? r.blocked.map(b => `<tr><td>${esc(b.text.slice(0, 70))}</td><td>${esc(b.reason.slice(0, 40))}</td>
+            <td><button class="ghost" style="padding:3px 8px;font-size:11px" data-reopen="${b.line}" data-match="${esc(b.text.slice(0, 20))}">重開</button></td></tr>`).join('')
+        : '<tr><td colspan="3">無積壓 🎉</td></tr>'
+      document.querySelectorAll('[data-reopen]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const res = await fetch(withProject('/api/backlog/reopen'), {
+            method: 'POST', headers: { 'x-csrf-token': tokenInput.value, 'content-type': 'application/json' },
+            body: JSON.stringify({ line: Number(btn.getAttribute('data-reopen')), match: btn.getAttribute('data-match') }),
+          })
+          const body = await res.json().catch(() => ({}))
+          if (res.status === 403) { flash('403：token 錯誤或缺失', true); return }
+          flash(body.changed ? '已重開，daemon 下輪自動撿起' : '未變更（可能已重開或檔案已變動）', !body.ok)
+          loadCockpit()
+        })
+      })
+    } catch { /* fail-open */ }
+    try {
+      const r = await fetchJson('/api/cockpit/guardian')
+      document.getElementById('guardianText').textContent = r.runs.length
+        ? r.runs.map(g => `[${String(g.ts ?? '').slice(11, 19)}] ${g.status} ${String(g.summary).slice(0, 60)}`).join('\n')
+        : '尚無 Guardian 巡檢紀錄'
+    } catch { /* fail-open */ }
+    try {
+      const r = await fetchJson('/api/cockpit/mechanisms')
+      document.getElementById('mechanismsLine').textContent =
+        `rebase 救回 ${r.mergeRebased}｜北極星攔截 ${r.northstarReject}｜引擎隔離 ${r.engineIsolated}`
+    } catch { /* fail-open */ }
   }
   document.querySelectorAll('[data-refresh]').forEach(btn => {
     btn.addEventListener('click', () => loadPanel(btn.getAttribute('data-refresh')))
@@ -322,11 +391,13 @@
           <h2>${esc(p.name)}</h2><div class="panelErr" style="display:block">讀取失敗：${esc(p.error)}</div></div>`
       }
       const daemonBadge = p.daemonAlive ? '<span class="badge badge-green">daemon 活</span>' : '<span class="badge badge-red">daemon 死</span>'
+      const blockedBadge = p.backlogBlocked > 0 ? `<span class="badge badge-yellow">blocked ${p.backlogBlocked}</span>` : ''
       return `<div class="card" data-project="${esc(p.name)}" style="cursor:pointer">
         <h2>${esc(p.name)}</h2>
         <div class="big state-${esc(p.state)}">${esc(p.state)}</div>
-        <div class="sub">今日成本 $${fmt(p.todayCostUsd)}｜backlog 未完 ${p.backlogOpen}</div>
-        ${daemonBadge}
+        ${p.currentTask ? `<div class="sub">▶ ${esc(String(p.currentTask).slice(0, 60))}</div>` : ''}
+        <div class="sub">今日 ✅${p.todayOk ?? 0}／❌${p.todayFail ?? 0}｜成本 $${fmt(p.todayCostUsd)}｜未完 ${p.backlogOpen}</div>
+        ${daemonBadge} ${blockedBadge}
       </div>`
     }).join('')
     document.querySelectorAll('#projectCards [data-project]').forEach(el => {
