@@ -210,3 +210,13 @@ test('discoverProblems 把 readHandledTitles 餵進 critic prompt；throw 則 fa
     readHandledTitles: () => { throw new Error('boom') }, lenses: ['correctness'] }, goal, '/proj')
   expect(prompts2.at(-1) ?? '').not.toContain('已處理過或已卡住')
 })
+
+test('finder prompt 框架鬆綁：問題之外，能力缺口也是合法答案', async () => {
+  const prompts: string[] = []
+  const finder = seqLlm(['NONE'], prompts)
+  const critic = seqLlm(['NONE'])
+  await discoverProblems({ finderLlm: finder, criticLlm: critic,
+    runSurvey: () => ({ output: '' }), readEvidence: () => '', lenses: ['功能缺口'] }, goal, '/proj')
+  expect(prompts[0]).toContain('能力缺口')
+  expect(prompts[0]).toContain('使用者價值')
+})

@@ -10,7 +10,7 @@
   "judgeModel": "gpt-5.4-mini",
   "judgeApiKey": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h",
   "auditModel": "gpt-5.6-sol",
-  "surveyCommand": "\"D:/Users/Administrator/Desktop/筆記補齊/.venv/Scripts/python.exe\" -X utf8 -m pytest -m \"not integration\" -q",
+  "surveyCommand": "\"D:/Users/Administrator/Desktop/筆記補齊/.venv/Scripts/python.exe\" -X utf8 scripts/discovery_survey.py",
   "surveyTimeoutMs": 300000,
   "botAllowedUserIds": [
     "844236700611379200"

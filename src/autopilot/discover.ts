@@ -42,7 +42,7 @@ export interface DiscoverResult { survey: string; ranked: RankedProblem[] }
 
 function finderPrompt(lens: string, survey: string, evidence: string): string {
   return [
-    `你是「${lens}」視角的問題發現者。只從「${lens}」角度，找出專案的具體問題（0~5 條，沒有回 NONE）。`,
+    `你是「${lens}」視角的問題發現者。只從「${lens}」角度，找出專案的具體問題，或能顯著提升使用者價值的能力缺口（合計 0~5 條，沒有回 NONE）。`,
     '每行一問題：<簡短標題>｜<一句證據/理由>',
     `\n# 勘查訊號\n${survey || '（無）'}`,
     `\n# 佐證檔案\n${evidence || '（無）'}`
