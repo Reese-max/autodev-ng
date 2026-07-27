@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { localDay, localDayUtcRange } from '../db.js'
+import { digestNoCommitCapAdviceLines } from './no-commit-cap-advice.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const WINDOW_DAYS = 7
@@ -103,7 +104,8 @@ export function digestMechanismLines(dataDir: string, isoDayUtc: string, offsetH
     count: countRecentEvent(dataDir, metric.type, window),
   }))
   const timeoutTrend = timeoutFailureTrend(dataDir, window)
-  if (!events.some(metric => (metric.count ?? 0) > 0) && !timeoutTrend?.some(day => day.count > 0)) return []
+  const capAdvice = digestNoCommitCapAdviceLines(dataDir, isoDayUtc, offsetHours)
+  if (!events.some(metric => (metric.count ?? 0) > 0) && !timeoutTrend?.some(day => day.count > 0)) return capAdvice
 
   const lines = ['機制成效（近 7 日）：']
   for (const metric of events) {
@@ -112,5 +114,5 @@ export function digestMechanismLines(dataDir: string, isoDayUtc: string, offsetH
   if (timeoutTrend) {
     lines.push(`  run.db timeout 類失敗趨勢：${timeoutTrend.map(({ day, count }) => `${day.slice(5)} ${count}`).join('｜')}`)
   }
-  return lines
+  return [...lines, ...capAdvice]
 }
