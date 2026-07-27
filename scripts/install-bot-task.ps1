@@ -16,7 +16,7 @@
 
     READINESS VERIFICATION (pitfall 18): do NOT trust Task
     Scheduler state or a live PID. Verify by checking that
-    data\voice-actress\bot-console.log gains an "adng bot ready"
+    data\bot-console.log gains an "adng bot ready"
     line after the task fires, and that /status answers in Discord.
 
     PowerShell 5.1 compatible. Pure ASCII. Supports -WhatIf.
@@ -87,6 +87,6 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register scheduled task')) {
     }
     Write-Host ''
     Write-Host 'NEXT - readiness check (pitfall 18): after the task fires, confirm'
-    Write-Host ('  ' + (Join-Path $RepoRoot 'data\voice-actress\bot-console.log'))
+    Write-Host ('  ' + (Join-Path $RepoRoot 'data\bot-console.log'))
     Write-Host 'gains an "adng bot ready" line, then run /status in Discord.'
 }
