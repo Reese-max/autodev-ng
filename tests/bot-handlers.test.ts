@@ -231,3 +231,34 @@ describe('未知指令與 handler 內部 throw', () => {
     expect(out.text.length).toBeGreaterThan(0)
   })
 })
+
+describe('status 進度段（2026-07-27）', () => {
+  test('今日戰績＋最近完成任務＋blocked 積壓全部浮出', async () => {
+    const s = setup('- [ ] 任務一\n- [ ] 卡住的任務 <!-- adng:blocked reason="merge-conflict" -->\n')
+    mkdirSync(s.cfg.dataDir, { recursive: true })
+    writeFileSync(join(s.cfg.dataDir, 'heartbeat.json'), JSON.stringify({
+      ts: new Date().toISOString(), state: 'running', todayCostUsd: 0
+    }))
+    s.db.record({ taskId: 'a', ok: true, costUsd: 0, detail: '' })
+    s.db.record({ taskId: 'b', ok: false, costUsd: 0, detail: 'x' })
+    const ev = new EventLog(s.cfg.dataDir)
+    ev.append('task-done', { task: '把延伸閱讀掛上論點' })
+    ev.append('rotation-weights', { counts: {} })
+    ev.append('task-done', { task: '第二個完成的任務' })
+    const out = await handleCommand('status', '', toDeps(s))
+    expect(out.ok).toBe(true)
+    expect(out.text).toContain('今日戰績：完成 1／失敗 1')
+    expect(out.text).toContain('最近完成')
+    expect(out.text).toContain('把延伸閱讀掛上論點')
+    expect(out.text).toContain('第二個完成的任務')
+    expect(out.text).toContain('blocked 積壓 1 筆')
+  })
+
+  test('零完成零積壓 → 進度段安靜省略，不炸', async () => {
+    const s = setup()
+    const out = await handleCommand('status', '', toDeps(s))
+    expect(out.ok).toBe(true)
+    expect(out.text).not.toContain('最近完成')
+    expect(out.text).not.toContain('blocked 積壓')
+  })
+})

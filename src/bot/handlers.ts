@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { progressLines } from './progress.js'
 import type { Config } from '../types.js'
 import type { BacklogStore } from '../backlog.js'
 import { localDay, type RunDb } from '../db.js'
@@ -84,6 +85,7 @@ async function cmdStatus(d: BotDeps): Promise<CmdResult> {
       ? `heartbeat：${hb.ts}｜state=${hb.state}${hb.currentTask ? `｜任務=${hb.currentTask}` : ''}｜今日成本 $${hb.todayCostUsd.toFixed(4)}`
       : '尚無 heartbeat 紀錄（daemon 未跑過或剛啟動）')
     lines.push(`daemon 進程：${isDaemonAlive(d.cfg.dataDir) ? '存活' : '未偵測到'}`)
+    lines.push(...progressLines(d.cfg, d.db, d.store))
     if (existsSync(d.cfg.stopFile)) lines.push('已暫停')
     if (isSilenced(d.cfg.dataDir)) lines.push('靜音中')
     return { ok: true, text: lines.join('\n') }
