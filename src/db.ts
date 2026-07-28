@@ -9,6 +9,9 @@ export interface AttemptRecord {
   engine?: string
   /** 該輪耗時毫秒（2026-07-28 觀測性）；歷史列 NULL。 */
   durationMs?: number
+  /** 引擎自報 token（2026-07-29 免費層配額觀測）；解析不到/歷史列 NULL。 */
+  tokensIn?: number
+  tokensOut?: number
 }
 
 /** M4 Task 3（成本記帳本地日界線）：純函數，把一個 UTC ISO 時戳依 offsetHours 平移後取
@@ -73,20 +76,22 @@ export class RunDb {
         if (!String(err).includes('duplicate column')) throw err
       }
     }
-    // duration_ms migration（2026-07-28 觀測性）：同 engine 欄冪等手法；NULL＝歷史列。
-    if (!cols.some(c => c.name === 'duration_ms')) {
-      try {
-        this.db.exec(`ALTER TABLE attempts ADD COLUMN duration_ms INTEGER`)
-      } catch (err) {
-        if (!String(err).includes('duplicate column')) throw err
+    // duration_ms／tokens migration（2026-07-28/29 觀測性）：同 engine 欄冪等手法；NULL＝歷史列。
+    for (const col of ['duration_ms', 'tokens_in', 'tokens_out']) {
+      if (!cols.some(c => c.name === col)) {
+        try {
+          this.db.exec(`ALTER TABLE attempts ADD COLUMN ${col} INTEGER`)
+        } catch (err) {
+          if (!String(err).includes('duplicate column')) throw err
+        }
       }
     }
   }
 
   record(r: AttemptRecord): void {
     this.db.prepare(
-      'INSERT INTO attempts(task_id, ts, ok, cost_usd, detail, engine, duration_ms) VALUES (?,?,?,?,?,?,?)'
-    ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail, r.engine ?? '', r.durationMs ?? null)
+      'INSERT INTO attempts(task_id, ts, ok, cost_usd, detail, engine, duration_ms, tokens_in, tokens_out) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail, r.engine ?? '', r.durationMs ?? null, r.tokensIn ?? null, r.tokensOut ?? null)
   }
 
   /** 取 rowid（seq）最大一筆最近嘗試紀錄；空庫回 null。ok 欄位鏡像既有 record() 寫入慣例
@@ -147,12 +152,13 @@ export class RunDb {
     return { ok: row.ok, fail: row.fail, costUsd: row.cost, billedUsd }
   }
 
-  /** 每引擎日戰績（digest 路由決策依據）。engine 空欄＝M9.9 前歷史列，顯示 '(未標)'；派工數 DESC。 */
-  engineDayStats(day: string, offsetHours = 0): { engine: string; n: number; ok: number; costUsd: number }[] {
+  /** 每引擎日戰績（digest 路由決策依據）。engine 空欄＝M9.9 前歷史列，顯示 '(未標)'；派工數 DESC。
+   * tokens 為引擎自報 usage 加總（NULL 歷史列計 0）——免費層配額觀測（2026-07-29）。 */
+  engineDayStats(day: string, offsetHours = 0): { engine: string; n: number; ok: number; costUsd: number; tokensIn: number; tokensOut: number }[] {
     const { startIso, endIso } = localDayUtcRange(day, offsetHours)
     return this.db.prepare(
-      "SELECT COALESCE(NULLIF(engine,''),'(未標)') AS engine, COUNT(*) AS n, COALESCE(SUM(ok),0) AS ok, COALESCE(SUM(cost_usd),0) AS costUsd FROM attempts WHERE ts >= ? AND ts < ? GROUP BY 1 ORDER BY n DESC"
-    ).all(startIso, endIso) as { engine: string; n: number; ok: number; costUsd: number }[]
+      "SELECT COALESCE(NULLIF(engine,''),'(未標)') AS engine, COUNT(*) AS n, COALESCE(SUM(ok),0) AS ok, COALESCE(SUM(cost_usd),0) AS costUsd, COALESCE(SUM(tokens_in),0) AS tokensIn, COALESCE(SUM(tokens_out),0) AS tokensOut FROM attempts WHERE ts >= ? AND ts < ? GROUP BY 1 ORDER BY n DESC"
+    ).all(startIso, endIso) as { engine: string; n: number; ok: number; costUsd: number; tokensIn: number; tokensOut: number }[]
   }
 
   /** 加權輪替用：sinceIso 起各引擎 attempts 聚合（滾動窗）；空欄歷史列排除。 */

@@ -111,12 +111,14 @@ export class CodexEngine implements Engine {
     }
     // tokens 僅記錄於 output/detail（不換算 USD——價目表變動快，估計值走 config costPerRunUsd）。
     const output = tail(`${p.message}\n${usageLine(p.usage)}`)
+    const tokensIn = p.usage?.input_tokens
+    const tokensOut = p.usage?.output_tokens
 
     const after = this.getCommitHash(job.projectPath)
     if (after === undefined || after === before) {
-      return { ok: false, output, costUsd: 0, costUnknown: true, failureReason: 'no-commit(phantom completion?)' }
+      return { ok: false, output, costUsd: 0, costUnknown: true, failureReason: 'no-commit(phantom completion?)', tokensIn, tokensOut }
     }
-    return { ok: true, output, costUsd: 0, costUnknown: true, commitHash: after, baseCommitHash: before }
+    return { ok: true, output, costUsd: 0, costUnknown: true, commitHash: after, baseCommitHash: before, tokensIn, tokensOut }
   }
 }
 

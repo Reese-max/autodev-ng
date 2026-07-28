@@ -25,6 +25,11 @@ export interface BuildDigestOpts {
   blockedTasks?: string[]
 }
 
+/** token 顯示：百萬以上 M、千以上 K，一位小數。 */
+function fmtTokens(n: number): string {
+  return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n)
+}
+
 /** 每日必達摘要（鐵律 #6）：即使今天零任務、零成本，也要產出一份文字證明通道還活著。 */
 export function buildDigest(opts: BuildDigestOpts): string {
   const { db, dataDir, isoDayUtc } = opts
@@ -43,7 +48,8 @@ export function buildDigest(opts: BuildDigestOpts): string {
   const goalLine = digestGoalLine(dataDir) // 可讀性（2026-07-28）：一眼知道艦隊在做什麼、今天交付了什麼
   if (goalLine) lines.push(goalLine)
   lines.push(...digestDeliveryLines(dataDir, isoDayUtc, offsetHours))
-  for (const e of engineStats) lines.push(`  引擎 ${e.engine}：${e.ok}/${e.n} 成，$${e.costUsd.toFixed(4)}`) // 每引擎戰績（路由決策依據）；零派工日自動省略
+  // 每引擎戰績（路由決策依據）；零派工日自動省略。tokens＝引擎自報 usage（免費層配額觀測 2026-07-29），零值省略。
+  for (const e of engineStats) lines.push(`  引擎 ${e.engine}：${e.ok}/${e.n} 成，$${e.costUsd.toFixed(4)}${e.tokensIn > 0 ? `，tokens ${fmtTokens(e.tokensIn)}/${fmtTokens(e.tokensOut)}` : ''}`)
   lines.push(...digestQuotaLines(engineStats, opts.engines)) // 今日額度消耗表；只在有 cap 設定時顯示（獨有資訊）
   lines.push(...digestMechanismLines(dataDir, isoDayUtc, offsetHours))
   // N=0 不印，避免雜訊；N>0 才浮出（鐵律 #4：fail-open-with-alert，不能只落 events.jsonl 沒人看）。

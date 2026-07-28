@@ -42,6 +42,10 @@ export interface RunResult {
    * 真實金額），與「引擎成功解析出 JSON、真實回報值恰好是 0」不同語意。scheduler 記帳層
    * 據此決定是否改記 cfg.failureCostEstimateUsd；未設（undefined/false）＝costUsd 是可信真值。 */
   costUnknown?: boolean
+  /** token 觀測（2026-07-29）：引擎自報 usage；解析不到＝undefined。免費層配額（devin 0 ACU、
+   * opencode free 模型 fair-use）預警用——「免費」是錢不是量。 */
+  tokensIn?: number
+  tokensOut?: number
 }
 
 export interface PreflightResult { ok: boolean; detail: string }

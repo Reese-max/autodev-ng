@@ -87,11 +87,15 @@ export class OpencodeEngine implements Engine {
       return { ok: false, output: tailErr(r), costUsd: p.cost, failureReason: 'empty-output：exit 0 但無 text/step_finish（≠ 成功）' }
     }
     const output = tail(p.text)
+    // CLI 原生 usage 行（如 'tokens in=409412 out=1778 total=…'）；取最後一次出現（多段對話取終值）。
+    const m = [...r.stdout.matchAll(/tokens in=(d+) out=(d+)/g)].pop()
+    const tokensIn = m ? Number(m[1]) : undefined
+    const tokensOut = m ? Number(m[2]) : undefined
     const after = this.getCommitHash(job.projectPath)
     if (after === undefined || after === before) {
-      return { ok: false, output, costUsd: p.cost, failureReason: 'no-commit(phantom completion?)' }
+      return { ok: false, output, costUsd: p.cost, failureReason: 'no-commit(phantom completion?)', tokensIn, tokensOut }
     }
-    return { ok: true, output, costUsd: p.cost, commitHash: after, baseCommitHash: before }
+    return { ok: true, output, costUsd: p.cost, commitHash: after, baseCommitHash: before, tokensIn, tokensOut }
   }
 
   /** 確保隔離 profile 存在 → XDG 重導向 spawn → 事後保守清 snapshot（吞錯，不影響結果）。 */

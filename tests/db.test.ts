@@ -155,3 +155,16 @@ test('durationMs：record 落地 duration_ms，歷史列（未帶）為 NULL', (
   expect(rows[1]).toEqual({ task_id: 'd2', duration_ms: null })
   db.close()
 })
+
+test('tokensIn/tokensOut：record 落地，歷史列 NULL；engineDayStats 聚合', () => {
+  const db = freshDb()
+  db.record({ taskId: 't1', ok: true, costUsd: 0, detail: 'x', engine: 'devin', tokensIn: 2_000_000, tokensOut: 15_000, ts: '2026-07-29T01:00:00Z' })
+  db.record({ taskId: 't2', ok: true, costUsd: 0, detail: 'y', engine: 'devin', tokensIn: 500_000, tokensOut: 5_000, ts: '2026-07-29T02:00:00Z' })
+  db.record({ taskId: 't3', ok: false, costUsd: 0, detail: 'z', engine: 'oc-mimo', ts: '2026-07-29T03:00:00Z' }) // 無 usage → NULL
+  const stats = db.engineDayStats('2026-07-29')
+  const devin = stats.find(s => s.engine === 'devin')!
+  expect(devin.tokensIn).toBe(2_500_000)
+  expect(devin.tokensOut).toBe(20_000)
+  expect(stats.find(s => s.engine === 'oc-mimo')!.tokensIn).toBe(0) // NULL 計 0
+  db.close()
+})
