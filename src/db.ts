@@ -7,6 +7,8 @@ export interface AttemptRecord {
   detail: string
   ts?: string
   engine?: string
+  /** 該輪耗時毫秒（2026-07-28 觀測性）；歷史列 NULL。 */
+  durationMs?: number
 }
 
 /** M4 Task 3（成本記帳本地日界線）：純函數，把一個 UTC ISO 時戳依 offsetHours 平移後取
@@ -71,12 +73,20 @@ export class RunDb {
         if (!String(err).includes('duplicate column')) throw err
       }
     }
+    // duration_ms migration（2026-07-28 觀測性）：同 engine 欄冪等手法；NULL＝歷史列。
+    if (!cols.some(c => c.name === 'duration_ms')) {
+      try {
+        this.db.exec(`ALTER TABLE attempts ADD COLUMN duration_ms INTEGER`)
+      } catch (err) {
+        if (!String(err).includes('duplicate column')) throw err
+      }
+    }
   }
 
   record(r: AttemptRecord): void {
     this.db.prepare(
-      'INSERT INTO attempts(task_id, ts, ok, cost_usd, detail, engine) VALUES (?,?,?,?,?,?)'
-    ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail, r.engine ?? '')
+      'INSERT INTO attempts(task_id, ts, ok, cost_usd, detail, engine, duration_ms) VALUES (?,?,?,?,?,?,?)'
+    ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail, r.engine ?? '', r.durationMs ?? null)
   }
 
   /** 取 rowid（seq）最大一筆最近嘗試紀錄；空庫回 null。ok 欄位鏡像既有 record() 寫入慣例

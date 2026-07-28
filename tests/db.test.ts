@@ -144,3 +144,14 @@ test('lastFailureFor：最近一筆失敗回 detail；最近一筆成功或無�
   expect(db.lastFailureFor('t1')).toBeNull() // 最近一筆是成功 → 不注入舊失敗雜訊
   db.close()
 })
+
+test('durationMs：record 落地 duration_ms，歷史列（未帶）為 NULL', () => {
+  const db = freshDb()
+  db.record({ taskId: 'd1', ok: true, costUsd: 0, detail: 'x', durationMs: 12345 })
+  db.record({ taskId: 'd2', ok: false, costUsd: 0, detail: 'y' })
+  const rows = new Database((db as unknown as { db: { name: string } }).db.name, { readonly: true })
+    .prepare('SELECT task_id, duration_ms FROM attempts ORDER BY seq').all() as { task_id: string; duration_ms: number | null }[]
+  expect(rows[0]).toEqual({ task_id: 'd1', duration_ms: 12345 })
+  expect(rows[1]).toEqual({ task_id: 'd2', duration_ms: null })
+  db.close()
+})

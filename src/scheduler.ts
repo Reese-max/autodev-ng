@@ -119,6 +119,8 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     return blockTask({ store, events }, task, reason, `worktree 建立失敗：${String(err)}`)
   }
 
+  const runStartMs = Date.now() // 輪耗時觀測（duration_ms）：涵蓋 engine.run＋verify＋judge＋review 全輪
+
   // extraDirective 附加到 task.text 尾組成 job.directive（未設定時維持 undefined）——
   // claude-cli engine 的 prompt 任務行以 job.directive ?? task.text 消費（Fix 1 已接線）。
   let directive = cfg.extraDirective ? `${task.text}\n\n${cfg.extraDirective}` : undefined
@@ -142,7 +144,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     res = await engine.run({ task, projectPath: wt.cwd, directive })
   } catch (err) {
     // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
-    db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag })
+    db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, durationMs: Date.now() - runStartMs })
     engine.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
     quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
@@ -157,7 +159,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   const recordedCostUsd = fixedCost ?? (costEstimated ? cfg.failureCostEstimateUsd : res.costUsd)
   const baseDetail = res.failureReason ?? res.commitHash ?? ''
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
-  db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag })
+  db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag, durationMs: Date.now() - runStartMs })
   if (!res.ok) engine.invalidatePreflight?.() // timeout/exit≠0/no-commit：引擎健康存疑，下輪重探（verify 拒收不算）
 
   if (res.ok && verifier) {
@@ -172,7 +174,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     for (const a of vc.alerts) quiet(() => events.append('verify-alert', { task: task.text, detail: a }))
     if (!vc.pass) {
       // 引擎那筆已記 ok:true+真實 cost（成本不可造假）；這裡多記一筆 ok:false 讓失敗計數靠這筆走。
-      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected', engine: engineTag })
+      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected', engine: engineTag, durationMs: Date.now() - runStartMs })
       quiet(() => events.append('task-verify-failed', { task: task.text, reason: vc.reason }))
       // engine 失敗/verify 拒：rollback 已在 worktree 內安全跑過，保留現場供 debug（不清理）。
       quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))

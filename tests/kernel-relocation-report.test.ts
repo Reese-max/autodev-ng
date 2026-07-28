@@ -10,7 +10,7 @@ const REPORT = join(ROOT, 'docs', 'kernel-line-relocation-report.md')
 const BEFORE_RELOCATION = '942554a00fdbed0b6666ff6f4a9bac140809fdce'
 const FIRST_RELOCATION = '80825e50fa264a8aa5d35cfe8c2ca1f0b8781adb'
 const BEFORE_LINES = 2700
-const AFTER_LINES = 2434
+const AFTER_LINES = 2446
 const RECLAIMED_LINES = BEFORE_LINES - AFTER_LINES
 const TARGET_CAP = 2450
 const REQUIRED_RECLAIMED_LINES = 250
@@ -54,7 +54,7 @@ describe('kernel 搬移前後行數報告', () => {
     expect(historicalKernelLines(BEFORE_RELOCATION)).toBe(BEFORE_LINES)
   })
 
-  it('目前 kernel 頂層為 2434 行，低於 2450 行且實際騰回 266 行', () => {
+  it('目前 kernel 頂層為 2446 行，低於 2450 行且實際騰回 254 行', () => {
     const current = currentKernelLines()
     expect(current).toBe(AFTER_LINES)
     expect(current).toBeLessThanOrEqual(TARGET_CAP)
@@ -64,7 +64,7 @@ describe('kernel 搬移前後行數報告', () => {
 
   it('報告記錄相同的可重現基準、結果與驗證指令', () => {
     const report = readFileSync(REPORT, 'utf8')
-    for (const fact of [BEFORE_RELOCATION, '2700', '2434', '266', '2450', '250']) {
+    for (const fact of [BEFORE_RELOCATION, '2700', '2446', '254', '2450', '250']) {
       expect(report).toContain(fact)
     }
     expect(report).toContain('npx vitest run tests/kernel-relocation-report.test.ts')

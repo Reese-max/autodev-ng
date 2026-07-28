@@ -71,3 +71,20 @@ test('run.db 指標失敗不會吃掉 events.jsonl 的事件計數', () => {
   expect(text).not.toContain('timeout 類失敗趨勢')
   statsDb.close()
 })
+
+test('judge-mismatch 攔截趨勢與 judge-skip 計數（judge 升級觀測 2026-07-28）', () => {
+  const dataDir = freshDir()
+  const db = new RunDb(join(dataDir, 'run.db'))
+  db.record({ taskId: 'j1', ok: false, costUsd: 0, detail: 'judge-mismatch: MISMATCH：宣稱檔案不在 diff', ts: '2026-07-26T01:00:00.000Z' })
+  db.record({ taskId: 'j2', ok: false, costUsd: 0, detail: 'judge-mismatch: MISMATCH', ts: '2026-07-27T02:00:00.000Z' })
+  db.record({ taskId: 'j3', ok: false, costUsd: 0, detail: 'verify-fail: build 炸', ts: '2026-07-27T03:00:00.000Z' })
+  writeFileSync(join(dataDir, 'events.jsonl'), [
+    JSON.stringify({ ts: '2026-07-27T04:00:00.000Z', type: 'verify-alert', detail: 'judge-skip: judge error: timeout' }),
+    JSON.stringify({ ts: '2026-07-27T05:00:00.000Z', type: 'verify-alert', detail: 'verify-skip: 無 verifyCommand' }),
+  ].join('\n') + '\n')
+  const text = buildDigest({ db, dataDir, isoDayUtc: DIGEST_DAY })
+  expect(text).toContain('judge-mismatch 攔截趨勢')
+  expect(text).toMatch(/07-26 1｜07-27 1/)
+  expect(text).toContain('judge-skip（逾時/故障放行）：1 次') // verify-skip 不誤計
+  db.close()
+})
