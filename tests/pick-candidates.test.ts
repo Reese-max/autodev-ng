@@ -170,6 +170,36 @@ describe('pickCandidateTags 單一入口', () => {
     ).toEqual(['claude', 'spark'])
   })
 
+  test('向後相容：未設 engineRotation 或 run.db 無可用資料時，完整候選輸出維持現況', () => {
+    // run.db 各路由讀取器的 fail-open 輸出：無隔離、無額度計數、無加權戰績。
+    const fallback = {
+      defaultEngine: 'claude',
+      task: { id: '00000001' },
+      failCount: 0,
+      isolatedTags: [],
+      subscriptionTags: ['spark'],
+      dailyAttemptCaps: new Map<string, number>(),
+      todayAttemptCounts: new Map<string, number>(),
+      zeroCostTags: new Set<string>(),
+    }
+
+    expect({
+      noRotation: pickCandidateTags({
+        ...fallback,
+        rotation: undefined,
+        engineStats: [{ engine: 'a', n: 10, ok: 10 }],
+      }),
+      noUsableRunStats: pickCandidateTags({
+        ...fallback,
+        rotation: ROT,
+        engineStats: [],
+      }),
+    }).toEqual({
+      noRotation: ['claude', 'spark'],
+      noUsableRunStats: ['b', 'c', 'a', 'spark'],
+    })
+  })
+
   test('日額度：達 cap 的候選跳過並輪替下一檔', () => {
     expect(
       pickCandidateTags({
