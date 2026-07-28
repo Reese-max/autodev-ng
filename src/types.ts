@@ -112,6 +112,8 @@ export const ConfigSchema = z.object({
   stopFile: z.string().default('.adng.stop'),
   verifyCommand: z.string().optional(),
   verifyTimeoutMs: z.number().int().positive().default(600_000),
+  // 併發基建骨架（GOAL A 2026-07-28）：>1 的併發池屬 GOAL B，骨架僅收設定並防呆。
+  concurrency: z.number().int().positive().default(1),
   judgeUrl: z.string().optional(),
   judgeModel: z.string().default('gpt-5.4-mini'),
   judgeApiKey: z.string().default('sk-any'),

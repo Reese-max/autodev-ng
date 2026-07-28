@@ -1,4 +1,4 @@
-import type { DiscordNotifier } from '../notify.js'
+import type { DiscordNotifier } from '../engines/notify.js'
 import { withAssembled } from './assemble.js'
 
 export async function runNotifyTest(notifier: DiscordNotifier, now: Date = new Date()): Promise<{ ok: boolean; text: string }> {

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import {
   GUARDIAN_IDLE_TIMEOUT_MS, GUARDIAN_INCIDENT_COOLDOWN_MS, runFleetGuardian,
 } from '../src/guardian/fleet.js'
-import { runProcess, type ProcResult } from '../src/proc.js'
+import { runProcess, type ProcResult } from '../src/engines/proc.js'
 import type { SuperviseResult } from '../src/supervisor/supervise.js'
 import { parseArgv } from '../src/cli/entry.js'
 import type { VerifyOutcome } from '../src/verify.js'

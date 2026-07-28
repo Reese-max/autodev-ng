@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
-import { runProcess } from '../proc.js'
+import { runProcess } from './proc.js'
 
 const COMMAND = 'npx vitest run --reporter=dot'
 

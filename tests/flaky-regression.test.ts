@@ -10,7 +10,7 @@ import {
   DEFAULT_FIXED_CLOCK_ISO,
   FIXTURE_IO_TIMEOUT_MS,
 } from '../src/engines/test-isolation.js'
-import type { ProcResult } from '../src/proc.js'
+import type { ProcResult } from '../src/engines/proc.js'
 
 const result = (overrides: Partial<ProcResult> = {}): ProcResult => ({
   exitCode: 0,

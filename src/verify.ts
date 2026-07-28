@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { runProcess, type ProcResult } from './proc.js'
+import { runProcess, type ProcResult } from './engines/proc.js'
 
 export type VerifyStatus = 'pass' | 'fail' | 'skip'
 export interface VerifyOutcome { status: VerifyStatus; detail: string }

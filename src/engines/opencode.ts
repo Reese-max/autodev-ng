@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
-import { runProcess } from '../proc.js'
+import { runProcess } from './proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'

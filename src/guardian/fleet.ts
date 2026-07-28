@@ -6,7 +6,7 @@ import {
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { EventLog, quiet } from '../events.js'
-import { runProcess, type ProcResult } from '../proc.js'
+import { runProcess, type ProcResult } from '../engines/proc.js'
 import {
   reapDaemonTree, superviseConfig, type SuperviseDirectoryResult, type SuperviseResult,
 } from '../supervisor/supervise.js'

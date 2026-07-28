@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { runProcess } from '../src/proc.js'
+import { runProcess } from '../src/engines/proc.js'
 
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-cli.mjs')
 const base = { command: process.execPath, args: [FAKE], cwd: process.cwd(), timeoutMs: 10_000 }

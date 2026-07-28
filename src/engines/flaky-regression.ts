@@ -7,7 +7,7 @@
  */
 import { pathToFileURL } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
-import { runProcess, type ProcResult } from '../proc.js'
+import { runProcess, type ProcResult } from './proc.js'
 import { parseVitestFailures } from './flaky-tracker.js'
 import {
   DEFAULT_FIXED_CLOCK_ISO,

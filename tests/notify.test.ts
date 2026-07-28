@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DiscordNotifier, loadDiscordToken } from '../src/notify.js'
+import { DiscordNotifier, loadDiscordToken } from '../src/engines/notify.js'
 
 function tokenFile(content: string): string {
   const f = join(mkdtempSync(join(tmpdir(), 'adng-tk-')), 'tokens.env')

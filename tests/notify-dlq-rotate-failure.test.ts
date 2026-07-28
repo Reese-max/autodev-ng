@@ -19,7 +19,7 @@ vi.mock('node:fs', async (importOriginal) => {
   return { ...actual, writeFileSync: writeFileSync_ }
 })
 
-const { DiscordNotifier } = await import('../src/notify.js')
+const { DiscordNotifier } = await import('../src/engines/notify.js')
 
 test('DLQ 保尾輪替寫入失敗 → send 仍回 false 不拋、DLQ 追加本身照樣成功（send 永不 throw 的既有契約不可破，鐵律 #4）', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-nt-rotfail-'))
