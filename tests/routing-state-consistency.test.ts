@@ -21,7 +21,7 @@ import {
   type RoutingState,
 } from '../src/engines/routing-state.js'
 import { ISOLATE_MIN_SAMPLES } from '../src/engines/isolation-policy.js'
-import { clearRunStatsCache, type RunStatsResult } from '../src/engines/run-stats.js'
+import { clearRunStatsCache, recentRunStats, type RunStatsResult } from '../src/engines/run-stats.js'
 import { RunDb } from '../src/db.js'
 import { pickReadyTask, type Deps } from '../src/scheduler.js'
 import { ConfigSchema, type Engine, type Task } from '../src/types.js'
@@ -391,6 +391,11 @@ describe('checkRoutingStateConsistency（I/O + 守門）', () => {
         engineRotation: ROT,
         nowIso: NOW,
         offsetHours: 0,
+        statsFn: (dbFile, opts) => recentRunStats(dbFile, {
+          ...opts,
+          nowMs: () => NOW_MS,
+          timeoutMs: 5_000,
+        }),
       })
       expect(r.kind).toBe('warnings')
       expectMaintainPath(r)
