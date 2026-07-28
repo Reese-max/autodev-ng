@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { stopAlertMessage, main } from '../src/autopilot/run.js'
@@ -26,6 +26,16 @@ describe('sessionAlive（M10.5 補洞：config 移除須在任務間煞停 sessi
   test('stopFile 出現 → 死', () => {
     writeFileSync(stopFile, '')
     expect(sessionAlive(goalFile, stopFile, cfgPath)).toBe(false)
+  })
+  test('restart.request 哨兵出現 → 死（2026-07-28 補洞：長 GOAL 不再餓死部署哨兵）', () => {
+    const dir2 = mkdtempSync(join(tmpdir(), 'adng-alive-sentinel-'))
+    const goal2 = join(dir2, 'GOAL.md')
+    const stop2 = join(dir2, '.adng.stop')
+    writeFileSync(goal2, '# GOAL')
+    expect(sessionAlive(goal2, stop2, undefined, dir2)).toBe(true) // 無哨兵 → 活
+    writeFileSync(join(dir2, 'restart.request'), '{}')
+    expect(sessionAlive(goal2, stop2, undefined, dir2)).toBe(false) // 哨兵在 → 死
+    expect(existsSync(join(dir2, 'restart.request'))).toBe(true) // 只判定不消費——unlink 歸 daemon 檢查點
   })
 })
 

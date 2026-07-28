@@ -25,8 +25,11 @@ export interface SessionResult {
 // M10.5 補洞（2026-07-17 實證）：config-gone 檢查原本只在 daemon cycle 開頭，但 perpetual
 // 一整個 GOAL session 都在單一 cycle 內，config 移除後 session 可再跑數小時（pid 33628 實測
 // 1.5h 未退）。session 存活判定併入 config 存在檢查，讓退役/優雅重啟在任務間即煞停（≤一輪生效）。
-export function sessionAlive(goalFile: string, stopFile: string, cfgPath?: string): boolean {
+// 2026-07-28 同型補洞：restart.request 哨兵也被長 GOAL 餓死（note-filler 實測 5 小時未吃部署）——
+// 哨兵存在＝session 不再存活，GOAL 回 killed 交還主迴圈；消費（unlink＋事件）仍歸 daemon 檢查點。
+export function sessionAlive(goalFile: string, stopFile: string, cfgPath?: string, dataDir?: string): boolean {
   return existsSync(goalFile) && !existsSync(stopFile) && (!cfgPath || existsSync(cfgPath))
+    && (!dataDir || !existsSync(join(dataDir, 'restart.request')))
 }
 
 export function stopAlertMessage(goalId: string, outcome: GoalOutcome): string | null {
@@ -94,7 +97,7 @@ export async function runGoalWithDeps(
       }
     }
 
-    const alive = () => sessionAlive(cfg.goalFile!, cfg.stopFile, deps.cfgPath)
+    const alive = () => sessionAlive(cfg.goalFile!, cfg.stopFile, deps.cfgPath, cfg.dataDir)
     const orchDeps: OrchestratorDeps = {
       goalId, goal, cwd: cfg.projectPath, kernelDeps, lessonsText, discovered,
       planFn: (input) => plan(llm, input),
