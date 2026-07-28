@@ -2,6 +2,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { RunDb } from './db.js'
 import { countDlqLines, countVerifyAlertsToday } from './engines/digest-counts.js'
+import { digestDeliveryLines, digestGoalLine } from './engines/digest-deliveries.js'
 import { digestMechanismLines } from './engines/digest-mechanisms.js'
 import { digestQuotaLines } from './engines/today-attempts-view.js'
 
@@ -38,12 +39,15 @@ export function buildDigest(opts: BuildDigestOpts): string {
     `今日成本：真金 $${stats.billedUsd.toFixed(4)}｜訂閱名義 $${(stats.costUsd - stats.billedUsd).toFixed(4)}`,
     `DLQ 積壓：${dlqCount} 筆`,
   ]
+  const goalLine = digestGoalLine(dataDir) // 可讀性（2026-07-28）：一眼知道艦隊在做什麼、今天交付了什麼
+  if (goalLine) lines.push(goalLine)
+  lines.push(...digestDeliveryLines(dataDir, isoDayUtc, offsetHours))
   for (const e of engineStats) lines.push(`  引擎 ${e.engine}：${e.ok}/${e.n} 成，$${e.costUsd.toFixed(4)}`) // 每引擎戰績（路由決策依據）；零派工日自動省略
-  lines.push(...digestQuotaLines(engineStats, opts.engines)) // 今日額度消耗表；無 attempts 且無 cap 時整段省略
+  lines.push(...digestQuotaLines(engineStats, opts.engines)) // 今日額度消耗表；只在有 cap 設定時顯示（獨有資訊）
   lines.push(...digestMechanismLines(dataDir, isoDayUtc, offsetHours))
   // N=0 不印，避免雜訊；N>0 才浮出（鐵律 #4：fail-open-with-alert，不能只落 events.jsonl 沒人看）。
   if (verifySkip > 0) {
-    lines.push(`⚠ 本日 verify 略過 ${verifySkip} 次（安全網未啟用，請檢查 verifyCommand）`)
+    lines.push(`⚠ 本日 verify 略過 ${verifySkip} 次（單輪 fail-open 放行，非整道閘未開；詳見 events verify-alert）`)
   }
   if (other > 0) {
     lines.push(`⚠ 本日驗證鏈其他告警 ${other} 次（詳見 events.jsonl）`)

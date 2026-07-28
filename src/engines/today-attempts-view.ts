@@ -159,6 +159,9 @@ export function digestQuotaLines(
 ): string[] {
   try {
     const caps = dailyAttemptCapsFromEngines(engines)
+    // digest 可讀性（2026-07-28）：無任何 cap 設定時整段省略——n/ok 與引擎戰績段重複，
+    // cap/餘量全「—」是純噪音；設了 cap 表才有獨有資訊，自動回歸。
+    if (caps.size === 0) return []
     return formatTodayQuotaTable(toTodayAttemptsMap(engineStats, caps))
   } catch {
     return []

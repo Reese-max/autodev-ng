@@ -115,14 +115,15 @@ export function digestMechanismLines(dataDir: string, isoDayUtc: string, offsetH
   const anyTrend = timeoutTrend?.some(day => day.count > 0) || judgeTrend?.some(day => day.count > 0)
   if (!events.some(metric => (metric.count ?? 0) > 0) && !anyTrend) return capAdvice
 
+  // digest 可讀性（2026-07-28）：零值指標與全零趨勢是噪音——只列非零，讀者看到的每行都有資訊。
   const lines = ['機制成效（近 7 日）：']
   for (const metric of events) {
-    if (metric.count !== null) lines.push(`  ${metric.label}：${metric.count} 次`)
+    if (metric.count !== null && metric.count > 0) lines.push(`  ${metric.label}：${metric.count} 次`)
   }
-  if (timeoutTrend) {
+  if (timeoutTrend?.some(d => d.count > 0)) {
     lines.push(`  run.db timeout 類失敗趨勢：${timeoutTrend.map(({ day, count }) => `${day.slice(5)} ${count}`).join('｜')}`)
   }
-  if (judgeTrend) {
+  if (judgeTrend?.some(d => d.count > 0)) {
     lines.push(`  judge-mismatch 攔截趨勢：${judgeTrend.map(({ day, count }) => `${day.slice(5)} ${count}`).join('｜')}`)
   }
   return [...lines, ...capAdvice]
