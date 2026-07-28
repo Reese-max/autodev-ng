@@ -37,7 +37,7 @@ const TASK: Task = {
   status: 'open',
 }
 
-function fixture(decision: string): {
+function fixture(decision: string, rotation: string[] | null = ['qwen']): {
   deps: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines'>
   append: ReturnType<typeof vi.fn>
   preflight: ReturnType<typeof vi.fn>
@@ -49,7 +49,7 @@ function fixture(decision: string): {
     dataDir,
     engine: 'mock',
     defaultEngine: 'qwen',
-    engineRotation: ['qwen'],
+    engineRotation: rotation ?? undefined,
     engines: { qwen: { adapter: 'mock' } },
   })
   const append = vi.fn()
@@ -93,4 +93,16 @@ test.each(['隔離', '試探', '晉升'])('%s：同輪多個 pickReadyTask 只�
   expect(effects.calls.get(deps.cfg.dataDir)).toBe(2)
   expect(effects.writes.get(deps.cfg.dataDir)).toBe(2)
   expect(append).toHaveBeenCalledTimes(2)
+})
+
+test('未設 engineRotation：不進戰績路由層，直接沿用 defaultEngine', async () => {
+  const { deps, append, preflight } = fixture('no-rotation', null)
+
+  const picked = await pickReadyTask(deps, [TASK])
+
+  expect(effects.calls.has(deps.cfg.dataDir)).toBe(false)
+  expect(effects.writes.has(deps.cfg.dataDir)).toBe(false)
+  expect(append).not.toHaveBeenCalled()
+  expect(preflight).toHaveBeenCalledOnce()
+  expect(typeof picked === 'object' && 'engineTag' in picked ? picked.engineTag : picked).toBe('qwen')
 })

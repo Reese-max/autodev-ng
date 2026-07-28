@@ -262,13 +262,13 @@ export async function pickReadyTask(
   openTasks: Task[]
 ): Promise<{ task: Task; engine: Engine; engineTag: string; fixedCost: number | undefined } | CycleResult> {
   const routingKey = JSON.stringify([cfg.dataDir, cfg.engineRotation, cfg.timezoneOffsetHours])
-  const isolatedTags = await singleFlightPickRouting(routingKey, () => loadIsolatedTagsForPick(
+  const isolatedTags = cfg.engineRotation?.length ? await singleFlightPickRouting(routingKey, () => loadIsolatedTagsForPick(
     { dataDir: cfg.dataDir, rotation: cfg.engineRotation, offsetHours: cfg.timezoneOffsetHours },
     ev => { // 告警 fire-and-forget：notify 依契約自吞錯，絕不反殺派工（鐵律 #2）
       quiet(() => events.append('engine-route-isolated', { ...ev }))
       void notify?.(`⛔ 引擎隔離：${ev.engine} — ${ev.reason}（24h 後單次試探）`)
     },
-  )), subs = subscriptionTags(cfg)
+  )) : [], subs = subscriptionTags(cfg)
   // 日額度守門：helper/run.db 失敗 → 空 caps/counts，維持原派工路徑（fail-open）
   const { dailyAttemptCaps, todayAttemptCounts } = loadDailyAttemptCapContext(cfg.engines, cfg.dataDir)
   const engineStats = loadEngineStatsForWeighting(db, events, cfg.dataDir, cfg.engineRotation)
