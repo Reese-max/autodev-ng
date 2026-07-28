@@ -61,6 +61,29 @@ test('buildProjectSummary：含 currentTask、今日成敗、blocked 數（駕�
   expect(s.backlogBlocked).toBe(1)
 })
 
+test('buildProjectSummary：heartbeat、成本、戰績與 backlog 各自 fail-open', () => {
+  const c = makeCtx('- [ ] 任務一\n- [ ] 卡住 <!-- adng:blocked reason="merge-conflict" -->\n')
+  writeFileSync(join(c.dir, 'heartbeat.json'), JSON.stringify({ state: 'running', currentTask: '任務一' }))
+  const base: any = { cfg: c.cfg, store: c.store, db: c.db, dbPath: join(c.dir, 'run.db'), localDayFn: localDay }
+
+  const noCost = buildProjectSummary('p1', {
+    ...base, db: { costForLocalDay: () => { throw new Error('cost') }, dayStats: () => ({ ok: 2, fail: 1 }) },
+  })
+  expect(noCost).toMatchObject({ state: 'running', currentTask: '任務一', todayCostUsd: 0, todayOk: 2, todayFail: 1, backlogBlocked: 1 })
+
+  const noStats = buildProjectSummary('p1', {
+    ...base, db: { costForLocalDay: () => 1.25, dayStats: () => { throw new Error('stats') } },
+  })
+  expect(noStats).toMatchObject({ todayCostUsd: 1.25, todayOk: 0, todayFail: 0, backlogBlocked: 1 })
+
+  writeFileSync(join(c.dir, 'heartbeat.json'), '{broken json')
+  expect(buildProjectSummary('p1', base)).toMatchObject({ state: 'unknown', currentTask: null, backlogBlocked: 1 })
+
+  writeFileSync(join(c.dir, 'heartbeat.json'), JSON.stringify({ state: 'idle' }))
+  const noBacklog = buildProjectSummary('p1', { ...base, store: { read: () => { throw new Error('missing') } } })
+  expect(noBacklog).toMatchObject({ state: 'idle', backlogOpen: 0, backlogBlocked: 0, todayCostUsd: 0 })
+})
+
 // ---------- (2) 引擎戰績 ----------
 test('GET /api/cockpit/engines：近 7 日統計＋隔離狀態＋cap；只出 allowlist 欄位', async () => {
   const c = makeCtx()

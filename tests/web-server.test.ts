@@ -649,22 +649,26 @@ function makeProjectCtx(dir: string, token: string) {
   }
 }
 
-async function withMultiServer(fn: (base: string, dirs: { a: string; b: string }) => Promise<void>) {
+async function withMultiServer(fn: (base: string, dirs: { a: string; b: string; c: string }) => Promise<void>) {
   const dirA = tmp('adng-web-multi-a-')
   const dirB = tmp('adng-web-multi-b-')
+  const dirC = tmp('adng-web-multi-c-')
   writeFileSync(join(dirA, 'backlog.md'), '- [ ] a1\n')
   writeFileSync(join(dirB, 'backlog.md'), '- [ ] b1\n- [ ] b2\n')
+  writeFileSync(join(dirC, 'backlog.md'), '- [ ] c1\n- [ ] c2\n- [ ] c3\n')
   const ctxA = makeProjectCtx(dirA, 'secret-tok')
   const ctxB = makeProjectCtx(dirB, 'secret-tok')
-  const projects = new Map([['a', ctxA], ['b', ctxB]])
+  const ctxC = makeProjectCtx(dirC, 'secret-tok')
+  const projects = new Map([['a', ctxA], ['b', ctxB], ['c', ctxC]])
   const server = createServer(projects as any)
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()))
   const port = (server.address() as any).port
   try {
-    await fn(`http://127.0.0.1:${port}`, { a: dirA, b: dirB })
+    await fn(`http://127.0.0.1:${port}`, { a: dirA, b: dirB, c: dirC })
   } finally {
     ctxA.db.close()
     ctxB.db.close()
+    ctxC.db.close()
     await new Promise<void>(resolve => server.close(() => resolve()))
   }
 }
@@ -675,18 +679,24 @@ test('多專案 GET /api/status 無 project：回 { projects: [...] } 陣列，�
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(Array.isArray(body.projects)).toBe(true)
-    expect(body.projects.length).toBe(2)
+    expect(body.projects.length).toBe(3)
     const a = body.projects.find((p: any) => p.name === 'a')
+    expect(a).toEqual(expect.objectContaining({
+      state: 'unknown', currentTask: null, todayOk: 0, todayFail: 0,
+      todayCostUsd: 0, backlogBlocked: 0,
+    }))
     expect(a.backlogOpen).toBe(1)
     expect(typeof a.ts).toBe('string')
     expect(typeof a.todayCostUsd).toBe('number')
     expect(typeof a.daemonAlive).toBe('boolean')
     const b = body.projects.find((p: any) => p.name === 'b')
     expect(b.backlogOpen).toBe(2)
+    const c = body.projects.find((p: any) => p.name === 'c')
+    expect(c.backlogOpen).toBe(3)
   })
 })
 
-test('多專案 /api/status：逐專案 fail-open——單專案讀掛（db 已關閉）帶 error 欄不缺席', async () => {
+test('多專案 /api/status：DB 讀掛只降級該來源，其他欄位與專案不缺席', async () => {
   const dirA = tmp('adng-web-multi-fail-a-')
   const dirB = tmp('adng-web-multi-fail-b-')
   writeFileSync(join(dirA, 'backlog.md'), '- [ ] a1\n')
@@ -707,7 +717,11 @@ test('多專案 /api/status：逐專案 fail-open——單專案讀掛（db 已�
     expect(a.error).toBeUndefined()
     expect(a.backlogOpen).toBe(1)
     const b = body.projects.find((p: any) => p.name === 'b')
-    expect(typeof b.error).toBe('string')
+    expect(b.error).toBeUndefined()
+    expect(b.todayCostUsd).toBe(0)
+    expect(b.todayOk).toBe(0)
+    expect(b.todayFail).toBe(0)
+    expect(b.backlogOpen).toBe(1)
   } finally {
     ctxA.db.close()
     await new Promise<void>(resolve => server.close(() => resolve()))

@@ -142,31 +142,40 @@ export function buildStatusPayload({ cfg, store, db, dbPath, localDayFn }) {
   }
 }
 
-/** 多專案彙總端點（M10.5 Task 7）：重用 buildStatusPayload 的欄位子集，逐專案 fail-open——
- * 單專案讀掛（db/backlog 例外）不拖垮整體彙總，該項改帶 error 欄，陣列位置不缺席。 */
+/** 多專案彙總端點：只讀卡片需要的來源；heartbeat、backlog、成本與戰績各自 fail-open。 */
 export function buildProjectSummary(name, ctx) {
+  const ts = new Date().toISOString()
+  const heartbeat = readHeartbeat(ctx.cfg.dataDir)
+  let day
+  try { day = ctx.localDayFn(ts, ctx.cfg.timezoneOffsetHours) } catch { /* fail-open */ }
+
+  let todayCostUsd = 0
   try {
-    const payload = buildStatusPayload({ cfg: ctx.cfg, store: ctx.store, db: ctx.db, dbPath: ctx.dbPath, localDayFn: ctx.localDayFn })
-    // 駕駛艙卡片欄位（GOAL cockpit）：今日成敗走 db.dayStats（與 digest 同源）；dayStats 失敗 fail-open 零值。
-    let todayOk = 0, todayFail = 0
-    try {
-      const day = ctx.localDayFn(new Date().toISOString(), ctx.cfg.timezoneOffsetHours)
-      const st = ctx.db.dayStats(day, ctx.cfg.timezoneOffsetHours)
-      todayOk = st.ok; todayFail = st.fail
-    } catch { /* fail-open */ }
-    return {
-      name,
-      state: payload.heartbeat?.state ?? 'unknown',
-      ts: payload.ts,
-      currentTask: payload.heartbeat?.currentTask,
-      todayCostUsd: payload.cost.today,
-      todayOk, todayFail,
-      backlogOpen: payload.backlog.open,
-      backlogBlocked: payload.backlog.blocked,
-      daemonAlive: readDaemonLockOwner(ctx.cfg.dataDir) === 'alive',
-    }
-  } catch (err) {
-    return { name, error: String(err && err.message ? err.message : err) }
+    const value = ctx.db.costForLocalDay(day, ctx.cfg.timezoneOffsetHours)
+    if (Number.isFinite(value)) todayCostUsd = value
+  } catch { /* fail-open */ }
+
+  let todayOk = 0, todayFail = 0
+  try {
+    const stats = ctx.db.dayStats(day, ctx.cfg.timezoneOffsetHours)
+    if (Number.isFinite(stats.ok)) todayOk = stats.ok
+    if (Number.isFinite(stats.fail)) todayFail = stats.fail
+  } catch { /* fail-open */ }
+
+  let backlogOpen = 0, backlogBlocked = 0
+  try {
+    const tasks = ctx.store.read()
+    backlogOpen = tasks.filter(t => t.status === 'open').length
+    backlogBlocked = tasks.filter(t => t.status === 'blocked').length
+  } catch { /* fail-open */ }
+
+  return {
+    name,
+    state: typeof heartbeat?.state === 'string' ? heartbeat.state : 'unknown',
+    ts,
+    currentTask: heartbeat?.currentTask ?? null,
+    todayCostUsd, todayOk, todayFail, backlogOpen, backlogBlocked,
+    daemonAlive: readDaemonLockOwner(ctx.cfg.dataDir) === 'alive',
   }
 }
 
@@ -553,7 +562,7 @@ export function createRequestHandler(ctxOrMap) {
       ctx = ctxOrMap
     }
     const { cfg, cfgPath, store, db, dbPath, token, spawnFn, childState, localDayFn, spawnOpts } = ctx
-    const botDeps = await getBotDepsFor(ctx)
+    const getBotDeps = () => getBotDepsFor(ctx)
 
     if (req.method === 'GET' && url.pathname === '/api/status') {
       try {
@@ -595,7 +604,7 @@ export function createRequestHandler(ctxOrMap) {
       if (!PANEL_NAMES.has(name)) { send(404, { error: 'not found' }); return }
       try {
         const handleCommand = await getHandleCommand()
-        const r = await handleCommand(name, name === 'goal' ? 'status' : '', botDeps)
+        const r = await handleCommand(name, name === 'goal' ? 'status' : '', await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
       } catch (err) {
         send(500, { error: String(err) })
@@ -629,13 +638,13 @@ export function createRequestHandler(ctxOrMap) {
       // handleCommand（注入防護／換行拒收皆在 handler 內建，此處原樣透傳拒收文案）。
       if (req.method === 'POST' && url.pathname === '/api/pause') {
         const handleCommand = await getHandleCommand()
-        const r = await handleCommand('pause', '', botDeps)
+        const r = await handleCommand('pause', '', await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/resume') {
         const handleCommand = await getHandleCommand()
-        const r = await handleCommand('resume', '', botDeps)
+        const r = await handleCommand('resume', '', await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
       }
@@ -649,7 +658,7 @@ export function createRequestHandler(ctxOrMap) {
       if (req.method === 'POST' && url.pathname === '/api/task') {
         const body = await readJsonBody(req)
         const handleCommand = await getHandleCommand()
-        const r = await handleCommand('task', String(body.text ?? ''), botDeps)
+        const r = await handleCommand('task', String(body.text ?? ''), await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
       }
@@ -657,26 +666,26 @@ export function createRequestHandler(ctxOrMap) {
       if (req.method === 'POST' && url.pathname === '/api/goal/set') {
         const body = await readJsonBody(req)
         const handleCommand = await getHandleCommand()
-        const r = await handleCommand('goal', 'set ' + String(body.text ?? ''), botDeps)
+        const r = await handleCommand('goal', 'set ' + String(body.text ?? ''), await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/goal/run') {
         const handleCommand = await getHandleCommand()
-        const r = await handleCommand('goal', 'run', botDeps)
+        const r = await handleCommand('goal', 'run', await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/goal/stop') {
         const handleCommand = await getHandleCommand()
-        const r = await handleCommand('goal', 'stop', botDeps)
+        const r = await handleCommand('goal', 'stop', await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/silence') {
         const body = await readJsonBody(req)
         const handleCommand = await getHandleCommand()
-        const r = await handleCommand('silence', String(body.minutes ?? ''), botDeps)
+        const r = await handleCommand('silence', String(body.minutes ?? ''), await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
       }
