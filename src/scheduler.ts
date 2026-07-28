@@ -273,7 +273,7 @@ export async function pickReadyTask(
   const { dailyAttemptCaps, todayAttemptCounts } = loadDailyAttemptCapContext(cfg.engines, cfg.dataDir)
   const engineStats = loadEngineStatsForWeighting(db, events, cfg.dataDir, cfg.engineRotation)
   for (const cand of openTasks) {
-    const tags = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs, dailyAttemptCaps, todayAttemptCounts, engineStats })
+    const tags = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs, dailyAttemptCaps, todayAttemptCounts, engineStats, zeroCostTags: zeroCostTags(cfg) })
     for (const engineTag of tags) {
       const engineCfg = cfg.engines[engineTag]
       if (!engineCfg) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`)
@@ -312,6 +312,12 @@ function resolveFailure(
 /** 訂閱制引擎 tag 清單（邊際成本≈0，不踩日頂）。 */
 export function subscriptionTags(cfg: Config): string[] {
   return Object.entries(cfg.engines ?? {}).filter(([, e]) => e.subscription).map(([t]) => t)
+}
+
+/** 免費起跑用：零邊際成本引擎（subscription 且 costPerRunUsd===0，即 devin、oc 系、agy 層；
+ * codex 系記固定成本 1 反映 ChatGPT 額度機會成本，故排除）。 */
+export function zeroCostTags(cfg: Config): Set<string> {
+  return new Set(Object.entries(cfg.engines ?? {}).filter(([, e]) => e.subscription && (e.costPerRunUsd ?? 0) === 0).map(([t]) => t))
 }
 
 /** 本地日 billed 成本（排除訂閱引擎）。 */

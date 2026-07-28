@@ -49,6 +49,8 @@ export interface PickCandidateInput {
   todayAttemptCounts?: ReadonlyMap<string, number>
   /** 近期各引擎成功率；未設／空＝不加權，走靜態 rotation（向後相容） */
   engineStats?: readonly EngineStat[]
+  /** 零邊際成本引擎 tag（免費起跑用）；未設／空＝起點不限層（向後相容） */
+  zeroCostTags?: ReadonlySet<string>
 }
 
 export interface PickCandidateHooks {
@@ -85,11 +87,17 @@ export function pickCandidateTags(
   const effectiveRotation = input.engineStats && input.engineStats.length > 0 && input.rotation
     ? weightedRotation(input.rotation, input.engineStats)
     : input.rotation
+  // 免費起跑：對「有效輪替」（加權展開後）算零成本檔位索引——展開多槽也對得上。
+  // 無零成本檔位（或未設）→ undefined，candidateEngines 走原公式（fail-open）。
+  const entrySlots = input.zeroCostTags && input.zeroCostTags.size > 0 && effectiveRotation
+    ? effectiveRotation.reduce<number[]>((acc, t, i) => { if (input.zeroCostTags!.has(t)) acc.push(i); return acc }, [])
+    : undefined
   const base = candidateEngines(
     effectiveRotation,
     input.defaultEngine,
     input.task,
-    input.failCount
+    input.failCount,
+    entrySlots && entrySlots.length > 0 ? entrySlots : undefined
   )
   const gate = hooks.quarantineGate ?? defaultQuarantineGate
   const enhance = hooks.candidateTailEnhancer ?? defaultCandidateTailEnhancer

@@ -56,3 +56,31 @@ test('config 解析：subscription 檔位可只存在於 engines 白名單，不
   expect(subscriptionTags(cfg)).toEqual(['codex-spark'])
   expect(candidateEngines(cfg.engineRotation, cfg.defaultEngine, { id: '00000000' }, 0)).not.toContain('codex-spark')
 })
+
+// ── 免費起跑（entrySlots，2026-07-28）────────────────────────────────────────
+
+const ROT5 = ['free1', 'free2', 'paid1', 'free3', 'paid2']
+const FREE_SLOTS = [0, 1, 3] // free1/free2/free3 檔位
+
+test('entrySlots：新任務（failCount=0）起點只落零成本檔位', () => {
+  for (let i = 0; i < 20; i++) {
+    const id = i.toString(16).padStart(8, '0')
+    const first = candidateEngines(ROT5, 'claude', { id }, 0, FREE_SLOTS)[0]
+    expect(['free1', 'free2', 'free3']).toContain(first)
+  }
+})
+
+test('entrySlots：失敗前進仍走全清單——連敗可走進付費檔位（緩升級不變）', () => {
+  // id 00000000 → entry = FREE_SLOTS[0 % 3] = 0；failCount 2 → start 2 = paid1
+  expect(candidateEngines(ROT5, 'claude', { id: '00000000' }, 2, FREE_SLOTS)[0]).toBe('paid1')
+})
+
+test('entrySlots 空/未設：行為與原公式完全一致（fail-open）', () => {
+  const id = '00000003'
+  expect(candidateEngines(ROT5, 'claude', { id }, 1, [])).toEqual(candidateEngines(ROT5, 'claude', { id }, 1))
+  expect(candidateEngines(ROT5, 'claude', { id }, 1, undefined)).toEqual(candidateEngines(ROT5, 'claude', { id }, 1))
+})
+
+test('entrySlots：顯式 engineTag 仍短路不受影響', () => {
+  expect(candidateEngines(ROT5, 'claude', { id: '00000000', engineTag: 'paid2' }, 0, FREE_SLOTS)).toEqual(['paid2'])
+})

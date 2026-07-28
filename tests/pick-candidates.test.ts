@@ -296,3 +296,28 @@ describe('loadActiveIsolatedTags', () => {
     expect(loadActiveIsolatedTags(dir, NOW)).toEqual(['a'])
   })
 })
+
+describe('zeroCostTags 免費起跑', () => {
+  test('新任務起點只落零成本檔位；未設 zeroCostTags 行為不變', () => {
+    const rotation = ['free-a', 'paid-x', 'free-b']
+    for (let i = 0; i < 12; i++) {
+      const id = i.toString(16).padStart(8, '0')
+      const tags = pickCandidateTags({
+        rotation, defaultEngine: 'claude', task: { id }, failCount: 0,
+        zeroCostTags: new Set(['free-a', 'free-b']),
+      })
+      expect(['free-a', 'free-b']).toContain(tags[0])
+    }
+    // 未設 → 原 hash 公式，id 00000001 起點落 paid-x（1 % 3 = 1）
+    expect(pickCandidateTags({ rotation, defaultEngine: 'claude', task: { id: '00000001' }, failCount: 0 })[0]).toBe('paid-x')
+  })
+
+  test('zeroCostTags 與 rotation 無交集 → fail-open 走原公式', () => {
+    const rotation = ['paid-x', 'paid-y']
+    const tags = pickCandidateTags({
+      rotation, defaultEngine: 'claude', task: { id: '00000001' }, failCount: 0,
+      zeroCostTags: new Set(['free-a']),
+    })
+    expect(tags[0]).toBe('paid-y') // 1 % 2 = 1，原公式
+  })
+})

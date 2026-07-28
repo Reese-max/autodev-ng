@@ -8,11 +8,16 @@ export function candidateEngines(
   rotation: string[] | undefined,
   defaultEngine: string,
   task: { id: string; engineTag?: string },
-  failCount: number
+  failCount: number,
+  entrySlots?: readonly number[]
 ): string[] {
   if (task.engineTag) return [task.engineTag]
   if (!rotation || rotation.length === 0) return [defaultEngine]
   const h = parseInt(task.id, 16)
-  const start = (((Number.isFinite(h) ? h : 0) % rotation.length) + failCount) % rotation.length
+  const hh = Number.isFinite(h) ? h : 0
+  // 免費起跑（2026-07-28）：entrySlots 有值＝hash 起點只落這些檔位（零邊際成本引擎），
+  // 失敗前進仍走全清單——每敗一格自然走進尾端訂閱額度段，緩升級不變。空/未設＝原公式（fail-open）。
+  const entry = entrySlots && entrySlots.length > 0 ? entrySlots[hh % entrySlots.length]! : hh % rotation.length
+  const start = (entry + failCount) % rotation.length
   return rotation.slice(start).concat(rotation.slice(0, start))
 }
