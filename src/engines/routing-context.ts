@@ -84,6 +84,7 @@ function hasStateFields(value: LoadRoutingStateResult): value is Extract<LoadRou
   return state.version === 1
     && typeof state.updatedAt === 'string'
     && isPlainObject(state.isolated)
+    && isPlainObject(state.isolationCounts)
     && isPlainObject(state.promoted)
     && isPlainObject(state.probes)
 }

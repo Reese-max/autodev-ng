@@ -16,7 +16,7 @@ import { REUSE_CURRENT } from './routing-decision.js'
 
 export { REUSE_CURRENT }
 
-/** 目前寫入版本；讀取時支援同主版本缺欄回填，高於本版且無法辨識則 reuse-current。 */
+/** 目前寫入版本；讀取時支援同版缺欄回填，版本不符一律 reuse-current。 */
 export const ROUTING_STATE_VERSION = 1 as const
 
 export const ROUTING_STATE_FILENAME = 'engine-routing-state.json'
@@ -96,7 +96,7 @@ function pickField(obj: Record<string, unknown>, primary: string, ...aliases: st
   return undefined
 }
 
-/** 是否暴露可降級讀取的 map（含舊版頂層別名）。 */
+/** 是否帶有可識別的路由 map（含舊版頂層別名；供診斷與相容檢查）。 */
 export function hasReadableRoutingMaps(raw: Record<string, unknown>): boolean {
   return (
     isPlainObject(pickField(raw, 'isolated', 'isolation'))
@@ -159,7 +159,7 @@ function normalizeIsolationCounts(raw: unknown): Record<string, number> {
  * 將任意 JSON 正規化為 v1 狀態。
  * - 可辨識的物件（含缺 version / 缺欄）→ 回填預設
  * - 舊版欄位名稱（snake_case / isolation|promotions|probe）→ 對應到新版
- * - 未來主版本若仍帶 v1 可讀欄位 → 降級讀取（向前相容讀）
+ * - 版本不符 → null（避免未知語意的狀態影響既有派工）
  * - 完全無法辨識 → null（呼叫端 reuse-current）
  */
 export function normalizeRoutingState(raw: unknown, nowIso = new Date().toISOString()): RoutingState | null {
@@ -167,13 +167,7 @@ export function normalizeRoutingState(raw: unknown, nowIso = new Date().toISOStr
 
   const versionRaw = raw.version
   if (versionRaw !== undefined && versionRaw !== null) {
-    if (typeof versionRaw !== 'number' || !Number.isFinite(versionRaw) || versionRaw < 1) {
-      // 非法 version 但仍嘗試讀已知欄位；若連 map 都沒有則判廢
-      if (!hasReadableRoutingMaps(raw)) return null
-    } else if (versionRaw > ROUTING_STATE_VERSION) {
-      // 未來版本：僅在仍暴露 v1 欄位時降級讀取，否則 unsupported
-      if (!hasReadableRoutingMaps(raw)) return null
-    }
+    if (typeof versionRaw !== 'number' || !Number.isFinite(versionRaw) || versionRaw !== ROUTING_STATE_VERSION) return null
   }
 
   const updatedRaw = pickField(raw, 'updatedAt', 'updated_at')
@@ -185,6 +179,20 @@ export function normalizeRoutingState(raw: unknown, nowIso = new Date().toISOStr
     promoted: normalizePromoted(pickField(raw, 'promoted', 'promotions')),
     probes: normalizeProbes(pickField(raw, 'probes', 'probe')),
   }
+}
+
+/** 已出現的路由 map 必須是物件；半毀 JSON 不可被正規化成可套用狀態。 */
+function hasMalformedRoutingMaps(raw: Record<string, unknown>): boolean {
+  const maps: readonly { primary: string; aliases: readonly string[] }[] = [
+    { primary: 'isolated', aliases: ['isolation'] },
+    { primary: 'isolationCounts', aliases: [] },
+    { primary: 'promoted', aliases: ['promotions'] },
+    { primary: 'probes', aliases: ['probe'] },
+  ]
+  return maps.some(({ primary, aliases }) => {
+    const value = pickField(raw, primary, ...aliases)
+    return value !== undefined && !isPlainObject(value)
+  })
 }
 
 /** 是否應覆蓋既有 candidateEngines 結果。缺檔/損壞/不可用一律 false。 */
@@ -235,17 +243,24 @@ export function loadRoutingState(
 
   const versionRaw = raw.version
   if (
-    typeof versionRaw === 'number' &&
-    Number.isFinite(versionRaw) &&
-    versionRaw > ROUTING_STATE_VERSION
+    versionRaw !== undefined
+    && versionRaw !== null
+    && (typeof versionRaw !== 'number' || !Number.isFinite(versionRaw) || versionRaw !== ROUTING_STATE_VERSION)
   ) {
-    if (!hasReadableRoutingMaps(raw)) {
-      return {
-        kind: 'reuse-current',
-        decision: REUSE_CURRENT,
-        reason: 'unsupported-version',
-        state: empty,
-      }
+    return {
+      kind: 'reuse-current',
+      decision: REUSE_CURRENT,
+      reason: 'unsupported-version',
+      state: empty,
+    }
+  }
+
+  if (hasMalformedRoutingMaps(raw)) {
+    return {
+      kind: 'reuse-current',
+      decision: REUSE_CURRENT,
+      reason: 'invalid-shape',
+      state: empty,
     }
   }
 

@@ -76,15 +76,30 @@ describe('loadRoutingState 回退（不影響原派工）', () => {
     expect(result).toMatchObject({ kind: 'reuse-current', reason: 'invalid-shape' })
   })
 
-  test('未來版本且無可讀 map → unsupported-version', () => {
+  test('版本不符即使仍帶可讀 map → unsupported-version', () => {
     const dir = tmpDataDir()
     writeFileSync(
       join(dir, ROUTING_STATE_FILENAME),
-      JSON.stringify({ version: 99, payload: { secret: true } })
+      JSON.stringify({
+        version: 99,
+        isolated: { qwen: { untilTs: '2099-01-01T00:00:00.000Z', reason: 'future' } },
+      })
     )
     const result = loadRoutingState(dir, { nowIso: NOW })
     expect(result).toMatchObject({ kind: 'reuse-current', reason: 'unsupported-version' })
     expect(shouldApplyRoutingState(result)).toBe(false)
+  })
+
+  test('已解析但路由 map 形狀損壞 → invalid-shape', () => {
+    const dir = tmpDataDir()
+    writeFileSync(
+      join(dir, ROUTING_STATE_FILENAME),
+      JSON.stringify({ version: 1, isolated: ['qwen'] })
+    )
+    const result = loadRoutingState(dir, { nowIso: NOW })
+    expect(result).toMatchObject({ kind: 'reuse-current', reason: 'invalid-shape' })
+    expect(shouldApplyRoutingState(result)).toBe(false)
+    expect(routingStateForUpdate(result)).toBeNull()
   })
 
   test('reuse-current 時既有 candidateEngines 路徑不變', () => {
@@ -169,7 +184,7 @@ describe('loadRoutingState 版本相容與缺欄回填', () => {
     expect(result.state.isolationCounts).toEqual({})
   })
 
-  test('未來版本若仍帶 v1 map 欄位 → 降級讀取', () => {
+  test('未來版本若仍帶 v1 map 欄位 → 沿用原派工', () => {
     const dir = tmpDataDir()
     writeFileSync(
       join(dir, ROUTING_STATE_FILENAME),
@@ -180,10 +195,8 @@ describe('loadRoutingState 版本相容與缺欄回填', () => {
       })
     )
     const result = loadRoutingState(dir, { nowIso: NOW })
-    expect(result.kind).toBe('state')
-    if (result.kind !== 'state') throw new Error('expected state')
-    expect(result.state.version).toBe(1)
-    expect(result.state.isolated).toEqual({ x: { untilTs: 'u', reason: 'r' } })
+    expect(result).toMatchObject({ kind: 'reuse-current', reason: 'unsupported-version' })
+    expect(shouldApplyRoutingState(result)).toBe(false)
   })
 })
 

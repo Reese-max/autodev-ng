@@ -253,7 +253,7 @@ describe('狀態重建入口守門', () => {
     const { root: dir } = useIsolation()
     const prior = seedPreRestartState(dir)
     const file = join(dir, ROUTING_STATE_FILENAME)
-    const before = JSON.stringify({ version: 99, previousState: prior })
+    const before = JSON.stringify({ ...prior, version: 99 })
     writeFileSync(file, before)
     expect(loadRoutingState(dir, { nowIso: NOW })).toMatchObject({
       kind: 'reuse-current',
@@ -263,8 +263,8 @@ describe('狀態重建入口守門', () => {
 
     expectLegacyFallback(result)
     expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(JSON.parse(before).previousState.isolated.qwen.untilTs).toBe(UNTIL_TS)
-    expect(JSON.parse(before).previousState.probes.qwen.lastTs).toBe(PROBE_LAST_TS)
+    expect(JSON.parse(before).isolated.qwen.untilTs).toBe(UNTIL_TS)
+    expect(JSON.parse(before).probes.qwen.lastTs).toBe(PROBE_LAST_TS)
   })
 
   test('內容損壞：回原派工且不覆寫殘存試探時間', () => {
@@ -282,6 +282,25 @@ describe('狀態重建入口守門', () => {
     expect(readFileSync(file, 'utf8')).toBe(before)
     expect(before).toContain(UNTIL_TS)
     expect(before).toContain(PROBE_LAST_TS)
+  })
+
+  test('狀態 map 形狀損壞：回原派工且不改寫檔案', () => {
+    const { root: dir } = useIsolation()
+    const file = join(dir, ROUTING_STATE_FILENAME)
+    const before = JSON.stringify({
+      version: 1,
+      isolated: ['qwen'],
+      probes: { qwen: { hits: 1, lastTs: PROBE_LAST_TS } },
+      promoted: { codex: { score: 4, promotedAt: PROMOTED_AT } },
+    })
+    writeFileSync(file, before)
+    expect(loadRoutingState(dir, { nowIso: NOW })).toMatchObject({
+      kind: 'reuse-current',
+      reason: 'invalid-shape',
+    })
+
+    expectLegacyFallback(rebuildAndPick(dir))
+    expect(readFileSync(file, 'utf8')).toBe(before)
   })
 
   test('只讀檢查：第二次重建不重初始化快取與事件計數，試探/常駐候選不重置', () => {

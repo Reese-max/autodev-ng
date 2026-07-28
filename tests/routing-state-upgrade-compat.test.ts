@@ -179,7 +179,7 @@ describe('狀態檔升級相容：混合舊新格式', () => {
     expect(state.probes.c?.lastTs).toBe('CAMEL')
   })
 
-  test('未來 version + 舊別名 map 仍可降級讀取', () => {
+  test('未來 version + 舊別名 map 仍一律回退', () => {
     const dir = tmpDir()
     writeState(dir, {
       version: 9,
@@ -187,10 +187,12 @@ describe('狀態檔升級相容：混合舊新格式', () => {
       extraFuture: { nested: true },
     })
     const result = loadRoutingState(dir, { nowIso: NOW })
-    expect(result.kind).toBe('state')
-    if (result.kind !== 'state') throw new Error('expected state')
-    expect(result.state.version).toBe(1)
-    expect(result.state.isolated.z).toEqual({ untilTs: 'u', reason: 'future-legacy' })
+    expect(result).toMatchObject({
+      kind: 'reuse-current',
+      decision: REUSE_CURRENT,
+      reason: 'unsupported-version',
+    })
+    expect(shouldApplyRoutingState(result)).toBe(false)
   })
 
   test('未來 version 且只有未知欄、無 map → unsupported-version 回退', () => {

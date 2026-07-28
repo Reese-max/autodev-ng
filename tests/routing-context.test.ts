@@ -29,7 +29,7 @@ test('可注入讀取器會組合 rotation、近三日戰績與狀態檔', () =>
   expect(readState).toHaveBeenCalledWith('D:/adng/data', { nowIso: NOW })
 })
 
-test('無資料、內容損壞與欄位缺失都回到同一個 fallback', () => {
+test('無資料、內容損壞與任一狀態 map 缺失都回到同一個 fallback', () => {
   const noData = buildRoutingContext(INPUT, {
     recentRunStats: () => ({ kind: 'reuse-current', decision: REUSE_CURRENT, reason: 'insufficient-samples' }),
     loadRoutingState: () => ({ kind: 'state', state: STATE, source: 'file' }),
@@ -43,11 +43,24 @@ test('無資料、內容損壞與欄位缺失都回到同一個 fallback', () =>
     loadRoutingState: () => ({
       kind: 'state',
       source: 'file',
-      state: { version: 1, updatedAt: NOW, isolated: {}, promoted: {} },
+      state: { version: 1, updatedAt: NOW, isolated: {}, isolationCounts: {}, promoted: {} },
+    } as never),
+  })
+  const missingIsolationCounts = buildRoutingContext(INPUT, {
+    recentRunStats: () => STATS,
+    loadRoutingState: () => ({
+      kind: 'state',
+      source: 'file',
+      state: { version: 1, updatedAt: NOW, isolated: {}, promoted: {}, probes: {} },
     } as never),
   })
 
-  expect([noData, corrupt, missingField]).toEqual([FALLBACK, FALLBACK, FALLBACK])
+  expect([noData, corrupt, missingField, missingIsolationCounts]).toEqual([
+    FALLBACK,
+    FALLBACK,
+    FALLBACK,
+    FALLBACK,
+  ])
 })
 
 test('未設 engineRotation 時不讀 I/O，直接沿用既有路由', () => {
