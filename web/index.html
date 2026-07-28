@@ -248,7 +248,7 @@
     </div>
     <div class="card" style="grid-column:1/-1">
       <h2>引擎戰績 · 近 7 日</h2>
-      <table><thead><tr><th>引擎</th><th>成/總</th><th>成功率</th><th>cap</th><th>隔離</th></tr></thead>
+      <table><thead><tr><th>引擎</th><th>成/總</th><th>成功率</th><th>今日額度</th><th>隔離</th></tr></thead>
       <tbody id="enginesBody"><tr><td colspan="5" class="empty">—</td></tr></tbody></table>
     </div>
     <div class="card" style="grid-column:1/-1">
@@ -392,8 +392,9 @@
       const isoMap = {}
       for (const i of r.isolated) isoMap[i.engine] = i.reason
       document.getElementById('enginesBody').innerHTML = r.engines.length
-        ? r.engines.map(e => `<tr><td>${esc(e.engine || '(未標)')}</td><td>${e.ok}/${e.n}</td>
-            <td>${e.n ? Math.round(100 * e.ok / e.n) + '%' : '—'}</td><td>${e.dailyAttemptCap ?? '—'}</td>
+        ? r.engines.map(e => `<tr><td>${esc(e.engine || '(未標)')}</td><td>${e.ok}/${e.attempts}</td>
+            <td>${e.successRate === null ? '—' : Math.round(100 * e.successRate) + '%'}</td>
+            <td>${e.dailyAttemptCap === null ? '—' : e.todayAttempts + '/' + e.dailyAttemptCap + '（餘 ' + e.quotaRemaining + '）'}</td>
             <td>${isoMap[e.engine] ? '<span class="badge badge-red">' + esc(String(isoMap[e.engine]).slice(0, 40)) + '</span>' : '—'}</td></tr>`).join('')
         : '<tr><td colspan="5" class="empty">近 7 日無派工</td></tr>'
     } catch { /* 面板獨立 fail-open */ }

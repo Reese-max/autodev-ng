@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RunDb, localDay } from '../src/db.js'
 import { BacklogStore } from '../src/backlog.js'
+import { EventLog } from '../src/events.js'
+import { handleCommand } from '../src/bot/handlers.js'
 
 // web/server.mjs 是純 .mjs（不入 tsc 帳，M5 Task 9 spec：不經 tsc）。用非字面量路徑動態 import，
 // 讓 tsc 不對它做型別解析（模組本身無 .d.ts），同時 vitest 執行期走真實 Node ESM loader。
@@ -13,7 +15,7 @@ const {
   parseArgs, makeToken, hasValidToken, readHeartbeat, readEventsTail, readDlqCount,
   readRecentAttempts, buildStatusPayload, createChildState, spawnRunOnce, spawnDaemonStart,
   stopDaemon, createServer, readDaemonLockOwner, readBotAlive, readSilencedUntil, INDEX_HTML,
-  loadOrCreateToken,
+  loadOrCreateToken, buildBotDeps,
 } = mod
 
 // 測試一律關掉 spawn 後的活性等待（waitMs=0 + 立即 resolve 的 sleep），避免真的等 800ms。
@@ -21,6 +23,13 @@ const FAST: any = { waitMs: 0, sleep: async () => {} }
 
 function tmp(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix))
+}
+
+function botRuntime(cfg: any, store: BacklogStore, db: RunDb, cfgPath: string) {
+  return {
+    handleCommand,
+    botDeps: buildBotDeps({ cfg, store, db, cfgPath, events: new EventLog(cfg.dataDir) }),
+  }
 }
 
 // ---------- argv / token ----------
@@ -72,6 +81,7 @@ test('loadOrCreateToken：token 檔已存在時沿用其值(常駐 respawn 不�
     spawnFn: () => ({ pid: 1, exitCode: null, killed: false, unref() {} }),
     childState: createChildState(), indexHtml: '<html>ok</html>', localDayFn: localDay,
     spawnOpts: { ...FAST, lockOwnerFn: () => 'unknown' },
+    ...botRuntime(cfg, store, db, 'cfg.json'),
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()))
   const port = (server.address() as any).port
@@ -347,7 +357,11 @@ test('stopDaemon：寫入既有 stopFile 機制（scheduler.runOnce 讀取的同
 })
 
 // ---------- HTTP 路由 + CSRF（port 0，測完立即關閉；spawn 全 mock） ----------
-async function withServer(fn: (base: string, created: any[], dir: string) => Promise<void>, spawnOverride?: () => any) {
+async function withServer(
+  fn: (base: string, created: any[], dir: string) => Promise<void>,
+  spawnOverride?: () => any,
+  ctxOverride: Record<string, unknown> = {},
+) {
   const dir = tmp('adng-web-http-')
   writeFileSync(join(dir, 'backlog.md'), '- [ ] t1\n')
   const store = new BacklogStore(join(dir, 'backlog.md'))
@@ -364,6 +378,8 @@ async function withServer(fn: (base: string, created: any[], dir: string) => Pro
     cfg, cfgPath: 'cfg.json', store, db, dbPath: join(dir, 'run.db'), token: 'secret-tok',
     spawnFn, childState: createChildState(), indexHtml: '<html>ok</html>', localDayFn: localDay,
     spawnOpts: { ...FAST, lockOwnerFn: () => 'unknown' },
+    ...botRuntime(cfg, store, db, 'cfg.json'),
+    ...ctxOverride,
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()))
   const port = (server.address() as any).port
@@ -580,6 +596,14 @@ test('POST /api/pause 無 token → 403；對 token → 寫入 stopFile（daemon
   })
 })
 
+test('POST bot handler 拒絕時回 500，不讓 HTTP 請求懸掛', async () => {
+  await withServer(async base => {
+    const res = await fetch(base + '/api/pause', { method: 'POST', headers: { 'x-csrf-token': 'secret-tok' } })
+    expect(res.status).toBe(500)
+    expect((await res.json()).error).toContain('handler boom')
+  }, undefined, { handleCommand: async () => { throw new Error('handler boom') } })
+})
+
 test('POST /api/resume 無 token → 403；對 token → 清除既有 stopFile', async () => {
   await withServer(async (base, _created, dir) => {
     writeFileSync(join(dir, '.adng.stop'), 'bot /pause\n')
@@ -646,6 +670,7 @@ function makeProjectCtx(dir: string, token: string) {
     spawnFn: (_cmd: string, args: string[]) => ({ pid: 1, exitCode: null, killed: false, args, unref() {} }),
     childState: createChildState(), indexHtml: '<html>multi</html>', localDayFn: localDay,
     spawnOpts: { ...FAST, lockOwnerFn: () => 'unknown' },
+    ...botRuntime(cfg, store, db, join(dir, 'cfg.json')),
   }
 }
 

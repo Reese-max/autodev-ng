@@ -256,15 +256,27 @@ export function readSilencedUntil(dataDir, now = new Date()) {
 const COCKPIT_WINDOW_DAYS = 7
 
 /** 近 7 日各引擎成敗統計（獨立唯讀連線，鏡像 readRecentAttempts 慣例）。 */
-export function readEngineStats7d(dbPath) {
+export function readEngineStats7d(dbPath, now = new Date()) {
   if (!existsSync(dbPath)) return []
   let db
   try {
+    const nowMs = now.getTime()
+    if (!Number.isFinite(nowMs)) return []
     db = new Database(dbPath, { readonly: true, fileMustExist: true })
-    const since = new Date(Date.now() - COCKPIT_WINDOW_DAYS * 86400000).toISOString()
+    const nowIso = now.toISOString()
+    const since = new Date(nowMs - COCKPIT_WINDOW_DAYS * 86400000).toISOString()
+    const todayStart = `${nowIso.slice(0, 10)}T00:00:00.000Z`
+    const todayEnd = new Date(Date.parse(todayStart) + 86400000).toISOString()
     return db.prepare(
-      'SELECT engine, COUNT(*) AS n, SUM(ok) AS ok FROM attempts WHERE ts >= ? GROUP BY engine ORDER BY n DESC'
-    ).all(since).map(r => ({ engine: r.engine, n: r.n, ok: r.ok ?? 0 }))
+      `SELECT COALESCE(NULLIF(engine,''),'(未標)') AS engine,
+              COUNT(*) AS n,
+              COALESCE(SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END),0) AS ok,
+              COALESCE(SUM(CASE WHEN ts >= ? AND ts < ? THEN 1 ELSE 0 END),0) AS todayAttempts
+       FROM attempts WHERE ts >= ? AND ts <= ?
+       GROUP BY 1 ORDER BY n DESC, engine ASC`
+    ).all(todayStart, todayEnd, since, nowIso).map(r => ({
+      engine: r.engine, n: r.n, ok: r.ok, todayAttempts: r.todayAttempts,
+    }))
   } catch { return [] } finally { try { db?.close() } catch { /* ignore */ } }
 }
 
@@ -283,6 +295,43 @@ export function readIsolatedEngines(dataDir, now = new Date()) {
     }
     return out
   } catch { return [] }
+}
+
+/** 組裝戰績面板；DB、routing-state、config cap 三來源各自 fail-open。 */
+export function buildEnginePanel({ dbPath, dataDir, engines }, now = new Date()) {
+  const stats = readEngineStats7d(dbPath, now)
+  const isolated = readIsolatedEngines(dataDir, now)
+  const caps = {}
+  try {
+    for (const [tag, cfg] of Object.entries(engines ?? {})) {
+      if (!cfg || typeof cfg !== 'object') continue
+      const cap = Number.isInteger(cfg.dailyAttemptCap) && cfg.dailyAttemptCap > 0 ? cfg.dailyAttemptCap : null
+      caps[tag] = { dailyAttemptCap: cap, subscription: !!cfg.subscription }
+    }
+  } catch { /* config cap 來源失敗時仍保留 DB 與隔離資料 */ }
+
+  const byEngine = new Map(stats.map(row => [row.engine, row]))
+  const names = new Set([
+    ...stats.map(row => row.engine),
+    ...isolated.map(row => row.engine),
+    ...Object.entries(caps).filter(([, cap]) => cap.dailyAttemptCap !== null).map(([tag]) => tag),
+  ])
+  const rows = [...names].map(engine => {
+    const stat = byEngine.get(engine)
+    const cap = caps[engine] ?? { dailyAttemptCap: null, subscription: false }
+    const attempts = stat?.n ?? 0
+    const todayAttempts = stat?.todayAttempts ?? 0
+    return {
+      engine, n: attempts, attempts, ok: stat?.ok ?? 0,
+      successRate: attempts > 0 ? (stat?.ok ?? 0) / attempts : null,
+      todayAttempts,
+      dailyAttemptCap: cap.dailyAttemptCap,
+      quotaRemaining: cap.dailyAttemptCap === null ? null : Math.max(0, cap.dailyAttemptCap - todayAttempts),
+      subscription: cap.subscription,
+    }
+  })
+  rows.sort((a, b) => b.attempts - a.attempts || a.engine.localeCompare(b.engine))
+  return { engines: rows, isolated }
 }
 
 /** guardian-runs.jsonl 尾 n 筆（最新在前）；純允許清單欄位輸出。 */
@@ -563,6 +612,7 @@ export function createRequestHandler(ctxOrMap) {
     }
     const { cfg, cfgPath, store, db, dbPath, token, spawnFn, childState, localDayFn, spawnOpts } = ctx
     const getBotDeps = () => getBotDepsFor(ctx)
+    const getCommandHandler = () => ctx.handleCommand ? Promise.resolve(ctx.handleCommand) : getHandleCommand()
 
     if (req.method === 'GET' && url.pathname === '/api/status') {
       try {
@@ -578,12 +628,7 @@ export function createRequestHandler(ctxOrMap) {
     }
     // 駕駛艙讀取端點（GOAL cockpit）：GET 無副作用，鏡像 /api/status 不設 CSRF；各來源 fail-open。
     if (req.method === 'GET' && url.pathname === '/api/cockpit/engines') {
-      const caps = {}
-      for (const [tag, e] of Object.entries(cfg.engines ?? {})) {
-        caps[tag] = { dailyAttemptCap: e.dailyAttemptCap ?? null, subscription: !!e.subscription }
-      }
-      const engines = readEngineStats7d(dbPath).map(r => ({ ...r, ...(caps[r.engine] ?? { dailyAttemptCap: null, subscription: false }) }))
-      send(200, { engines, isolated: readIsolatedEngines(cfg.dataDir) })
+      send(200, buildEnginePanel({ dbPath, dataDir: cfg.dataDir, engines: cfg.engines }))
       return
     }
     if (req.method === 'GET' && url.pathname === '/api/cockpit/blocked') {
@@ -603,7 +648,7 @@ export function createRequestHandler(ctxOrMap) {
       const name = url.pathname.slice('/api/panel/'.length)
       if (!PANEL_NAMES.has(name)) { send(404, { error: 'not found' }); return }
       try {
-        const handleCommand = await getHandleCommand()
+        const handleCommand = await getCommandHandler()
         const r = await handleCommand(name, name === 'goal' ? 'status' : '', await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
       } catch (err) {
@@ -637,13 +682,13 @@ export function createRequestHandler(ctxOrMap) {
       // M9.1 控制端點：pause/resume/task 比照 goal/silence 慣例，零重複業務邏輯全部轉呼叫既有
       // handleCommand（注入防護／換行拒收皆在 handler 內建，此處原樣透傳拒收文案）。
       if (req.method === 'POST' && url.pathname === '/api/pause') {
-        const handleCommand = await getHandleCommand()
+        const handleCommand = await getCommandHandler()
         const r = await handleCommand('pause', '', await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/resume') {
-        const handleCommand = await getHandleCommand()
+        const handleCommand = await getCommandHandler()
         const r = await handleCommand('resume', '', await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
@@ -657,7 +702,7 @@ export function createRequestHandler(ctxOrMap) {
       }
       if (req.method === 'POST' && url.pathname === '/api/task') {
         const body = await readJsonBody(req)
-        const handleCommand = await getHandleCommand()
+        const handleCommand = await getCommandHandler()
         const r = await handleCommand('task', String(body.text ?? ''), await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
@@ -665,26 +710,26 @@ export function createRequestHandler(ctxOrMap) {
       // M9 控制端點：零重複業務邏輯，全部轉呼叫既有 handleCommand（注入防護／lock 防雙跑皆在 handler 內建）。
       if (req.method === 'POST' && url.pathname === '/api/goal/set') {
         const body = await readJsonBody(req)
-        const handleCommand = await getHandleCommand()
+        const handleCommand = await getCommandHandler()
         const r = await handleCommand('goal', 'set ' + String(body.text ?? ''), await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/goal/run') {
-        const handleCommand = await getHandleCommand()
+        const handleCommand = await getCommandHandler()
         const r = await handleCommand('goal', 'run', await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/goal/stop') {
-        const handleCommand = await getHandleCommand()
+        const handleCommand = await getCommandHandler()
         const r = await handleCommand('goal', 'stop', await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
       }
       if (req.method === 'POST' && url.pathname === '/api/silence') {
         const body = await readJsonBody(req)
-        const handleCommand = await getHandleCommand()
+        const handleCommand = await getCommandHandler()
         const r = await handleCommand('silence', String(body.minutes ?? ''), await getBotDeps())
         send(200, { ok: r.ok, text: r.text })
         return
@@ -696,7 +741,14 @@ export function createRequestHandler(ctxOrMap) {
 }
 
 export function createServer(ctx) {
-  return httpCreateServer(createRequestHandler(ctx))
+  const handle = createRequestHandler(ctx)
+  return httpCreateServer((req, res) => {
+    void handle(req, res).catch(err => {
+      if (res.headersSent) { res.end(); return }
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ error: String(err) }))
+    })
+  })
 }
 
 // ---------- bootstrap（真跑：組 deps、印 token+URL、bind 127.0.0.1:3900） ----------

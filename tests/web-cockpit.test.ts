@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RunDb, localDay } from '../src/db.js'
@@ -27,7 +27,11 @@ function makeCtx(backlogMd = '- [ ] 任務一\n'): Ctx {
   const cfg: any = {
     dataDir: dir, timezoneOffsetHours: 0, dailySoftUsd: 40, dailyHardUsd: 100,
     stopFile: join(dir, '.adng.stop'), backlogFile: join(dir, 'backlog.md'),
-    engines: { devin: { adapter: 'devin', dailyAttemptCap: 20, subscription: true }, codex: { adapter: 'codex' } },
+    engines: {
+      devin: { adapter: 'devin', dailyAttemptCap: 20, subscription: true },
+      idle: { adapter: 'mock', dailyAttemptCap: 5, subscription: true },
+      codex: { adapter: 'codex' },
+    },
   }
   return { dir, store, db, cfg }
 }
@@ -87,31 +91,76 @@ test('buildProjectSummary：heartbeat、成本、戰績與 backlog 各自 fail-o
 // ---------- (2) 引擎戰績 ----------
 test('GET /api/cockpit/engines：近 7 日統計＋隔離狀態＋cap；只出 allowlist 欄位', async () => {
   const c = makeCtx()
-  for (let i = 0; i < 3; i++) c.db.record({ taskId: `t${i}`, ok: i < 2, costUsd: 0, detail: '', engine: 'devin', ts: daysAgo(1) })
+  for (let i = 0; i < 3; i++) c.db.record({
+    taskId: `t${i}`, ok: i < 2, costUsd: 0, detail: '', engine: 'devin',
+    ts: i < 2 ? new Date().toISOString() : daysAgo(1),
+  })
   c.db.record({ taskId: 'old', ok: false, costUsd: 0, detail: '', engine: 'devin', ts: daysAgo(10) }) // 窗外不計
   writeFileSync(join(c.dir, 'engine-routing-state.json'), JSON.stringify({
-    version: 1, isolated: { devin: { untilTs: new Date(Date.now() + 3600_000).toISOString(), reason: '簽名熔斷：連續5次相同失敗' } }, probes: {},
+    version: 1, isolated: {
+      devin: { untilTs: new Date(Date.now() + 3600_000).toISOString(), reason: '簽名熔斷：連續5次相同失敗' },
+      standby: { untilTs: new Date(Date.now() + 3600_000).toISOString(), reason: '人工隔離' },
+    }, probes: {},
   }))
   const s = await startServer(c)
   try {
     const r = await (await fetch(`http://127.0.0.1:${s.port}/api/cockpit/engines`)).json()
     const devin = r.engines.find((e: any) => e.engine === 'devin')
     expect(devin.n).toBe(3)
+    expect(devin.attempts).toBe(3)
     expect(devin.ok).toBe(2)
+    expect(devin.successRate).toBeCloseTo(2 / 3)
+    expect(devin.todayAttempts).toBe(2)
     expect(devin.dailyAttemptCap).toBe(20)
+    expect(devin.quotaRemaining).toBe(18)
+    expect(r.engines.find((e: any) => e.engine === 'idle')).toMatchObject({ attempts: 0, todayAttempts: 0, dailyAttemptCap: 5, quotaRemaining: 5 })
+    expect(r.engines.some((e: any) => e.engine === 'standby')).toBe(true)
     const iso = r.isolated.find((e: any) => e.engine === 'devin')
     expect(iso.reason).toContain('簽名熔斷')
     expect(JSON.stringify(r)).not.toContain('apiKey')
   } finally { s.close() }
 })
 
-test('GET /api/cockpit/engines：缺 run.db 與 routing-state → 空陣列 fail-open', async () => {
+test('GET /api/cockpit/engines：缺 run.db 與 routing-state → 保留 cap 零消耗列', async () => {
   const c = makeCtx()
+  c.db.close()
+  rmSync(join(c.dir, 'run.db'))
   const s = await startServer(c)
   try {
     const r = await (await fetch(`http://127.0.0.1:${s.port}/api/cockpit/engines`)).json()
-    expect(r.engines).toEqual([])
+    expect(r.engines).toEqual([
+      expect.objectContaining({ engine: 'devin', attempts: 0, dailyAttemptCap: 20, quotaRemaining: 20 }),
+      expect.objectContaining({ engine: 'idle', attempts: 0, dailyAttemptCap: 5, quotaRemaining: 5 }),
+    ])
     expect(r.isolated).toEqual([])
+  } finally { s.close() }
+})
+
+test('GET /api/cockpit/engines：routing-state 壞檔不拖垮 DB 戰績與 cap', async () => {
+  const c = makeCtx()
+  c.db.record({ taskId: 'ok', ok: true, costUsd: 0, detail: '', engine: 'codex', ts: new Date().toISOString() })
+  writeFileSync(join(c.dir, 'engine-routing-state.json'), '{broken')
+  const s = await startServer(c)
+  try {
+    const r = await (await fetch(`http://127.0.0.1:${s.port}/api/cockpit/engines`)).json()
+    expect(r.engines.find((e: any) => e.engine === 'codex')).toMatchObject({ attempts: 1, successRate: 1 })
+    expect(r.engines.find((e: any) => e.engine === 'devin').dailyAttemptCap).toBe(20)
+    expect(r.isolated).toEqual([])
+  } finally { s.close() }
+})
+
+test('GET /api/cockpit/engines：run.db 壞檔不拖垮隔離事由與 cap', async () => {
+  const c = makeCtx()
+  c.db.close()
+  writeFileSync(join(c.dir, 'run.db'), 'not sqlite')
+  writeFileSync(join(c.dir, 'engine-routing-state.json'), JSON.stringify({
+    isolated: { devin: { untilTs: new Date(Date.now() + 3600_000).toISOString(), reason: '簽名熔斷：quota' } },
+  }))
+  const s = await startServer(c)
+  try {
+    const r = await (await fetch(`http://127.0.0.1:${s.port}/api/cockpit/engines`)).json()
+    expect(r.engines.find((e: any) => e.engine === 'devin')).toMatchObject({ attempts: 0, dailyAttemptCap: 20 })
+    expect(r.isolated).toEqual([expect.objectContaining({ engine: 'devin', reason: '簽名熔斷：quota' })])
   } finally { s.close() }
 })
 
@@ -236,4 +285,6 @@ test('index.html 含駕駛艙四面板與艦隊卡片欄位渲染', () => {
     expect(html).toContain(marker)
   }
   expect(html).toContain('todayOk') // 艦隊卡片今日成敗
+  expect(html).toContain('今日額度')
+  expect(html).toContain('quotaRemaining')
 })
