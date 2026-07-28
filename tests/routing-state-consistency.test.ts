@@ -6,6 +6,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import type { BacklogStore } from '../src/backlog.js'
+import type { EventLog } from '../src/events.js'
 import {
   analyzeRoutingConsistency,
   checkRoutingStateConsistency,
@@ -21,6 +23,8 @@ import {
 import { ISOLATE_MIN_SAMPLES } from '../src/engines/isolation-policy.js'
 import { clearRunStatsCache, type RunStatsResult } from '../src/engines/run-stats.js'
 import { RunDb } from '../src/db.js'
+import { pickReadyTask, type Deps } from '../src/scheduler.js'
+import { ConfigSchema, type Engine, type Task } from '../src/types.js'
 
 const NOW = '2026-07-20T12:00:00.000Z'
 const NOW_MS = Date.parse(NOW)
@@ -48,6 +52,41 @@ function baseState(partial: Partial<RoutingState> = {}): RoutingState {
 function expectMaintainPath(r: { maintainOriginalPath: true; decision: typeof REUSE_CURRENT }): void {
   expect(r.maintainOriginalPath).toBe(true)
   expect(r.decision).toBe(REUSE_CURRENT)
+}
+
+const PICK_TASK: Task = {
+  id: '00000000',
+  text: '一致性檢查不改派工',
+  line: 0,
+  status: 'open',
+}
+
+function pickDeps(dataDir: string, db: RunDb): Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines'> {
+  const engineByTag = new Map(ROT.map(tag => [tag, {
+    id: tag,
+    async preflight() { return { ok: true, detail: 'ready' } },
+    async run() { return { ok: true, output: '', costUsd: 0 } },
+  } satisfies Engine]))
+  return {
+    cfg: ConfigSchema.parse({
+      projectPath: dataDir,
+      backlogFile: join(dataDir, 'BACKLOG.md'),
+      dataDir,
+      defaultEngine: 'qwen',
+      engineRotation: ROT,
+      engines: Object.fromEntries(ROT.map(tag => [tag, { adapter: 'mock', costPerRunUsd: 0 }])),
+    }),
+    store: { report: vi.fn() } as unknown as BacklogStore,
+    db,
+    events: { append: vi.fn(), appendOnce: vi.fn() } as unknown as EventLog,
+    engines: {
+      resolve(tag: string) {
+        const engine = engineByTag.get(tag)
+        if (!engine) throw new Error(`fixture engine missing: ${tag}`)
+        return engine
+      },
+    },
+  }
 }
 
 describe('analyzeRoutingConsistency（純交叉）', () => {
@@ -392,6 +431,71 @@ describe('checkRoutingStateConsistency（I/O + 守門）', () => {
       expect(loaded.kind).toBe('state')
       expect(loaded.state.isolated.rogue?.reason).toBe('x')
     } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('一致性警告不改 pickReadyTask 輸出', () => {
+  test.each([
+    {
+      name: '狀態檔存在但輪替已變動',
+      isolatedTag: 'retired',
+      stats: { kind: 'reuse-current', decision: REUSE_CURRENT, reason: 'missing-run-db' } satisfies RunStatsResult,
+      warningCode: 'isolated-outside-rotation',
+      expectedEngine: 'qwen',
+    },
+    {
+      name: '聚合結果顯示已解除隔離但狀態仍未清除',
+      isolatedTag: 'qwen',
+      stats: {
+        kind: 'stats',
+        days: ['2026-07-20', '2026-07-19', '2026-07-18'],
+        sampleCount: 6,
+        engines: [{ engine: 'qwen', sampleCount: 6, ok: 6, fail: 0, successRate: 1 }],
+      } satisfies RunStatsResult,
+      warningCode: 'healthy-but-isolated',
+      expectedEngine: 'codex',
+    },
+  ])('$name：只警告，檢查前後派工輸出相同', async ({ isolatedTag, stats, warningCode, expectedEngine }) => {
+    const dir = tmpDir()
+    const db = new RunDb(join(dir, 'pick.db'))
+    try {
+      const nowIso = new Date().toISOString()
+      const state = baseState({
+        isolated: {
+          [isolatedTag]: {
+            untilTs: new Date(Date.parse(nowIso) + 24 * 3600_000).toISOString(),
+            reason: 'stale-state',
+          },
+        },
+      })
+      expect(saveRoutingState(dir, state, { nowIso })).toBe(true)
+      const stateFile = join(dir, ROUTING_STATE_FILENAME)
+      const stateBefore = readFileSync(stateFile, 'utf8')
+      const deps = pickDeps(dir, db)
+      const beforePick = await pickReadyTask(deps, [PICK_TASK])
+
+      const consistency = checkRoutingStateConsistency({
+        dataDir: dir,
+        engineRotation: ROT,
+        nowIso,
+        statsFn: () => stats,
+      })
+
+      expect(consistency.kind).toBe('warnings')
+      expectMaintainPath(consistency)
+      expect(consistency.warnings).toEqual([
+        expect.objectContaining({ code: warningCode, engine: isolatedTag }),
+      ])
+      expect(readFileSync(stateFile, 'utf8')).toBe(stateBefore)
+
+      const afterPick = await pickReadyTask(deps, [PICK_TASK])
+      expect(afterPick).toStrictEqual(beforePick)
+      expect(typeof beforePick === 'object' && 'engineTag' in beforePick ? beforePick.engineTag : beforePick)
+        .toBe(expectedEngine)
+    } finally {
+      db.close()
       rmSync(dir, { recursive: true, force: true })
     }
   })
