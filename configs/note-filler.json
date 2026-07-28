@@ -175,5 +175,6 @@
     "security"
   ],
   "judgeEffort": "xhigh",
-  "judgeTimeoutMs": 180000
+  "judgeTimeoutMs": 180000,
+  "reviewEngine": "gpt-5.4-mini"
 }
