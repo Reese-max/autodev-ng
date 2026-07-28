@@ -199,6 +199,7 @@ test.each(ROUTING_SCENARIOS)('$name：事件、落盤與路由結果皆為單一
   expect(trace.stateWrites).toHaveLength(scenario.expected.stateWrites.length)
   expect(trace.events.length).toBeLessThanOrEqual(1)
   expect(trace.stateWrites.length).toBeLessThanOrEqual(1)
+  expect(f.deps.store.report).not.toHaveBeenCalled()
   expect(f.deps.events.append).toHaveBeenCalledTimes(
     scenario.expected.events.filter(([method]) => method === 'append').length
   )
@@ -206,6 +207,12 @@ test.each(ROUTING_SCENARIOS)('$name：事件、落盤與路由結果皆為單一
     scenario.expected.events.filter(([method]) => method === 'appendOnce').length
   )
   expect(trace.fingerprint).toBe(JSON.stringify(scenario.expected))
+
+  if (scenario.probeReady) {
+    const state = loadRoutingState(f.dataDir).state
+    expect(state.isolated.qwen).toBeDefined()
+    expect(state.probes.qwen).toBeUndefined()
+  }
 })
 
 test('blocked 分支：攔截 backlog 狀態寫入但不改原回傳', async () => {
