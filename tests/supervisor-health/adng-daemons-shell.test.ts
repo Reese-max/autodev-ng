@@ -63,6 +63,12 @@ test('adng-daemons.cmd：執行體無 inline 判活／legacy 批次啟動邏輯'
     { name: 'daemon.lock', re: /daemon\.lock/i },
     { name: 'IMAGENAME filter', re: /IMAGENAME/i },
     { name: 'find lockpid', re: /\bfind\b/i },
+    { name: 'LOCKPID variable', re: /\bLOCKPID\b/i },
+    { name: 'PIDFILE variable', re: /\bPIDFILE\b/i },
+    { name: 'set /p PID parser', re: /\bset\s+\/p\b/i },
+    { name: 'for /f PID parser', re: /\bfor\s+\/f\b/i },
+    { name: 'errorlevel liveness check', re: /\bif\s+not\s+errorlevel\b/i },
+    { name: 'legacy daemon --config launch', re: /\bdaemon\s+--config\b/i },
     // log redirect / share-lock must not live in the shell body
     { name: 'daemon-console.log', re: /daemon-console\.log/i },
     { name: '>> redirect spawn', re: />>/ },
