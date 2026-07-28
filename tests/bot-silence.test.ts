@@ -158,7 +158,7 @@ describe('daemon 整合：silence 窗內告警靜默，digest 不受影響', () 
     const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
 
     expect(result).toBe('max-cycles')
-    const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+    const digestSends = notifier.sent.filter(t => t.includes('每日摘要'))
     expect(digestSends).toHaveLength(1)
   })
 })

@@ -190,7 +190,7 @@ test('③ 一個任務成功、一個任務連敗轉 blocked，其餘輪跑到 i
   expect(blockedAlerts[0]).toContain('任務二')
 
   // digest：每輪都會檢查，但同一天只應該真的送達一次（多輪 idle 不重複灌）
-  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  const digestSends = notifier.sent.filter(t => t.includes('每日摘要'))
   expect(digestSends).toHaveLength(1)
   // 真 git worktree I/O，24/7 機器負載下 5s 不夠（非產品 bug）→ 針對性 timeout 20s
 }, 20000)
@@ -216,7 +216,7 @@ test('⑤ digest 送失敗（notifier 回 false）→ stamp 不落，下一輪�
   const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 3 }))
 
   expect(result).toBe('max-cycles')
-  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  const digestSends = notifier.sent.filter(t => t.includes('每日摘要'))
   expect(digestSends.length).toBeGreaterThanOrEqual(2) // 送失敗沒被標記，下一輪又重試
 
   const today = new Date().toISOString().slice(0, 10)
@@ -234,7 +234,7 @@ test('⑥ stop 檔已存在（runOnce 首輪即回 stopped）+ 當日 digest 未
   expect(result).toBe('stopped')
 
   // 摘要應該被發送過一次（且含「通道自檢」字樣）
-  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  const digestSends = notifier.sent.filter(t => t.includes('每日摘要'))
   expect(digestSends).toHaveLength(1)
   expect(digestSends[0]).toContain('adng 通道自檢 OK')
 
@@ -256,7 +256,7 @@ test('⑦ 紅線 4 報告窗：events.jsonl 含昨日 verify-alert → 今日輪
   const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 2 }))
 
   expect(result).toBe('max-cycles')
-  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  const digestSends = notifier.sent.filter(t => t.includes('每日摘要'))
   expect(digestSends).toHaveLength(1)
   expect(digestSends[0]).toContain(yesterday)
   expect(digestSends[0]).toContain('verify 略過 2 次')
@@ -273,7 +273,7 @@ test('⑧ 紅線 4 報告窗：db 有昨日 attempts（ok/fail）→ 今日輪�
   const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 2 }))
 
   expect(result).toBe('max-cycles')
-  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  const digestSends = notifier.sent.filter(t => t.includes('每日摘要'))
   expect(digestSends).toHaveLength(1)
   expect(digestSends[0]).toContain(yesterday)
   expect(digestSends[0]).toContain('完成 1 筆')
@@ -381,7 +381,7 @@ test('⑭ 冷卻閘不影響 digest：系統告警在冷卻中被吞，每日摘
   expect(result).toBe('max-cycles')
   const alerts = notifier.sent.filter(t => t.includes('cost-hard-stop'))
   expect(alerts).toHaveLength(0) // 冷卻中被吞
-  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  const digestSends = notifier.sent.filter(t => t.includes('每日摘要'))
   expect(digestSends).toHaveLength(1) // digest 完全不受冷卻表影響，照常送
 })
 
@@ -610,7 +610,7 @@ test('M10.0 案例 4：perpetual:false（預設）→ checkAndSendDigest 呼叫�
   const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 1 }))
 
   expect(result).toBe('max-cycles')
-  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  const digestSends = notifier.sent.filter(t => t.includes('每日摘要'))
   expect(digestSends).toHaveLength(1) // digest 仍每輪必送（鐵律 #6 不受影響）
   expect(perpetualDigestLineMock).not.toHaveBeenCalled() // 但 perpetual 未開時完全不呼叫
 })
@@ -627,7 +627,7 @@ test('M10.0 案例 5：perpetual:true → checkAndSendDigest 呼叫點會呼叫 
 
   expect(result).toBe('max-cycles')
   expect(perpetualDigestLineMock).toHaveBeenCalledWith(d.cfg.dataDir)
-  const digestSends = notifier.sent.filter(t => t.includes('adng 每日摘要'))
+  const digestSends = notifier.sent.filter(t => t.includes('每日摘要'))
   expect(digestSends).toHaveLength(1)
   expect(digestSends[0]).toContain('自主工程師台帳：open 1｜fixed 2｜deferred 0')
 })
