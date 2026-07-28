@@ -10,7 +10,7 @@
   "judgeUrl": "http://127.0.0.1:8317/v1",
   "judgeModel": "gpt-5.6-terra",
   "auditModel": "gpt-5.6-sol",
-  "verifyCommand": "npm install --no-audit --no-fund && npm run build && npx vitest run",
+  "verifyCommand": "npm install --no-audit --no-fund && npm run build && node scripts/verify-incremental.mjs",
   "verifyTimeoutMs": 1500000,
   "defaultEngine": "codex-sol",
   "engineRotation": [
