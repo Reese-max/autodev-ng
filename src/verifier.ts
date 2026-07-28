@@ -2,7 +2,7 @@ import type { Config, Job, RunResult } from './types.js'
 import { runVerify } from './verify.js'
 import { judgeCommit } from './judge.js'
 import { runReviewGate } from './engines/review-gate.js'
-import { defaultRollback, defaultGetDiff, tail } from './engines/verify-helpers.js'
+import { defaultRollback, defaultGetDiff, defaultGetNameStatus, composeJudgeDiff, tail } from './engines/verify-helpers.js'
 
 export interface VerifierCheck { pass: boolean; reason?: string; alerts: string[] }
 
@@ -10,6 +10,7 @@ export interface KernelVerifierOpts {
   cfg: Config
   rollback?: (cwd: string, toHash: string) => boolean
   getDiff?: (cwd: string, baseCommitHash?: string) => string
+  getNameStatus?: (cwd: string, baseCommitHash?: string) => string
   /** 測試注入用：轉給 judgeCommit 的 fetchFn（additive，正常執行走 judgeCommit 內建的 global fetch）。 */
   judgeFetchFn?: typeof fetch
   /** review gate：對 diff 做審查，回傳原始文字（契約首行 `REVIEW: PASS` / `REVIEW: REJECT <理由>`）。
@@ -25,6 +26,7 @@ export class KernelVerifier {
   private readonly cfg: Config
   private readonly rollback: (cwd: string, toHash: string) => boolean
   private readonly getDiff: (cwd: string, baseCommitHash?: string) => string
+  private readonly getNameStatus: (cwd: string, baseCommitHash?: string) => string
   private readonly judgeFetchFn?: typeof fetch
   private readonly reviewRun?: (args: { diff: string; taskText: string }) => Promise<string>
 
@@ -32,6 +34,7 @@ export class KernelVerifier {
     this.cfg = opts.cfg
     this.rollback = opts.rollback ?? defaultRollback
     this.getDiff = opts.getDiff ?? defaultGetDiff
+    this.getNameStatus = opts.getNameStatus ?? defaultGetNameStatus
     this.judgeFetchFn = opts.judgeFetchFn
     this.reviewRun = opts.reviewRun
   }
@@ -59,10 +62,12 @@ export class KernelVerifier {
     }
 
     const claim = tail(res.output, 2000)
+    // judge 餵料：完整檔案清單＋截尾正文——大 diff 不再因模型端 context 截斷生「只看到部分」冤案
+    const judgeDiff = composeJudgeDiff(this.getNameStatus(job.projectPath, res.baseCommitHash), diff)
     const jOut = await judgeCommit(
       { url: this.cfg.judgeUrl, model: this.cfg.judgeModel, apiKey: this.cfg.judgeApiKey, fetchFn: this.judgeFetchFn },
       claim,
-      diff
+      judgeDiff
     )
     if (jOut.verdict === 'MISMATCH') {
       this.tryRollback(job.projectPath, res.baseCommitHash, alerts)

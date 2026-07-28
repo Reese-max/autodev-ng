@@ -89,6 +89,15 @@ export class RunDb {
     return { taskId: row.task_id, ts: row.ts, ok: row.ok === 1, costUsd: row.cost_usd, detail: row.detail, engine: row.engine }
   }
 
+  /** 驗收回饋注入用：該 task 最近一筆 attempt 若為失敗，回其 detail；最近一筆是成功或無紀錄
+   * 回 null——只認最近一筆，上次已成功就不注入舊失敗雜訊。 */
+  lastFailureFor(taskId: string): string | null {
+    const row = this.db.prepare(
+      'SELECT ok, detail FROM attempts WHERE task_id=? ORDER BY seq DESC LIMIT 1'
+    ).get(taskId) as { ok: number; detail: string } | undefined
+    return row && row.ok === 0 ? row.detail : null
+  }
+
   failCount(taskId: string): number {
     const row = this.db.prepare(
       'SELECT COUNT(*) AS n FROM attempts WHERE task_id=? AND ok=0'

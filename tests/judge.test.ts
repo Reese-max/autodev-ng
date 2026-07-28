@@ -79,3 +79,14 @@ test('回應開頭 20 字內無 MATCH/MISMATCH 關鍵字（結論寫在後段）
   const r = await judgeCommit({ ...base, fetchFn: fakeFetch(longPreamble) }, 'c', 'd')
   expect(r.verdict).toBe('SKIP')
 })
+
+test('prompt 含判準：數量差異不否決、截斷以檔案清單為準（誤殺對策 2026-07-28）', async () => {
+  let sent = ''
+  const spy = (async (_u: unknown, init?: RequestInit) => {
+    sent = String(init?.body)
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'MATCH' } }] }), { status: 200 })
+  }) as typeof fetch
+  await judgeCommit({ ...base, fetchFn: spy }, 'c', 'd')
+  expect(sent).toContain('數量差異')
+  expect(sent).toContain('截斷')
+})

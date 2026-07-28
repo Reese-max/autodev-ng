@@ -27,10 +27,35 @@ export function defaultGetDiff(cwd: string, baseCommitHash?: string): string {
   try {
     return execFileSync('git', ['-C', cwd, 'diff', `${baseCommitHash}..HEAD`], {
       encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+      // execFileSync 預設 maxBuffer 1MB：大 diff 直接 throw→''→judge 被跳過（大改動反而免審的盲區）。
+      maxBuffer: 64 * 1024 * 1024,
     })
   } catch {
     return ''
   }
+}
+
+/** judge 餵料用：base..HEAD 變更檔案清單（--name-status）。失敗回 ''（fail-open，同 defaultGetDiff）。 */
+export function defaultGetNameStatus(cwd: string, baseCommitHash?: string): string {
+  if (!baseCommitHash) return ''
+  try {
+    return execFileSync('git', ['-C', cwd, 'diff', '--name-status', `${baseCommitHash}..HEAD`], {
+      encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+    }).trim()
+  } catch {
+    return ''
+  }
+}
+
+/** judge 餵料組裝：檔案清單（永遠完整、必塞得進 context）＋ diff 正文（超長截尾並明示截斷）。
+ * judge 最大宗攔截是「宣稱的檔案不在 diff」——清單就足以判定檔案級宣稱，即使正文被截。
+ * maxChars 60k（≈20k tokens）留給便宜 judge 模型的安全餘裕。 */
+export function composeJudgeDiff(nameStatus: string, diff: string, maxChars = 60_000): string {
+  const head = nameStatus ? `變更檔案清單（git diff --name-status，完整）：\n${nameStatus}\n\n` : ''
+  const body = diff.length > maxChars
+    ? `${diff.slice(0, maxChars)}\n\n[diff 正文過長已截斷（原 ${diff.length} 字，僅示前 ${maxChars} 字）；檔案級判定以上方完整清單為準]`
+    : diff
+  return head + body
 }
 
 export function tail(s: string, n: number): string {

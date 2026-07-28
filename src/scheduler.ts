@@ -126,6 +126,12 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   let lessonsText = ''
   try { lessonsText = deps.lessons?.inject() ?? '' } catch { /* 教訓面故障不擋派工 */ }
   if (lessonsText) directive = `${directive ?? task.text}\n\n${lessonsText}`
+  // 驗收回饋（judge 有效性分析 2026-07-28）：上一輪失敗原因餵回派工，終結同型連環打回
+  // （491bd799 案例：引擎不知道打回原因，同款 claim 膨脹重複六輪）。fail-open 不擋派工。
+  try {
+    const lastFail = db.lastFailureFor(task.id)
+    if (lastFail) directive = `${directive ?? task.text}\n\n上一次嘗試失敗被驗收打回，原因：${lastFail.replace(/\s+/g, ' ').trim().slice(0, 400)}\n請針對打回原因修正；宣稱改動的檔案與範圍必須與實際 diff 一致，不得宣稱未完成的部分。`
+  } catch { /* 回饋面故障不擋派工 */ }
   // 幻影完成對策（run.db 四大失敗來源分析 2026-07-27）：自證硬指令恆附派工尾。
   directive = `${directive ?? task.text}\n\n完成的定義＝已產生新 git commit。結束前執行 git log -1 --oneline 自證；沒有 commit 就如實回報失敗原因，不得宣稱完成。`
 

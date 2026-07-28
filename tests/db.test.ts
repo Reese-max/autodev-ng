@@ -134,3 +134,13 @@ test('M9.9：billedCostForLocalDay 排除訂閱引擎；空 engine 歷史列算�
   expect(s.billedUsd).toBeCloseTo(7)
   db.close()
 })
+
+test('lastFailureFor：最近一筆失敗回 detail；最近一筆成功或無紀錄回 null', () => {
+  const db = freshDb()
+  expect(db.lastFailureFor('nope')).toBeNull()
+  db.record({ taskId: 't1', ok: false, costUsd: 0, detail: 'judge-mismatch: 宣稱檔案不在 diff' })
+  expect(db.lastFailureFor('t1')).toBe('judge-mismatch: 宣稱檔案不在 diff')
+  db.record({ taskId: 't1', ok: true, costUsd: 0, detail: 'abc123' })
+  expect(db.lastFailureFor('t1')).toBeNull() // 最近一筆是成功 → 不注入舊失敗雜訊
+  db.close()
+})

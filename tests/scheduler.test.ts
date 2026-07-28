@@ -353,6 +353,24 @@ test('extraDirective 未設定時 job.directive 仍恆附任務文字＋commit �
   expect(e.calls[0]!.directive).toContain('git log -1')
 })
 
+test('上一輪失敗時 directive 注入驗收打回原因（判官回饋閉環 2026-07-28）', async () => {
+  const e = new MockEngine([{ ok: true }])
+  const d = deps(e)
+  d.db.record({ taskId: taskId('任務一'), ok: false, costUsd: 0, detail: 'judge-mismatch: 宣稱的 export.py 不在 diff' })
+  await runOnce(d)
+  expect(e.calls[0]!.directive).toContain('驗收打回')
+  expect(e.calls[0]!.directive).toContain('export.py')
+})
+
+test('上一輪成功時 directive 不注入舊失敗原因', async () => {
+  const e = new MockEngine([{ ok: true }])
+  const d = deps(e)
+  d.db.record({ taskId: taskId('任務一'), ok: false, costUsd: 0, detail: 'stale-fail-marker' })
+  d.db.record({ taskId: taskId('任務一'), ok: true, costUsd: 0, detail: 'ok-hash' })
+  await runOnce(d)
+  expect(e.calls[0]!.directive).not.toContain('stale-fail-marker')
+})
+
 test('engine.run 收到的 job.projectPath 是 worktree cwd（非主 repo 路徑），且 worktree 於 done 後被清掉', async () => {
   const e = new MockEngine([{ ok: true }])
   const d = deps(e)
