@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { RunDb } from './db.js'
 import { countDlqLines, countVerifyAlertsToday } from './engines/digest-counts.js'
 import { digestDeliveryLines, digestGoalLine } from './engines/digest-deliveries.js'
@@ -34,7 +34,8 @@ export function buildDigest(opts: BuildDigestOpts): string {
   const { verifySkip, other } = countVerifyAlertsToday(dataDir, isoDayUtc, offsetHours)
   const engineStats = db.engineDayStats(isoDayUtc, offsetHours)
   const lines = [
-    `adng 每日摘要 ${isoDayUtc}`,
+    // DC 可辨識性（2026-07-28）：三專案各發一份，首行帶專案名（dataDir 尾段）＋Discord 粗體。
+    `**adng·${basename(dataDir)} 每日摘要 ${isoDayUtc}**`,
     `完成 ${stats.ok} 筆／失敗 ${stats.fail} 筆`,
     `今日成本：真金 $${stats.billedUsd.toFixed(4)}｜訂閱名義 $${(stats.costUsd - stats.billedUsd).toFixed(4)}`,
     `DLQ 積壓：${dlqCount} 筆`,
