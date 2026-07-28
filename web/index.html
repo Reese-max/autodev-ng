@@ -68,24 +68,27 @@
   .state-running { color: var(--ok); } .state-idle { color: var(--idle); }
   .state-stopped, .state-cost-stopped, .state-unknown { color: var(--bad); }
 
-  /* ---------- 首頁:艦隊列 ---------- */
-  #project-list .listhead { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin: 4px 2px 10px; }
-  .fleet-row {
-    display: grid; grid-template-columns: 220px 1fr auto; align-items: center; gap: 18px;
+  /* ---------- 首頁:艦隊卡片 ---------- */
+  #project-list .listhead { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin: 4px 2px 10px; }
+  #projectCards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .fleet-card {
+    display: flex; flex-direction: column; gap: 12px; min-height: 156px; width: 100%;
     background: var(--bg1); border: 1px solid var(--line); border-radius: 10px;
-    padding: 16px 20px; margin-bottom: 10px; cursor: pointer;
+    padding: 16px; color: var(--ink); font: inherit; text-align: left;
     transition: border-color .15s ease, background .15s ease;
   }
-  .fleet-row:hover { border-color: var(--line-strong); background: var(--bg2); }
+  button.fleet-card { cursor: pointer; }
+  .fleet-card:hover { border-color: var(--line-strong); background: var(--bg2); }
   .fleet-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .fleet-id .name { font-weight: 700; font-size: 14px; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .fleet-task { color: var(--mut); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .fleet-task { color: var(--mut); font-size: 12px; overflow: hidden; min-width: 0; }
   .fleet-task.none { color: var(--dim); }
-  .fleet-stats { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--mut); white-space: nowrap; }
+  .fleet-stats { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: auto; font-size: 12px; color: var(--mut); }
   .fleet-stats b { color: var(--ink); font-weight: 600; }
   .fleet-stats .ok-n { color: var(--ok); font-weight: 700; }
   .fleet-stats .fail-n { color: var(--bad); font-weight: 700; }
-  .fleet-row .panelErr { display: block; }
+  .fleet-card .panelErr { display: block; }
+  .fleet-empty { grid-column: 1 / -1; padding: 28px; color: var(--dim); text-align: center; background: var(--bg1); border: 1px dashed var(--line-strong); border-radius: 10px; }
 
   /* ---------- 內頁 ---------- */
   .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -154,9 +157,10 @@
   .empty { color: var(--dim); }
   .reopenBtn { padding: 3px 10px; font-size: 11px; background: transparent; color: var(--mut); border: 1px solid var(--line-strong); }
   .reopenBtn:hover { color: var(--ok); border-color: rgba(61,220,151,.5); background: var(--ok-dim); }
+  @media (max-width: 920px) { #projectCards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 760px) {
     main, header { padding-left: 14px; padding-right: 14px; }
-    .fleet-row { grid-template-columns: 1fr; gap: 6px; }
+    #projectCards { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -171,8 +175,8 @@
 <main>
 
 <div id="project-list" style="display:none">
-  <div class="listhead">艦隊 · 選擇專案進入面板</div>
-  <div id="projectCards"></div>
+  <div class="listhead"><span>艦隊總覽 · 選擇專案進入面板</span><span>每 30 秒自動刷新</span></div>
+  <div id="projectCards" aria-live="polite"></div>
 </div>
 
 <div id="panel">
@@ -479,7 +483,7 @@
     if (atBottom) log.scrollTop = log.scrollHeight
   }
 
-  // ---- M10.5 Task 8:#project-list(首頁艦隊列)與 #panel(既有單專案面板)二選一顯示 ----
+  // ---- M10.5 Task 8:#project-list(首頁艦隊卡片)與 #panel(既有單專案面板)二選一顯示 ----
   function showList() {
     document.getElementById('project-list').style.display = ''
     document.getElementById('panel').style.display = 'none'
@@ -496,29 +500,35 @@
   }
 
   let lastProjectsJson = ''
-  function renderProjectList(projects) {
-    // 3 秒輪詢下整列 innerHTML 重繪會吃掉使用者進行中的點擊/hover——內容沒變就不動 DOM。
-    const snapshot = JSON.stringify(projects)
+  function renderProjectCards(projects) {
+    // 30 秒輪詢下內容沒變就不重繪，保留使用者的 hover 與焦點。
+    const list = Array.isArray(projects) ? projects : []
+    const snapshot = JSON.stringify(list)
     if (snapshot === lastProjectsJson) return
     lastProjectsJson = snapshot
-    document.getElementById('projectCards').innerHTML = projects.map(p => {
+    const cards = document.getElementById('projectCards')
+    if (!list.length) {
+      cards.innerHTML = '<div class="fleet-empty">目前沒有可顯示的專案</div>'
+      return
+    }
+    cards.innerHTML = list.map(p => {
       if (p.error) {
-        return `<div class="fleet-row"><div class="fleet-id"><span class="dot dot-unknown"></span>
+        return `<div class="fleet-card"><div class="fleet-id"><span class="dot dot-unknown"></span>
           <span class="name">${esc(p.name)}</span></div>
-          <div class="panelErr">讀取失敗:${esc(p.error)}</div><div></div></div>`
+          <div class="panelErr">讀取失敗:${esc(p.error)}</div></div>`
       }
       const blockedBadge = p.backlogBlocked > 0 ? `<span class="badge badge-yellow num">blocked ${p.backlogBlocked}</span>` : ''
       const daemonBadge = p.daemonAlive ? '<span class="badge badge-green">daemon</span>' : '<span class="badge badge-red">daemon 死</span>'
-      return `<div class="fleet-row" data-project="${esc(p.name)}">
+      return `<button type="button" class="fleet-card" data-project="${esc(p.name)}">
         <div class="fleet-id"><span class="dot dot-${esc(p.state)}"></span><span class="name">${esc(p.name)}</span></div>
         <div class="fleet-task ${p.currentTask ? '' : 'none'}">${p.currentTask ? esc(String(p.currentTask).slice(0, 90)) : '待命中'}</div>
         <div class="fleet-stats num">
           <span><span class="ok-n">${p.todayOk ?? 0}</span> 成 · <span class="fail-n">${p.todayFail ?? 0}</span> 敗</span>
           <span>$<b>${fmt(p.todayCostUsd)}</b></span>
-          <span>未完 <b>${p.backlogOpen}</b></span>
+          <span>未完 <b>${p.backlogOpen ?? 0}</b></span>
           ${daemonBadge} ${blockedBadge}
         </div>
-      </div>`
+      </button>`
     }).join('')
     document.querySelectorAll('#projectCards [data-project]').forEach(el => {
       el.addEventListener('click', () => enterProject(el.getAttribute('data-project')))
@@ -563,7 +573,7 @@
       if (!res.ok) { flash(body.error || ('HTTP ' + res.status), true); return }
       if (body.projects) {
         projectsMode = true
-        renderProjectList(body.projects)
+        renderProjectCards(body.projects)
         showList()
       } else {
         renderStatus(body)
@@ -574,7 +584,7 @@
     } catch (err) { flash('status 讀取失敗:' + err, true) }
   }
   poll()
-  setInterval(poll, 3000)
+  setInterval(poll, 30000)
 })()
 </script>
 </body>
