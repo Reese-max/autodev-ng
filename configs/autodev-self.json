@@ -61,39 +61,6 @@
       "subscription": true,
       "timeoutMs": 86400000
     },
-    "qwen-gpt54": {
-      "adapter": "qwen",
-      "model": "gpt-5.4",
-      "env": {
-        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
-        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
-      },
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "timeoutMs": 86400000
-    },
-    "qwen-gpt54m": {
-      "adapter": "qwen",
-      "model": "gpt-5.4-mini",
-      "env": {
-        "OPENAI_BASE_URL": "http://127.0.0.1:8317/v1",
-        "OPENAI_API_KEY": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h"
-      },
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "timeoutMs": 86400000
-    },
-    "qwen-grok420": {
-      "adapter": "qwen",
-      "model": "grok-4.20",
-      "env": {
-        "OPENAI_BASE_URL": "http://127.0.0.1:8318/v1",
-        "OPENAI_API_KEY": "adng"
-      },
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "timeoutMs": 86400000
-    },
     "codex-terra-xhigh": {
       "adapter": "codex",
       "model": "gpt-5.6-terra",
