@@ -90,3 +90,23 @@ test('prompt 含判準：數量差異不否決、截斷以檔案清單為準（�
   expect(sent).toContain('數量差異')
   expect(sent).toContain('截斷')
 })
+
+test('effort/timeoutMs 傳遞：body 帶指定 reasoning_effort（judge 升級 xhigh 用）', async () => {
+  let sent = ''
+  const spy = (async (_u: unknown, init?: RequestInit) => {
+    sent = String(init?.body)
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'MATCH' } }] }), { status: 200 })
+  }) as typeof fetch
+  await judgeCommit({ ...base, effort: 'xhigh', timeoutMs: 180_000, fetchFn: spy }, 'c', 'd')
+  expect(sent).toContain('"reasoning_effort":"xhigh"')
+})
+
+test('effort/timeoutMs 未設：body 維持 low（向後相容）', async () => {
+  let sent = ''
+  const spy = (async (_u: unknown, init?: RequestInit) => {
+    sent = String(init?.body)
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'MATCH' } }] }), { status: 200 })
+  }) as typeof fetch
+  await judgeCommit({ ...base, fetchFn: spy }, 'c', 'd')
+  expect(sent).toContain('"reasoning_effort":"low"')
+})

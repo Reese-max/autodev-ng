@@ -115,6 +115,9 @@ export const ConfigSchema = z.object({
   judgeUrl: z.string().optional(),
   judgeModel: z.string().default('gpt-5.4-mini'),
   judgeApiKey: z.string().default('sk-any'),
+  // judge 推理力度與逾時（2026-07-28 升級 gpt-5.6-terra xhigh 用）：高力度推理耗時遠超舊 30s 硬編碼。
+  judgeEffort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).default('low'),
+  judgeTimeoutMs: z.number().int().positive().default(30_000),
   // M9.6 verify-and-supplement：對抗式稽核用模型（異於 judgeModel 以獲獨立性），未設＝不啟動此階段。
   auditModel: z.string().optional(),
   // review gate：對 diff 對抗式審查的 review 模型名 + 端點（未設 reviewEngine＝關閉；未設 reviewUrl 沿用 judgeUrl，apiKey 沿用 judgeApiKey）

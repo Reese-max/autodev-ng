@@ -65,7 +65,7 @@ export class KernelVerifier {
     // judge 餵料：完整檔案清單＋截尾正文——大 diff 不再因模型端 context 截斷生「只看到部分」冤案
     const judgeDiff = composeJudgeDiff(this.getNameStatus(job.projectPath, res.baseCommitHash), diff)
     const jOut = await judgeCommit(
-      { url: this.cfg.judgeUrl, model: this.cfg.judgeModel, apiKey: this.cfg.judgeApiKey, fetchFn: this.judgeFetchFn },
+      { url: this.cfg.judgeUrl, model: this.cfg.judgeModel, apiKey: this.cfg.judgeApiKey, effort: this.cfg.judgeEffort, timeoutMs: this.cfg.judgeTimeoutMs, fetchFn: this.judgeFetchFn },
       claim,
       judgeDiff
     )
