@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -35,6 +35,14 @@ function newRepo(): { repo: string; worktreesDir: string } {
 }
 
 const TASK_ID = 'abc12345'
+const FIXED_CLOCK_ISO = '2026-07-28T00:00:00.000Z'
+
+function useFixedClock(): void {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(FIXED_CLOCK_ISO))
+}
+
+afterEach(() => vi.useRealTimers())
 
 test('prepareWorktree：建出 worktree 目錄 + 分支 + marker', () => {
   const { repo, worktreesDir } = newRepo()
@@ -63,6 +71,7 @@ test('prepareWorktree：主 repo .git/info/exclude 補上 marker + .serena/ + .d
 })
 
 test('prepareWorktree：殘留（前次崩潰留下未清的 worktree 目錄+分支）重建成功', () => {
+  useFixedClock()
   const { repo, worktreesDir } = newRepo()
 
   const first = prepareWorktree(repo, worktreesDir, TASK_ID)
@@ -80,9 +89,12 @@ test('prepareWorktree：殘留（前次崩潰留下未清的 worktree 目錄+分
 }, 20000)
 
 test('prepareWorktree：殘留目錄被鎖住(前次中斷進程未退)時上拋且不砍分支——成果分支與 HEAD 完好保留；解鎖後重試自癒成功（2a929ec9 產線事故回歸測試）', async () => {
+  useFixedClock()
   const { repo, worktreesDir } = newRepo()
 
   const first = prepareWorktree(repo, worktreesDir, TASK_ID)
+  const marker = JSON.parse(readFileSync(join(first.cwd, '.adng-worktree'), 'utf8')) as { createdAt: string }
+  expect(marker.createdAt).toBe(FIXED_CLOCK_ISO)
   commitFile(first.cwd, 'result.txt', 'feature result\n', 'feat: 領先 base 的成果 commit')
   const resultCommit = headOf(first.cwd)
 
@@ -125,6 +137,7 @@ test('prepareWorktree：殘留目錄被鎖住(前次中斷進程未退)時上拋
 // ---------------------------------------------------------------------------
 
 test('assertWorktreeCheckout：正常 worktree → 不拋（prepareWorktree 內建呼叫不誤傷正常路徑）', () => {
+  useFixedClock()
   const { repo, worktreesDir } = newRepo()
   const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
   expect(() => assertWorktreeCheckout(wt.cwd, wt.branch)).not.toThrow()
