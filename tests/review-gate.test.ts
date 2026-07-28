@@ -116,3 +116,16 @@ test('#4 reviewDiff 送出完整 diff，不丟失後段檔案', async () => {
   expect(sentBody).toContain('line199')
   expect(sentBody).toContain('line499')
 })
+
+test('effort/timeoutMs 傳遞：body 帶指定 reasoning_effort（review 升級 terra xhigh 用）；未設維持 low', async () => {
+  let sent = ''
+  const spy = (async (_u: unknown, init?: RequestInit) => {
+    sent = String(init?.body)
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'REVIEW: PASS' } }] }), { status: 200 })
+  }) as typeof fetch
+  const base = { url: 'http://127.0.0.1:8317/v1', model: 'gpt-5.6-terra', apiKey: 'sk-any' }
+  await reviewDiff({ ...base, effort: 'xhigh', timeoutMs: 180_000, fetchFn: spy }, 'diff', 'task')
+  expect(sent).toContain('"reasoning_effort":"xhigh"')
+  await reviewDiff({ ...base, fetchFn: spy }, 'diff', 'task')
+  expect(sent).toContain('"reasoning_effort":"low"')
+})

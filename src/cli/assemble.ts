@@ -69,7 +69,8 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
   const store = new BacklogStore(cfg.backlogFile)
   const db = new RunDb(join(cfg.dataDir, 'run.db'))
   const engines = makeEngineRegistry(cfg)
-  const reviewRun = cfg.reviewEngine ? (a: { diff: string; taskText: string }) => reviewDiff({ url: cfg.reviewUrl ?? cfg.judgeUrl, model: cfg.reviewEngine!, apiKey: cfg.judgeApiKey }, a.diff, a.taskText) : undefined
+  // review 的 effort/timeout 沿用 judge 檔次（驗收鏈同升降；要分開時再開獨立欄位）
+  const reviewRun = cfg.reviewEngine ? (a: { diff: string; taskText: string }) => reviewDiff({ url: cfg.reviewUrl ?? cfg.judgeUrl, model: cfg.reviewEngine!, apiKey: cfg.judgeApiKey, effort: cfg.judgeEffort, timeoutMs: cfg.judgeTimeoutMs }, a.diff, a.taskText) : undefined
   const verifier = new KernelVerifier({ cfg, reviewRun })
   const notifier = new DiscordNotifier({
     channelId: cfg.discordChannelId,

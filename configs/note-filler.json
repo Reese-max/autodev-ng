@@ -111,5 +111,5 @@
   ],
   "judgeEffort": "xhigh",
   "judgeTimeoutMs": 180000,
-  "reviewEngine": "gpt-5.4-mini"
+  "reviewEngine": "gpt-5.6-terra"
 }
