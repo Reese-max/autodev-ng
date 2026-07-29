@@ -88,8 +88,9 @@ export class OpencodeEngine implements Engine {
     }
     const output = tail(p.text)
     // 事件欄位優先；零值時退 parseTokensLine 文字行（雙保險，皆無＝undefined 不入帳）
+    // opencode 的 tokens.input 不含 cache read（實測 cached≈19×in）→ 統一為 codex 語意「in＝總輸入含 cached」
     const fromLine = parseTokensLine(r.stdout)
-    const tokensIn = p.tokIn > 0 ? p.tokIn : fromLine.tokensIn
+    const tokensIn = p.tokIn + p.tokCached > 0 ? p.tokIn + p.tokCached : fromLine.tokensIn
     const tokensOut = p.tokOut > 0 ? p.tokOut : fromLine.tokensOut
     const tokensCached = p.tokCached > 0 ? p.tokCached : undefined
     const after = this.getCommitHash(job.projectPath)
