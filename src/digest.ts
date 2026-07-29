@@ -4,6 +4,7 @@ import type { RunDb } from './db.js'
 import { countDlqLines, countVerifyAlertsToday } from './engines/digest-counts.js'
 import { digestDeliveryLines, digestGoalLine } from './engines/digest-deliveries.js'
 import { digestMechanismLines } from './engines/digest-mechanisms.js'
+import { freeTierShadowTotal } from './engines/shadow-price.js'
 import { digestQuotaLines } from './engines/today-attempts-view.js'
 
 export interface BuildDigestOpts {
@@ -50,6 +51,9 @@ export function buildDigest(opts: BuildDigestOpts): string {
   lines.push(...digestDeliveryLines(dataDir, isoDayUtc, offsetHours))
   // 每引擎戰績（路由決策依據）；零派工日自動省略。tokens＝引擎自報 usage（免費層配額觀測 2026-07-29），零值省略。
   for (const e of engineStats) lines.push(`  引擎 ${e.engine}：${e.ok}/${e.n} 成，$${e.costUsd.toFixed(4)}${e.tokensIn > 0 ? `，tokens ${fmtTokens(e.tokensIn)}/${fmtTokens(e.tokensOut)}` : ''}`)
+  // 影子帳（假價錢）：免費層 token 按市價 API 估值——「今天艦隊幫你省了多少」。零值省略。
+  const shadow = freeTierShadowTotal(engineStats)
+  if (shadow > 0) lines.push(`  免費層影子帳：市價估 $${shadow.toFixed(2)}，實付 $0（devin 比照 $3/$15 每 M、oc 系 $0.5/$2）`)
   lines.push(...digestQuotaLines(engineStats, opts.engines)) // 今日額度消耗表；只在有 cap 設定時顯示（獨有資訊）
   lines.push(...digestMechanismLines(dataDir, isoDayUtc, offsetHours))
   // N=0 不印，避免雜訊；N>0 才浮出（鐵律 #4：fail-open-with-alert，不能只落 events.jsonl 沒人看）。
