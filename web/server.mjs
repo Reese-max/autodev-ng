@@ -375,7 +375,8 @@ const BLOCKED_NOTE_RE = /\s*<!--\s*adng:blocked\b[\s\S]*?-->/
 /** blocked 任務明細：直接掃 backlog 原始行（reason 只存在行內註記，Task 型別不帶）。 */
 export function readBlockedTasks(backlogFile) {
   const out = []
-  const lines = readLines(backlogFile)
+  let lines
+  try { lines = readFileSync(backlogFile, 'utf8').split(/\r?\n/) } catch { return out }
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i]
     if (!/^- \[ \]/.test(raw) || !/<!--\s*adng:blocked\b/.test(raw)) continue
@@ -395,6 +396,7 @@ export function reopenBlockedLine(backlogFile, line, match) {
       return { ok: true, changed: false }
     }
     const content = readFileSync(backlogFile, 'utf8')
+    const eol = content.includes('\r\n') ? '\r\n' : '\n'
     const lines = content.split(/\r?\n/)
     const idx = line - 1
     const raw = lines[idx]
@@ -402,7 +404,7 @@ export function reopenBlockedLine(backlogFile, line, match) {
       return { ok: true, changed: false }
     }
     lines[idx] = raw.replace(BLOCKED_NOTE_RE, '')
-    writeFileSync(backlogFile, lines.join('\n'))
+    writeFileSync(backlogFile, lines.join(eol))
     return { ok: true, changed: true }
   } catch (err) {
     return { ok: false, changed: false, error: String(err) }

@@ -165,7 +165,7 @@ test('GET /api/cockpit/engines：run.db 壞檔不拖垮隔離事由與 cap', asy
 })
 
 // ---------- (3) blocked 治理 ----------
-const BLOCKED_MD = '- [ ] 好任務\n- [ ] 卡住的任務 <!-- adng:autopilot goal:x round:1 --> <!-- adng:blocked reason="merge-conflict：主分支已前進" -->\n'
+const BLOCKED_MD = '- [ ] 好任務\r\n\r\n- [ ] 卡住的任務 <!-- adng:autopilot goal:x round:1 --> <!-- adng:blocked reason="merge-conflict：主分支已前進" -->\r\n'
 
 test('GET /api/cockpit/blocked：只回 blocked 行，含任務文字與 reason', async () => {
   const c = makeCtx(BLOCKED_MD)
@@ -175,7 +175,7 @@ test('GET /api/cockpit/blocked：只回 blocked 行，含任務文字與 reason'
     expect(r.blocked).toHaveLength(1)
     expect(r.blocked[0].text).toContain('卡住的任務')
     expect(r.blocked[0].reason).toContain('merge-conflict')
-    expect(typeof r.blocked[0].line).toBe('number')
+    expect(r.blocked[0].line).toBe(3)
   } finally { s.close() }
 })
 
@@ -202,6 +202,7 @@ test('POST /api/backlog/reopen：無 token 403；有 token 移除 blocked 註記
     expect(md).not.toContain('adng:blocked')
     expect(md).toContain('adng:autopilot') // 其他註記原樣保留
     expect(md).toContain('卡住的任務')
+    expect(md).toContain('\r\n\r\n') // 重開不改寫原本換行格式
 
     const again = await fetch(`http://127.0.0.1:${s.port}/api/backlog/reopen`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': TOKEN },
@@ -217,7 +218,7 @@ test('POST /api/backlog/reopen：match 對不上該行（檔案已漂移）→ c
   try {
     const r = await fetch(`http://127.0.0.1:${s.port}/api/backlog/reopen`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': TOKEN },
-      body: JSON.stringify({ line: 2, match: '完全不相干的文字' }),
+      body: JSON.stringify({ line: 3, match: '完全不相干的文字' }),
     })
     expect((await r.json()).changed).toBe(false)
     expect(readFileSync(join(c.dir, 'backlog.md'), 'utf8')).toContain('adng:blocked')
