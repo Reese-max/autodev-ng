@@ -2,8 +2,8 @@
 
 ## 結論
 
-`src/*.ts` 頂層由 **2700 行**降至 **2057 行**，實際騰回 **643 行**。因此符合頂層最多
-2250 行，且至少騰回 250 行的目標。
+`src/*.ts` 頂層由 **2700 行**降至 **2057 行**，實際騰回 **643 行**。因此確認頂層嚴格低於
+2250 行，且至少騰回 250 行。
 
 | 量測點 | 來源 | 頂層行數 | 與搬移前差異 |
 | --- | --- | ---: | ---: |
@@ -16,13 +16,26 @@
 ## 計數契約
 
 與 `tests/kernel-budget.test.ts` 相同：只計 `src/` 第一層的 `.ts` 一般檔，不遞迴子目錄；每檔
-行數為 UTF-8 內容的 `split('\n').length - 1`，即換行字元數。`src/cli/` 的搬移目的地不納入
-kernel 頂層帳。
+行數為 UTF-8 內容的 `split('\n').length - 1`，即換行字元數。`src/engines/`、
+`src/autopilot/` 與其他子目錄不納入 kernel 頂層帳。
 
 搬移當下只改變頂層 `src/cli.ts`：406 行降至 21 行，騰回 385 行；其後 `src/proc.ts`
 為 Guardian 無活動看門狗增加 30 行安全邏輯，移除 `src/judge.ts` 的 diff 截斷一行，
 `src/scheduler.ts` 為簽名熔斷告警接線與 commit 自證行增加 7 行，`src/lock.ts` 為 Windows PID
 重用驗證增加 24 行，rebase-before-merge 與 digest blocked 清單再增 30 行，judge 驗收回饋閉環（db.lastFailureFor、scheduler 打回原因注入、verifier 檔案清單餵料）再增 20 行，免費起跑 zeroCostTags 再增 6 行，judge effort/timeout 可配置化再增 3 行，attempt duration_ms 觀測再增 12 行，目前淨騰回 254 行。併發基建 GOAL（2026-07-28）再把 notify.ts（137 行）與 proc.ts（153 行）整檔外移 src/engines/、新增 merge queue 與 concurrency 骨架共 9 行，降至 2162 行；上限同步收緊 2450→2250。digest 可讀性接線再增 5 行；token 觀測（RunResult usage＋tokens 欄＋digest 顯示）再增 16 行至 2183；影子帳接線（免費＋額度雙層）再增 5 行至 2188。此次再將 daemon 告警、冷卻表與日期回推純輔助外移至 `src/engines/daemon-alerts.ts`，`daemon.ts` 由 344 行降至 218 行；本次 mergeBack 收斂 rebase／ff 流程再減 5 行，頂層合計降至 2057 行；GOAL B 併發池餘 193 行。
+
+## 搬移位置核對
+
+目前與本帳目直接相關的搬移邏輯均位於允許的子目錄，沒有同名檔殘留在 `src/` 頂層：
+
+| 搬移後檔案 | kernel 接線／用途 |
+| --- | --- |
+| `src/engines/notify.ts` | `src/cli/assemble.ts` 組裝 Discord notifier |
+| `src/engines/proc.ts` | `src/verify.ts` 共用子進程執行器 |
+| `src/engines/daemon-alerts.ts` | `src/daemon.ts` 保留告警薄接線 |
+
+`tests/kernel-relocation-report.test.ts` 會逐一檢查上述檔案存在、路徑只屬於
+`src/engines/` 或 `src/autopilot/`，並確認 `src/` 頂層沒有同名 `.ts` 檔。
 
 ## 目前逐檔帳目
 
@@ -59,5 +72,5 @@ npm run build
 ```
 
 第一個測試直接以 Git 讀取上述基準提交的 `src/*.ts`，並以相同計數函式讀取目前工作樹，斷言
-2700 → 2057、643 行騰回、≤2250 與 ≥250，並逐檔比對上表。第二個測試持續守住 ≤2250 的
+2700 → 2057、643 行騰回、<2250 與 ≥250，並逐檔比對上表及搬移目的地。第二個測試持續守住 ≤2250 的
 kernel 薄殼邊界；`kernel-budget` 仍保留既有 ≤2700 工作上限守門。

@@ -31,6 +31,11 @@ const AFTER_LINES = Object.values(CURRENT_KERNEL_BY_FILE).reduce((total, lines) 
 const RECLAIMED_LINES = BEFORE_LINES - AFTER_LINES
 const TARGET_CAP = 2250
 const REQUIRED_RECLAIMED_LINES = 250
+const RELOCATED_LOGIC = [
+  ['engines/daemon-alerts.ts', 'daemon.ts', './engines/daemon-alerts.js'],
+  ['engines/notify.ts', 'cli/assemble.ts', '../engines/notify.js'],
+  ['engines/proc.ts', 'verify.ts', './engines/proc.js'],
+] as const
 
 function lineCount(source: string): number {
   return source.split('\n').length - 1
@@ -81,7 +86,7 @@ describe('kernel 搬移前後行數報告', () => {
   it('目前 kernel 頂層為 2057 行，低於 2250 行且實際騰回 643 行', () => {
     const current = currentKernelLines()
     expect(current).toBe(AFTER_LINES)
-    expect(current).toBeLessThanOrEqual(TARGET_CAP)
+    expect(current).toBeLessThan(TARGET_CAP)
     expect(BEFORE_LINES - current).toBe(RECLAIMED_LINES)
     expect(BEFORE_LINES - current).toBeGreaterThanOrEqual(REQUIRED_RECLAIMED_LINES)
   })
@@ -92,6 +97,16 @@ describe('kernel 搬移前後行數報告', () => {
     expect(Object.keys(current).sort()).toEqual(Object.keys(CURRENT_KERNEL_BY_FILE).sort())
   })
 
+  it('搬移邏輯只落在 engines 或 autopilot，且未在 kernel 頂層留下同名檔', () => {
+    const topLevel = Object.keys(currentKernelBreakdown())
+    for (const [destination, caller, importPath] of RELOCATED_LOGIC) {
+      expect(destination).toMatch(/^(engines|autopilot)\/[^/]+\.ts$/)
+      expect(statSync(join(SRC_DIR, destination)).isFile()).toBe(true)
+      expect(topLevel).not.toContain(destination.split('/').at(-1))
+      expect(readFileSync(join(SRC_DIR, caller), 'utf8')).toContain(importPath)
+    }
+  })
+
   it('報告記錄相同的可重現基準、結果與驗證指令', () => {
     const report = readFileSync(REPORT, 'utf8')
     for (const fact of [BEFORE_RELOCATION, '2700', '2057', '643', '2250', '250']) {
@@ -99,6 +114,9 @@ describe('kernel 搬移前後行數報告', () => {
     }
     for (const [file, lines] of Object.entries(CURRENT_KERNEL_BY_FILE)) {
       expect(report).toContain(`| \`src/${file}\` | ${lines} |`)
+    }
+    for (const [destination] of RELOCATED_LOGIC) {
+      expect(report).toContain(`\`src/${destination}\``)
     }
     expect(report).toContain('npx vitest run tests/kernel-relocation-report.test.ts')
   })
