@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
  * kernel-slim 守門（docs/goal-queue/GOAL-kernel-slim.md）
  *
  * 外移完成後鎖定新上限，防止緩衝被慢慢吃回：
- * - src/*.ts 頂層總行數 ≤ 2450（相對工作上限 2700 騰回 ≥250）
+ * - src/*.ts 頂層總行數 ≤ 2250（相對工作上限 2700 騰回 ≥250）
  * - src/cli.ts 只剩薄殼（參數入口 / re-export / 委派 runCli）
  *
  * 計法對齊 tests/kernel-budget.test.ts 的 kernelLineCount：
@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path'
  */
 
 /** 外移後鎖定的 kernel 頂層上限（2700 工作上限 − ≥250 緩衝）。 */
-export const KERNEL_SLIM_CAP = 2450
+export const KERNEL_SLIM_CAP = 2250
 export const KERNEL_BEFORE_RELOCATION = 2700
 export const KERNEL_MIN_RECLAIMED_LINES = 250
 
@@ -129,7 +129,7 @@ function formatBreakdown(perFile: Record<string, number>): string {
 }
 
 describe('kernel-slim 守門', () => {
-  it('明確計算 spec 定義的 kernel 頂層行數並斷言總量 ≤ 2450', () => {
+  it('明確計算 spec 定義的 kernel 頂層行數並斷言總量 ≤ 2250', () => {
     // spec 計法（對齊 kernel-budget）：只列 src/ 頂層 .ts 一般檔，行數 = 換行字元數
     const { total, perFile } = kernelLineCount()
     const sumFromBreakdown = Object.values(perFile).reduce((a, b) => a + b, 0)
@@ -149,7 +149,7 @@ describe('kernel-slim 守門', () => {
       )
     }
     expect(total).toBeLessThanOrEqual(KERNEL_SLIM_CAP)
-    expect(total).toBeLessThanOrEqual(2450)
+    expect(total).toBeLessThanOrEqual(2250)
     expect(KERNEL_BEFORE_RELOCATION - total).toBeGreaterThanOrEqual(KERNEL_MIN_RECLAIMED_LINES)
     // 防守門空轉：計數壞掉回 0 時不得永遠通過
     expect(total).toBeGreaterThan(2000)
@@ -187,9 +187,9 @@ describe('kernel-slim 守門', () => {
     expect(wronglyIncludingCli).toBeGreaterThan(kernel.total)
     expect(wronglyIncludingCli).toBeGreaterThan(KERNEL_SLIM_CAP)
 
-    // 再次釘死：kernel 總量本身仍 ≤2450（未含 cli 子目錄）
+    // 再次釘死：kernel 總量本身仍 ≤2250（未含 cli 子目錄）
     expect(kernel.total).toBeLessThanOrEqual(KERNEL_SLIM_CAP)
-    expect(kernel.total).toBeLessThanOrEqual(2450)
+    expect(kernel.total).toBeLessThanOrEqual(2250)
   })
 
   it('src/cli.ts 行數 ≤ 薄殼上限', () => {

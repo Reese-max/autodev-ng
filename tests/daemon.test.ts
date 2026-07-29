@@ -16,7 +16,8 @@ const maybeRunPerpetualMock = vi.hoisted(() => vi.fn(async (): Promise<boolean> 
 const perpetualDigestLineMock = vi.hoisted(() => vi.fn((): string | null => null))
 vi.mock('../src/autopilot/perpetual.js', () => ({ maybeRunPerpetual: maybeRunPerpetualMock, perpetualDigestLine: perpetualDigestLineMock }))
 
-import { runDaemon, yesterdayLocal, baseAlertMessage, type DaemonOpts, type Notifier } from '../src/daemon.js'
+import { runDaemon, type DaemonOpts, type Notifier } from '../src/daemon.js'
+import { yesterdayLocal, baseAlertMessage } from '../src/engines/daemon-alerts.js'
 import type { CycleResult, Deps } from '../src/scheduler.js'
 import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'

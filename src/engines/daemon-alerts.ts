@@ -1,0 +1,96 @@
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { isSilenced } from '../bot/silence.js'
+import type { BlockedReason, CycleResult } from '../scheduler.js'
+import { quiet, type EventLog } from '../events.js'
+
+/** daemon 告警面的純輔助與冷卻閘；主迴圈只負責決定何時呼叫。 */
+
+/** 本地日字串減一天；day 已是依 offset 算出的本地日曆日。 */
+export function yesterdayLocal(day: string): string {
+  return new Date(new Date(`${day}T00:00:00Z`).getTime() - 86400000).toISOString().slice(0, 10)
+}
+
+export async function safeSend(notifier: { send(text: string): Promise<boolean> }, text: string): Promise<boolean> {
+  try {
+    return await notifier.send(text)
+  } catch {
+    return false
+  }
+}
+
+const ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000
+interface CooldownEntry { lastSentMs: number; suppressedCount: number }
+type CooldownTable = Record<string, CooldownEntry>
+
+function cooldownFilePath(dataDir: string): string {
+  return join(dataDir, 'alert-cooldown.json')
+}
+
+export function loadCooldownTable(dataDir: string): CooldownTable {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(cooldownFilePath(dataDir), 'utf8'))
+    if (typeof raw !== 'object' || raw === null) return {}
+    return raw as CooldownTable
+  } catch {
+    return {}
+  }
+}
+
+function saveCooldownTable(dataDir: string, table: CooldownTable): void {
+  const file = cooldownFilePath(dataDir)
+  const tmp = `${file}.tmp`
+  writeFileSync(tmp, JSON.stringify(table))
+  renameSync(tmp, file)
+}
+
+export function cooldownKeyFor(result: CycleResult): string {
+  if (typeof result === 'object') return `blocked:${result.taskId}`
+  return result
+}
+
+export function isAlertableResult(result: CycleResult): boolean {
+  return typeof result === 'object' || result === 'cost-hard-stop' || result === 'preflight-failed'
+}
+
+function blockedReasonText(reason: BlockedReason): string {
+  switch (reason) {
+    case 'max-attempts': return '連敗達上限，需人工介入'
+    case 'not-a-git-repo': return 'worktree 建立失敗（非 git 專案或主 repo 狀態異常），需人工介入'
+    case 'merge-conflict': return '主分支已前進導致無法自動合併，需人工介入合併'
+    case 'branch-switched': return '主 repo 分支已切換或處於 detached HEAD，成果未合回，需人工介入合併'
+    case 'engine-not-allowed': return '任務指定引擎不在本專案 engines 白名單（或引擎無法建立），需人工修 tag 或 config'
+    case 'worktree-locked': return 'worktree 殘留目錄被佔用無法清理（前次中斷進程未放手）'
+    case 'worktree-invalid': return 'worktree checkout 未落地（空目錄/tracked 檔缺失），已拒絕派工，需人工檢查 git 狀態'
+  }
+}
+
+export function baseAlertMessage(result: CycleResult): string {
+  if (typeof result === 'object') {
+    return `daemon 告警：任務 blocked（${blockedReasonText(result.reason)}）——任務：${[...result.taskText].slice(0, 80).join('')}`
+  }
+  switch (result) {
+    case 'cost-hard-stop': return 'daemon 告警：cost-hard-stop——今日成本已達硬停上限，暫停派工'
+    case 'preflight-failed': return 'daemon 告警：preflight-failed——engine 尚未就緒'
+    default: return `daemon 告警：${result}`
+  }
+}
+
+export async function sendCooldownAlert(
+  notifier: { send(text: string): Promise<boolean> }, dataDir: string, table: CooldownTable,
+  events: EventLog, key: string, message: string,
+): Promise<void> {
+  if (isSilenced(dataDir)) { quiet(() => events.append('alert-silenced', { key })); return }
+  const now = Date.now()
+  const entry = table[key]
+  if (entry && now - entry.lastSentMs < ALERT_COOLDOWN_MS) {
+    entry.suppressedCount++
+    quiet(() => saveCooldownTable(dataDir, table))
+    return
+  }
+  const suppressed = entry?.suppressedCount ?? 0
+  const suffix = suppressed > 0 ? `（冷卻期間抑制 ${suppressed} 則）` : ''
+  if (!await safeSend(notifier, message + suffix)) return
+  table[key] = { lastSentMs: now, suppressedCount: 0 }
+  quiet(() => saveCooldownTable(dataDir, table))
+}

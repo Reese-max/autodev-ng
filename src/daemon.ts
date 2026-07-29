@@ -1,16 +1,17 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { freemem, totalmem } from 'node:os'
-import { join } from 'node:path'
 import { acquireLock, releaseLock } from './lock.js'
 import { localDay } from './db.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
-import { runOnce, subscriptionTags, type Deps, type CycleResult, type BlockedReason } from './scheduler.js'
+import { runOnce, subscriptionTags, type Deps, type CycleResult } from './scheduler.js'
 import { consumeRestartSentinel } from './autopilot/restart-sentinel.js'
-import { isSilenced } from './bot/silence.js'
-import { quiet, type EventLog } from './events.js'
+import { quiet } from './events.js'
 import { maybeRunPerpetual, perpetualDigestLine } from './autopilot/perpetual.js'
+import { baseAlertMessage, cooldownKeyFor, isAlertableResult, loadCooldownTable, safeSend, sendCooldownAlert, yesterdayLocal } from './engines/daemon-alerts.js'
 import { cleanupRoutingState } from './engines/routing-state-cleanup.js'
 import { checkRoutingStateConsistency } from './engines/routing-state-consistency.js'
+
+export { baseAlertMessage, yesterdayLocal } from './engines/daemon-alerts.js'
 
 export interface Notifier {
   send(text: string): Promise<boolean>
@@ -48,133 +49,6 @@ function defaultSleep(ms: number): Promise<void> {
 /** M4 Task 3：本地日字串（取代舊版純 UTC 切割）。offsetHours=0 時與舊行為完全一致（相容性錨點）。 */
 function todayLocal(offsetHours: number): string {
   return localDay(new Date().toISOString(), offsetHours)
-}
-
-/** 本地日字串減一天（紅線 4 報告窗：digest 要報「已完結的前一天」，不能報「今天才剛開始的幾分鐘」）。
- * 用 Date UTC 運算（減 86400000ms 再取 ISO 前 10 碼）避開時區與月/年界字串拼接的陷阱。
- * 純日曆日減一天，跟 offset 無關（day 本身已經是依 offset 算出的本地日曆日字串——重命名自
- * 舊版 yesterdayUtc，行為不變，僅語意從「UTC 日」改為「本地日」，M4 Task 3）。 */
-export function yesterdayLocal(day: string): string {
-  return new Date(new Date(`${day}T00:00:00Z`).getTime() - 86400000).toISOString().slice(0, 10)
-}
-
-/** notifier.send 依契約不該 throw（DiscordNotifier 內部已自吞），這裡再包一層防呆：
- * 萬一測試假 notifier 或未來實作違反契約 throw，也不可讓告警面反殺主迴圈。 */
-async function safeSend(notifier: Notifier, text: string): Promise<boolean> {
-  try {
-    return await notifier.send(text)
-  } catch {
-    return false
-  }
-}
-
-/** HIGH-2 告警冷卻去重：同 key 6h 內只送第一次，其後靜默累計抑制次數；冷卻結束後
- * 下一則帶抑制計數。硬編常數（不進 ConfigSchema——避免設定維度膨脹，鐵律 #8）。 */
-const ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000
-
-interface CooldownEntry { lastSentMs: number; suppressedCount: number }
-type CooldownTable = Record<string, CooldownEntry>
-
-function cooldownFilePath(dataDir: string): string {
-  return join(dataDir, 'alert-cooldown.json')
-}
-
-/** 冷卻表讀取：檔案缺失/損壞一律視同空表（容錯歸零照發——鐵律 #4，fail-open 不可反殺 daemon）。 */
-function loadCooldownTable(dataDir: string): CooldownTable {
-  try {
-    const raw: unknown = JSON.parse(readFileSync(cooldownFilePath(dataDir), 'utf8'))
-    if (typeof raw !== 'object' || raw === null) return {}
-    return raw as CooldownTable
-  } catch {
-    return {}
-  }
-}
-
-/** tmp+rename 原子寫，鏡像 events.ts appendOnce 風格。呼叫端一律包在 quiet() 內——
- * 落地失敗不可反殺主迴圈，頂多下次重啟冷卻表退回舊狀態（fail-open 方向安全）。 */
-function saveCooldownTable(dataDir: string, table: CooldownTable): void {
-  const file = cooldownFilePath(dataDir)
-  const tmp = `${file}.tmp`
-  writeFileSync(tmp, JSON.stringify(table))
-  renameSync(tmp, file)
-}
-
-/** key 設計：系統級告警（cost-hard-stop/preflight-failed/lock-busy/daemon-crash/
- * daemon-crash-pause 等）key=固定字串本身；blocked → key=`blocked:<task.id>`
- * （修正：舊版用任務文字前 40 字，兩個長任務前 40 字相同會撞出同一個 key、互相吞
- * 告警——task.id 全域唯一，不會有這問題）。 */
-function cooldownKeyFor(result: CycleResult): string {
-  if (typeof result === 'object') return `blocked:${result.taskId}`
-  return result
-}
-
-function isAlertableResult(result: CycleResult): boolean {
-  return typeof result === 'object' || result === 'cost-hard-stop' || result === 'preflight-failed'
-}
-
-/** MEDIUM 1 修復：blocked 告警文案曾對所有原因統一印「連敗達上限」，但非 git 專案／
- * merge-conflict／branch-switched 都不是連敗，含糊文案會誤導人工介入的方向。 */
-function blockedReasonText(reason: BlockedReason): string {
-  switch (reason) {
-    case 'max-attempts': return '連敗達上限，需人工介入'
-    case 'not-a-git-repo': return 'worktree 建立失敗（非 git 專案或主 repo 狀態異常），需人工介入'
-    case 'merge-conflict': return '主分支已前進導致無法自動合併，需人工介入合併'
-    case 'branch-switched': return '主 repo 分支已切換或處於 detached HEAD，成果未合回，需人工介入合併'
-    // M5 Task 1：任務 tag 不在本專案 engines 白名單，或引擎無法建立（adapter 未實作／env 缺）
-    case 'engine-not-allowed': return '任務指定引擎不在本專案 engines 白名單（或引擎無法建立），需人工修 tag 或 config'
-    // Task 2：worktree 殘留鎖定失敗獨立文案，不誤植 not-a-git-repo 的「非 git 專案」字樣。
-    case 'worktree-locked': return 'worktree 殘留目錄被佔用無法清理（前次中斷進程未放手）'
-    // 2026-07-16 事故：checkout 未落地的空/半套 worktree——派工前被 assertWorktreeCheckout 擋下。
-    case 'worktree-invalid': return 'worktree checkout 未落地（空目錄/tracked 檔缺失），已拒絕派工，需人工檢查 git 狀態'
-  }
-}
-
-export function baseAlertMessage(result: CycleResult): string {
-  if (typeof result === 'object') {
-    return `daemon 告警：任務 blocked（${blockedReasonText(result.reason)}）——任務：${[...result.taskText].slice(0, 80).join('')}`
-  }
-  switch (result) {
-    case 'cost-hard-stop':
-      return 'daemon 告警：cost-hard-stop——今日成本已達硬停上限，暫停派工'
-    case 'preflight-failed':
-      return 'daemon 告警：preflight-failed——engine 尚未就緒'
-    default:
-      return `daemon 告警：${result}`
-  }
-}
-
-/** 冷卻閘：同 key 冷卻窗（6h）內只送第一次，其後靜默累計 suppressedCount；冷卻窗過後
- * 下一則帶「（冷卻期間抑制 N 則）」。table 由呼叫端持有（記憶體 Map，daemon 運行期間
- * 全程共用同一份，避免每輪重新讀檔）；本函式只在有實際變動（抑制計數 +1／真的送出）
- * 時才落地寫檔，寫檔故障吞掉不炸（鐵律 #4）——不落地頂多下次重啟冷卻語意退回舊狀態，
- * 方向永遠是「fail-open 照發」而非「誤壓不發」。
- * digest 送出路徑（checkAndSendDigest）完全不經過這裡——每日必達（鐵律 #6）走自己的
- * stamp 機制，不受這裡任何冷卻狀態影響。
- * 接口採 key/message 而非 CycleResult：lock-busy、daemon-crash、daemon-crash-pause
- * 三種告警不是 runOnce 的 CycleResult，套不上 cooldownKeyFor/baseAlertMessage，改由
- * 呼叫端各自準備好 key 與文案（CycleResult 系告警則由呼叫點先呼叫
- * cooldownKeyFor(result)/baseAlertMessage(result) 算好再傳進來）。 */
-async function sendCooldownAlert(
-  notifier: Notifier, dataDir: string, table: CooldownTable, events: EventLog, key: string, message: string
-): Promise<void> {
-  // 靜音窗:告警靜默但留痕(舊系統 L076 教訓:一次性告警在靜音窗內曾永久消失、無紀錄)；digest 不走此路(鐵律 #6 不受影響)。
-  if (isSilenced(dataDir)) { quiet(() => events.append('alert-silenced', { key })); return }
-  const now = Date.now()
-  const entry = table[key]
-
-  if (entry && now - entry.lastSentMs < ALERT_COOLDOWN_MS) {
-    entry.suppressedCount++
-    quiet(() => saveCooldownTable(dataDir, table))
-    return
-  }
-
-  const suppressed = entry?.suppressedCount ?? 0
-  const suffix = suppressed > 0 ? `（冷卻期間抑制 ${suppressed} 則）` : ''
-  const sent = await safeSend(notifier, message + suffix)
-  if (!sent) return // 沒送達：冷卻表不更新，維持「視同沒送過」語意，下一輪照樣可送
-
-  table[key] = { lastSentMs: now, suppressedCount: 0 }
-  quiet(() => saveCooldownTable(dataDir, table))
 }
 
 /** 每輪必檢：每日必達摘要（鐵律 #6）。送達（notifier.send 回 true）才落 stamp；
