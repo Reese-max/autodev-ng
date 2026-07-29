@@ -28,8 +28,11 @@ import {
 } from '../src/engines/routing-state.js'
 import {
   clearRunStatsCache,
-  recentRunStats,
 } from '../src/engines/run-stats.js'
+import {
+  FIXTURE_IO_TIMEOUT_MS,
+  createIsolatedRecentRunStats,
+} from '../src/engines/test-isolation.js'
 import { RunDb } from '../src/db.js'
 
 const NOW = '2026-07-20T12:00:00.000Z'
@@ -37,6 +40,11 @@ const DEFAULT_ENGINE = 'claude'
 const ROT = ['qwen', 'codex', 'opencode'] as const
 const TASK = { id: '00000000' } as const
 const FAIL_COUNT = 0
+const fixtureStats = createIsolatedRecentRunStats({
+  nowIso: NOW,
+  nowMs: Date.parse(NOW),
+  timeoutMs: FIXTURE_IO_TIMEOUT_MS,
+})
 
 /** 凍結舊路徑輸出——逐欄位比對，禁止半對半錯。 */
 const LEGACY = {
@@ -99,9 +107,18 @@ function pipelineSnapshot(input: {
     rotation,
     nowIso: NOW,
     offsetHours: 0,
+    timeoutMs: FIXTURE_IO_TIMEOUT_MS,
+    statsFn: fixtureStats,
   })
   const isolatedTags = loadIsolatedTagsForPick(
-    { dataDir: input.dataDir, rotation, nowIso: NOW, offsetHours: 0 },
+    {
+      dataDir: input.dataDir,
+      rotation,
+      nowIso: NOW,
+      offsetHours: 0,
+      timeoutMs: FIXTURE_IO_TIMEOUT_MS,
+      statsFn: fixtureStats,
+    },
     ev => {
       events.push(ev)
     }
@@ -114,12 +131,15 @@ function pipelineSnapshot(input: {
     isolatedTags,
     subscriptionTags: input.subscriptionTags ? [...input.subscriptionTags] : [],
   })
-  const context = buildRoutingContext({
-    dataDir: input.dataDir,
-    engineRotation: rotation,
-    nowIso: NOW,
-    offsetHours: 0,
-  })
+  const context = buildRoutingContext(
+    {
+      dataDir: input.dataDir,
+      engineRotation: rotation,
+      nowIso: NOW,
+      offsetHours: 0,
+    },
+    { recentRunStats: fixtureStats }
+  )
   const stateFile = join(input.dataDir, ROUTING_STATE_FILENAME)
   const loaded = loadRoutingState(input.dataDir, { nowIso: NOW })
 
@@ -230,7 +250,7 @@ describe('快照回歸：run.db 無有效資料 → 舊路徑（rotation 旋轉�
       const dbFile = join(dir, 'run.db')
       expect(existsSync(dbFile)).toBe(false)
 
-      const stats = recentRunStats(dbFile, { nowIso: NOW, offsetHours: 0 })
+      const stats = fixtureStats(dbFile, { nowIso: NOW, offsetHours: 0 })
       expect(stats).toEqual(LEGACY.missingRunDbStats)
 
       const snap = pipelineSnapshot({ dataDir: dir, rotation: ROT })
@@ -272,7 +292,7 @@ describe('快照回歸：run.db 無有效資料 → 舊路徑（rotation 旋轉�
       const db = new RunDb(join(dir, 'run.db'))
       db.close()
 
-      const stats = recentRunStats(join(dir, 'run.db'), {
+      const stats = fixtureStats(join(dir, 'run.db'), {
         nowIso: NOW,
         offsetHours: 0,
         minSamples: 1,
@@ -300,7 +320,7 @@ describe('快照回歸：run.db 無有效資料 → 舊路徑（rotation 旋轉�
     const dir = tmpDir()
     try {
       writeFileSync(join(dir, 'run.db'), 'not a sqlite file')
-      const stats = recentRunStats(join(dir, 'run.db'), { nowIso: NOW, offsetHours: 0 })
+      const stats = fixtureStats(join(dir, 'run.db'), { nowIso: NOW, offsetHours: 0 })
       expect(stats).toEqual(LEGACY.queryFailedStats)
 
       const snap = pipelineSnapshot({ dataDir: dir, rotation: ROT })
@@ -332,7 +352,7 @@ describe('快照回歸：run.db 無有效資料 → 舊路徑（rotation 旋轉�
       }
       db.close()
 
-      const stats = recentRunStats(join(dir, 'run.db'), {
+      const stats = fixtureStats(join(dir, 'run.db'), {
         nowIso: NOW,
         offsetHours: 0,
         windowDays: 3,

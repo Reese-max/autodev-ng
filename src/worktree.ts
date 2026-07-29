@@ -189,27 +189,22 @@ export function mergeBack(projectPath: string, branch: string, expectedBaseBranc
     }
   }
 
+  // queue 內取得併入權後，若主線已前進，先在隔離 worktree rebase 到最新主線，再做唯一
+  // 一次 ff-only。rebase／ff 任一失敗都沿用 merge-conflict；不重試、不硬合。
   let rebased = false
-  try {
-    git(['merge', '--ff-only', branch], projectPath, QUICK_TIMEOUT_MS)
-  } catch {
-    // rebase-before-merge（2026-07-27）：ff-only 失敗多半是主分支前進造成的分岔，未必真衝突
-    // （實測一天 3+ 件假衝突 blocked）。有 worktreePath 才嘗試：在 worktree 內（隔離現場）
-    // rebase 到最新主分支，成功→分支重回直系後代，重試 ff-only；rebase 衝突→abort 還原現場
-    // →真衝突照舊 blocked。主 repo 全程不落任何 merge 狀態。
-    if (!worktreePath) return { merged: false, reason: 'merge-conflict' }
+  if (nowHead !== expectedBaseHead && worktreePath) {
     try {
       git(['rebase', expectedBaseBranch], worktreePath, REBASE_TIMEOUT_MS)
     } catch {
       try { git(['rebase', '--abort'], worktreePath, QUICK_TIMEOUT_MS) } catch { /* 無進行中 rebase 亦安全 */ }
       return { merged: false, reason: 'merge-conflict' }
     }
-    try {
-      git(['merge', '--ff-only', branch], projectPath, QUICK_TIMEOUT_MS)
-    } catch {
-      return { merged: false, reason: 'merge-conflict' }
-    }
     rebased = true
+  }
+  try {
+    git(['merge', '--ff-only', branch], projectPath, QUICK_TIMEOUT_MS)
+  } catch {
+    return { merged: false, reason: 'merge-conflict' }
   }
   const commitHash = git(['rev-parse', 'HEAD'], projectPath, QUICK_TIMEOUT_MS).trim()
   return { merged: true, commitHash, ...(rebased ? { rebased } : {}) }

@@ -188,7 +188,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   if (res.ok) {
     // engine 成功 + verify 通過（或未設 verifier）→ 嘗試把任務分支 ff-only 合回主 repo。
     // merge queue（併發基建）：合併一次一個；串行下等價直呼，併發池（GOAL B）沿用同一入口。
-    const merge = await enqueueMerge(() => mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd))
+    const merge = await enqueueMerge(cfg.projectPath, () => mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd))
     if (merge.rebased) quiet(() => events.append('merge-rebased', { task: task.text, branch: wt.branch }))
     if (!merge.merged) {
       if (merge.reason === 'branch-switched') {

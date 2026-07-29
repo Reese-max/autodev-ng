@@ -51,8 +51,8 @@ test('merge queue：兩個併發 mergeBack 序列化，後者經 rebase-before-m
   commitIn(wtB.cwd, 'b.txt', 'B\n', 'feat: task B')
 
   const [ra, rb] = await Promise.all([
-    enqueueMerge(() => mergeBack(repo, wtA.branch, wtA.baseBranch, wtA.baseHead, wtA.cwd)),
-    enqueueMerge(() => mergeBack(repo, wtB.branch, wtB.baseBranch, wtB.baseHead, wtB.cwd)),
+    enqueueMerge(repo, () => mergeBack(repo, wtA.branch, wtA.baseBranch, wtA.baseHead, wtA.cwd)),
+    enqueueMerge(repo, () => mergeBack(repo, wtB.branch, wtB.baseBranch, wtB.baseHead, wtB.cwd)),
   ])
   expect(ra.merged).toBe(true)
   expect(rb.merged).toBe(true)
@@ -71,8 +71,8 @@ test('merge queue：同檔衝突時後者 merge-conflict，主線只含前者變
   commitIn(wtB.cwd, 'README.md', '# from B\n', 'feat: B rewrites readme')
 
   const [ra, rb] = await Promise.all([
-    enqueueMerge(() => mergeBack(repo, wtA.branch, wtA.baseBranch, wtA.baseHead, wtA.cwd)),
-    enqueueMerge(() => mergeBack(repo, wtB.branch, wtB.baseBranch, wtB.baseHead, wtB.cwd)),
+    enqueueMerge(repo, () => mergeBack(repo, wtA.branch, wtA.baseBranch, wtA.baseHead, wtA.cwd)),
+    enqueueMerge(repo, () => mergeBack(repo, wtB.branch, wtB.baseBranch, wtB.baseHead, wtB.cwd)),
   ])
   expect(ra.merged).toBe(true)
   expect(rb.merged).toBe(false)
@@ -82,8 +82,8 @@ test('merge queue：同檔衝突時後者 merge-conflict，主線只含前者變
 
 // ── 前者失敗不堵後者（queue 韌性）──────────────────────────────────────────
 test('merge queue：前者拋例外不堵塞後者', async () => {
-  const boom = enqueueMerge(() => { throw new Error('boom') })
-  const ok = enqueueMerge(() => 42)
+  const boom = enqueueMerge('failure-repo', () => { throw new Error('boom') })
+  const ok = enqueueMerge('failure-repo', () => 42)
   await expect(boom).rejects.toThrow('boom')
   await expect(ok).resolves.toBe(42)
 })
