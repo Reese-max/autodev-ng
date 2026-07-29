@@ -87,12 +87,16 @@ export class OpencodeEngine implements Engine {
       return { ok: false, output: tailErr(r), costUsd: p.cost, failureReason: 'empty-output：exit 0 但無 text/step_finish（≠ 成功）' }
     }
     const output = tail(p.text)
-    const { tokensIn, tokensOut } = parseTokensLine(r.stdout)
+    // 事件欄位優先；零值時退 parseTokensLine 文字行（雙保險，皆無＝undefined 不入帳）
+    const fromLine = parseTokensLine(r.stdout)
+    const tokensIn = p.tokIn > 0 ? p.tokIn : fromLine.tokensIn
+    const tokensOut = p.tokOut > 0 ? p.tokOut : fromLine.tokensOut
+    const tokensCached = p.tokCached > 0 ? p.tokCached : undefined
     const after = this.getCommitHash(job.projectPath)
     if (after === undefined || after === before) {
-      return { ok: false, output, costUsd: p.cost, failureReason: 'no-commit(phantom completion?)', tokensIn, tokensOut }
+      return { ok: false, output, costUsd: p.cost, failureReason: 'no-commit(phantom completion?)', tokensIn, tokensOut, tokensCached }
     }
-    return { ok: true, output, costUsd: p.cost, commitHash: after, baseCommitHash: before, tokensIn, tokensOut }
+    return { ok: true, output, costUsd: p.cost, commitHash: after, baseCommitHash: before, tokensIn, tokensOut, tokensCached }
   }
 
   /** 確保隔離 profile 存在 → XDG 重導向 spawn → 事後保守清 snapshot（吞錯，不影響結果）。 */
@@ -124,19 +128,25 @@ export class OpencodeEngine implements Engine {
   }
 }
 
-interface Parsed { text: string; cost: number; steps: number; errors: string[] }
+interface Parsed { text: string; cost: number; steps: number; errors: string[]; tokIn: number; tokOut: number; tokCached: number }
 
 /** NDJSON 逐行 parse：毒行（opencode 會把 log 直印 stdout，實測壞 model 場景）靜默跳過；
  * 聚合 text 事件、計 step_finish 數並 Σ part.cost、收 error 事件的 name+message。 */
 function parseNdjson(stdout: string): Parsed {
-  const p: Parsed = { text: '', cost: 0, steps: 0, errors: [] }
+  const p: Parsed = { text: '', cost: 0, steps: 0, errors: [], tokIn: 0, tokOut: 0, tokCached: 0 }
   for (const line of stdout.split(/\r?\n/)) {
     if (line.trim() === '') continue
     let obj: Record<string, unknown>
     try { obj = JSON.parse(line) as Record<string, unknown> } catch { continue }
     const part = obj.part as Record<string, unknown> | undefined
     if (obj.type === 'text' && typeof part?.text === 'string') p.text += (p.text === '' ? '' : '\n') + part.text
-    else if (obj.type === 'step_finish') { p.steps++; if (typeof part?.cost === 'number') p.cost += part.cost }
+    else if (obj.type === 'step_finish') {
+      p.steps++; if (typeof part?.cost === 'number') p.cost += part.cost
+      // token 聚合（2026-07-29）：opencode step_finish 的 part.tokens（input/output/cache.read）——
+      // 文字行 'tokens in=' 實測不存在於 NDJSON stdout，事件欄位才是真源。
+      const tok = part?.tokens as { input?: number; output?: number; cache?: { read?: number } } | undefined
+      if (tok) { p.tokIn += tok.input ?? 0; p.tokOut += tok.output ?? 0; p.tokCached += tok.cache?.read ?? 0 }
+    }
     else if (obj.type === 'error') {
       const e = obj.error as { name?: string; data?: { message?: string } } | undefined
       p.errors.push(`${e?.name ?? 'Error'}: ${e?.data?.message ?? ''}`)

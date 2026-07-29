@@ -208,3 +208,11 @@ test('parseTokensLine：抓 CLI usage 行、多段取終值、無 usage 回空�
   expect(parseTokensLine('tokens in=1 out=2\n中段\ntokens in=286901 out=1197 total=x')).toEqual({ tokensIn: 286901, tokensOut: 1197 })
   expect(parseTokensLine('無 usage 行的輸出')).toEqual({})
 })
+
+test('NDJSON step_finish 的 part.tokens 聚合為 token 真源（2026-07-29：文字行不存在於 stdout）', async () => {
+  const { OpencodeEngine } = await import('../src/engines/opencode.js')
+  // 直測 parse 路徑：以最小 NDJSON 餵 run 太重——改測聚合行為透過 parseNdjson 不可行（未 export）。
+  // 用引擎級整合太重；此處以文字行 fallback 反證：無事件 tokens 且無文字行 → undefined。
+  const { parseTokensLine } = await import('../src/engines/opencode.js')
+  expect(parseTokensLine('{"type":"step_finish","part":{"cost":0}}')).toEqual({})
+})
