@@ -4,6 +4,7 @@ import { localDay, type RunDb } from './db.js'
 import { loadIsolatedTagsForPick } from './engines/apply-stats-isolation.js'
 import { loadDailyAttemptCapContext } from './engines/daily-attempt-cap-gate.js'
 import { loadEngineStatsForWeighting } from './engines/adaptive-rotation.js'
+import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { enqueueMerge } from './engines/merge-queue.js'
 import { pickCandidateTags } from './engines/pick-candidates.js'
@@ -63,8 +64,7 @@ export type CycleResult =
 
 export async function runOnce(deps: Deps): Promise<CycleResult> {
   const { cfg, store, db, engines, events, verifier, notify } = deps
-  // 併發骨架防呆（GOAL A）：>1 的併發池屬 GOAL B，未實作前按 1 行為並提示一次。
-  if (cfg.concurrency > 1) quiet(() => events.appendOnce('concurrency-not-implemented', { requested: cfg.concurrency, note: '併發池未實作（GOAL B），暫按 1' }))
+  noteSerialConcurrency(deps)
   if (existsSync(cfg.stopFile)) {
     writeHeartbeat(events, cfg, { state: 'stopped', todayCostUsd: todayCost(db, cfg) })
     return 'stopped'
