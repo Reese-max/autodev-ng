@@ -43,7 +43,7 @@
       "costPerRunUsd": 0,
       "timeoutMs": 86400000,
       "subscription": true,
-      "model": "swe-1.7"
+      "model": "swe-1.6"
     },
     "codex-sol": {
       "adapter": "codex",
