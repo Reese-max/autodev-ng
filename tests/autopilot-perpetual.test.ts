@@ -278,23 +278,64 @@ describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {
     expect(notify).toHaveBeenCalledTimes(1)
   })
 
-  test('品質閘拒絕 → 不寫 GOAL、不跑 session，台帳與事件保留具體原因', async () => {
+  test('品質閘拒絕後回饋 author 重寫，第二稿通過才成案', async () => {
     const cfg = makeCfg(dir)
     const fp = problemFingerprint('已綠驗收問題')
-    const gateAuthoredGoal = vi.fn(async () => ({ ok: false as const, reason: 'verify-green: ok 1ms' }))
+    const reason = 'verify-green: ok 1ms'
+    const author = vi.fn(async (...args: Parameters<PerpetualHooks['author']>) => autoGoalMd(fp, args[2] ? '重寫後目標' : '原始目標'))
+    const gateAuthoredGoal = vi.fn()
+      .mockResolvedValueOnce({ ok: false as const, reason })
+      .mockResolvedValueOnce({ ok: true as const, verifyCommand: 'npm test' })
     const hooks = makeHooks({
       discover: vi.fn(async () => ({ survey: '', ranked: [{ title: '已綠驗收問題', lens: 'tests', value: 8, rationale: 'r' }] })),
-      author: vi.fn(async () => autoGoalMd(fp, '修已綠驗收問題')),
+      author,
+      gateAuthoredGoal
+    })
+    expect(await runPerpetualCycle(cfg, dir, events, async () => true, hooks)).toBe(true)
+    expect(gateAuthoredGoal).toHaveBeenCalledTimes(2)
+    expect(author).toHaveBeenCalledTimes(2)
+    expect(author.mock.calls[1]?.[2]).toBe(reason)
+    expect(hooks.runSession).toHaveBeenCalledOnce()
+  })
+
+  test('兩次重寫後仍不合格 → 不寫 GOAL、不跑 session，落地 goal-authoring-rejected', async () => {
+    const cfg = makeCfg(dir)
+    const fp = problemFingerprint('已綠驗收問題')
+    const reasons = ['verify-green: first', 'verify-green: second', 'verify-green: final'] as const
+    const gateAuthoredGoal = vi.fn()
+      .mockResolvedValueOnce({ ok: false as const, reason: reasons[0] })
+      .mockResolvedValueOnce({ ok: false as const, reason: reasons[1] })
+      .mockResolvedValueOnce({ ok: false as const, reason: reasons[2] })
+    const author = vi.fn(async (..._args: Parameters<PerpetualHooks['author']>) => autoGoalMd(fp, '修已綠驗收問題'))
+    const hooks = makeHooks({
+      discover: vi.fn(async () => ({ survey: '', ranked: [{ title: '已綠驗收問題', lens: 'tests', value: 8, rationale: 'r' }] })),
+      author,
       gateAuthoredGoal
     })
     expect(await runPerpetualCycle(cfg, dir, events, async () => true, hooks)).toBe(false)
-    expect(gateAuthoredGoal).toHaveBeenCalledOnce()
+    expect(gateAuthoredGoal).toHaveBeenCalledTimes(3)
+    expect(author).toHaveBeenCalledTimes(3)
+    expect(author.mock.calls[1]?.[2]).toBe(reasons[0])
+    expect(author.mock.calls[2]?.[2]).toBe(reasons[1])
     expect(existsSync(cfg.goalFile!)).toBe(false)
     expect(hooks.runSession).not.toHaveBeenCalled()
     const ledger = new ProblemsLedger(join(dir, 'run.db'))
-    expect(ledger.get(fp)?.note).toBe('goal-quality-reject:verify-green: ok 1ms')
+    expect(ledger.get(fp)?.note).toBe(`goal-quality-reject:${reasons[2]}`)
     ledger.close()
-    expect(readEvents(dir).some(e => e.type === 'perpetual-goal-rejected' && e.reason === 'verify-green: ok 1ms')).toBe(true)
+    expect(readEvents(dir).some(e => e.type === 'goal-authoring-rejected' && e.reason === reasons[2] && e.attempts === 3)).toBe(true)
+  })
+
+  test('品質閘例外 → 記告警、fail-open，持續原 perpetual 成案與 session', async () => {
+    const cfg = makeCfg(dir)
+    const fp = problemFingerprint('閘門例外問題')
+    const hooks = makeHooks({
+      discover: vi.fn(async () => ({ survey: '', ranked: [{ title: '閘門例外問題', lens: 'tests', value: 8, rationale: 'r' }] })),
+      author: vi.fn(async () => autoGoalMd(fp, '修閘門例外問題')),
+      gateAuthoredGoal: vi.fn(async () => { throw new Error('gate I/O boom') })
+    })
+    expect(await runPerpetualCycle(cfg, dir, events, async () => true, hooks)).toBe(true)
+    expect(hooks.runSession).toHaveBeenCalledOnce()
+    expect(readEvents(dir).some(e => e.type === 'goal-quality-gate-warning' && String(e.warning).includes('gate I/O boom'))).toBe(true)
   })
 
   // 終審 finding 2/g：成案（GOAL 已落地、ledger in-progress）之後，runSession 無論 throw

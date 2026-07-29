@@ -38,6 +38,14 @@ describe('authorGoal', () => {
     expect(md).toBeNull()
   })
 
+  test('品質閘退件原因會隨重寫 prompt 帶回 author', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'adng-author-'))
+    const seen: string[] = []
+    await authorGoal((async (prompt: string) => { seen.push(prompt); return 'OBJECTIVE: 重寫目標' }) as never,
+      problem, cfgWith(dir), 'fp', { qualityFeedback: 'verify-green: 已通過，請補紅燈測試' })
+    expect(seen[0]).toContain('品質閘具體退件原因：verify-green: 已通過，請補紅燈測試')
+  })
+
   test('佐證路徑圍欄：../ 逃逸被剔除', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'adng-author-'))
     mkdirSync(join(dir, 'sub')); writeFileSync(join(dir, 'sub', 'ok.py'), 'x')

@@ -22,6 +22,7 @@ import { readRecentGoalRoiSummary, settleProblemRoi } from './roi.js'
 
 const DEFAULT_COOLDOWN_MS = 6 * 60 * 60 * 1000 // 6h（Task 5 schema 上線後由 cfg 覆寫）
 const DEFAULT_VALUE_THRESHOLD = 6
+const MAX_AUTHOR_REWRITES = 2
 
 /** Task 5 的 ConfigSchema 會補上這三欄；在那之前以交集型別讀取，缺省時走預設。 */
 export type PerpetualConfig = Config & {
@@ -33,7 +34,7 @@ export type PerpetualConfig = Config & {
 export interface PerpetualHooks {
   now(): Date
   discover(): Promise<DiscoverResult | undefined>
-  author(problem: RankedProblem, fingerprint: string): Promise<string | null>
+  author(problem: RankedProblem, fingerprint: string, qualityFeedback?: string): Promise<string | null>
   gateAuthoredGoal(md: string): Promise<GoalQualityGateResult>
   runSession(opts: { discovered?: DiscoverResult }): Promise<SessionResult | 'no-goal' | 'lock-busy'>
   billedToday(): number
@@ -161,24 +162,35 @@ async function runBody(
       title: row.title, lens: row.lens, value: row.value,
       rationale: byFp.get(row.fingerprint)?.rationale ?? ''
     }
-    // 逐案自我隔離：單一候選 author throw 不得中斷其餘候選（fail-open per-attempt）。
-    let md: string | null = null
-    try { md = await hooks.author(problem, row.fingerprint) } catch { md = null }
-    if (!md) continue
-    let gate: GoalQualityGateResult
-    try {
-      gate = await hooks.gateAuthoredGoal(md)
-    } catch (error) {
-      gate = { ok: false, reason: `verify-unverifiable: gate ${String(error).slice(0, 240)}` }
+    let rejectionReason: string | undefined
+    let qualityAttempts = 0
+    for (let rewrite = 0; rewrite <= MAX_AUTHOR_REWRITES; rewrite++) {
+      // 逐案自我隔離：單一候選 author throw 不得中斷其餘候選（fail-open per-attempt）。
+      let md: string | null = null
+      try { md = await hooks.author(problem, row.fingerprint, rejectionReason) } catch { break }
+      if (!md) break
+      qualityAttempts++
+      let gate: GoalQualityGateResult
+      try {
+        gate = await hooks.gateAuthoredGoal(md)
+      } catch (error) {
+        quiet(() => events.append('goal-quality-gate-warning', { fingerprint: row.fingerprint, title: row.title, warning: `gate-exception: ${String(error).slice(0, 240)}` }))
+        authored = { md, fp: row.fingerprint, title: row.title }
+        break
+      }
+      if (gate.ok) {
+        if (gate.warning) quiet(() => events.append('goal-quality-gate-warning', { fingerprint: row.fingerprint, title: row.title, warning: gate.warning }))
+        authored = { md, fp: row.fingerprint, title: row.title }
+        break
+      }
+      rejectionReason = gate.reason
     }
-    if (!gate.ok) {
+    if (authored) break
+    if (rejectionReason) {
       qualityRejected.add(row.fingerprint)
-      ledger.setStatus(row.fingerprint, 'deferred', `goal-quality-reject:${gate.reason}`)
-      quiet(() => events.append('perpetual-goal-rejected', { fingerprint: row.fingerprint, title: row.title, reason: gate.reason }))
-      continue
+      ledger.setStatus(row.fingerprint, 'deferred', `goal-quality-reject:${rejectionReason}`)
+      quiet(() => events.append('goal-authoring-rejected', { fingerprint: row.fingerprint, title: row.title, reason: rejectionReason, attempts: qualityAttempts }))
     }
-    authored = { md, fp: row.fingerprint, title: row.title }
-    break
   }
 
   if (!authored) {
@@ -299,11 +311,12 @@ export async function maybeRunPerpetual(
         lenses: cfg.discoverLenses
       }, { objective: '', noProgressLimit: 2 }, cfg.projectPath)
     },
-    author: (problem, fingerprint) =>
+    author: (problem, fingerprint, qualityFeedback) =>
       authorGoal((prompt: string) => callAgent(judgeLlm, prompt).then(r => r.text), problem, cfg, fingerprint,
         {
           onEvent: (type, data) => quiet(() => deps.events.append(type, data)),
           northstar: ((): string => { try { return readFileSync(join(cfg.dataDir, 'NORTHSTAR.md'), 'utf8') } catch { return '' } })() || undefined,
+          qualityFeedback,
         }),
     gateAuthoredGoal: md => gateAuthoredGoal(md, cfg),
     runSession: (opts) => runGoalWithDeps(deps, notifier, cfg, opts),

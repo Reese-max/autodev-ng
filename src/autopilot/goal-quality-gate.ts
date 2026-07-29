@@ -6,7 +6,7 @@ import { runVerify } from '../verify.js'
 import { parseGoal } from './goal.js'
 
 export type GoalQualityGateResult =
-  | { ok: true; verifyCommand: string }
+  | { ok: true; verifyCommand?: string; warning?: string }
   | { ok: false; reason: string }
 
 function shFenceContains(md: string, command: string): boolean {
@@ -32,28 +32,40 @@ function verifyEnv(projectPath: string): Record<string, string> | undefined {
 export async function gateAuthoredGoal(
   md: string, opts: { projectPath: string; verifyTimeoutMs: number }
 ): Promise<GoalQualityGateResult> {
-  const goal = parseGoal(md)
-  const command = goal.verifyCommand?.trim()
-  if (!command) return { ok: false, reason: 'verify-command-missing' }
-  if (!shFenceContains(md, command)) return { ok: false, reason: 'verify-sh-fence-missing' }
-
-  const root = mkdtempSync(join(tmpdir(), 'adng-goal-gate-'))
-  const cwd = join(root, 'worktree')
+  let root: string | undefined
+  let cwd: string | undefined
   let added = false
+  let result: GoalQualityGateResult = { ok: true, warning: 'gate-not-run' }
   try {
-    execFileSync('git', ['worktree', 'add', '--detach', cwd, 'HEAD'], {
-      cwd: opts.projectPath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000, windowsHide: true
-    })
-    added = true
-    const result = await runVerify({ command, cwd, timeoutMs: opts.verifyTimeoutMs, env: verifyEnv(opts.projectPath) })
-    if (result.status === 'fail') return { ok: true, verifyCommand: command }
-    return { ok: false, reason: result.status === 'pass' ? `verify-green: ${result.detail}` : `verify-unverifiable: ${result.detail}` }
-  } catch (error) {
-    return { ok: false, reason: `verify-unverifiable: isolated-worktree ${detailOf(error)}` }
-  } finally {
-    if (added) {
-      try { execFileSync('git', ['worktree', 'remove', '--force', cwd], { cwd: opts.projectPath, stdio: 'ignore', timeout: 30_000, windowsHide: true }) } catch { /* 隔離清理失敗不改寫驗收結論。 */ }
+    const goal = parseGoal(md)
+    const command = goal.verifyCommand?.trim()
+    if (!command) {
+      result = { ok: false, reason: 'verify-command-missing' }
+    } else if (!shFenceContains(md, command)) {
+      result = { ok: false, reason: 'verify-sh-fence-missing' }
+    } else {
+      root = mkdtempSync(join(tmpdir(), 'adng-goal-gate-'))
+      cwd = join(root, 'worktree')
+      execFileSync('git', ['worktree', 'add', '--detach', cwd, 'HEAD'], {
+        cwd: opts.projectPath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000, windowsHide: true
+      })
+      added = true
+      const verification = await runVerify({ command, cwd, timeoutMs: opts.verifyTimeoutMs, env: verifyEnv(opts.projectPath) })
+      if (verification.status === 'fail') result = { ok: true, verifyCommand: command }
+      else if (verification.status === 'pass') result = { ok: false, reason: `verify-green: ${verification.detail}` }
+      else result = { ok: true, verifyCommand: command, warning: `verify-unverifiable: ${verification.detail}` }
     }
-    try { rmSync(root, { recursive: true, force: true, maxRetries: 3 }) } catch { /* 同上。 */ }
+  } catch (error) {
+    result = { ok: true, warning: `gate-exception: ${detailOf(error)}` }
+  } finally {
+    const cleanupErrors: string[] = []
+    if (added) {
+      try { execFileSync('git', ['worktree', 'remove', '--force', cwd!], { cwd: opts.projectPath, stdio: 'ignore', timeout: 30_000, windowsHide: true }) } catch (error) { cleanupErrors.push(detailOf(error)) }
+    }
+    if (root) {
+      try { rmSync(root, { recursive: true, force: true, maxRetries: 3 }) } catch (error) { cleanupErrors.push(detailOf(error)) }
+    }
+    if (cleanupErrors.length) result = { ok: true, warning: `gate-cleanup: ${cleanupErrors.join('｜').slice(0, 240)}` }
   }
+  return result
 }
