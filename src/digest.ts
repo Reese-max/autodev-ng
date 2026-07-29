@@ -53,7 +53,7 @@ export function buildDigest(opts: BuildDigestOpts): string {
   for (const e of engineStats) lines.push(`  引擎 ${e.engine}：${e.ok}/${e.n} 成，$${e.costUsd.toFixed(4)}${e.tokensIn > 0 ? `，tokens ${fmtTokens(e.tokensIn)}/${fmtTokens(e.tokensOut)}` : ''}`)
   // 影子帳（假價錢）：免費層 token 按市價 API 估值——「今天艦隊幫你省了多少」。零值省略。
   const shadow = freeTierShadowTotal(engineStats)
-  if (shadow > 0) lines.push(`  免費層影子帳：市價估 $${shadow.toFixed(2)}，實付 $0（devin 比照 $3/$15 每 M、oc 系 $0.5/$2）`)
+  if (shadow > 0) lines.push(`  免費層影子帳：市價估 $${shadow.toFixed(2)}，實付 $0（官方價 2026-07-29：devin $0.5/$2 每 M、oc 系 $0.14/$0.28）`)
   lines.push(...digestQuotaLines(engineStats, opts.engines)) // 今日額度消耗表；只在有 cap 設定時顯示（獨有資訊）
   lines.push(...digestMechanismLines(dataDir, isoDayUtc, offsetHours))
   // N=0 不印，避免雜訊；N>0 才浮出（鐵律 #4：fail-open-with-alert，不能只落 events.jsonl 沒人看）。
