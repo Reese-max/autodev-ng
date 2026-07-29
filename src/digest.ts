@@ -54,7 +54,7 @@ export function buildDigest(opts: BuildDigestOpts): string {
   // 影子帳：token 按官方市價估值（2026-07-29 檔位，來源見 engines/shadow-price.ts）。零值省略。
   const shadow = shadowTotals(engineStats)
   if (shadow.free > 0) lines.push(`  免費層影子帳：市價估 $${shadow.free.toFixed(2)}，實付 $0（devin $0.5/$2 每 M、oc 系 $0.14/$0.28）`)
-  if (shadow.quota > 0) lines.push(`  額度層影子帳：市價估 $${shadow.quota.toFixed(2)}，訂閱額度內（sol $5/$30、terra $2.5/$15、luna $1/$6、grok $1.25/$2.5）`)
+  if (shadow.quota > 0) lines.push(`  額度層影子帳：市價估 $${shadow.quota.toFixed(2)}，訂閱額度內（sol $5/$30、terra $2.5/$15、luna $1/$6、grok $3/$15）`)
   lines.push(...digestQuotaLines(engineStats, opts.engines)) // 今日額度消耗表；只在有 cap 設定時顯示（獨有資訊）
   lines.push(...digestMechanismLines(dataDir, isoDayUtc, offsetHours))
   // N=0 不印，避免雜訊；N>0 才浮出（鐵律 #4：fail-open-with-alert，不能只落 events.jsonl 沒人看）。

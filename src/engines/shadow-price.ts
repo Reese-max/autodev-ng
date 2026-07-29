@@ -8,7 +8,8 @@
  *     與小米 mimo-v2.5（mimo.mi.com）官方同價；nemotron :free 實際 $0，保守套 flash 檔。
  *   codex 三分身（developers.openai.com/api/docs/pricing）：gpt-5.6-sol $5/$30、
  *     gpt-5.6-terra $2.50/$15（xhigh 同模型同價）、gpt-5.6-luna $1/$6。
- *   grok（x.ai，grok-4.3 現價）：$1.25/$2.50。
+ *   grok：引擎實跑 CLI 預設 grok-composer-2.5-fast（fast 互動變體官方 $3/$15）——
+ *     非 8318 proxy 的 grok-4.3；若 config 改指 grok-4.5 則應換 $2/$6。
  * 長前綴檔位排前（codex-terra 先於任何通配）。只算展示不入帳；opencode/claude 真金層
  * 回 null（已在 billed 帳，不重複計）。 */
 
@@ -21,7 +22,7 @@ const RATES: Array<{ re: RegExp; inPerM: number; outPerM: number; tier: ShadowTi
   { re: /^codex-sol/, inPerM: 5, outPerM: 30, tier: 'quota' },
   { re: /^codex-terra/, inPerM: 2.5, outPerM: 15, tier: 'quota' },
   { re: /^codex-luna/, inPerM: 1, outPerM: 6, tier: 'quota' },
-  { re: /^grok/, inPerM: 1.25, outPerM: 2.5, tier: 'quota' },
+  { re: /^grok/, inPerM: 3, outPerM: 15, tier: 'quota' },
 ]
 
 export function shadowCostUsd(engine: string, tokensIn: number, tokensOut: number): { usd: number; tier: ShadowTier } | null {

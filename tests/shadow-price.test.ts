@@ -11,7 +11,7 @@ test('shadowCostUsd：quota 層檔位（codex 三分身各價、xhigh 同 terra�
   expect(shadowCostUsd('codex-terra', 1_000_000, 100_000)).toEqual({ usd: expect.closeTo(2.5 + 1.5), tier: 'quota' })
   expect(shadowCostUsd('codex-terra-xhigh', 1_000_000, 100_000)).toEqual({ usd: expect.closeTo(2.5 + 1.5), tier: 'quota' }) // 同模型同價
   expect(shadowCostUsd('codex-luna', 1_000_000, 100_000)).toEqual({ usd: expect.closeTo(1 + 0.6), tier: 'quota' })
-  expect(shadowCostUsd('grok', 1_000_000, 100_000)).toEqual({ usd: expect.closeTo(1.25 + 0.25), tier: 'quota' })
+  expect(shadowCostUsd('grok', 1_000_000, 100_000)).toEqual({ usd: expect.closeTo(3 + 1.5), tier: 'quota' }) // composer-2.5-fast 檔
 })
 
 test('shadowCostUsd：真金層（opencode/claude）null——已在 billed 帳不重複計', () => {
