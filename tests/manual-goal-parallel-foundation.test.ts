@@ -56,9 +56,14 @@ test('merge queue：兩個併發 mergeBack 序列化，後者經 rebase-before-m
   ])
   expect(ra.merged).toBe(true)
   expect(rb.merged).toBe(true)
-  const log = execFileSync('git', ['log', '--format=%s', 'main'], { cwd: repo, encoding: 'utf8' })
-  expect(log).toContain('feat: task A')
-  expect(log).toContain('feat: task B')
+  expect(rb.rebased).toBe(true)
+  expect(execFileSync('git', ['rev-list', '--count', 'main'], { cwd: repo, encoding: 'utf8' }).trim()).toBe('3')
+  expect(execFileSync('git', ['log', '--format=%s', 'main'], { cwd: repo, encoding: 'utf8' }).trim().split(/\r?\n/)).toEqual([
+    'feat: task B',
+    'feat: task A',
+    'chore: init',
+  ])
+  expect(execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: repo, encoding: 'utf8' }).trim()).toBe('')
 })
 
 // ── (c) 同檔衝突：後者 merge-conflict、主線不被污染 ───────────────────────
@@ -77,7 +82,13 @@ test('merge queue：同檔衝突時後者 merge-conflict，主線只含前者變
   expect(ra.merged).toBe(true)
   expect(rb.merged).toBe(false)
   if (!rb.merged) expect(rb.reason).toBe('merge-conflict')
+  expect(execFileSync('git', ['rev-list', '--count', 'main'], { cwd: repo, encoding: 'utf8' }).trim()).toBe('2')
+  expect(execFileSync('git', ['log', '--format=%s', 'main'], { cwd: repo, encoding: 'utf8' }).trim().split(/\r?\n/)).toEqual([
+    'feat: A rewrites readme',
+    'chore: init',
+  ])
   expect(readFileSync(join(repo, 'README.md'), 'utf8')).toBe('# from A\n')
+  expect(execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: repo, encoding: 'utf8' }).trim()).toBe('')
 })
 
 // ── 前者失敗不堵後者（queue 韌性）──────────────────────────────────────────
@@ -93,7 +104,7 @@ test('ConfigSchema：concurrency 預設 1，非法值被拒', () => {
   const base = { projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'mock' }
   expect(ConfigSchema.parse(base).concurrency).toBe(1) // (e) 預設 1＝現行為（行為等價由既有 scheduler 測試零改動全綠作證）
   expect(ConfigSchema.parse({ ...base, concurrency: 2 }).concurrency).toBe(2)
-  for (const bad of [0, -1, 1.5]) {
+  for (const bad of [0, -1, 1.5, NaN, Infinity]) {
     expect(() => ConfigSchema.parse({ ...base, concurrency: bad })).toThrow()
   }
 })
