@@ -1,0 +1,1373 @@
+
+> autodev-ng@0.1.0 test
+> vitest run --reporter=verbose
+
+
+ RUN  v4.1.9 D:/Users/Administrator/Desktop/autodev-ng/data/autodev-self/worktrees/9097c68a
+
+ ✓ tests/scheduler.test.ts > happy path：done + backlog 打勾 + 記帳 1538ms
+ ✓ tests/scheduler.test.ts > 敗第 1 次留 open；敗第 2 次 blocked（鐵律：不無限重試） 2070ms
+ ✓ tests/scheduler.test.ts > backlog 空 → idle，且 idle 事件 24h 去重 425ms
+ ✓ tests/scheduler.test.ts > concurrency >1 暫按單工，且同一 scheduler lifecycle 僅記一次降級事件 2616ms
+ ✓ tests/scheduler.test.ts > stop 檔優先於一切 489ms
+ ✓ tests/scheduler.test.ts > 成本硬停：超過 dailyHardUsd 不再派工 455ms
+ ✓ tests/scheduler.test.ts > dailySoftUsd/dailyHardUsd=0：停用專案日成本告警與硬停 1641ms
+ ✓ tests/scheduler.test.ts > M9.9：訂閱引擎花費不觸日頂，真金引擎照觸 817ms
+ ✓ tests/scheduler.test.ts > engine 丟例外：計一次失敗、不打勾、回 engine-error 1180ms
+ ✓ tests/scheduler.test.ts > preflight 餓死修正：首任務引擎壞 → 跳過改跑下一個可用引擎的任務，壞引擎任務保持 open 1546ms
+ ✓ tests/scheduler.test.ts > 引擎輪替：無 tag 任務走 rotation，preflight 壞檔位自動後退到好檔位完成 1569ms
+ ✓ tests/scheduler.test.ts > 引擎輪替：候選 resolve 拋錯不堵任務（多候選 failover），後退下一檔完成 1850ms
+ ✓ tests/scheduler.test.ts > run 失敗 → engine.invalidatePreflight 被呼叫（下輪重探，07-18 codex shim 事故防） 1175ms
+ ✓ tests/scheduler.test.ts > max-attempts blocked 註記帶最後失敗原因（人工分流不用翻 events.jsonl） 1703ms
+ ✓ tests/scheduler.test.ts > preflight 失敗：回 preflight-failed，engine.run 零呼叫，事件 24h 去重 595ms
+ ✓ tests/scheduler.test.ts > engine 成功但 store.report 拋錯：仍回 done、db 只記一筆 ok（無假失敗）、events 含 report-failed 1551ms
+ ✓ tests/scheduler.test.ts > engine 連 throw 兩次 → 第二次回 blocked（補齊 engine-error → blocked 的 transition） 1462ms
+ ✓ tests/scheduler.test.ts > preflight 失敗時 heartbeat 更新為 idle（不留 stale running） 310ms
+ ✓ tests/scheduler.test.ts > heartbeat 含 todayAttempts 摘要欄位（無 attempts 時為空物件或僅 cap 列） 355ms
+ ✓ tests/scheduler.test.ts > backlog 有重複任務時發 duplicate-tasks 事件（24h 去重） 2250ms
+ ✓ tests/scheduler.test.ts > verifier 拒絕 → failed 計數、不打勾；達 maxAttempts 轉 blocked 1733ms
+ ✓ tests/scheduler.test.ts > verifier throw → pass-with-alert（鐵律#4），任務照 done 1468ms
+ ✓ tests/scheduler.test.ts > 失敗成本估計（M4 Task 3）：engine 回報 costUnknown（如 timeout）→ db 記 cfg.failureCostEstimateUsd 且 detail 帶 cost-estimated 標記 1061ms
+ ✓ tests/scheduler.test.ts > 失敗成本估計：engine 回報真實 costUsd（非 costUnknown）→ 照記真值、detail 不帶 cost-estimated 標記 986ms
+ ✓ tests/scheduler.test.ts > 失敗成本估計：自訂 failureCostEstimateUsd（如 2.5）流動到 db 記帳 1192ms
+ ✓ tests/scheduler.test.ts > Fix 2：engine 失敗時 task-failed 事件帶 outputTail（截尾 600 字，$10 的診斷線索不蒸發） 1429ms
+ ✓ tests/scheduler.test.ts > extraDirective 設定時附加到 job.directive 尾（供 engine 讀取專案特規指示） 1864ms
+ ✓ tests/scheduler.test.ts > extraDirective 未設定時 job.directive 仍恆附任務文字＋commit 自證行（幻影完成對策） 1572ms
+ ✓ tests/scheduler.test.ts > 上一輪失敗時 directive 注入驗收打回原因（判官回饋閉環 2026-07-28） 1458ms
+ ✓ tests/scheduler.test.ts > 上一輪成功時 directive 不注入舊失敗原因 1653ms
+ ✓ tests/scheduler.test.ts > engine.run 收到的 job.projectPath 是 worktree cwd（非主 repo 路徑），且 worktree 於 done 後被清掉 1629ms
+ ✓ tests/scheduler.test.ts > 非 git 專案：prepareWorktree 上拋 → scheduler 歸 blocked+告警（fail-open，不炸 daemon），engine 完全沒被呼叫 78ms
+ ✓ tests/scheduler.test.ts > worktree 殘留目錄被鎖定（前次中斷進程仍佔用檔案，rmSync 清不掉）→ blocked reason 為 worktree-locked，不誤掛 not-a-git-repo 1104ms
+ ✓ tests/scheduler.test.ts > mergeBack 真衝突（主分支與 worktree 改同一檔）→ report blocked（reason=merge-conflict）+ 告警，worktree/分支保留 1822ms
+ ✓ tests/scheduler.test.ts > engine 失敗（res.ok=false）：worktree 保留現場（不清理），events 含 worktree-kept 1195ms
+ ✓ tests/scheduler.test.ts > HIGH 修復：engine 執行期間主 repo 被切到新分支 → blocked(reason=branch-switched)，成果不落到使用者當下分支，adng 分支保留 1471ms
+ ✓ tests/scheduler.test.ts > M4 Task 6 e2e：全鏈路——backlog 撿起→worktree→engine commit→verify(省 verifyCommand)→mergeBack→主 repo HEAD 前進→worktree 清掉→backlog 標 done 2584ms
+ ✓ tests/scheduler.test.ts > MEDIUM 2 回歸：worktree 內壞 commit + verifyCommand 失敗 → 真 rollback 跑過，worktree HEAD 回 base、marker 存活、主 repo 全程不動、任務不標 done 1711ms
+ ✓ tests/scheduler.test.ts > engine-not-allowed：tag 不在 engines 白名單 → 直接 blocked、engine 零呼叫、backlog 註記且 tag 原文保留 361ms
+ ✓ tests/scheduler.test.ts > per-task 路由：tag 在白名單 → resolver 以該 tag 解析；無 tag 用 cfg.defaultEngine 2508ms
+ ✓ tests/scheduler.test.ts > resolver 拋錯（adapter 未實作／env 引用缺失）→ blocked(engine-not-allowed)，錯誤訊息進 backlog 註記 508ms
+ ✓ tests/scheduler.test.ts > M5 記帳：固定成本引擎（costPerRunUsd 有設）成功 → db 記固定值而非引擎回報值 1407ms
+ ✓ tests/scheduler.test.ts > M5 記帳：固定成本引擎失敗（即使 costUnknown）→ 照記 costPerRunUsd，不套 failureCostEstimateUsd、不帶 cost-estimated 標記 1022ms
+ ✓ tests/scheduler.test.ts > M5 記帳：固定成本引擎 costPerRunUsd=0（如 agy 免費）→ 成功失敗都入帳 0，語意保留（非 costUnknown 佔位） 1025ms
+ ✓ tests/scheduler.test.ts > M5 記帳：固定成本引擎連 engine.run 拋例外都入帳 costPerRunUsd（進程可能已實際起跑燒錢） 1133ms
+ ✓ tests/scheduler.test.ts > M5 記帳回歸：真值引擎（costPerRunUsd 未設）語意完全不變——costUnknown 失敗仍套 failureCostEstimateUsd 997ms
+ ✓ tests/scheduler.test.ts > M10.5：全域日頂超標 → cost-hard-stop-global 485ms
+ ✓ tests/scheduler.test.ts > M10.5 回歸：未設 globalDailyHardUsd → 不受兄弟專案超標影響（現狀不變） 1755ms
+ ✓ tests/scheduler.test.ts > 簽名熔斷觸發時 deps.notify 收到告警（含引擎名與簽名熔斷事由） 1915ms
+ ✓ tests/scheduler.test.ts > mergeBack 假衝突（主分支前進但檔案不相干）→ rebase 救回、done、記 merge-rebased 事件 2304ms
+ ✓ tests/web-server.test.ts > parseArgs：解析 --config 2ms
+ ✓ tests/web-server.test.ts > makeToken：48 hex 字元、每次不同 1ms
+ ✓ tests/web-server.test.ts > Web 成本面板將 0 上限顯示為無上限且不觸發紅色硬頂 1ms
+ ✓ tests/web-server.test.ts > hasValidToken：header 或 query 對上任一即通過，都不對則拒絕 0ms
+ ✓ tests/web-server.test.ts > loadOrCreateToken：token 檔已存在時沿用其值(常駐 respawn 不換 token) 54ms
+ ✓ tests/web-server.test.ts > loadOrCreateToken：token 檔不存在時生成並落地 2ms
+ ✓ tests/web-server.test.ts > readHeartbeat：缺檔回 null；壞 JSON 回 null；正常檔回結構化物件 4ms
+ ✓ tests/web-server.test.ts > readEventsTail：只取尾 N 筆、壞行跳過 2ms
+ ✓ tests/web-server.test.ts > readDlqCount：缺檔 0、逐行計數 3ms
+ ✓ tests/web-server.test.ts > readRecentAttempts：缺檔回空陣列；有資料回近 N 筆（新到舊）、ok 轉 boolean 11ms
+ ✓ tests/web-server.test.ts > buildStatusPayload：組裝正確結構，且絕不含 judgeApiKey/discordTokenFile/engines 等 secret 相關欄位 14ms
+ ✓ tests/web-server.test.ts > buildStatusPayload：backlog 檔不存在時 backlogError 有值、其餘欄位仍正常組出 10ms
+ ✓ tests/web-server.test.ts > spawnRunOnce：同一 child 存活期間第二次呼叫回 already running；child 結束後可再次 spawn 2ms
+ ✓ tests/web-server.test.ts > spawnRunOnce：spawn 後 child 立即退出且 exitCode≠0 → 回 failed 含 exitCode 與 log 路徑，非 started 1ms
+ ✓ tests/web-server.test.ts > spawnRunOnce：spawn 後 child 快退 exit 0（<waitMs）→ 回 completed（成功），非 failed 1ms
+ ✓ tests/web-server.test.ts > spawnDaemonStart：無活 daemon 時先清掉既有 stopFile 再 spawn；同存活期間防重入 2ms
+ ✓ tests/web-server.test.ts > spawnDaemonStart：spawn 後 daemon 立即退出（如 lock-busy）→ 回 failed 非 started 1ms
+ ✓ tests/web-server.test.ts > spawnDaemonStart：spawn 後 daemon 快退 exit 0（800ms 內）→ 仍回 failed（daemon 語意不變） 1ms
+ ✓ tests/web-server.test.ts > readDaemonLockOwner：讀 dataDir/daemon.lock/pid.json（既有格式）+ 可注入 kill 探測 4ms
+ ✓ tests/web-server.test.ts > spawnDaemonStart：真 lock 判定為 alive（即使 state.daemon=null，如 CLI 直啟／web 重啟）→ 回 already running，不清 stopFile、不 spawn 1ms
+ ✓ tests/web-server.test.ts > readBotAlive：缺檔回 false；探測活/死；壞 pid 回 false 3ms
+ ✓ tests/web-server.test.ts > readSilencedUntil：缺檔回 null；未過期回 untilIso；已過期回 null 3ms
+ ✓ tests/web-server.test.ts > buildStatusPayload：新增 botAlive/silencedUntil/stopFilePresent 三欄，缺 stopFile 也不炸 9ms
+ ✓ tests/web-server.test.ts > buildStatusPayload：stopFile 存在時 stopFilePresent=true 10ms
+ ✓ tests/web-server.test.ts > stopDaemon：寫入既有 stopFile 機制（scheduler.runOnce 讀取的同一路徑） 1ms
+ ✓ tests/web-server.test.ts > GET / 回首頁 HTML；未知路徑 404 27ms
+ ✓ tests/web-server.test.ts > GET /api/status 回 200 JSON 20ms
+ ✓ tests/web-server.test.ts > GET /api/status 回傳含 botAlive/silencedUntil/stopFilePresent 三欄 17ms
+ ✓ tests/web-server.test.ts > POST /api/run-once 無 token → 403；錯 token → 403；對 token → 202 + taskId，未真 spawn 真專案 18ms
+ ✓ tests/web-server.test.ts > POST /api/run-once：child 快退 exit 0 → 202（status=completed），非 502（B1 回歸修正） 15ms
+ ✓ tests/web-server.test.ts > POST /api/run-once：child 快退 exit≠0 → 502 failed 14ms
+ ✓ tests/web-server.test.ts > POST /api/daemon/start、/api/daemon/stop 對 token 放行（mock spawn） 15ms
+ ✓ tests/web-server.test.ts > INDEX_HTML 路徑存在（真實前端檔） 1ms
+ ✓ tests/web-server.test.ts > GET /api/panel/backlog 回 200 + text（複用 bot cmdBacklog 輸出，不需 CSRF） 15ms
+ ✓ tests/web-server.test.ts > GET /api/panel/nope（白名單外 name）→ 404 13ms
+ ✓ tests/web-server.test.ts > GET /api/panel/goal：goalFile 未設 → 人話（未真 spawn autopilot） 13ms
+ ✓ tests/web-server.test.ts > POST /api/goal/set 無 token → 403 16ms
+ ✓ tests/web-server.test.ts > POST /api/goal/set 對 token；含換行的注入文字被 handler 拒 → 拒絕文案原樣透傳 13ms
+ ✓ tests/web-server.test.ts > POST /api/goal/set 對 token；合法文字但 config 未設 goalFile → 人話 12ms
+ ✓ tests/web-server.test.ts > POST /api/goal/run 無 token → 403；對 token 時 goalFile 不存在 → 人話（未真 spawn autopilot） 14ms
+ ✓ tests/web-server.test.ts > POST /api/goal/stop 無 token → 403；對 token → 200 + text（goalFile 不存在也視為成功） 14ms
+ ✓ tests/web-server.test.ts > POST /api/silence 無 token → 403；對 token 帶 minutes=0 → 解除靜音 15ms
+ ✓ tests/web-server.test.ts > POST /api/pause 無 token → 403；對 token → 寫入 stopFile（daemon 語意暫停），200 + text 14ms
+ ✓ tests/web-server.test.ts > POST bot handler 拒絕時回 500，不讓 HTTP 請求懸掛 13ms
+ ✓ tests/web-server.test.ts > POST /api/resume 無 token → 403；對 token → 清除既有 stopFile 15ms
+ ✓ tests/web-server.test.ts > POST /api/task 無 token → 403；含換行的注入文字 → 拒收文案原樣透傳 14ms
+ ✓ tests/web-server.test.ts > POST /api/task 對 token；合法文字 → 已加入 backlog，backlog.md 實際多一行 15ms
+ ✓ tests/web-server.test.ts > parseArgs：解析 --configs-dir 0ms
+ ✓ tests/web-server.test.ts > 多專案 GET /api/status 無 project：回 { projects: [...] } 陣列，欄位齊全 33ms
+ ✓ tests/web-server.test.ts > 多專案 /api/status：DB 讀掛只降級該來源，其他欄位與專案不缺席 24ms
+ ✓ tests/web-server.test.ts > 多專案 /api/status?project=a：走 a 的 ctx，回單專案完整形狀（非彙總陣列） 35ms
+ ✓ tests/web-server.test.ts > 多專案 ?project=zzz（未知專案）：404 {error:"unknown project"} 30ms
+ ✓ tests/web-server.test.ts > 多專案：SSE /api/logs 缺 project → 400；panel 缺 project → 400 34ms
+ ✓ tests/web-server.test.ts > 多專案：panel 未知 project → 404 29ms
+ ✓ tests/web-server.test.ts > 多專案：POST /api/pause 缺 project → 400；未知 project → 404；帶對的 project → 200 36ms
+ ✓ tests/web-server.test.ts > 多專案：GET / 首頁不需 project（回任一 ctx 的 indexHtml） 35ms
+ ✓ tests/web-server.test.ts > 單專案模式：/api/status?project=anything 被忽略——回傳一如既往的單專案形狀，非彙總陣列 21ms
+ ✓ tests/daemon.test.ts > ① lock 被占 → lock-busy，告警一次，runOnce 完全不執行 840ms
+ ✓ tests/daemon.test.ts > ② runOnce throw → 不死、runonce-crash 事件每輪都記、告警走冷卻閘（同 key 只送 1 則）、指數退避後繼續下一輪 411ms
+ ✓ tests/daemon.test.ts > ②b 冷卻閘：連續 5 次崩潰觸發暫停——daemon-crash 與 daemon-crash-pause 各自 key 互不干擾、皆只送 1 則 520ms
+ ✓ tests/daemon.test.ts > ③ 一個任務成功、一個任務連敗轉 blocked，其餘輪跑到 idle：digest 一天只送一次、blocked 告警內容含任務文字 3647ms
+ ✓ tests/daemon.test.ts > ④ stop 檔 → 回 stopped，且 lock 有被釋放（daemon 結束後可再次 acquire） 714ms
+ ✓ tests/daemon.test.ts > ⑤ digest 送失敗（notifier 回 false）→ stamp 不落，下一輪繼續重送 857ms
+ ✓ tests/daemon.test.ts > ⑥ stop 檔已存在（runOnce 首輪即回 stopped）+ 當日 digest 未發 → runDaemon 回 stopped 且摘要已發且 stamp 已標記 619ms
+ ✓ tests/daemon.test.ts > ⑦ 紅線 4 報告窗：events.jsonl 含昨日 verify-alert → 今日輪首送出的摘要含正確 N 且顯示昨日日期 581ms
+ ✓ tests/daemon.test.ts > ⑧ 紅線 4 報告窗：db 有昨日 attempts（ok/fail）→ 今日輪首摘要的完成/失敗計數計入昨日數字 719ms
+ ✓ tests/daemon.test.ts > ⑨ 冷卻閘（HIGH-2）：連續 3 輪 cost-hard-stop 只送 1 則告警 654ms
+ ✓ tests/daemon.test.ts > ⑩ 冷卻閘：冷卻窗（6h）已過的持久化紀錄 → 再送且文案含抑制計數 680ms
+ ✓ tests/daemon.test.ts > ⑪ 冷卻閘：兩個不同任務各自 blocked → 各送一則告警（key 各自獨立） 3914ms
+ ✓ tests/daemon.test.ts > ⑫ 冷卻閘：同一任務重複轉 blocked（report 未落地）→ 第 2 次起被去重吞掉 3321ms
+ ✓ tests/daemon.test.ts > ⑬ 冷卻閘：alert-cooldown.json 損壞 → fail-open 照發不炸 daemon（鐵律 #4） 436ms
+ ✓ tests/daemon.test.ts > ⑭ 冷卻閘不影響 digest：系統告警在冷卻中被吞，每日摘要仍照常送達（鐵律 #6） 476ms
+ ✓ tests/daemon.test.ts > ⑮ 冷卻閘（修 1）：lock-busy 連續兩次啟動在冷卻窗內只送 1 則，7h 後第三次再送並帶抑制計數 1239ms
+ ✓ tests/daemon.test.ts > ⑯ 冷卻閘（修 3）：兩個不同 task.id 但任務文字前 40 字相同 → key 各自獨立、各發一則 blocked 告警 3471ms
+ ✓ tests/daemon.test.ts > MEDIUM 1 修復：baseAlertMessage 依 blocked reason 各出對應人話文案（不再全部印「連敗達上限」） 0ms
+ ✓ tests/daemon.test.ts > ⑰ 連續崩潰暫停 ×2：10 輪全崩 → 第 5、10 輪各暫停完整 30 分（機制不受冷卻閘影響），pause 告警只送 1 則 684ms
+ ✓ tests/daemon.test.ts > ⑱ acquireLock throw（infra 故障，非 lock-busy）→ 告警走冷卻閘（key daemon-acquire-throw）並原樣 rethrow 炸給排程器，runOnce 完全不執行；重複啟動撞同一故障不洗版 559ms
+ ✓ tests/daemon.test.ts > ⑲ 崩潰計數一次成功 cycle 後歸零：4 崩 → 1 成功 → 再崩 2 輪退避從 2^1 重起，不誤觸第 5 次暫停門檻 1803ms
+ ✓ tests/daemon.test.ts > M10.0 案例 1：perpetual 未觸發（maybeRunPerpetual 回 false）→ idle 分支行為與現狀一致（idle alert 照發、sleep 收 idleSleepMs） 524ms
+ ✓ tests/daemon.test.ts > M10.0 案例 2：perpetual 觸發（maybeRunPerpetual 回 true）→ 該輪不發 idle alert，sleep 收 cooldownMs（非 idleSleepMs） 580ms
+ ✓ tests/daemon.test.ts > M10.0 案例 3：maybeRunPerpetual throw → daemon 不死（fail-open，鐵律 #4），照發 idle alert，迴圈繼續跑下一輪 914ms
+ ✓ tests/daemon.test.ts > M10.0 案例 4：perpetual:false（預設）→ checkAndSendDigest 呼叫點完全不呼叫 perpetualDigestLine（回歸線 finding 1） 453ms
+ ✓ tests/daemon.test.ts > M10.0 案例 5：perpetual:true → checkAndSendDigest 呼叫點會呼叫 perpetualDigestLine，回傳值併入摘要文字 425ms
+ ✓ tests/daemon.test.ts > M10.5：config 檔消失 → 記 daemon-config-gone 事件並回 config-gone（多專案退場） 1675ms
+ ✓ tests/daemon.test.ts > M10.5：cfgPath 未設 → 行為不變（回歸線） 538ms
+ ✓ tests/daemon.test.ts > yesterdayLocal：純函數月界/年界正確減一天（本地日曆日，位移邏輯與 offset 無關） 1ms
+ ✓ tests/daemon.test.ts > M5 Task 1：baseAlertMessage 對 engine-not-allowed 出對應人話文案（daemon 告警文案 switch 同步） 1ms
+ ✓ tests/daemon.test.ts > Task 2：baseAlertMessage 對 worktree-locked 出對應人話文案，不誤植 not-a-git-repo 的文案 0ms
+ ✓ tests/ledger-roi.test.ts > summarizeRecentGoalRoi 純函式 > 無歷史資料 → 空字串 2ms
+ ✓ tests/ledger-roi.test.ts > summarizeRecentGoalRoi 純函式 > 分組統計：同 lens 彙總預估 value avg、attempts/成功、耗時與結果數 1ms
+ ✓ tests/ledger-roi.test.ts > summarizeRecentGoalRoi 純函式 > attempts 或耗時缺失時標註未知，不計入總數 0ms
+ ✓ tests/ledger-roi.test.ts > listRecentCompleted 近期篩選 > 只含有 goal_results+ended_at 的列，並依 ended_at 新→舊、limit 截斷 19ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > 近期完成 goals 依 lens 彙總預估 value、實際成本與結果 15ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > 無 ROI 歷史或資料庫讀取失敗時摘要為空 15ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > 舊 schema 自動補欄，既有資料與 ROI 都可讀寫 19ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > 部分升級的 schema 只補缺欄，重開後不覆寫既有 ROI 27ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > 遷移中途失敗時不留半套 schema，並保留舊台帳讀寫 28ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > 讀寫失敗時回傳安全預設，不拋出例外 15ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > 只彙整該 goal 標記且位於起訖窗內的實際 attempts 15ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > achieved 收案會寫入結果、attempts 與起訖時間 18ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > no-progress 收案會寫入結果、attempts 與起訖時間 19ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > stuck 收案會寫入結果、attempts 與起訖時間 18ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > achieved session 結束依 goal_id 定位原 problem 並回寫完整 ROI 26ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > no-progress session 結束依 goal_id 定位原 problem 並回寫完整 ROI 26ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > stuck session 結束依 goal_id 定位原 problem 並回寫完整 ROI 27ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > 重複收案：同 problem 再次 settle 覆寫成本與結果且不拋錯 26ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > 找不到對應 goal_id 時靜默略過 10ms
+ ✓ tests/ledger-roi.test.ts > ProblemsLedger ROI 相容落盤 > run.db attempts 不可讀時 counts 留 NULL；ROI 回寫失敗只記事件 14ms
+ ✓ tests/ledger-roi.test.ts > goal ROI 主流程 > achieved 結束後由 perpetual closeout 回寫 ROI 並轉為 fixed 28ms
+ ✓ tests/ledger-roi.test.ts > goal ROI 主流程 > no-progress 結束後由 perpetual closeout 回寫 ROI 並轉為 deferred 21ms
+ ✓ tests/ledger-roi.test.ts > goal ROI 主流程 > stuck 結束後由 perpetual closeout 回寫 ROI 並轉為 deferred 20ms
+ ✓ tests/ledger-roi.test.ts > goal ROI 主流程 > ledger 連線 I/O 失敗仍完成 discover→author→session 8ms
+ ✓ tests/ledger-roi.test.ts > goal ROI 主流程 > 台帳 ROI 遷移失敗仍完成 discover→author→session 19ms
+ ✓ tests/ledger-roi.test.ts > goal ROI 主流程 > ROI 寫入失敗仍完成 session、收案與通知 22ms
+ ✓ tests/ledger-roi.test.ts > goal ROI 主流程 > 重複收案：已寫 ROI 的 auto-goal 再跑 closeout 可覆寫終態 29ms
+ ✓ tests/ledger-roi.test.ts > critic ROI 回饋主流程 > prompt 內容：含 ROI 硬約束、lens 彙總欄位，且空白歷史不附加段落 0ms
+ ✓ tests/ledger-roi.test.ts > critic ROI 回饋主流程 > critic prompt 帶入近期 ROI 摘要 13ms
+ ✓ tests/ledger-roi.test.ts > critic ROI 回饋主流程 > 無歷史資料時不注入 ROI 段落且 discovery 正常完成 11ms
+ ✓ tests/ledger-roi.test.ts > critic ROI 回饋主流程 > ROI 摘要 I/O 失敗時略過摘要且 discovery 正常完成 1ms
+ ✓ tests/ledger-roi.test.ts > critic ROI 回饋主流程 > 台帳 ROI 摘要讀取失敗時 discovery 仍正常完成 12ms
+ ✓ tests/worktree.test.ts > prepareWorktree：建出 worktree 目錄 + 分支 + marker 1041ms
+ ✓ tests/worktree.test.ts > prepareWorktree：主 repo .git/info/exclude 補上 marker + .serena/ + .devin/config.local.json（devin-serena-fix 保底，跨 worktree 共用同一份） 919ms
+ ✓ tests/worktree.test.ts > prepareWorktree：殘留（前次崩潰留下未清的 worktree 目錄+分支）重建成功 2105ms
+ ✓ tests/worktree.test.ts > prepareWorktree：殘留目錄被鎖住(前次中斷進程未退)時上拋且不砍分支——成果分支與 HEAD 完好保留；解鎖後重試自癒成功（2a929ec9 產線事故回歸測試） 2435ms
+ ✓ tests/worktree.test.ts > assertWorktreeCheckout：正常 worktree → 不拋（prepareWorktree 內建呼叫不誤傷正常路徑） 1273ms
+ ✓ tests/worktree.test.ts > assertWorktreeCheckout：空目錄（checkout 完全未落地，事故本體）→ 拋 code=worktree-invalid 447ms
+ ✓ tests/worktree.test.ts > assertWorktreeCheckout：checkout 半套（tracked 檔缺失）→ 拋 code=worktree-invalid 999ms
+ ✓ tests/worktree.test.ts > mergeBack：worktree 內 commit 後 ff-only 成功、主 repo HEAD 前進；cleanupWorktree 清掉現場 1774ms
+ ✓ tests/worktree.test.ts > mergeBack：主 repo 被第三方推進且與 worktree 分支分岔 → merged:false、分支保留給人工 1595ms
+ ✓ tests/worktree.test.ts > prepareWorktree：非 git 目錄上拋明確錯誤（呼叫端據此歸 blocked，不炸 daemon） 52ms
+ ✓ tests/worktree.test.ts > prepareWorktree：主 repo 處於 detached HEAD → 上拋明確錯誤，拒絕開工 543ms
+ ✓ tests/worktree.test.ts > mergeBack：主 repo 於 prepareWorktree 後被切到新分支 → merged:false(branch-switched)，原分支與新分支都沒收到成果，任務分支保留 1545ms
+ ✓ tests/worktree.test.ts > mergeBack：任務期間主分支被 reset --hard 回退 → merged:false(branch-switched)，被丟棄的 commit 不因 ff-only 復活 1754ms
+ ✓ tests/worktree.test.ts > mergeBack：主分支僅正常前進（baseHead 為現 HEAD 祖先）→ 不誤擋，仍由 ff-only 自行判定 1427ms
+ ✓ tests/worktree.test.ts > mergeBack：主 repo 於 prepareWorktree 後 detach HEAD → merged:false(branch-switched)，任務分支保留 1527ms
+ ✓ tests/worktree.test.ts > cleanupWorktree：含 node_modules 樣態（嵌套多層＋唯讀檔）的 worktree 完整清除，prune 後 worktree list 乾淨、分支已刪 2073ms
+ ✓ tests/worktree.test.ts > cleanupWorktree：worktree 內有真正未提交變更 → 上拋保留現場（安全網語意不因改 rmSync 而丟失），且 marker 仍在原地供 defaultRollback 識別 1279ms
+ ✓ tests/worktree.test.ts > cleanupWorktree：marker 缺失 → 上拋拒刪，絕不 rmSync（目錄與分支原封不動） 2229ms
+ ✓ tests/worktree.test.ts > cleanupWorktree：marker taskId 與分支不符 → 上拋拒刪（防路徑算錯誤刪別的任務現場） 1427ms
+ ✓ tests/worktree.test.ts > cleanupWorktree：dirty porcelain 清單截前 10 行（防 events 單筆膨脹），並註明總行數 1671ms
+ ✓ tests/worktree.test.ts > cleanupWorktree：rmSync 已成功、branch -d 失敗（未合併分支）→ 拋 WorktreeCleanupPartialError（呼叫端據此記 worktree-cleanup-partial 而非 worktree-kept） 1862ms
+ ✓ tests/worktree.test.ts > mergeBack＋worktreePath：主分支前進但檔案不相干 → worktree 內 rebase 後合回成功 2059ms
+ ✓ tests/worktree.test.ts > mergeBack＋worktreePath：真衝突（同檔同行）→ rebase abort、現場乾淨、回 merge-conflict 2202ms
+ ✓ tests/worktree.test.ts > mergeBack 不帶 worktreePath：分岔行為與現狀完全一致（merge-conflict，不嘗試 rebase） 1924ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 前置閘（安靜讓路） > perpetual!==true → false，discover 未呼叫、無狀態/事件 13ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 前置閘（安靜讓路） > stopFile 存在 → false，discover 未呼叫 5ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 前置閘（安靜讓路） > billedToday >= dailyHardUsd → false，discover 未呼叫 3ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 前置閘（安靜讓路） > dailyHardUsd=0 → 不套用成本硬停，仍可進入 discover 33ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 前置閘（安靜讓路） > 冷卻窗內 → false，狀態不變、discover 未呼叫 14ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 手動 GOAL > 無標記手動 GOAL → runSession({}) 被呼叫、manualGoalDone 記錄、GOAL 不刪、回 true 27ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 手動 GOAL > 手動 GOAL 被外力中斷（killed）→ 不消耗執行權、不寫冷卻時間戳（舞步燒毀 GOAL 回歸） 25ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 手動 GOAL > 同 goalId 第二次 → false 不重跑 24ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 手動 GOAL > 已 done 手動 GOAL 佔位 → 記 manual-goal-idle 事件並 notify 提醒；同 24h 第二次 cycle 不重複提醒 29ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle auto-goal 殘留 > 標記檔在 → 直接 runSession({}) 續跑、收案回寫 fixed、GOAL 刪除 45ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 無 GOAL：discover→立案→收案 > no-case：discover 回 ranked:[] → consecutiveEmpty+1、event、false 21ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 無 GOAL：discover→立案→收案 > value 閘：全部 value<門檻 → 不 author、不 runSession，open 列仍在；lastSessionTs 更新武裝冷卻、no-case(below-threshold) 22ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 無 GOAL：discover→立案→收案 > 成案全流程：value 8 → author 合法 GOAL → 寫檔 → runSession(achieved) → fixed → GOAL 刪 → true 37ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 無 GOAL：discover→立案→收案 > runSession throws（成案後）→ perpetual-error 事件、回 false、lastSessionTs 已武裝冷卻 20ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 無 GOAL：discover→立案→收案 > runSession 回 lock-busy（成案後）→ closeout 不回寫，但 runSession 前的早期武裝已落地：lastSessionTs 非空 20ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 無 GOAL：discover→立案→收案 > deferred 映射：runSession 回 no-progress → 台帳 deferred 24ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle 無 GOAL：discover→立案→收案 > author 全敗：3 候選全 null → 各記 deferred(goal-authoring-failed)、event、false；lastSessionTs 更新武裝冷卻 22ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle fail-open > discover throw → perpetual-error 事件、回 false、不 throw 14ms
+ ✓ tests/autopilot-perpetual.test.ts > runPerpetualCycle fail-open > billedToday() throw → perpetual-error 事件、回 false、不 throw 3ms
+ ✓ tests/autopilot-perpetual.test.ts > perpetualDigestLine > 組 counts 摘要字串 15ms
+ ✓ tests/autopilot-perpetual.test.ts > perpetualDigestLine > 故障回 null（不存在的 dataDir 仍安全） 3ms
+ ✓ tests/autopilot-perpetual.test.ts > perpetualDigestLine > 空台帳（0 列）→ null，不是 all-zero 字串 12ms
+ ✓ tests/autopilot-perpetual.test.ts > perpetualDigestLine > run.db 完全不存在（首次跑 perpetual:false 的專案）→ null 9ms
+ ✓ tests/autopilot-perpetual.test.ts > maybeRunPerpetual 殼層：全域日頂前置閘 > 全域頂超標 → false，discover 未被呼叫（短路在 runPerpetualCycle 之前） 8ms
+ ✓ tests/autopilot-perpetual.test.ts > maybeRunPerpetual 殼層：全域日頂前置閘 > 未設 globalDailyHardUsd → 前置閘不介入（現狀回歸線，仍走到 discover 之前的既有閘門） 7ms
+ ✓ tests/cli.test.ts > assemble：mock engine → registry 以 defaultEngine 解析出 MockEngine、verifier 有掛、notifier 是 DiscordNotifier 19ms
+ ✓ tests/cli.test.ts > assemble：claude-cli engine（engines 未設的既有 config）→ registry 解析出 ClaudeCliEngine 且可 cache（同 tag 同實例） 8ms
+ ✓ tests/cli.test.ts > assemble：路徑展開——config 內相對路徑相對「config 檔所在目錄」展開，不吃 CWD 9ms
+ ✓ tests/cli.test.ts > assemble：dataDir 與 run.db 確實被建立在展開後的路徑下 8ms
+ ✓ tests/cli.test.ts > formatStatus：heartbeat 不存在 → 「daemon 未跑過」 0ms
+ ✓ tests/cli.test.ts > formatStatus：完整資料 → 內容含 heartbeat 狀態、成本軟硬頂、backlog 計數、DLQ、digest 日期 0ms
+ ✓ tests/cli.test.ts > formatStatus：成本軟硬頂為 0 時顯示無上限 0ms
+ ✓ tests/cli.test.ts > formatStatus：無 currentTask 時不印該欄位；lastDigestDay 缺省印「尚未發送過」 0ms
+ ✓ tests/cli.test.ts > parseArgv：解出子命令與 --config 值 1ms
+ ✓ tests/cli.test.ts > assemble：config 檔不存在 → throw 人話訊息含「設定檔不存在」與路徑 1ms
+ ✓ tests/cli.test.ts > assemble：config 非法 JSON → throw 人話訊息含「JSON 格式錯誤」與路徑 2ms
+ ✓ tests/cli.test.ts > runNotifyTest：送達成功（2xx）→ ok true，文字含「adng 通道測試」與指定 ISO 時刻；不讀真 token 檔、不打真 API 16ms
+ ✓ tests/cli.test.ts > runNotifyTest：送達失敗（非 2xx）→ ok false 3ms
+ ✓ tests/cli.test.ts > assemble：config 缺必填欄位 → throw 人話訊息含「設定檔欄位錯誤」、路徑與欄位名 2ms
+ ✓ tests/cli.test.ts > 小修輪#6：legacy engine 改 optional，但 engines 與 engine 全缺（base 欄位齊全）→ superRefine 拒、訊息點名 engine 0ms
+ ✓ tests/cli.test.ts > 小修輪#6：純新形狀 config（只寫 engines map、無 legacy engine 欄位）→ schema 通過 1ms
+ ✓ tests/cli.test.ts > supervisor staleThresholdMs：預設至少 15 分鐘，合法覆寫生效，過小或非法值遭拒 1ms
+ ✓ tests/cli.test.ts > 小修輪#5：非真值 adapter 未設 costPerRunUsd → 拒（防成功路徑靜默記 $0）；opencode/claude-cli/mock 豁免 1ms
+ ✓ tests/cli.test.ts > 小修輪#2：agy 設了 env → 拒（agy 不透傳 env 過 WSL 邊界，設了會靜默無效） 0ms
+ ✓ tests/cli.test.ts > finalizeRunOnceHeartbeat：done/failed/engine-error/blocked 跑完任務 → heartbeat 收尾為 idle、todayCostUsd 為當日 billed 真金值（排除訂閱引擎名義帳） 30ms
+ ✓ tests/cli.test.ts > finalizeRunOnceHeartbeat：stopped/cost-hard-stop/idle/preflight-failed 自帶收尾路徑 → 不被二次覆寫 27ms
+ ✓ tests/cli.test.ts > M5：m3 檔位 assemble——{env:VAR} 於 assemble 層展開成真值進 engine（值不落 config/log）、--model 旗標帶上 9ms
+ ✓ tests/cli.test.ts > M5：{env:VAR} 引用缺失 → resolve 該 tag 才拋錯（lazy：assemble 不炸、其他引擎不受影響），訊息含變數名不含值 8ms
+ ✓ tests/cli.test.ts > M5：registry——白名單外 tag 拋錯；codex/agy/grok/qwen/opencode/devin 已接線（Task 3/4/6/7/8/9 合流） 19ms
+ ✓ tests/cli.test.ts > M5 Task 9：devin registry——model {env:VAR} 缺失時 resolve 拋（證 expandEnvValue(ec.model) 真的跑在 devin 分支） 8ms
+ ✓ tests/cli.test.ts > M5：expandEnvValue——字串內嵌展開、多引用、無引用原樣、缺失只報變數名 0ms
+ ✓ tests/cli.test.ts > M5：configs/ 下所有現役真檔 schema 全過，且 registry 能建出 defaultEngine（原 voice-actress 專測——該檔已退役 .retired，改為不綁定單一檔名） 5ms
+ ✓ tests/restart-routing-consistency.test.ts > 狀態重建入口守門 > 重建：延續既有派工且不重置試探時間 15ms
+ ✓ tests/restart-routing-consistency.test.ts > 狀態重建入口守門 > 讀檔失敗：回原派工且不覆寫既有試探時間 5ms
+ ✓ tests/restart-routing-consistency.test.ts > 狀態重建入口守門 > 版本不符：回原派工且不覆寫舊版試探時間 6ms
+ ✓ tests/restart-routing-consistency.test.ts > 狀態重建入口守門 > 內容損壞：回原派工且不覆寫殘存試探時間 5ms
+ ✓ tests/restart-routing-consistency.test.ts > 狀態重建入口守門 > 狀態 map 形狀損壞：回原派工且不改寫檔案 5ms
+ ✓ tests/restart-routing-consistency.test.ts > 狀態重建入口守門 > 只讀檢查：第二次重建不重初始化快取與事件計數，試探/常駐候選不重置 22ms
+ ✓ tests/restart-routing-consistency.test.ts > 重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件 > 寫入隔離+晉升 → 重建上下文 → pick 延續原狀且不重設試探、不重派事件 22ms
+ ✓ tests/restart-routing-consistency.test.ts > 重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件 > 重啟前首次隔離有事件；重啟後同條件只延續、untilTs 不變、事件不重複 30ms
+ ✓ tests/restart-routing-consistency.test.ts > 重啟後一致性：隔離 / 候補晉升 / 試探時點 / 事件 > stats 注入路徑：重啟後有晉升+隔離時 pick 仍跳過隔離檔且無新事件 5ms
+ ✓ tests/routing-state-consistency.test.ts > analyzeRoutingConsistency（純交叉） > 三者一致 → 無警告 2ms
+ ✓ tests/routing-state-consistency.test.ts > analyzeRoutingConsistency（純交叉） > 隔離 tag 不在 rotation 0ms
+ ✓ tests/routing-state-consistency.test.ts > analyzeRoutingConsistency（純交叉） > 晉升 tag 已在 rotation 0ms
+ ✓ tests/routing-state-consistency.test.ts > analyzeRoutingConsistency（純交叉） > 試探無隔離條目 0ms
+ ✓ tests/routing-state-consistency.test.ts > analyzeRoutingConsistency（純交叉） > 同 tag 隔離且晉升 1ms
+ ✓ tests/routing-state-consistency.test.ts > analyzeRoutingConsistency（純交叉） > 隔離中但戰績健康 → healthy-but-isolated 0ms
+ ✓ tests/routing-state-consistency.test.ts > analyzeRoutingConsistency（純交叉） > 晉升中但達隔離門檻 → promoted-should-isolate 0ms
+ ✓ tests/routing-state-consistency.test.ts > analyzeRoutingConsistency（純交叉） > 空 rotation → 無警告（呼叫端應 skip） 0ms
+ ✓ tests/routing-state-consistency.test.ts > analyzeRoutingConsistency（純交叉） > 過期隔離不計入 active（不報 outside-rotation） 0ms
+ ✓ tests/routing-state-consistency.test.ts > checkRoutingStateConsistency（I/O + 守門） > 缺 dataDir / 無 rotation → skipped 且維持原路徑 1ms
+ ✓ tests/routing-state-consistency.test.ts > checkRoutingStateConsistency（I/O + 守門） > 缺狀態檔 → skipped no-state-file，不寫檔 2ms
+ ✓ tests/routing-state-consistency.test.ts > checkRoutingStateConsistency（I/O + 守門） > 狀態損壞 → skipped 維持原路徑且不覆寫 3ms
+ ✓ tests/routing-state-consistency.test.ts > checkRoutingStateConsistency（I/O + 守門） > 一致狀態 + 戰績 → ok，不改狀態檔 4ms
+ ✓ tests/routing-state-consistency.test.ts > checkRoutingStateConsistency（I/O + 守門） > 明顯不一致 → warnings 標記 + maintainOriginalPath，狀態檔位元組不變 3ms
+ ✓ tests/routing-state-consistency.test.ts > checkRoutingStateConsistency（I/O + 守門） > stats 失敗仍做 state×rotation 交叉，維持原路徑 58ms
+ ✓ tests/routing-state-consistency.test.ts > checkRoutingStateConsistency（I/O + 守門） > loadState / stats 拋錯 → fail-open skipped 或仍不改派工 3ms
+ ✓ tests/routing-state-consistency.test.ts > checkRoutingStateConsistency（I/O + 守門） > 真實 run.db 戰績：健康引擎卻隔離 → 警告且不寫狀態 19ms
+ ✓ tests/routing-state-consistency.test.ts > checkRoutingStateConsistency（I/O + 守門） > 非法 rotation 元素 → skipped invalid-rotation 0ms
+ ✓ tests/routing-state-consistency.test.ts > checkRoutingStateConsistency（I/O + 守門） > saveState 路徑不存在：檢查器永不呼叫寫入 4ms
+ ✓ tests/routing-state-consistency.test.ts > 一致性警告不改 pickReadyTask 輸出 > '狀態檔存在但輪替已變動'：只警告，檢查前後派工輸出相同 18ms
+ ✓ tests/routing-state-consistency.test.ts > 一致性警告不改 pickReadyTask 輸出 > '聚合結果顯示已解除隔離但狀態仍未清除'：只警告，檢查前後派工輸出相同 12ms
+ ✓ tests/web-cockpit.test.ts > buildProjectSummary：含 currentTask、今日成敗、blocked 數（駕駛艙卡片欄位） 17ms
+ ✓ tests/web-cockpit.test.ts > buildProjectSummary：heartbeat、成本、戰績與 backlog 各自 fail-open 13ms
+ ✓ tests/web-cockpit.test.ts > 六面板回歸：來源全缺時艦隊摘要與四個駕駛艙端點均 fail-open 50ms
+ ✓ tests/web-cockpit.test.ts > 六面板回歸：來源存在但零資料時回明確空狀態 28ms
+ ✓ tests/web-cockpit.test.ts > GET /api/cockpit/engines：近 7 日統計＋隔離狀態＋cap；只出 allowlist 欄位 24ms
+ ✓ tests/web-cockpit.test.ts > GET /api/cockpit/engines：缺 run.db 與 routing-state → 保留 cap 零消耗列 12ms
+ ✓ tests/web-cockpit.test.ts > GET /api/cockpit/engines：routing-state 壞檔不拖垮 DB 戰績與 cap 12ms
+ ✓ tests/web-cockpit.test.ts > GET /api/cockpit/engines：run.db 壞檔不拖垮隔離事由與 cap 13ms
+ ✓ tests/web-cockpit.test.ts > GET /api/cockpit/blocked：只回 blocked 行，含任務文字與 reason 11ms
+ ✓ tests/web-cockpit.test.ts > POST /api/backlog/reopen：無 token 403；有 token 移除 blocked 註記；重打同參數冪等 changed:false 21ms
+ ✓ tests/web-cockpit.test.ts > POST /api/backlog/reopen：match 對不上該行（檔案已漂移）→ changed:false 不誤改 11ms
+ ✓ tests/web-cockpit.test.ts > GET /api/cockpit/guardian：尾 10 筆 allowlist 欄位；缺檔回空 18ms
+ ✓ tests/web-cockpit.test.ts > GET /api/cockpit/mechanisms：近 7 日三型計數；窗外不計；缺檔零值 18ms
+ ✓ tests/web-cockpit.test.ts > index.html 保留六個既有控制面板，並含四個駕駛艙面板與艦隊卡片欄位 1ms
+ ✓ tests/guardian.test.ts > Guardian：hard-cap 或新失敗事件才呼叫固定 gpt-5.6-luna/max，並落結構化稽核 58ms
+ ✓ tests/guardian.test.ts > Guardian：同根因重試一小時內冷卻，逾時或根因改變才再呼叫 37ms
+ ✓ tests/guardian.test.ts > Guardian：事件游標不靠最後 200 行，尖峰後仍能撿到較早失敗 11ms
+ ✓ tests/guardian.test.ts > Guardian：獨立驗收失敗會降級 needs_attention 並只告警一次 13ms
+ ✓ tests/guardian.test.ts > Guardian：supervisor 已判 keep 的活躍引擎長任務，不得被 heartbeat 年齡二次誤判 10ms
+ ✓ tests/guardian.test.ts > Guardian：LLM 明確要求且同 PID 超 hard-cap 時，宿主才精準樹斬並驗證新 daemon 12ms
+ ✓ tests/guardian.test.ts > Guardian：稽核 JSONL 超過上限會保尾輪替且保留本輪證據 12ms
+ ✓ tests/guardian.test.ts > Guardian：過期租約只有通過 PID 建立時間／零工作 child／零 CPU 驗證才精準回收 8ms
+ ✓ tests/guardian.test.ts > Guardian CLI：排程可拆成 supervisor-only 與 guardian-only，預設仍維持 inline 1ms
+ ✓ tests/guardian.test.ts > Guardian：健康專案不呼叫 LLM 5ms
+ ✓ tests/bot-actions.test.ts > appendUserTask（純函式，直呼） > 缺檔視為空、確保結尾換行、append 純 `- [ ] text` 行（無 adng 註記） 50ms
+ ✓ tests/bot-actions.test.ts > pause / resume > pause 後 stopFile 存在，回成功文字 7ms
+ ✓ tests/bot-actions.test.ts > pause / resume > resume 刪 stopFile；缺檔也回成功文字不炸 9ms
+ ✓ tests/bot-actions.test.ts > silence > silence 30 → isSilenced true，回至何時的文字 9ms
+ ✓ tests/bot-actions.test.ts > silence > silence 0 → clearSilence，isSilenced false 9ms
+ ✓ tests/bot-actions.test.ts > silence > 非法分鐘數（非數字/超出範圍）→ ok:false 回用法說明，不炸 7ms
+ ✓ tests/bot-actions.test.ts > task > task <文字> → 寫入後 store.read() 回 source:user 且文字正確 9ms
+ ✓ tests/bot-actions.test.ts > task > task 空字串 → ok:false 回用法說明，不寫入 9ms
+ ✓ tests/bot-actions.test.ts > task > 鐵律 #1｜task text 帶 <!-- adng:autopilot ... --> → 拒收，不誤判為 autopilot 來源 8ms
+ ✓ tests/bot-actions.test.ts > task > 鐵律 #1｜task text 含換行偽造 `- [ ] evil <!-- adng:done ... -->` → 拒收，不憑空多生任務行 8ms
+ ✓ tests/bot-actions.test.ts > appendUserTask（鐵律 #1 防禦第二層，繞過 handler 直呼） > text 含換行 → throw，不寫入 8ms
+ ✓ tests/bot-actions.test.ts > appendUserTask（鐵律 #1 防禦第二層，繞過 handler 直呼） > text 含 <!-- 或 --> → throw，不寫入 7ms
+ ✓ tests/bot-actions.test.ts > goal > set > goalFile 已設 → 寫入 GOAL.md 模板內容，回確認文字 8ms
+ ✓ tests/bot-actions.test.ts > goal > set > goalFile 未設 config → ok:false 回「config 未設 goalFile」 6ms
+ ✓ tests/bot-actions.test.ts > goal > set > 目標文字為空 → ok:false 用法說明 6ms
+ ✓ tests/bot-actions.test.ts > goal > set > 目標文字含換行 → ok:false 拒收（同 /task guard） 6ms
+ ✓ tests/bot-actions.test.ts > goal > set > 目標文字含 <!-- --> → ok:false 拒收 7ms
+ ✓ tests/bot-actions.test.ts > goal > run > goalFile 未設或檔不存在 → ok:false 人話，不呼叫 spawnFn 7ms
+ ✓ tests/bot-actions.test.ts > goal > run > goalFile 存在 → 呼叫 spawnFn 帶 node/run.js/--config cfgPath，detached+windowsHide 8ms
+ ✓ tests/bot-actions.test.ts > goal > status > goalFile 存在但無 audit 檔 → 含 GOAL 內容 + 「尚無 session 紀錄」 7ms
+ ✓ tests/bot-actions.test.ts > goal > status > 有 goal-*.jsonl audit 檔 → 含最新一筆尾行 9ms
+ ✓ tests/bot-actions.test.ts > goal > status > goalFile 未設 → ok:false 人話 7ms
+ ✓ tests/bot-actions.test.ts > goal > stop > 刪除 goalFile，回確認文字 7ms
+ ✓ tests/bot-actions.test.ts > goal > stop > goalFile 已不存在 → 不炸，仍回確認文字 7ms
+ ✓ tests/bot-actions.test.ts > goal > 未知子指令 → ok:false 用法說明 7ms
+ ✓ tests/bot-actions.test.ts > ask > ask <問題> → fakeLlm 回固定字 9ms
+ ✓ tests/bot-actions.test.ts > ask > LLM fail-open（無 url）→ ok:false 回「LLM 未回應」，不炸 7ms
+ ✓ tests/bot-actions.test.ts > ask > ask 空字串 → ok:false 回用法說明 6ms
+ ✓ tests/bot-actions.test.ts > ask > ask 成功 → events.jsonl 新增一筆 type:ask，帶 tokens 與問題前 80 字；不寫入 db attempts（避免污染 dayStats 完成數） 49ms
+ ✓ tests/bot-actions.test.ts > ask > ask 未回應仍記 events（tokens=0，無 usage 欄位時 fail-open） 8ms
+ ✓ tests/survey-sources.test.ts > 多源 survey 組裝器 > 全源可用：使用者訊號與北極星置頂為高權重區段，其餘來源隨後，且不改來源 109ms
+ ✓ tests/survey-sources.test.ts > 多源 survey 組裝器 > 單源損壞時獨立 fail-open，其他來源仍保留 8ms
+ ✓ tests/survey-sources.test.ts > 多源 survey 組裝器 > 全源缺失時只回既有輸出，空基底也不拋錯 2ms
+ ✓ tests/survey-sources.test.ts > 多源 survey 組裝器 > 總長度維持 8000 字元上限並沿用保尾截斷 2ms
+ ✓ tests/survey-sources.test.ts > 多源 survey 組裝器 > 大型多源摘要不會擠掉既有 surveyCommand 輸出 4ms
+ ✓ tests/survey-sources.test.ts > 多源 survey 組裝器 > 低權重長輸出不會擠掉置頂的使用者訊號與北極星 7ms
+ ✓ tests/survey-sources.test.ts > 多源 survey 組裝器 > USER-SIGNALS 與 NORTHSTAR 全文在可塞入時完整保留（不因長 base 被砍） 6ms
+ ✓ tests/survey-sources.test.ts > 多源 survey 組裝器 > 高權重佔滿預算時仍保留 surveyCommand，且最終結果不超過 8000 字元 9ms
+ ✓ tests/survey-sources.test.ts > 多源 survey 組裝器 > collectSurvey 保留 surveyCommand 輸出並組裝可用來源 104ms
+ ✓ tests/survey-sources.test.ts > packHighWeightSources > USER-SIGNALS 全文置頂標最高權重，NORTHSTAR 全文緊接其後 0ms
+ ✓ tests/survey-sources.test.ts > packHighWeightSources > 單源缺席時不留空標頭 0ms
+ ✓ tests/survey-sources.test.ts > applySurveyPriorityBudget 優先序截斷 > 無高權重：總長 ≤ 8000，base 優先於 summaries 0ms
+ ✓ tests/survey-sources.test.ts > applySurveyPriorityBudget 優先序截斷 > 有高權重且總長可塞入：結果 ≤ 8000，順序高權重→base→summaries 0ms
+ ✓ tests/survey-sources.test.ts > applySurveyPriorityBudget 優先序截斷 > 高權重全文可塞入時不被 surveyCommand 四分之一預留截斷 0ms
+ ✓ tests/survey-sources.test.ts > applySurveyPriorityBudget 優先序截斷 > 剩餘預算不足時先砍 summaries，高權重全文保留並保 base 尾端 0ms
+ ✓ tests/survey-sources.test.ts > applySurveyPriorityBudget 優先序截斷 > 高權重單獨超過 8000 時仍受上限約束並保留 base 0ms
+ ✓ tests/survey-sources.test.ts > run.db 近七個 UTC 日彙總 > 依 UTC 日界彙總各引擎，並選出各自最常見失敗 detail 24ms
+ ✓ tests/survey-sources.test.ts > run.db 近七個 UTC 日彙總 > 缺 run.db 時回空摘要 2ms
+ ✓ tests/survey-sources.test.ts > run.db 近七個 UTC 日彙總 > attempts schema 缺必要欄位時回空摘要 7ms
+ ✓ tests/survey-sources.test.ts > run.db 近七個 UTC 日彙總 > 查詢損壞的 SQLite 時回空摘要 4ms
+ ✓ tests/survey-sources.test.ts > run.db 近七個 UTC 日彙總 > 欄位格式異常與無效時間皆回空摘要 11ms
+ ✓ tests/routing-legacy-path-snapshot.test.ts > 快照回歸：engineRotation 未設 → 舊路徑（defaultEngine） > rotation='undefined'：候選/隔離/上下文/事件完整快照一致 96ms
+ ✓ tests/routing-legacy-path-snapshot.test.ts > 快照回歸：engineRotation 未設 → 舊路徑（defaultEngine） > rotation='空陣列'：候選/隔離/上下文/事件完整快照一致 9ms
+ ✓ tests/routing-legacy-path-snapshot.test.ts > 快照回歸：engineRotation 未設 → 舊路徑（defaultEngine） > 未設 rotation 時 failCount 不影響候選（舊路徑硬線） 1ms
+ ✓ tests/routing-legacy-path-snapshot.test.ts > 快照回歸：engineRotation 未設 → 舊路徑（defaultEngine） > 未設 rotation + subscription 尾端：僅補尾、不啟隔離 1ms
+ ✓ tests/routing-legacy-path-snapshot.test.ts > 快照回歸：run.db 無有效資料 → 舊路徑（rotation 旋轉序 + 無隔離） > 缺 run.db：stats/隔離/候選/事件完整快照 3ms
+ ✓ tests/routing-legacy-path-snapshot.test.ts > 快照回歸：run.db 無有效資料 → 舊路徑（rotation 旋轉序 + 無隔離） > run.db 存在但近窗 0 樣本（不足 minSamples）→ 沿用旋轉序 16ms
+ ✓ tests/routing-legacy-path-snapshot.test.ts > 快照回歸：run.db 無有效資料 → 舊路徑（rotation 旋轉序 + 無隔離） > run.db 損壞（非 sqlite）→ query-failed，候選與舊旋轉序一致 5ms
+ ✓ tests/routing-legacy-path-snapshot.test.ts > 快照回歸：run.db 無有效資料 → 舊路徑（rotation 旋轉序 + 無隔離） > 僅窗口外樣本 → 近窗無效，等同無有效資料舊路徑 16ms
+ ✓ tests/routing-legacy-path-snapshot.test.ts > 快照回歸：run.db 無有效資料 → 舊路徑（rotation 旋轉序 + 無隔離） > 有 rotation + 無有效 run.db：連跑三輪事件計數恆為 0 2ms
+ ✓ tests/routing-legacy-path-snapshot.test.ts > 快照回歸：雙條件交叉（未設 rotation 且無 run.db） > 兩守門同時成立時仍收斂到 defaultEngine 舊路徑，零副作用 1ms
+ ✓ tests/apply-stats-isolation.test.ts > applyStatsIsolation > 缺 run.db → reuse-current，不寫狀態檔 4ms
+ ✓ tests/apply-stats-isolation.test.ts > applyStatsIsolation > 無 rotation → reuse-current（維持原路徑） 15ms
+ ✓ tests/apply-stats-isolation.test.ts > applyStatsIsolation > 狀態檔損壞 → 標記不可用並保留原檔，不套用新隔離 3ms
+ ✓ tests/apply-stats-isolation.test.ts > applyStatsIsolation > 原子寫入失敗 → 不回報隔離或派事件 3ms
+ ✓ tests/apply-stats-isolation.test.ts > applyStatsIsolation > 樣本≥6 成功率<30% 的輪替引擎 → 寫入 dataDir 隔離狀態與事由 16ms
+ ✓ tests/apply-stats-isolation.test.ts > applyStatsIsolation > 已隔離不再重設、newlyIsolated 為空 20ms
+ ✓ tests/apply-stats-isolation.test.ts > applyStatsIsolation > 窗口外資料不計入：舊失敗不觸發隔離 11ms
+ ✓ tests/apply-stats-isolation.test.ts > applyStatsIsolation > statsFn 注入：可驗證只評估 rotation 門檻 3ms
+ ✓ tests/apply-stats-isolation.test.ts > applyStatsIsolation > loadIsolatedTagsForPick：回 active tags 並對新隔離呼叫 onIsolated 15ms
+ ✓ tests/apply-stats-isolation.test.ts > applyStatsIsolation > 單一出口鉤子：同一隔離決策重複命中仍只寫一次、派一次事件 3ms
+ ✓ tests/apply-stats-isolation.test.ts > applyStatsIsolation > 既有隔離 + 新目標：合併寫入 5ms
+ ✓ tests/apply-stats-isolation.test.ts > 簽名熔斷：統計面健康但同簽名 5 連敗 → applied，reason 帶簽名熔斷 3ms
+ ✓ tests/apply-stats-isolation.test.ts > 簽名熔斷整合：真 run.db 5 筆同簽名連敗（樣本<統計門檻 6）→ 仍熔斷 13ms
+ ✓ tests/apply-stats-isolation.test.ts > 簽名熔斷與統計隔離同引擎 → 只隔離一次（統計 reason 優先） 2ms
+ ✓ tests/cli-golden.test.ts > cli golden 純函式 > PUBLIC_CLI_COMMANDS 涵蓋五個公開子指令且 isPublicCliCommand 邊界正確 2ms
+ ✓ tests/cli-golden.test.ts > cli golden 純函式 > bytesEqual / joinCapturedLines / toCliCapture 合成與逐位元相等 0ms
+ ✓ tests/cli-golden.test.ts > cli golden 純函式 > diffCliCaptures：三欄全同 → equal；stdout/stderr/exitCode 各自能指出欄位 0ms
+ ✓ tests/cli-golden.test.ts > cli golden 純函式 > assertCliCapturesEqual：相符不丟；不符訊息含 field 1ms
+ ✓ tests/cli-golden.test.ts > cli golden 純函式 > stabilizeCliCapture：ISO 與路徑根替換後可重跑比對 1ms
+ ✓ tests/cli-golden.test.ts > cli golden 純函式 > serializeCliCapture / parseCliCapture 往返且鍵序固定 0ms
+ ✓ tests/cli-golden.test.ts > CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定） > 全域：空 argv、--help、--version 與各子指令缺 --config 的用法錯誤（逐位元） 2ms
+ ✓ tests/cli-golden.test.ts > CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定） > supervise：缺參數與雙參數互斥用法錯誤（逐位元） 0ms
+ ✓ tests/cli-golden.test.ts > CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定） > 未知子命令（含 --help/--version 當 command 已有 --config）失敗情境 5ms
+ ✓ tests/cli-golden.test.ts > CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定） > 五個公開子指令：搬移前 golden 與搬移後 stdout/stderr/exit code 逐位元一致 48ms
+ ✓ tests/cli-golden.test.ts > CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定） > 子指令失敗：設定檔不存在 / JSON 壞掉 / 缺欄位（路徑穩定化後逐位元） 6ms
+ ✓ tests/cli-golden.test.ts > CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定） > supervise 單檔失敗：不存在的 config → stderr + exit 1（路徑穩定化） 2ms
+ ✓ tests/cli-golden.test.ts > CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定） > status 有 heartbeat：完整 formatStatus 輸出逐位元（固定 fixture） 19ms
+ ✓ tests/cli-golden.test.ts > CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定） > 錯誤參數：--config 缺值時 command 仍走缺 config 用法（不崩） 0ms
+ ✓ tests/digest.test.ts > dayStats：跨日與毫秒時戳只算當日 ok/fail/cost 14ms
+ ✓ tests/digest.test.ts > dayStats：offset=8 時本地日界線位移（UTC 16:00 起算次一本地日） 8ms
+ ✓ tests/digest.test.ts > dayStats：當日無資料回全 0 7ms
+ ✓ tests/digest.test.ts > buildDigest：含日期、計數、成本、DLQ 行數、通道自檢字樣 10ms
+ ✓ tests/digest.test.ts > buildDigest：每引擎戰績行——含成敗比與成本、engine 空欄顯示 (未標)、零派工日整段省略 14ms
+ ✓ tests/digest.test.ts > buildDigest：零任務零成本仍完整產出（鐵律 #6：無事也要發） 8ms
+ ✓ tests/digest.test.ts > DLQ 缺檔＝0、有 3 行＝3 16ms
+ ✓ tests/digest.test.ts > stamp 生命週期：未發→true；標記後同日→false；隔日→true 2ms
+ ✓ tests/digest.test.ts > stamp 檔損壞（壞 JSON）容錯視為未發 → true 3ms
+ ✓ tests/digest.test.ts > stamp 檔內容型別不符（非物件／欄位非字串）也容錯視為未發 → true 3ms
+ ✓ tests/digest.test.ts > markDigestSent 原子寫入：寫入後不留 .tmp 殘檔 1ms
+ ✓ tests/digest.test.ts > buildDigest：verify-alert 事件依 detail 前綴分計——verify-skip 歸 verifySkip、其餘歸 other（M4 Task 4 分計） 12ms
+ ✓ tests/digest.test.ts > buildDigest：other 分類涵蓋 judge-skipped/rollback-failed/rollback-exception/verifier-exception（依 detail 前綴，非 verify-skip 一律歸 other） 10ms
+ ✓ tests/digest.test.ts > buildDigest：N=0（無 verify-alert 事件）verify 略過與其他告警兩行皆不印（不加雜訊） 8ms
+ ✓ tests/digest.test.ts > buildDigest：events.jsonl 內非當日（昨日）的 verify-alert 不計入 N（日界線） 12ms
+ ✓ tests/digest.test.ts > buildDigest：offsetHours=8 時 verify-alert 分計改用本地日（UTC 前一日 16:05 落本地當日） 11ms
+ ✓ tests/digest.test.ts > buildDigest：offsetHours 未傳時預設 0（UTC），與舊行為相容——同一筆事件在 offset=0 下落昨日不計入 11ms
+ ✓ tests/digest.test.ts > buildDigest：perpetualLine 有值 → 文末出現該行（M10.0 Task 6） 8ms
+ ✓ tests/digest.test.ts > buildDigest：perpetualLine 未傳／null → 輸出不含「自主工程師」字樣，且與未傳時逐位元組相同（向後相容） 8ms
+ ✓ tests/digest.test.ts > buildDigest：今日額度消耗表——含引擎／次數／成功／cap／餘量；無 cap 顯示 — 8ms
+ ✓ tests/digest.test.ts > buildDigest：零派工且無 cap → 不印今日額度消耗段（避免雜訊） 7ms
+ ✓ tests/digest.test.ts > buildDigest：blocked 任務清單——有積壓列前 5 筆與總數，零積壓整段省略 18ms
+ ✓ tests/backlog.test.ts > parse：狀態判定正確 5ms
+ ✓ tests/backlog.test.ts > nextTask 跳過 done/blocked，取第一個 open 2ms
+ ✓ tests/backlog.test.ts > report done：勾選並附 commit hash，總行數不變 4ms
+ ✓ tests/backlog.test.ts > report blocked：標註原因，不勾選 3ms
+ ✓ tests/backlog.test.ts > 鐵律#1：未知 id 必 throw，檔案不被改動 4ms
+ ✓ tests/backlog.test.ts > CRLF 來源檔 report 後仍為 CRLF，且僅目標行語意變更 4ms
+ ✓ tests/backlog.test.ts > reason 含 >：report blocked 後 re-read，text 乾淨、id 與 report 前一致 3ms
+ ✓ tests/backlog.test.ts > 縫 A：重複任務文字 id 碰撞，第一筆 done 後第二筆解凍可派工，兩筆皆 done 後 nextTask 回 null（2026-07-05 語意變更：見 backlog.ts report() 收斂性註解） 6ms
+ ✓ tests/backlog.test.ts > 縫 A：第一行 done 後 report 第二筆非 done match 的 id，標的是第二行，第一行 done 標記不被覆寫 7ms
+ ✓ tests/backlog.test.ts > 縫 A：所有相符行皆 done 時 report 已完成/未知 id 仍 throw（鐵律 #1 邊界不鬆動） 3ms
+ ✓ tests/backlog.test.ts > 縫 A：重複行不影響其他正常任務的解析 3ms
+ ✓ tests/backlog.test.ts > duplicateIds 列出重複 id，無重複時為空 4ms
+ ✓ tests/backlog.test.ts > duplicateIds 排除 done：同文字 done 舊行 + open 新行不算重複、新行可派工 3ms
+ ✓ tests/backlog.test.ts > HIGH #1：N=3 重複行不餓死——第1行 done、第2行 blocked 後仍能派到第3行，第3行 blocked 後才回 null 8ms
+ ✓ tests/backlog.test.ts > HIGH #1：檔面已 blocked 的行不佔代表名額，nextTask 回真正 open 的那行 3ms
+ ✓ tests/backlog.test.ts > engine tag：行首 [engine:agy] → engineTag=agy、text 剝離 tag、id 與無 tag 同文字一致 1ms
+ ✓ tests/backlog.test.ts > engine tag：行尾 [engine:m3] 也解析、blocked 註記共存時仍正確 2ms
+ ✓ tests/backlog.test.ts > 雜湊硬回歸線：無 tag 任務 engineTag undefined、id 錨定值不變（M5 改動前實測快照 2026-07-07） 1ms
+ ✓ tests/backlog.test.ts > 雜湊硬回歸線：voice-actress BACKLOG-adng.md 既有 done 行 id 不得漂移 1ms
+ ✓ tests/backlog.test.ts > engine tag 寫回：report done/blocked 保留 tag 原文與位置（鐵律 #1 不改寫任務文字），重解析 id 不漂移 4ms
+ ✓ tests/backlog.test.ts > engine tag 不合法位置（文字中間）不解析——只認行首/行尾 1ms
+ ✓ tests/autopilot-discover.test.ts > parseCandidates > 多行候選（全形｜分隔） 2ms
+ ✓ tests/autopilot-discover.test.ts > parseCandidates > 半形 | 分隔也可 0ms
+ ✓ tests/autopilot-discover.test.ts > parseCandidates > NONE → 空陣列 0ms
+ ✓ tests/autopilot-discover.test.ts > parseCandidates > 無分隔符行 → 整行為 title 0ms
+ ✓ tests/autopilot-discover.test.ts > parseCandidates > 每鏡頭最多取 5 條（6 行輸入 → 5 條） 1ms
+ ✓ tests/autopilot-discover.test.ts > parseRanked > 正常排序行 0ms
+ ✓ tests/autopilot-discover.test.ts > parseRanked > value 超界夾 0~10 0ms
+ ✓ tests/autopilot-discover.test.ts > parseRanked > 不符格式行跳過、全空 → 空陣列 0ms
+ ✓ tests/autopilot-discover.test.ts > northstarFromSurvey > 抽出 NORTHSTAR 段落並在其他勘查訊號前截斷 0ms
+ ✓ tests/autopilot-discover.test.ts > northstarFromSurvey > 無 NORTHSTAR 標頭 → 空字串 0ms
+ ✓ tests/autopilot-discover.test.ts > northstarFromSurvey > 有標頭無後續截斷點 → 取至文末 0ms
+ ✓ tests/autopilot-discover.test.ts > criticPrompt > 明確要求依 NORTHSTAR 價值判準排序並降權無關候選 0ms
+ ✓ tests/autopilot-discover.test.ts > criticPrompt > 無北極星時仍注入空位標示，不省略排序/降權指示 0ms
+ ✓ tests/autopilot-discover.test.ts > criticPrompt > 有 ROI 摘要時明確要求依史實調整排序 0ms
+ ✓ tests/autopilot-discover.test.ts > discoverProblems > survey→finder→critic 串接，回排序問題 1ms
+ ✓ tests/autopilot-discover.test.ts > discoverProblems > critic 取得北極星價值判準，要求依其排序並降權無關候選 0ms
+ ✓ tests/autopilot-discover.test.ts > discoverProblems > critic 亂格式（非 NONE）且候選非空 → 視為故障，退回原始候選（value 5），不崩、不白費 0ms
+ ✓ tests/autopilot-discover.test.ts > discoverProblems > critic 回 NONE → 合法否決：ranked 空且不退回候選 0ms
+ ✓ tests/autopilot-discover.test.ts > discoverProblems > survey runSurvey throw → survey 空，仍能跑 finder/critic（fail-open） 0ms
+ ✓ tests/autopilot-discover.test.ts > discoverProblems > ROI 摘要讀取失敗 → 略過摘要且候選照常產生 0ms
+ ✓ tests/autopilot-discover.test.ts > discoverProblems > ROI 摘要回傳非字串 → 保留原 critic 流程 0ms
+ ✓ tests/autopilot-discover.test.ts > discoverProblems > finder throw 該鏡頭跳過，其餘鏡頭仍出候選 0ms
+ ✓ tests/autopilot-discover.test.ts > criticPrompt 已處理清單 > 有 handledTitles → 附硬約束段落、VALUE:0 指令與清單內容 0ms
+ ✓ tests/autopilot-discover.test.ts > criticPrompt 已處理清單 > 無 handledTitles → 不附段落（原 prompt 完全不變） 0ms
+ ✓ tests/autopilot-discover.test.ts > discoverProblems 把 readHandledTitles 餵進 critic prompt；throw 則 fail-open 略過 0ms
+ ✓ tests/autopilot-discover.test.ts > finder prompt 框架鬆綁：問題之外，能力缺口也是合法答案 0ms
+ ✓ tests/bot-handlers.test.ts > status > 有 heartbeat.json → 回含 state 的人話 18ms
+ ✓ tests/bot-handlers.test.ts > status > 無 heartbeat 檔（全新 dataDir）→ 回人話不炸 7ms
+ ✓ tests/bot-handlers.test.ts > status > cfg.stopFile 存取即 throw（模擬設定損毀）→ 不外拋，回 ok:false（M9.4 fast-follow #3：查詢類內部錯誤改回 ok:false） 6ms
+ ✓ tests/bot-handlers.test.ts > cost > 有紀錄 → 回今日/昨日成本摘要 7ms
+ ✓ tests/bot-handlers.test.ts > cost > db 已關閉（模擬檔鎖故障）→ 不外拋，回 ok:false（M9.4 fast-follow #3：查詢類內部錯誤改回 ok:false，讓 web 面板可紅顯） 7ms
+ ✓ tests/bot-handlers.test.ts > cost > M9.9：今日/昨日行都是雙數字，昨日的訂閱名義帳被排除出真金 6ms
+ ✓ tests/bot-handlers.test.ts > backlog > open/done/blocked 統計 + 前 5 條 open 6ms
+ ✓ tests/bot-handlers.test.ts > backlog > backlogFile 不存在 → 不外拋，回 ok:false（M9.4 fast-follow #3：查詢類內部錯誤改回 ok:false） 5ms
+ ✓ tests/bot-handlers.test.ts > log > events.jsonl 尾 10 行摘要 9ms
+ ✓ tests/bot-handlers.test.ts > log > events.jsonl 不存在 → 回人話不炸 6ms
+ ✓ tests/bot-handlers.test.ts > lessons > learningsFile 存在 → 回覆含教訓文字 6ms
+ ✓ tests/bot-handlers.test.ts > lessons > learningsFile 與 globalLearningsFile 皆存在 → 兩層都輸出 7ms
+ ✓ tests/bot-handlers.test.ts > lessons > 教訓檔都不存在 → 人話「教訓庫尚空」 5ms
+ ✓ tests/bot-handlers.test.ts > lessons > 內容超長 → 截斷至 1900 字 7ms
+ ✓ tests/bot-handlers.test.ts > problems > /problems 列 open top10，value DESC，排除 fixed（M10.0 Task 6） 16ms
+ ✓ tests/bot-handlers.test.ts > problems > /problems 無 open 案 → 友善空訊息，不炸 11ms
+ ✓ tests/bot-handlers.test.ts > 未知指令與 handler 內部 throw > 未知指令 → ok:false「未知指令」 5ms
+ ✓ tests/bot-handlers.test.ts > 未知指令與 handler 內部 throw > handler 內部 throw（db 已關閉）不外拋，handleCommand 仍回結構化結果 ok:false（M9.4 fast-follow #3） 6ms
+ ✓ tests/bot-handlers.test.ts > status 進度段（2026-07-27） > 今日戰績＋最近完成任務＋blocked 積壓全部浮出 9ms
+ ✓ tests/bot-handlers.test.ts > status 進度段（2026-07-27） > 零完成零積壓 → 進度段安靜省略，不炸 6ms
+ ✓ tests/routing-status.test.ts > 集中列出有效隔離、下次試探、常駐候補與近三日樣本 10ms
+ ✓ tests/routing-status.test.ts > 匯總入口不改狀態檔或建立其他檔案 5ms
+ ✓ tests/routing-status.test.ts > 狀態檔缺失時 maintainOriginalPath 且不拋錯 1ms
+ ✓ tests/routing-status.test.ts > run.db 缺失時 maintainOriginalPath 且不拋錯 5ms
+ ✓ tests/routing-status.test.ts > API smoke：'有狀態檔' → 輸出穩定且不產生狀態變更 10ms
+ ✓ tests/routing-status.test.ts > API smoke：'無狀態檔' → 輸出穩定且不產生狀態變更 3ms
+ ✓ tests/routing-status.test.ts > API smoke：'JSON 損毀' → 輸出穩定且不產生狀態變更 6ms
+ ✓ tests/routing-status.test.ts > API smoke：'空 engineRotation' → 輸出穩定且不產生狀態變更 6ms
+ ✓ tests/routing-status.test.ts > CLI smoke：'有狀態檔' → 輸出穩定且 dataDir 完全唯讀 8ms
+ ✓ tests/routing-status.test.ts > CLI smoke：'無狀態檔' → 輸出穩定且 dataDir 完全唯讀 4ms
+ ✓ tests/routing-status.test.ts > CLI smoke：'JSON 損毀' → 輸出穩定且 dataDir 完全唯讀 7ms
+ ✓ tests/routing-status.test.ts > CLI smoke：'空 engineRotation' → 輸出穩定且 dataDir 完全唯讀 7ms
+ ✓ tests/routing-status.test.ts > CLI 缺 --config 時回報用法 1ms
+ ✓ tests/supervisor-health/supervise.test.ts > 讀 lock PID、以 tasklist 驗 node、用 heartbeat mtime 與 CIM 子進程數分類 13ms
+ ✓ tests/supervisor-health/supervise.test.ts > CIM 失敗時回退 wmic 並統計 ProcessId 行 1ms
+ ✓ tests/supervisor-health/supervise.test.ts > tasklist／WMIC 輸出帶 BOM 或行首空白時仍正確判活與計數 0ms
+ ✓ tests/supervisor-health/supervise.test.ts > WMIC ProcessId=value 輸出在等號兩側帶空白時仍正確計數 0ms
+ ✓ tests/supervisor-health/supervise.test.ts > supervisor 使用 config 的 staleThresholdMs 5ms
+ ✓ tests/supervisor-health/supervise.test.ts > 'pid 不活時 launch' 4ms
+ ✓ tests/supervisor-health/supervise.test.ts > 'pid 活著、heartbeat 過期且無子進程時 reap 後 laun…' 4ms
+ ✓ tests/supervisor-health/supervise.test.ts > 'pid 活著且有子進程時，即使 heartbeat 過期仍 keep 合法…' 4ms
+ ✓ tests/supervisor-health/supervise.test.ts > 探測命令失敗時保守 keep，不誤殺存活 PID 4ms
+ ✓ tests/supervisor-health/supervise.test.ts > lock pid 讀取失敗時 fail-open keep，不啟動或回收 daemon 4ms
+ ✓ tests/supervisor-health/supervise.test.ts > 子進程查詢失敗時 fail-open keep，不回收 daemon 4ms
+ ✓ tests/supervisor-health/supervise.test.ts > 目錄模式逐一處理排序後的 JSON；壞 config 不拖垮其他專案 15ms
+ ✓ tests/supervisor-health/supervise.test.ts > isDaemonConsoleLogBusyError：辨識 Windows 檔案共享鎖錯誤碼 0ms
+ ✓ tests/supervisor-health/supervise.test.ts > openDaemonConsoleLog：建立 dataDir 並以 append 開啟 daemon-console.log 2ms
+ ✓ tests/supervisor-health/supervise.test.ts > launch 回傳 undefined（共享鎖占用）時記錄 probeError、不帶 launchedPid 2ms
+ ✓ tests/run-stats.test.ts > 缺 run.db 時直接回沿用現狀 4ms
+ ✓ tests/run-stats.test.ts > 聚合近 3 日樣本數、成功率，排除窗口外資料 28ms
+ ✓ tests/run-stats.test.ts > 樣本數不足時不輸出排序依據，直接沿用現狀 9ms
+ ✓ tests/run-stats.test.ts > 快取命中時不重新讀檔，避免同步查詢拖住主流程 9ms
+ ✓ tests/run-stats.test.ts > 查詢超時守門：有舊快取就回舊值，沒有快取才沿用現狀 16ms
+ ✓ tests/run-stats.test.ts > 舊 schema 或壞檔查詢失敗時沿用現狀 2ms
+ ✓ tests/run-stats.test.ts > run.db 近三日統計時間窗邊界 > 跨日：offset+8 時 UTC 午夜附近依本地日界納入／排除 9ms
+ ✓ tests/run-stats.test.ts > run.db 近三日統計時間窗邊界 > 缺少部分日期：中間日無資料仍只計實際樣本，成功率不因缺日被稀釋 9ms
+ ✓ tests/run-stats.test.ts > run.db 近三日統計時間窗邊界 > 72 小時邊界：半開區間 [start, end) 剛好落點不誤算樣本與成功率 9ms
+ ✓ tests/run-stats.test.ts > run.db 近三日統計時間窗邊界 > 72 小時邊界 + 僅邊界點：起點成功、終點排除 → 樣本 1、成功率 100% 10ms
+ ✓ tests/run-stats.test.ts > run.db 近三日統計時間窗邊界 > 跨日缺中間日且邊界同時出現：聚合不把窗外 fail 算進成功率 8ms
+ ✓ tests/kernel-slim.test.ts > kernel-slim 守門 > 明確計算 spec 定義的 kernel 頂層行數並斷言總量 ≤ 2250 8ms
+ ✓ tests/kernel-slim.test.ts > kernel-slim 守門 > src/cli/ 子目錄未被計入 kernel 頂層行數 11ms
+ ✓ tests/kernel-slim.test.ts > kernel-slim 守門 > src/cli.ts 行數 ≤ 薄殼上限 1ms
+ ✓ tests/kernel-slim.test.ts > kernel-slim 守門 > src/cli.ts 只剩薄殼責任（委派 runCli + re-export，無業務實作） 2ms
+ ✓ tests/kernel-slim.test.ts > kernel-slim 守門 > 所有子指令實作都由 src/cli/ 承接 1ms
+ ✓ tests/kernel-slim.test.ts > kernel-slim 守門 > 超限時 assertWithinCap 必須失敗（守門不可空轉） 1ms
+ ✓ tests/kernel-slim.test.ts > kernel-slim 守門 > 薄殼斷言對肥殼原始碼必須失敗 0ms
+ ✓ tests/bot-route.test.ts > routeInteraction > 白名單外 → 回未授權(ephemeral) 且 handle 未被呼叫 3ms
+ ✓ tests/bot-route.test.ts > routeInteraction > 白名單內 → reply 收到 handle 回傳文字 1ms
+ ✓ tests/bot-route.test.ts > routeInteraction > handle throw → reply 內部錯誤,不外拋 1ms
+ ✓ tests/bot-route.test.ts > routeInteraction > allowed 空陣列 → 一律未授權(即使 userId 命中空表也不可能) 0ms
+ ✓ tests/bot-route.test.ts > READ_COMMANDS/ACTION_COMMANDS > 讀類與動作類指令清單 0ms
+ ✓ tests/bot-route.test.ts > resolveProject > 精確匹配優先 0ms
+ ✓ tests/bot-route.test.ts > resolveProject > 唯一前綴匹配 0ms
+ ✓ tests/bot-route.test.ts > resolveProject > 多義前綴 → ambiguous 帶候選 0ms
+ ✓ tests/bot-route.test.ts > resolveProject > 無匹配 → unknown 0ms
+ ✓ tests/bot-route.test.ts > routeMultiInteraction > 帶 project 精確命中 → 該專案 allowlist 通過 → handle 收到該專案 deps 1ms
+ ✓ tests/bot-route.test.ts > routeMultiInteraction > 帶 project 命中但 user 不在該專案 allowlist → 未授權 0ms
+ ✓ tests/bot-route.test.ts > routeMultiInteraction > unknown project → reply 含「找不到專案」,handle 未呼叫 0ms
+ ✓ tests/bot-route.test.ts > routeMultiInteraction > ambiguous project → reply 列出候選,handle 未呼叫 0ms
+ ✓ tests/bot-route.test.ts > routeMultiInteraction > 動作類指令無 project → reply 提示必須指定,handle 未呼叫 0ms
+ ✓ tests/bot-route.test.ts > routeMultiInteraction > 動作類指令 project 空字串 → 同無 project 拒絕 0ms
+ ✓ tests/bot-route.test.ts > routeMultiInteraction > 讀類無 project → 對使用者有權限的每個專案各呼叫一次,回覆以【專案名】段落串接 0ms
+ ✓ tests/bot-route.test.ts > routeMultiInteraction > 讀類無 project 且 user 只在一個專案有權限 → 只呼叫該專案 0ms
+ ✓ tests/bot-route.test.ts > routeMultiInteraction > 讀類無 project 且全無權限 → 未授權,handle 零呼叫 0ms
+ ✓ tests/bot-route.test.ts > routeMultiInteraction > handle throw(帶 project) → reply 內部錯誤,不外拋 0ms
+ ✓ tests/bot-route.test.ts > routeMultiInteraction > handle throw(讀類聚合) → 不外拋,整體回內部錯誤 0ms
+ ✓ tests/bot-route.test.ts > routeMultiInteraction > 未分類指令(無 project) → reply 未知指令,handle 零呼叫 0ms
+ ✓ tests/pick-ready-smoke.test.ts > countTrackedEvents：依 type 與 status 計數 2ms
+ ✓ tests/pick-ready-smoke.test.ts > countTrackedEvents：空列表回 total=0 0ms
+ ✓ tests/pick-ready-smoke.test.ts > buildPickReadySmokeReport：凍結決策指紋、事件計數與狀態匯總 1ms
+ ✓ tests/pick-ready-smoke.test.ts > summarizePickReadySmoke / formatPickReadySmokeSummary：穩定匯總輸出 1ms
+ ✓ tests/pick-ready-smoke.test.ts > writePickReadySmokeReport：寫入臨時 dataDir 4ms
+ ✓ tests/pick-ready-smoke.test.ts > E2E smoke：臨時 dataDir 串起決策、事件計數與狀態匯總 36ms
+ ✓ tests/pick-ready-smoke.test.ts > E2E smoke：無戰績時沿用現狀、事件計數為 0、匯總仍可輸出 4ms
+ ✓ tests/routing-state.test.ts > routing-state path & defaults > 路徑落在 dataDir/engine-routing-state.json 2ms
+ ✓ tests/routing-state.test.ts > routing-state path & defaults > defaultRoutingState 為空 map + 目前版本 1ms
+ ✓ tests/routing-state.test.ts > loadRoutingState 回退（不影響原派工） > 缺檔 → reuse-current + missing，不應覆寫候選 1ms
+ ✓ tests/routing-state.test.ts > loadRoutingState 回退（不影響原派工） > 內容損壞（非 JSON）→ corrupt 2ms
+ ✓ tests/routing-state.test.ts > loadRoutingState 回退（不影響原派工） > 形狀非法（陣列/字串）→ invalid-shape 2ms
+ ✓ tests/routing-state.test.ts > loadRoutingState 回退（不影響原派工） > 版本不符即使仍帶可讀 map → unsupported-version 2ms
+ ✓ tests/routing-state.test.ts > loadRoutingState 回退（不影響原派工） > 已解析但路由 map 形狀損壞 → invalid-shape 2ms
+ ✓ tests/routing-state.test.ts > loadRoutingState 回退（不影響原派工） > reuse-current 時既有 candidateEngines 路徑不變 2ms
+ ✓ tests/routing-state.test.ts > loadRoutingState 版本相容與缺欄回填 > 完整 v1 檔正常讀取 2ms
+ ✓ tests/routing-state.test.ts > loadRoutingState 版本相容與缺欄回填 > 缺 version / 缺 map 欄位 → 回填預設仍 usable 2ms
+ ✓ tests/routing-state.test.ts > loadRoutingState 版本相容與缺欄回填 > 單筆 entry 缺欄 / 型別錯 → 安全回填，不炸 2ms
+ ✓ tests/routing-state.test.ts > loadRoutingState 版本相容與缺欄回填 > 未來版本若仍帶 v1 map 欄位 → 沿用原派工 1ms
+ ✓ tests/routing-state.test.ts > saveRoutingState > tmp+rename 寫入可讀回，永遠帶 version=1 3ms
+ ✓ tests/routing-state.test.ts > saveRoutingState > dataDir 不存在時會建立目錄再寫 4ms
+ ✓ tests/routing-state.test.ts > saveRoutingState > 寫入目標不可用 → 回 false 不拋（fail-open） 2ms
+ ✓ tests/routing-state.test.ts > normalizeRoutingState 純函式 > null / 陣列 → null 0ms
+ ✓ tests/routing-state.test.ts > normalizeRoutingState 純函式 > 空物件可正規化為預設 v1 0ms
+ ✓ tests/routing-state.test.ts > normalizeRoutingState 純函式 > 舊格式無 isolationCounts 時視為 0 0ms
+ ✓ tests/routing-state.test.ts > 與既有派工路徑隔離 > 有狀態時 shouldApply=true，但本模組不改 candidateEngines 純函式 2ms
+ ✓ tests/pick-candidates.test.ts > defaultQuarantineGate > 無隔離 → 原清單 2ms
+ ✓ tests/pick-candidates.test.ts > defaultQuarantineGate > 有健康候選時過濾隔離檔位 0ms
+ ✓ tests/pick-candidates.test.ts > defaultQuarantineGate > 全部隔離 → fail-open 回原清單 0ms
+ ✓ tests/pick-candidates.test.ts > defaultCandidateTailEnhancer > 空 subscription → 原清單 0ms
+ ✓ tests/pick-candidates.test.ts > defaultCandidateTailEnhancer > subscription 白名單與既有輪替重疊 → 保留輪替優先序且每項唯一 0ms
+ ✓ tests/pick-candidates.test.ts > defaultCandidateTailEnhancer > 多個候補同時符合 → 依白名單順序補尾且重複候補只留首次 0ms
+ ✓ tests/pick-candidates.test.ts > defaultCandidateTailEnhancer > 略過空字串 subscription tag 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > 無隔離、無 subscription → 等同 candidateEngines 旋轉序 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > 隔離後跳過派工（有健康候選） 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > subscription 候補補進尾端 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > 隔離 + subscription 管線：先濾隔離再補尾 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > 全部隔離 fail-open 後仍可補 subscription 尾端 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > 顯式 engineTag：過隔離閘、不補 subscription 尾端 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > hooks 可替換 quarantine gate 與 candidate-tail enhancer 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > 未設 rotation → defaultEngine 路徑（向後相容） 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > 向後相容：未設 engineRotation 或 run.db 無可用資料時，完整候選輸出維持現況 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > 日額度：達 cap 的候選跳過並輪替下一檔 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > 日額度：helper/counts 空 → 不攔截（fail-open 原路徑） 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > 日額度：未傳 caps → 向後相容原路徑 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > 日額度在 subscription 補尾之後套用（達 cap 的尾端也跳過） 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > 日額度：全部達 cap → fail-open 保留清單 0ms
+ ✓ tests/pick-candidates.test.ts > pickCandidateTags 單一入口 > hooks 可替換 dailyAttemptCapGate 0ms
+ ✓ tests/pick-candidates.test.ts > loadActiveIsolatedTags > 缺檔 → 空陣列 fail-open 1ms
+ ✓ tests/pick-candidates.test.ts > loadActiveIsolatedTags > 狀態檔有效隔離 → 只回仍在期內的 tag 2ms
+ ✓ tests/pick-candidates.test.ts > zeroCostTags 免費起跑 > 新任務起點只落零成本檔位；未設 zeroCostTags 行為不變 1ms
+ ✓ tests/pick-candidates.test.ts > zeroCostTags 免費起跑 > zeroCostTags 與 rotation 無交集 → fail-open 走原公式 0ms
+ ✓ tests/agy.test.ts > toWslPath：基本 D:\ 路徑（小寫碟符＋正斜線） 2ms
+ ✓ tests/agy.test.ts > toWslPath：含空格路徑原樣保留（argv 直傳不經 shell，毋須跳脫） 0ms
+ ✓ tests/agy.test.ts > toWslPath：小寫碟符輸入、混用正斜線輸入、尾斜線剝除、碟符根目錄 0ms
+ ✓ tests/agy.test.ts > toWslPath：已是 POSIX 路徑者原樣（只正規化反斜線） 0ms
+ ✓ tests/agy.test.ts > buildKillArgs：pkill -f 只帶本次 run 專屬 marker，不含寬鬆 pattern 1ms
+ ✓ tests/agy.test.ts > args 組裝：wsl.exe --cd <mnt路徑> -d Ubuntu -u root -- agy 旗標齊全＋marker 進 argv 86ms
+ ✓ tests/agy.test.ts > prompt 超過 argv 上限 → fail-fast 給明確原因，不 spawn 2ms
+ ✓ tests/agy.test.ts > --cd 路徑轉換：含空格的 projectPath 完整轉為 /mnt 形（單一 argv 元素） 73ms
+ ✓ tests/agy.test.ts > prompt 走 -p argv（1.1.4 契約）：任務文字、commit 硬話、run-id marker 都在（回聲驗證） 80ms
+ ✓ tests/agy.test.ts > 成功＋commit hash 前進 → ok:true、costUsd 0、costUnknown 恆真（純文字無 usage） 89ms
+ ✓ tests/agy.test.ts > exit 0 但無新 commit → no-commit 失敗（純文字輸出下的唯一硬證據） 81ms
+ ✓ tests/agy.test.ts > exit 非零 → ok:false、stderr 進 failureReason、costUnknown=true 83ms
+ ✓ tests/agy.test.ts > exit 0 零輸出 → ok:false（踩雷 §13） 80ms
+ ✓ tests/agy.test.ts > 超時 → 補刀 pkill 指令組裝正確：目標＝本次 run 的 marker，絕非寬鬆 pattern 2340ms
+ ✓ tests/agy.test.ts > --model 有設才加旗標；未設不出現 132ms
+ ✓ tests/agy.test.ts > preflight：回聲含 PONG 判 ok，第二次走 cache（fake 改壞也不重打） 61ms
+ ✓ tests/agy.test.ts > preflight 失敗也寫 cache（不連環重打死引擎） 53ms
+ ✓ tests/agy.test.ts > 小修輪#4：task.id 非 hex → run 拒組 pkill -f marker（防注入 pattern，defense-in-depth） 1ms
+ ✓ tests/agy.test.ts > 小修輪#3：print-timeout 地板 1s——wall<30s 時不再被舊 30s 地板頂破「print-timeout ≤ wall」不變式 66ms
+ ✓ tests/opencode.test.ts > NDJSON 正常流（含毒行）＋新 commit → ok、commitHash、cost 真值且 costUnknown 不設 73ms
+ ✓ tests/opencode.test.ts > prompt 含 WORKER_GUARDS（2026-07-16 引擎遊走事故＋24bd552e 分析任務白燒回歸） 69ms
+ ✓ tests/opencode.test.ts > 多 step run → costUsd＝Σ step_finish.part.cost（tool 步＋文字步） 64ms
+ ✓ tests/opencode.test.ts > 免費模型 cost=0 → costUsd 0 仍是真值（costUnknown 不設） 65ms
+ ✓ tests/opencode.test.ts > exit 0 零輸出 → empty-output 失敗（規格卡 E11；exit 0 ≠ 成功） 70ms
+ ✓ tests/opencode.test.ts > 有 text 但無 step_finish → 不完整流，判失敗 73ms
+ ✓ tests/opencode.test.ts > 壞 model：exit 1、錯誤在 stdout（毒行＋error 事件） → failureReason 取 error 事件、costUnknown=true 69ms
+ ✓ tests/opencode.test.ts > stderr fallback：stdout 全空、只有 stderr 的原生崩潰 → stderr 進 output 與 failureReason（鐵律 #7 不吞） 70ms
+ ✓ tests/opencode.test.ts > preflight：command 不在 PATH（ENOENT） → detail 指引 config engines.<tag>.command 指定完整路徑 7ms
+ ✓ tests/opencode.test.ts > hang → timeout、costUnknown=true 2227ms
+ ✓ tests/opencode.test.ts > 正常流但無新 commit → no-commit phantom completion 失敗（cost 照記真值） 57ms
+ ✓ tests/opencode.test.ts > prompt 組裝沿模板：directive 優先＋git commit 硬話真的進 prompt 66ms
+ ✓ tests/opencode.test.ts > XDG 隔離：spawn 環境注入 profile 下的 XDG_CONFIG_HOME/XDG_DATA_HOME＋ec.env 透傳 61ms
+ ✓ tests/opencode.test.ts > profile 生成：opencode.json 自動落地，zen provider 帶 {env:OPENCODE_ZEN_KEY} 引用、key 不落明文 61ms
+ ✓ tests/opencode.test.ts > profile 過期重寫：同 profileDir 換 model → opencode.json 更新為新 model 134ms
+ ✓ tests/opencode.test.ts > snapshot 保守清理：run 後 profile data 下的 opencode/snapshot 目錄被刪、session db 類檔案保留 97ms
+ ✓ tests/opencode.test.ts > preflight：PONG＋step_finish 判 ok，第二次走 cache（fake 換 badmodel 仍 ok） 78ms
+ ✓ tests/opencode.test.ts > preflight：模型下架 → 失敗且 detail 明確（含下架提示與 error 事件訊息）、cache 壞結果 65ms
+ ✓ tests/opencode.test.ts > preflight：exit 0 但零輸出（silent-fail 形貌）判失敗 74ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：舊版 JSON 欄位名稱 > 頂層 isolation / promotions / probe + updated_at → 對應新版 map 2ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：舊版 JSON 欄位名稱 > entry 內 until_ts / promoted_at / last_ts 舊 snake_case 可讀 0ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：舊版 JSON 欄位名稱 > loadRoutingState 舊欄位檔 → kind:state 且 shouldApply=true 2ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：缺少新版欄位 > 僅部分 map、無 version / updatedAt / probes → 補齊預設 2ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：缺少新版欄位 > 空物件 → 全預設 v1，仍 usable（kind:state） 1ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：缺少新版欄位 > entry 缺 untilTs / score / hits → 安全空字串或 0 0ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：混合舊新格式 > 新舊頂層同在時新版鍵優先，舊別名不覆寫 0ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：混合舊新格式 > 同 entry 內 camel + snake 並存 → camel 優先 0ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：混合舊新格式 > 未來 version + 舊別名 map 仍一律回退 2ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：混合舊新格式 > 未來 version 且只有未知欄、無 map → unsupported-version 回退 1ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：不影響原派工結果 > 缺檔：candidateEngines 快照不變 1ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：不影響原派工結果 > 損壞：candidateEngines 快照不變 1ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：不影響原派工結果 > 舊欄位完整：candidateEngines 快照不變 1ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：不影響原派工結果 > 缺新欄：candidateEngines 快照不變 1ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：不影響原派工結果 > 混合：candidateEngines 快照不變 1ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：不影響原派工結果 > 不支援版本：candidateEngines 快照不變 1ms
+ ✓ tests/routing-state-upgrade-compat.test.ts > 狀態檔升級相容：不影響原派工結果 > 舊格式成功正規化後 shouldApply=true，但仍不改 candidateEngines 純結果 1ms
+ ✓ tests/db.test.ts > record + failCount 只數失敗 13ms
+ ✓ tests/db.test.ts > costForLocalDay 以 UTC 日界線累計（offset 預設 0，相容舊 costSince 行為） 6ms
+ ✓ tests/db.test.ts > costForLocalDay 毫秒時戳邊界修正：00:00:00.000Z 納入、前一日 23:59:59.999Z 排除 6ms
+ ✓ tests/db.test.ts > costForLocalDay 改用範圍查詢後不再是「since」開放式語意：只算指定日曆日 6ms
+ ✓ tests/db.test.ts > localDay：offset=8 時 UTC 22:00 落本地明日、UTC 10:00 落本地今日 0ms
+ ✓ tests/db.test.ts > localDay：offset=0 與純 UTC 日期切割等價（相容性錨點） 0ms
+ ✓ tests/db.test.ts > localDay：月界/年界正確位移 0ms
+ ✓ tests/db.test.ts > localDayUtcRange：offset=8 的本地日換算 UTC 起迄（前一日 16:00 起、當日 16:00 止） 0ms
+ ✓ tests/db.test.ts > localDayUtcRange：offset=0 起迄恰為該 UTC 日 00:00:00.000Z ~ 次日 00:00:00.000Z 0ms
+ ✓ tests/db.test.ts > costForLocalDay：offset=8 時，本地日界線由 UTC 前一日 16:00 起算 6ms
+ ✓ tests/db.test.ts > M9.9：migration 冪等——對既有庫開兩次 RunDb 不炸，engine 欄存在 9ms
+ ✓ tests/db.test.ts > M9.9 硬化：雙進程首開競態容錯——ALTER 撞 duplicate column 被吞，constructor 不炸 8ms
+ ✓ tests/db.test.ts > M9.9：billedCostForLocalDay 排除訂閱引擎；空 engine 歷史列算真金（fail-safe） 6ms
+ ✓ tests/db.test.ts > lastFailureFor：最近一筆失敗回 detail；最近一筆成功或無紀錄回 null 6ms
+ ✓ tests/db.test.ts > durationMs：record 落地 duration_ms，歷史列（未帶）為 NULL 7ms
+ ✓ tests/db.test.ts > tokensIn/tokensOut：record 落地，歷史列 NULL；engineDayStats 聚合 7ms
+ ✓ tests/routing-exits.test.ts > routingContextUnavailable：固定 reuse-current / unavailable 2ms
+ ✓ tests/routing-exits.test.ts > buildRoutingContext 所有失敗分支皆等於 routingContextUnavailable() 1ms
+ ✓ tests/routing-exits.test.ts > isolationIdle：reuse-current / unchanged 皆保證 newlyIsolated 為空 0ms
+ ✓ tests/routing-exits.test.ts > dispatchIsolationEvents：空陣列或不傳 onIsolated 都不呼叫 1ms
+ ✓ tests/routing-exits.test.ts > dispatchIsolationEvents：onIsolated 拋錯 fail-open 且仍繼續後續事件 2ms
+ ✓ tests/routing-exits.test.ts > 三類路由事件固定為 schema v1，完整 payload 才通過 2ms
+ ✓ tests/routing-exits.test.ts > dispatchRoutingEvent：拒收不完整 payload 且 consumer 失敗不外拋 0ms
+ ✓ tests/routing-exits.test.ts > 事件 schema 四情境：合法才派發，缺欄/版本不符/多餘欄位一律拒收 4ms
+ ✓ tests/routing-exits.test.ts > dispatchIsolationEvents / finalizeIsolationForPick：混合合法與異常時只派發合法事件 1ms
+ ✓ tests/routing-exits.test.ts > finalizeIsolationForPick：不完整事件拒收且不阻斷後續完整事件 0ms
+ ✓ tests/routing-exits.test.ts > finalizeIsolationForPick：唯一完成出口——有 newlyIsolated 才派事件並回 tags 0ms
+ ✓ tests/devin.test.ts > export 解析正常流＋有新 commit → ok、commitHash、usage 記錄於 output、costUsd 0＋costUnknown 78ms
+ ✓ tests/devin.test.ts > prompt-file/export 寫入與清理：內容 UTF-8 無 BOM、LF、含硬話（commit＋反 handoff）；用後兩檔皆刪 77ms
+ ✓ tests/devin.test.ts > export 有效但無 exec git commit 步驟＋無新 commit → no-commit 且附加「export 亦無 exec git commit 步驟」提示 78ms
+ ✓ tests/devin.test.ts > export 有 exec git commit 步驟、但無新 commit → no-commit 失敗且不附加 export 提示（真相仍是 commit hash） 88ms
+ ✓ tests/devin.test.ts > silent-fail 防呆：exit 0 但沒寫 export 檔 → ok:false（純 stdout 不可信） 72ms
+ ✓ tests/devin.test.ts > silent-fail 防呆：exit 0 但 export 檔內容非 JSON（損毀）→ ok:false 72ms
+ ✓ tests/devin.test.ts > exit 非零 → ok:false、stderr 走 [stderr] fallback 附進 output（鐵律 #7 不吞 stderr） 75ms
+ ✓ tests/devin.test.ts > hang → timeout、costUnknown=true（timeout 輪照樣可能已燒配額） 2246ms
+ ✓ tests/devin.test.ts > preflight：真探針 PONG 判 ok，第二次走 cache（fake 換 no-export 仍 ok） 96ms
+ ✓ tests/devin.test.ts > preflight：no PONG（export silent-fail 形貌）→ 判失敗且 cache 壞結果 70ms
+ ✓ tests/devin.test.ts > run()：在 job.projectPath 寫 .devin/config.local.json 關三個 MCP 匯入來源 71ms
+ ✓ tests/devin.test.ts > preflight()：在隔離 profileDir（非 process.cwd()）寫同一份關 MCP 設定，不動真專案 cwd 74ms
+ ✓ tests/devin.test.ts > hasExecCommit：exec 步驟含 git commit → true 0ms
+ ✓ tests/devin.test.ts > hasExecCommit：只有 read/edit 步驟、無 exec → false 0ms
+ ✓ tests/devin.test.ts > hasExecCommit：exec 步驟但 command 不含 git commit（如純 ls）→ false 0ms
+ ✓ tests/devin.test.ts > hasExecCommit：steps 缺失/空陣列 → false（不炸） 0ms
+ ✓ tests/supervisor-health/io-fail-keep.integration.test.ts > 整合基準：探測成功 + stale + 無 child → reap 並 taskkill + launch 13ms
+ ✓ tests/supervisor-health/io-fail-keep.integration.test.ts > 整合：'lock stat 非 ENOENT I/O 失敗' → keep，不 taskkill、不啟動第二個 daemon 7ms
+ ✓ tests/supervisor-health/io-fail-keep.integration.test.ts > 整合：'lock pid 讀取失敗' → keep，不 taskkill、不啟動第二個 daemon 6ms
+ ✓ tests/supervisor-health/io-fail-keep.integration.test.ts > 整合：'lock pid JSON 解析失敗' → keep，不 taskkill、不啟動第二個 daemon 8ms
+ ✓ tests/supervisor-health/io-fail-keep.integration.test.ts > 整合：'lock pid 內容無效' → keep，不 taskkill、不啟動第二個 daemon 7ms
+ ✓ tests/supervisor-health/io-fail-keep.integration.test.ts > 整合：'heartbeat stat 非 ENOENT I/O 失敗' → keep，不 taskkill、不啟動第二個 daemon 6ms
+ ✓ tests/supervisor-health/io-fail-keep.integration.test.ts > 整合：'heartbeat mtime 無效' → keep，不 taskkill、不啟動第二個 daemon 7ms
+ ✓ tests/supervisor-health/io-fail-keep.integration.test.ts > 整合：'tasklist PID 身分檢查命令失敗' → keep，不 taskkill、不啟動第二個 daemon 6ms
+ ✓ tests/supervisor-health/io-fail-keep.integration.test.ts > 整合：'子進程查詢命令失敗' → keep，不 taskkill、不啟動第二個 daemon 6ms
+ ✓ tests/lock.test.ts > 第二次 acquire 失敗；release 後可再取 288ms
+ ✓ tests/lock.test.ts > 過期鎖可被接管 4ms
+ ✓ tests/lock.test.ts > 父目錄不存在時 acquireLock 必 throw（ENOENT rethrow，不是回 false） 1ms
+ ✓ tests/lock.test.ts > stale 接管成功後，第二個呼叫者立即再 acquire 必回 false（新鎖 age 已重置） 252ms
+ ✓ tests/lock.test.ts > 對已被 rename 走的殘留 .stale-* 目錄不影響後續 acquire/release 229ms
+ ✓ tests/lock.test.ts > acquireLock 成功後寫入 pid.json，內容為自己的 pid 2ms
+ ✓ tests/lock.test.ts > pid.json 指向存活進程時，即使 mtime 極舊也不被 steal（PID 驗活優先於 mtime） 263ms
+ ✓ tests/lock.test.ts > pid.json 的 PID 已被較晚啟動程序重用時立即 steal 263ms
+ ✓ tests/lock.test.ts > pid.json 指向死掉的 PID 時立即 steal（不等 staleMs），新 pid.json 為自己 56ms
+ ✓ tests/lock.test.ts > 死 PID steal 成功後，第二個 acquireLock 立即回 false（新主人的 pid.json 是自己且活著） 317ms
+ ✓ tests/lock.test.ts > 死 PID steal 成功後，無殘留 .stale-* 目錄 55ms
+ ✓ tests/lock.test.ts > pid.json 損壞（非 JSON）時 fallback 舊 mtime 邏輯：新鮮不 steal 2ms
+ ✓ tests/lock.test.ts > pid.json 損壞（非 JSON）時 fallback 舊 mtime 邏輯：超過 staleMs 可 steal 4ms
+ ✓ tests/lock.test.ts > pid.json 內 pid 非正整數時視同損壞走 fallback（超過 staleMs 可 steal） 4ms
+ ✓ tests/types.test.ts > 合法設定通過驗證且套用預設值 4ms
+ ✓ tests/types.test.ts > timeout 與專案成本軟硬頂可用 0 明確停用 1ms
+ ✓ tests/types.test.ts > 非法 engine 被拒 1ms
+ ✓ tests/types.test.ts > timezoneOffsetHours/failureCostEstimateUsd 套用預設值（M4 Task 3） 0ms
+ ✓ tests/types.test.ts > timezoneOffsetHours 超出 -12..14 範圍被拒，範圍內可覆蓋 1ms
+ ✓ tests/types.test.ts > failureCostEstimateUsd 負值被拒、0 允許（nonnegative） 1ms
+ ✓ tests/types.test.ts > engines 未設 → 依 legacy engine 補預設 { claude: { adapter: <engine> } }、defaultEngine=claude（向後相容硬線） 1ms
+ ✓ tests/types.test.ts > defaultEngine 不在 engines 白名單 → schema refine 拒 1ms
+ ✓ tests/types.test.ts > M10.0：perpetual/perpetualCooldownMs/perpetualValueThreshold 套用預設值（未設＝外環完全停用） 0ms
+ ✓ tests/types.test.ts > M10.0：perpetualValueThreshold 超出 0..10 範圍被拒，範圍內可覆蓋；perpetualCooldownMs 非正被拒 1ms
+ ✓ tests/types.test.ts > engines 欄位驗證：全矩陣 adapter 可寫、未知 adapter 拒、costPerRunUsd 負值拒、env/model/timeoutMs 可選 1ms
+ ✓ tests/types.test.ts > dailyAttemptCap：未設 → undefined（向後相容）；正整數通過解析 0ms
+ ✓ tests/types.test.ts > dailyAttemptCap：0／負數／非整數被拒 1ms
+ ✓ tests/types.test.ts > M10.5：globalDailyHardUsd 未設 → undefined（無全域防線，現狀不變） 0ms
+ ✓ tests/types.test.ts > M10.5：globalDailyHardUsd 可設正數；非正被拒 0ms
+ ✓ tests/pick-ready-decision-tracker.test.ts > '隔離命中'：事件、落盤與路由結果皆為單一出口，原派工不重跑 34ms
+ ✓ tests/pick-ready-decision-tracker.test.ts > '試探放行'：事件、落盤與路由結果皆為單一出口，原派工不重跑 18ms
+ ✓ tests/pick-ready-decision-tracker.test.ts > '候補補位'：事件、落盤與路由結果皆為單一出口，原派工不重跑 13ms
+ ✓ tests/pick-ready-decision-tracker.test.ts > '沿用現狀'：事件、落盤與路由結果皆為單一出口，原派工不重跑 10ms
+ ✓ tests/pick-ready-decision-tracker.test.ts > blocked 分支：攔截 backlog 狀態寫入但不改原回傳 2ms
+ ✓ tests/learn-integration.test.ts > ① daemon 觸發：cycle 結果為 failed → deps.lessons.reflect 收到該結果 1048ms
+ ✓ tests/learn-integration.test.ts > ② lessons.reflect 拋錯不可反殺主迴圈（fail-open，鐵律 #4） 1599ms
+ ✓ tests/learn-integration.test.ts > ③ 端到端閉環（本里程碑核心驗收）：cycle1 失敗長出教訓 L001 → cycle2 job.directive 含該教訓 1715ms
+ ✓ tests/learn-integration.test.ts > ④ assemble 接線：cfg 組裝出的 deps.lessons 已定義，空教訓庫 inject() 回空字串 10ms
+ ✓ tests/copilot.test.ts > JSONL 正常流＋有新 commit → ok、premiumRequests/codeChanges 記錄於 output、costUsd 0＋costUnknown 127ms
+ ✓ tests/copilot.test.ts > JSONL 毒行容錯（專屬，Task 3 LOW-1 教訓）：非 JSON/截斷殘行/空白行混雜 → 照樣解析 result、ok 84ms
+ ✓ tests/copilot.test.ts > encrypted blob 巨大行（>200k，含合法 JSON 與非 JSON 雙病態）→ 跳過不 parse、不炸、ok 87ms
+ ✓ tests/copilot.test.ts > argv 截長：directive 超長 → prompt ≤6000、任務開頭保留、commit 硬話結尾保留、中段截 90ms
+ ✓ tests/copilot.test.ts > surrogate pair 切點防呆（M5 小修 1）：截 6000 落在 emoji pair 中間 → 退一位，不產生落單 surrogate 0ms
+ ✓ tests/copilot.test.ts > argv 無截斷（短 prompt）：全文原樣送達、directive 優先於 task.text 73ms
+ ✓ tests/copilot.test.ts > exit 非零 → ok:false 且 stderr 進 failureReason、costUnknown=true 75ms
+ ✓ tests/copilot.test.ts > hang → timeout、costUnknown=true（timeout 輪照樣可能已燒額度） 2178ms
+ ✓ tests/copilot.test.ts > silent-fail 防呆：exit 0 零輸出 → ok:false（踩雷 §13） 51ms
+ ✓ tests/copilot.test.ts > silent-fail 防呆：exit 0、有事件但無 result 尾事件 → ok:false 54ms
+ ✓ tests/copilot.test.ts > result 事件 exitCode 非 0（雙重確認）→ ok:false 51ms
+ ✓ tests/copilot.test.ts > result 有、但無新 commit → no-commit phantom completion 失敗 61ms
+ ✓ tests/copilot.test.ts > preflight：PONG＋result 事件判 ok，第二次走 cache（fake 換 fail 仍 ok） 59ms
+ ✓ tests/copilot.test.ts > preflight：exit 0 但無 result 尾事件 → 判失敗且 cache 壞結果 55ms
+ ✓ tests/autopilot-orchestrator.test.ts > runGoalSession > planner 首輪 achieved → outcome achieved 2ms
+ ✓ tests/autopilot-orchestrator.test.ts > runGoalSession > evaluator 判 achieved → achieved（planner 出任務後） 2ms
+ ✓ tests/autopilot-orchestrator.test.ts > runGoalSession > 連續無進展達上限 → no-progress 1ms
+ ✓ tests/autopilot-orchestrator.test.ts > runGoalSession > kill switch：isAlive false → killed 1ms
+ ✓ tests/autopilot-orchestrator.test.ts > runGoalSession > planner stuck → stuck 1ms
+ ✓ tests/autopilot-orchestrator.test.ts > runGoalSession > inner loop 不因 preflight-failed 無限緊迴圈：中止交還外層 no-progress 煞車 1ms
+ ✓ tests/autopilot-orchestrator.test.ts > runGoalSession > tasks 有被 append 進 backlog（帶 autopilot 標記） 2ms
+ ✓ tests/autopilot-orchestrator.test.ts > runGoalSession > append 去重：同 session 相同任務文字只 append 一次 2ms
+ ✓ tests/autopilot-orchestrator.test.ts > runGoalSession > 跨 session 去重：backlog 既有任務種進 history（含狀態）且同文任務不再 append 3ms
+ ✓ tests/autopilot-orchestrator.test.ts > runGoalSession > M9.7：discovered 有排序問題時 repoSummary 含問題清單 1ms
+ ✓ tests/autopilot-orchestrator.test.ts > runGoalSession > M9.7：無 discovered → repoSummary 維持 round N（向後相容） 1ms
+ ✓ tests/routing-transition.test.ts > 首次隔離 > 空狀態首次隔離 → 寫入 isolated，untilTs = now + 24h 2ms
+ ✓ tests/routing-transition.test.ts > 首次隔離 > 連續第 2/3 次隔離的試探間隔翻倍 0ms
+ ✓ tests/routing-transition.test.ts > 首次隔離 > 第 4 次起試探間隔封頂 168h 0ms
+ ✓ tests/routing-transition.test.ts > 首次隔離 > 已隔離不再重設（非首次） 0ms
+ ✓ tests/routing-transition.test.ts > 首次隔離 > 不突變輸入 0ms
+ ✓ tests/routing-transition.test.ts > 隔離後滿 24 小時的單次試探 > 未滿 24h → 不可試探 0ms
+ ✓ tests/routing-transition.test.ts > 隔離後滿 24 小時的單次試探 > 恰滿 24h → 可單次試探一次 0ms
+ ✓ tests/routing-transition.test.ts > 隔離後滿 24 小時的單次試探 > 同窗第二次試探被拒 0ms
+ ✓ tests/routing-transition.test.ts > 隔離後滿 24 小時的單次試探 > 未隔離 → 不可試探 0ms
+ ✓ tests/routing-transition.test.ts > 試探成功解除 > probe success 刪除 isolated 與 probes 該 tag 0ms
+ ✓ tests/routing-transition.test.ts > 試探成功解除 > 試探成功歸零，下一次隔離回到 24h 0ms
+ ✓ tests/routing-transition.test.ts > 試探成功解除 > 未隔離時 applyProbeSuccess 為 no-op 0ms
+ ✓ tests/routing-transition.test.ts > 試探成功解除 > 已清理隔離但仍有回退計數時，成功試探仍會歸零 0ms
+ ✓ tests/routing-transition.test.ts > 4 樣本 50% 晉升邊界 > 常數門檻 0ms
+ ✓ tests/routing-transition.test.ts > 4 樣本 50% 晉升邊界 > 恰 4 樣本、恰 50% → 可晉升 0ms
+ ✓ tests/routing-transition.test.ts > 4 樣本 50% 晉升邊界 > 4 樣本但低於 50% → 不可晉升 0ms
+ ✓ tests/routing-transition.test.ts > 4 樣本 50% 晉升邊界 > 成功率 100% 但樣本不足 4 → 不可晉升 0ms
+ ✓ tests/routing-transition.test.ts > 4 樣本 50% 晉升邊界 > 高於邊界仍可晉升 0ms
+ ✓ tests/routing-transition.test.ts > 4 樣本 50% 晉升邊界 > shouldPromote 通過後 applyPromotion 寫入 promoted 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > 可量測優先：verify exit 0 → achieved，score=通過項數 1ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > verify 非零 exit → 未達成，score 仍記通過項數（供進展比較） 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > 無 verifyCommand + agent 空回應（fail-open）→ 未達成 score 0 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > 無 verifyCommand + agent 回 ACHIEVED → achieved 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > informed：佐證檔讀入 + judge 回 SCORE 7 NOT-YET → score 7 未達成 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > informed：judge 回 SCORE 9 ACHIEVED → achieved 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > informed：ACHIEVED 與 NOT-YET 同時出現時保守判未達成 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > informed：讀不到的佐證檔跳過（fail-open），仍能判定 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > informed：回應無 SCORE（亂格式）→ fail-open score 0 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > informed：SCORE 超界（15）夾到 10 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > informed：judge 回 NOT ACHIEVED（空格無連字）→ 保守判未達成 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > informed：judge 回 NOT  ACHIEVED（雙空格）→ 仍保守判未達成 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > informed：多檔累加觸總量上限，其餘檔略過（24000 硬上限分支） 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > informed：路徑逃出 cwd（../）被擋、不讀取（防穿越外洩） 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > informed：超長佐證檔（>8000 字元）被截斷 0ms
+ ✓ tests/autopilot-evaluator.test.ts > evaluate > 向後相容：無佐證檔 + agent 回 ACHIEVED（無 SCORE）→ score 1（舊語意） 0ms
+ ✓ tests/claude-cli.test.ts > 成功+有新 commit → ok、cost、commitHash、costUnknown 不設（真值可信，非估計） 65ms
+ ✓ tests/claude-cli.test.ts > 成功但無新 commit → 降級 phantom completion，costUnknown 不設（total_cost_usd 已真實解出） 61ms
+ ✓ tests/claude-cli.test.ts > exit 非零 → ok:false 且 stderr 進 failureReason、costUnknown=true（真花錢前必修：真實成本未知不可記 0） 64ms
+ ✓ tests/claude-cli.test.ts > exit 0 空輸出 → ok:false（踩雷 §13）、costUnknown=true 67ms
+ ✓ tests/claude-cli.test.ts > hang → timeout、costUsd 0、costUnknown=true（timeout 輪其實照樣燒錢，不可記真 0） 2190ms
+ ✓ tests/claude-cli.test.ts > Fix 1：job.directive 有值時 prompt 採用 directive（extraDirective 真的進 prompt） 54ms
+ ✓ tests/claude-cli.test.ts > Fix 1：job.directive 未設時 fallback 用 task.text（不退化） 59ms
+ ✓ tests/claude-cli.test.ts > Fix 3：prompt 明示必須自行 git add/commit、沒 commit 整輪作廢 57ms
+ ✓ tests/claude-cli.test.ts > preflight：PONG 判 ok 且第二次走 cache（fake 只被叫一次） 59ms
+ ✓ tests/claude-cli.test.ts > preflight 失敗也寫 cache（不連環重打） 51ms
+ ✓ tests/claude-cli.test.ts > M5：opts.env 透傳到 CLI 子進程（值只進子進程環境，不經 argv/log） 50ms
+ ✓ tests/claude-cli.test.ts > M5：opts.model → CLI args 追加 --model <model>；未設不加旗標 128ms
+ ✓ tests/claude-cli.test.ts > M5：opts.id override（registry 以 tag 區分同 adapter 多檔位）；未設維持 claude-cli 1ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 單一來源 run.db 仍會被保留 15ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 單一來源 events.jsonl 仍會被保留 3ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 單一來源 USER-SIGNALS.md 仍會被保留 3ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 單一來源 NORTHSTAR.md 仍會被保留 3ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 缺少 run.db 時其餘四個訊號仍 fail-open 保留 10ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 缺少 events.jsonl 時其餘四個訊號仍 fail-open 保留 10ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 缺少 USER-SIGNALS.md 時其餘四個訊號仍 fail-open 保留 11ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 缺少 NORTHSTAR.md 時其餘四個訊號仍 fail-open 保留 12ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 來源 run.db 損壞 時，其他來源與 surveyCommand 仍獨立 fail-open 保留 12ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 來源 events.jsonl 無法讀取 時，其他來源與 surveyCommand 仍獨立 fail-open 保留 12ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 來源 USER-SIGNALS.md 無法讀取 時，其他來源與 surveyCommand 仍獨立 fail-open 保留 12ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 來源 NORTHSTAR.md 無法讀取 時，其他來源與 surveyCommand 仍獨立 fail-open 保留 12ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > USER-SIGNALS、NORTHSTAR 置頂且 8000 字元截斷保留尾端低權重訊號 6ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > 高權重過大時仍保留 surveyCommand、受 8000 字元上限並注入 finder 5ms
+ ✓ tests/survey-sources-contract.test.ts > survey 來源契約 > critic prompt 注入北極星排序與降權指示 5ms
+ ✓ tests/daemon-m75.test.ts > M7.5 ① OOM 閘：memFreeRatioFn: () => 0.10（10% 可用）+ maxCycles=2 → engine 從未被呼叫、notifier 收到 oom-gate 告警（6h 冷卻:兩輪只發一次）、sleep 收到 idleSleepMs 355ms
+ ✓ tests/daemon-m75.test.ts > M7.5 ② 正常記憶體：memFreeRatioFn: () => 0.50（50% 可用）→ 正常派工（engine 有被呼叫） 1349ms
+ ✓ tests/daemon-m75.test.ts > M7.5 ③ idle 要任務通知：backlog 空 → result idle → notifier 收到「backlog 已耗盡」;連兩輪 idle 只發一次（冷卻） 282ms
+ ✓ tests/daemon-m75.test.ts > M7.5 ④ stopFile 優先於 OOM 跳輪：memFreeRatioFn 回 0.10（低記憶體）且 stopFile 已存在 → runDaemon 回 stopped（非 max-cycles）、engine 從未被呼叫 284ms
+ ✓ tests/daemon-m75.test.ts > M7.5 ⑤ memFreeRatioFn fail-open：memFreeRatioFn throw → 不炸主迴圈，視同記憶體充足正常派工（engine 有被呼叫） 1208ms
+ ✓ tests/bot-silence.test.ts > setSilence/isSilenced/clearSilence > setSilence 後 isSilenced true；過期(now 注入超過 untilIso) → false 5ms
+ ✓ tests/bot-silence.test.ts > setSilence/isSilenced/clearSilence > clearSilence 後 isSilenced false；缺檔不炸 3ms
+ ✓ tests/bot-silence.test.ts > setSilence/isSilenced/clearSilence > silence.json 缺檔 → false（未曾 setSilence 過的全新 dataDir） 1ms
+ ✓ tests/bot-silence.test.ts > setSilence/isSilenced/clearSilence > silence.json 寫壞字串 → false 不炸（fail-open） 1ms
+ ✓ tests/bot-silence.test.ts > setSilence/isSilenced/clearSilence > silence.json 內容合法 JSON 但 untilIso 非字串/非法日期 → false 不炸 3ms
+ ✓ tests/bot-silence.test.ts > daemon 整合：silence 窗內告警靜默，digest 不受影響 > backlog 空 + setSilence(60) → runDaemon 兩輪，notifier 收不到 idle 告警；clearSilence 後重跑 → 收得到 348ms
+ ✓ tests/bot-silence.test.ts > daemon 整合：silence 窗內告警靜默，digest 不受影響 > silence 中告警被吞時，events.jsonl 留痕 alert-silenced（Fix 1：不可零痕跡消失） 327ms
+ ✓ tests/bot-silence.test.ts > daemon 整合：silence 窗內告警靜默，digest 不受影響 > silence 中 digest 照送(鐵律 #6：digest 不經 sendCooldownAlert，天然不受影響) 340ms
+ ✓ tests/test-isolation.test.ts > createIsolatedWorkspace > 每呼叫產生獨立 root/tmp，dispose 後目錄消失 5ms
+ ✓ tests/test-isolation.test.ts > snapshotEnv / applyEnv > 還原已變更與已刪除的鍵，不殘留測試 env 1ms
+ ✓ tests/test-isolation.test.ts > beginRoutingFixtureIsolation > 清空快取、巢狀 TMP、固定時鐘 env；dispose 還原且刪工作區 18ms
+ ✓ tests/test-isolation.test.ts > beginRoutingFixtureIsolation > isolated recentRunStats：暖快取後刪檔仍命中，且不依賴生產 50ms 10ms
+ ✓ tests/test-isolation.test.ts > createIsolatedRecentRunStats > 顯式 nowMs／timeoutMs 覆寫呼叫端未指定值 9ms
+ ✓ tests/survey-sources-acceptance.test.ts > GOAL-survey 可核查驗收矩陣 > 來源排序、run.db 七日聚合、events 統計與最近樣本 35ms
+ ✓ tests/survey-sources-acceptance.test.ts > GOAL-survey 可核查驗收矩陣 > run.db 讀取失敗時僅略過自身，其餘來源與 surveyCommand fail-open 17ms
+ ✓ tests/survey-sources-acceptance.test.ts > GOAL-survey 可核查驗收矩陣 > events.jsonl 讀取失敗時僅略過自身，其餘來源與 surveyCommand fail-open 20ms
+ ✓ tests/survey-sources-acceptance.test.ts > GOAL-survey 可核查驗收矩陣 > USER-SIGNALS.md 讀取失敗時僅略過自身，其餘來源與 surveyCommand fail-open 21ms
+ ✓ tests/survey-sources-acceptance.test.ts > GOAL-survey 可核查驗收矩陣 > NORTHSTAR.md 讀取失敗時僅略過自身，其餘來源與 surveyCommand fail-open 22ms
+ ✓ tests/survey-sources-acceptance.test.ts > GOAL-survey 可核查驗收矩陣 > critic 收到 NORTHSTAR 全文與排序／無關候選降權硬指令 7ms
+ ✓ tests/survey-sources-acceptance.test.ts > GOAL-survey 可核查驗收矩陣 > 組合結果以 8000 字元截斷，保留置頂來源與 surveyCommand 尾端 9ms
+ ✓ tests/grok.test.ts > 單一 JSON 正常流＋有新 commit → ok、costUsd 0＋costUnknown（無 usage 欄位）、telemetry 不滲進 output 86ms
+ ✓ tests/grok.test.ts > prompt-file 寫入與清理：內容 UTF-8 無 BOM、LF、含任務與 commit 硬話；用後 tmp 檔已刪 79ms
+ ✓ tests/grok.test.ts > JSON 毒行容錯（照 copilot 標準）：非 JSON/截斷殘行混雜在 pretty JSON 前 → 取可解析尾段、ok 76ms
+ ✓ tests/grok.test.ts > 單行 JSON 兼容（非 pretty 也要解得動）→ ok 80ms
+ ✓ tests/grok.test.ts > exit 非零 → ok:false、stderr 進 failureReason 且 telemetry 雜訊已濾、prompt-file 已清 81ms
+ ✓ tests/grok.test.ts > silent-fail 防呆：exit 0 但輸出不可解析（非 JSON 文字）→ ok:false 81ms
+ ✓ tests/grok.test.ts > silent-fail 防呆：exit 0 零輸出 → ok:false（規格卡探針 1 實錄） 75ms
+ ✓ tests/grok.test.ts > hang → timeout、costUnknown=true（timeout 輪照樣可能已燒額度） 2335ms
+ ✓ tests/grok.test.ts > JSON 有、但無新 commit → no-commit phantom completion 失敗 76ms
+ ✓ tests/grok.test.ts > preflight：真探針 PONG 判 ok，第二次走 cache（fake 換 fail 仍 ok） 76ms
+ ✓ tests/grok.test.ts > preflight：exit 0 但無可解析 JSON（grok models 謊報類故障形貌）→ 判失敗且 cache 壞結果 83ms
+ ✓ tests/grok.test.ts > 小修輪#8：parseResultJson 容前綴毒行、由下往上找到延伸至文末的 pretty JSON 0ms
+ ✓ tests/grok.test.ts > 小修輪#8：純雜訊（無 { 開頭行）→ null（便宜跳過每行，不進 join+parse） 0ms
+ ✓ tests/author-gate.test.ts > author gate：專屬驗收生成 > VERIFY 含 fingerprint 且紅燈檢查為紅 → 採用專屬驗收指令 4ms
+ ✓ tests/author-gate.test.ts > author gate：專屬驗收生成 > VERIFY 測試檔名缺 fingerprint 前綴 → 不採用、沿用全域、不執行紅燈檢查 1ms
+ ✓ tests/author-gate.test.ts > author gate：專屬驗收生成 > LLM 未輸出 VERIFY → 沿用全域驗收（向後相容） 0ms
+ ✓ tests/author-gate.test.ts > author gate：紅燈檢查 > 候選驗收已綠（空洞）→ 保留專屬指令並強制 failing-test-first 首任務 0ms
+ ✓ tests/author-gate.test.ts > author gate：紅燈檢查 > 檢查故障（broken）→ fail-open 沿用全域驗收，立案不停擺 0ms
+ ✓ tests/author-gate.test.ts > author gate：紅燈檢查 > redCheck 拋例外 → 視同故障 fail-open 沿用全域 0ms
+ ✓ tests/author-gate.test.ts > author gate：立案 lint（parseGoal 往返，任一缺失棄案並記事件） > objective 往返後為空（## 標題劫持）→ 棄案 + author-lint-reject/objective-empty 0ms
+ ✓ tests/author-gate.test.ts > author gate：立案 lint（parseGoal 往返，任一缺失棄案並記事件） > objective 夾帶 sh fence 覆蓋驗收指令 → 棄案 + author-lint-reject/verify-command 0ms
+ ✓ tests/author-gate.test.ts > author gate：立案 lint（parseGoal 往返，任一缺失棄案並記事件） > objective 夾帶連續無進展上限 → 棄案 + author-lint-reject/no-progress-limit 0ms
+ ✓ tests/author-gate.test.ts > author gate：立案 lint（parseGoal 往返，任一缺失棄案並記事件） > onEvent 拋例外不影響立案（觀測面故障不擋主流程） 0ms
+ ✓ tests/author-gate.test.ts > author gate：defaultRedCheck 整合（真實 runVerify 路徑） > 候選指令真實退出非零 → red → 採用專屬指令 190ms
+ ✓ tests/author-gate.test.ts > author gate：defaultRedCheck 整合（真實 runVerify 路徑） > 候選指令真實退出零 → green → 專屬指令 + failing-test-first 87ms
+ ✓ tests/author-gate.test.ts > author gate：defaultRedCheck 整合（真實 runVerify 路徑） > 候選指令不存在 → broken → fail-open 沿用全域 90ms
+ ✓ tests/notify.test.ts > loadDiscordToken 解析 LPBOT_TOKEN 行；缺檔/缺行回 null 4ms
+ ✓ tests/notify.test.ts > send 成功：URL 對、Bot header、2xx 回 true、無 DLQ 17ms
+ ✓ tests/notify.test.ts > 非 2xx → false + DLQ 留痕且不含 token 4ms
+ ✓ tests/notify.test.ts > 未設 channelId → false + DLQ reason=not-configured；fetch throw → false 不炸 5ms
+ ✓ tests/notify.test.ts > 超長訊息截 1900 字 2ms
+ ✓ tests/notify.test.ts > loadDiscordToken 移除 CRLF、剝除成對引號 1ms
+ ✓ tests/notify.test.ts > loadDiscordToken 移除前後空白 1ms
+ ✓ tests/notify.test.ts > loadDiscordToken 空引號回 null 1ms
+ ✓ tests/notify.test.ts > loadDiscordToken 容忍 cmd batch set 前綴（CRLF 行尾） 3ms
+ ✓ tests/notify.test.ts > loadDiscordToken 容忍 shell export 前綴 1ms
+ ✓ tests/notify.test.ts > loadDiscordToken set 前綴的其他變數不誤抓 1ms
+ ✓ tests/notify.test.ts > DLQ 超過 2000 行 → 保尾 1000 行，內容為最新且每行合法 JSON 35ms
+ ✓ tests/notify.test.ts > DLQ 剛好 2000 行（未超過）不觸發保尾 5ms
+ ✓ tests/proc.test.ts > ok：stdin 進、stdout 出、exit 0 70ms
+ ✓ tests/proc.test.ts > fail：非零 exit、stderr 不被吞 86ms
+ ✓ tests/proc.test.ts > empty：exit 0 但零輸出要能被呼叫端看穿 67ms
+ ✓ tests/proc.test.ts > hang：逾時樹斬、timedOut=true、不留殭屍 2275ms
+ ✓ tests/proc.test.ts > slow：慢但在時限內 → 正常完成 359ms
+ ✓ tests/proc.test.ts > timeoutMs=0：停用 wall timeout，不會立刻斬掉程序 355ms
+ ✓ tests/proc.test.ts > idleTimeoutMs：無輸出進度才斬樹，不能把 wall timeout 偷加回來 961ms
+ ✓ tests/proc.test.ts > idleTimeoutMs：stdout 持續前進會續租，合法長任務不因總時間被終止 670ms
+ ✓ tests/proc.test.ts > hang-tree：雙層樹斬——父子兩層 PID 逾時後皆不存活 2628ms
+ ✓ tests/proc.test.ts > 不存在的指令：失敗必須可見，不可全空（win32 經 cmd /c 非零 exit；其他平台 error 進 stderr） 61ms
+ ✓ tests/proc.test.ts > timeout 後 resolve 時間 < timeoutMs + 4s（強制 settle timer 不再拖尾事件迴圈） 1627ms
+ ✓ tests/proc.test.ts > 輸出超過 maxOutputChars 被截斷且有標記 57ms
+ ✓ tests/proc.test.ts > env 透傳：opts.env 疊在 process.env 上進子進程；未設時行為不變（不注入） 112ms
+ ✓ tests/proc.test.ts > env 透傳：opts.env 是「疊加」不是「取代」——父進程既有環境變數仍可見 55ms
+ ✓ tests/backlog-append.test.ts > BacklogStore.append (鐵律 #1 受控例外) > append 後 read() 看到新任務且標 source:autopilot 4ms
+ ✓ tests/backlog-append.test.ts > BacklogStore.append (鐵律 #1 受控例外) > 手排任務標 source:user，與自主可區分 3ms
+ ✓ tests/backlog-append.test.ts > BacklogStore.append (鐵律 #1 受控例外) > append 寫入的行帶 autopilot annotation（goal + round 可稽核） 2ms
+ ✓ tests/backlog-append.test.ts > BacklogStore.append (鐵律 #1 受控例外) > 鐵律 #1 回歸：report() 對未知 id 仍拒絕（append 不是唯一破口） 2ms
+ ✓ tests/backlog-append.test.ts > BacklogStore.append (鐵律 #1 受控例外) > round-trip：autopilot 任務 report(done) 後重讀仍 source:autopilot，goal/round 溯源保留 4ms
+ ✓ tests/backlog-append.test.ts > BacklogStore.append (鐵律 #1 受控例外) > round-trip：autopilot 任務 report(blocked) 後重讀仍 source:autopilot，goal/round 溯源保留 3ms
+ ✓ tests/backlog-append.test.ts > BacklogStore.append (鐵律 #1 受控例外) > round-trip：純使用者任務 report(done) 後重讀仍 source:user（無回歸） 3ms
+ ✓ tests/backlog-append.test.ts > withBacklogLock > 鎖被他人持有(fresh mtime，非 stale)時等待至逾時拋錯，fn 不執行、不動別人的鎖 62ms
+ ✓ tests/backlog-append.test.ts > withBacklogLock > 殘留鎖(舊 mtime)會被強拆而非死等 3ms
+ ✓ tests/backlog-append.test.ts > withBacklogLock > fn 拋出時鎖必釋放 1ms
+ ✓ tests/pick-ready-routing-summary.test.ts > 整理當次路由結果且不持有可變候選清單 1ms
+ ✓ tests/pick-ready-routing-summary.test.ts > 保留回退原路徑與非派工結果 0ms
+ ✓ tests/pick-ready-routing-summary.test.ts > '隔離'：診斷摘要輸出穩定欄位 0ms
+ ✓ tests/pick-ready-routing-summary.test.ts > '試探'：診斷摘要輸出穩定欄位 0ms
+ ✓ tests/pick-ready-routing-summary.test.ts > '候補'：診斷摘要輸出穩定欄位 0ms
+ ✓ tests/pick-ready-routing-summary.test.ts > '沿用現狀'：診斷摘要輸出穩定欄位 0ms
+ ✓ tests/pick-ready-routing-summary.test.ts > 唯讀診斷摘要不寫入 dataDir、不更新狀態時間戳 4ms
+ ✓ tests/manual-goal-parallel-foundation.test.ts > kernel 頂層行數 <=2250（notify/proc 搬移後的併發池預算） 7ms
+ ✓ tests/manual-goal-parallel-foundation.test.ts > merge queue：兩個併發 mergeBack 序列化，後者經 rebase-before-merge 成功合併 2798ms
+ ✓ tests/manual-goal-parallel-foundation.test.ts > merge queue：同檔衝突時後者 merge-conflict，主線只含前者變更 2534ms
+ ✓ tests/manual-goal-parallel-foundation.test.ts > merge queue：前者拋例外不堵塞後者 2ms
+ ✓ tests/manual-goal-parallel-foundation.test.ts > ConfigSchema：concurrency 預設 1，非法值被拒 4ms
+ ✓ tests/review-gate.test.ts > reviewEngine 未設 → 完全跳過 review，行為不變（pass） 122ms
+ ✓ tests/review-gate.test.ts > REVIEW: REJECT → pass:false + rollback 到 base 131ms
+ ✓ tests/review-gate.test.ts > REVIEW: PASS → 通過 128ms
+ ✓ tests/review-gate.test.ts > review 輸出無法解析契約 → pass-with-alert（不確定不擋） 117ms
+ ✓ tests/review-gate.test.ts > review 拋例外/逾時 → pass-with-alert，絕不擋產出 124ms
+ ✓ tests/review-gate.test.ts > reviewEngine 設了但沒接 reviewRun → pass-with-alert（生產接線缺失也不擋） 104ms
+ ✓ tests/review-gate.test.ts > #3 首行 REJECT 生效，即使後段有 REVIEW: PASS 雜訊 0ms
+ ✓ tests/review-gate.test.ts > #3 首行是雜訊/被 diff 污染（REVIEW: PASS 在後段）→ skip,不誤放行 0ms
+ ✓ tests/review-gate.test.ts > #3 首行純 PASS → pass 0ms
+ ✓ tests/review-gate.test.ts > #4 reviewDiff 無 url → 回 skip 字串（fail-open） 0ms
+ ✓ tests/review-gate.test.ts > #4 reviewDiff 送出完整 diff，不丟失後段檔案 16ms
+ ✓ tests/review-gate.test.ts > effort/timeoutMs 傳遞：body 帶指定 reasoning_effort（review 升級 terra xhigh 用）；未設維持 low 1ms
+ ✓ tests/daemon-restart.test.ts > 哨兵存在 → 刪哨兵、記 daemon-restart-requested、回 restart-requested 299ms
+ ✓ tests/daemon-restart.test.ts > 哨兵於 cycle 中途出現 → 當前 attempt 不中斷，下一輪頂端才處理 1185ms
+ ✓ tests/daemon-restart.test.ts > 無哨兵 → 行為不變（回歸線） 348ms
+ ✓ tests/daemon-restart.test.ts > 哨兵刪除失敗 → 不退出（防翻抖）、記 unlink-failed 事件、繼續跑 319ms
+ ✓ tests/qwen.test.ts > JSON 陣列正常流＋有新 commit → ok、tokens/per-model stats 記錄於 output 尾、costUsd 0＋costUnknown 81ms
+ ✓ tests/qwen.test.ts > 毒行容錯（照 copilot 標準）：非 JSON/截斷殘行/空白行/超長行混雜 → 逐行 fallback 撈到 result、ok 71ms
+ ✓ tests/qwen.test.ts > stdin prompt 送達：directive 優先、commit 硬話在 prompt 內（fixture 回聲驗證） 64ms
+ ✓ tests/qwen.test.ts > baseUrl/apiKey/model → 組裝成 --openai-base-url/--openai-api-key/-m 旗標（規格卡實測形式） 66ms
+ ✓ tests/qwen.test.ts > exit 非零＋is_error JSON 走 stdout（規格卡探針 1 形貌）→ ok:false、failureReason 取 error.message 人話 65ms
+ ✓ tests/qwen.test.ts > hang → timeout、costUnknown=true（timeout 輪照樣可能已燒額度） 2135ms
+ ✓ tests/qwen.test.ts > silent-fail 防呆：exit 0 零輸出 → ok:false（踩雷 §13） 54ms
+ ✓ tests/qwen.test.ts > silent-fail 防呆：exit 0、有事件但無 result 事件 → ok:false 52ms
+ ✓ tests/qwen.test.ts > exit 0 但 result 自報 is_error（雙重確認）→ ok:false、subtype 進 failureReason 52ms
+ ✓ tests/qwen.test.ts > result 有、但無新 commit → no-commit phantom completion 失敗 52ms
+ ✓ tests/qwen.test.ts > preflight：PONG＋result 事件判 ok，第二次走 cache（fake 換 fail 仍 ok） 60ms
+ ✓ tests/qwen.test.ts > preflight：is_error JSON（免費層死亡形貌）→ 判失敗、error.message 進 detail、cache 壞結果 56ms
+ ✓ tests/today-attempts.test.ts > todayAttemptsSummary > 缺 run.db → fail-open 空摘要，不擋派工 3ms
+ ✓ tests/today-attempts.test.ts > todayAttemptsSummary > 空路徑或未設定 → 空摘要 0ms
+ ✓ tests/today-attempts.test.ts > todayAttemptsSummary > 壞檔 / 非 sqlite → fail-open 空摘要 6ms
+ ✓ tests/today-attempts.test.ts > todayAttemptsSummary > 缺 attempts 表 → 空摘要 5ms
+ ✓ tests/today-attempts.test.ts > todayAttemptsSummary > 舊 schema 無 engine 欄 → 空摘要（fail-open） 6ms
+ ✓ tests/today-attempts.test.ts > todayAttemptsSummary > UTC 日界：只計今日各引擎 attempts 與成功數，排除昨／明 9ms
+ ✓ tests/today-attempts.test.ts > todayAttemptsSummary > engine 空字串歸為 (未標) 9ms
+ ✓ tests/today-attempts.test.ts > todayAttemptsSummary > 今日無資料 → 空 engines 但 day 正確（非 fail-open 語意，而是真的零） 9ms
+ ✓ tests/today-attempts.test.ts > todayAttemptsSummary > 查詢超時 → fail-open 空摘要 8ms
+ ✓ tests/flaky-regression.test.ts > FIXED_CANDIDATE_SPECS 含二分鎖定與高頻兩條，且 LOCKED 別名一致 2ms
+ ✓ tests/flaky-regression.test.ts > keyFixtureStatus：reuse-current 訊號 + 隔離契約期望值 1ms
+ ✓ tests/flaky-regression.test.ts > keyFixtureStatus：隔離漏判與 timeout 訊號 0ms
+ ✓ tests/flaky-regression.test.ts > 以完整 dot suite 連續跑兩輪 2ms
+ ✓ tests/flaky-regression.test.ts > 首輪候選失敗仍完成第二輪，診斷含 spec／輪次／fixture 狀態 1ms
+ ✓ tests/flaky-regression.test.ts > 高頻候選 spec 失敗時優先標 target=candidate 並帶 fixture 0ms
+ ✓ tests/flaky-regression.test.ts > 非候選失敗標 target=other；行程級失敗標 process 0ms
+ ✓ tests/flaky-regression.test.ts > 兩輪皆失敗各自輸出診斷 1ms
+ ✓ tests/codex.test.ts > JSONL 正常流＋有新 commit → ok、commitHash、tokens 記錄於 output、costUsd 0＋costUnknown（無 USD 真值） 69ms
+ ✓ tests/codex.test.ts > JSONL 毒行專測（M5 小修 7）：合法事件＋垃圾行＋半截 JSON 行混流 → 不炸、turn.completed/usage 正常取值、ok 62ms
+ ✓ tests/codex.test.ts > silent-fail 防呆：exit 0 零輸出 → ok:false（踩雷 §13＋codex silent-fail 前科） 65ms
+ ✓ tests/codex.test.ts > silent-fail 防呆：exit 0、有事件但無 turn.completed → ok:false 67ms
+ ✓ tests/codex.test.ts > exit 非零 → ok:false 且 stderr 進 failureReason、costUnknown=true 63ms
+ ✓ tests/codex.test.ts > hang → timeout、costUnknown=true（timeout 輪照樣燒訂閱額度） 2203ms
+ ✓ tests/codex.test.ts > turn.completed 有、但無新 commit → no-commit phantom completion 失敗 52ms
+ ✓ tests/codex.test.ts > prompt 組裝沿模板：directive 優先＋git add/commit 硬話真的進 prompt 52ms
+ ✓ tests/codex.test.ts > preflight：PONG＋turn.completed 判 ok，第二次走 cache（fake 換 fail 仍 ok） 51ms
+ ✓ tests/codex.test.ts > preflight：exit 0 但無 turn.completed（如 silent-fail）判失敗且 cache 壞結果 53ms
+ ✓ tests/codex.test.ts > effort 設定 → baseArgs 注入 -c model_reasoning_effort，pingArgs 不注入（ping 不燒推理） 1ms
+ ✓ tests/codex.test.ts > effort 未設 → args 與舊版一致（向後相容） 1ms
+ ✓ tests/supervisor-health/io-fail-open.test.ts > 基準：探測全成功且 heartbeat 過期無 child → reap + taskkill + launch 5ms
+ ✓ tests/supervisor-health/io-fail-open.test.ts > 'lock stat' I/O 失敗時 fail-open keep，不 taskkill、不啟動第二個 daemon 1ms
+ ✓ tests/supervisor-health/io-fail-open.test.ts > 'lock pid read' I/O 失敗時 fail-open keep，不 taskkill、不啟動第二個 daemon 1ms
+ ✓ tests/supervisor-health/io-fail-open.test.ts > 'heartbeat stat' I/O 失敗時 fail-open keep，不 taskkill、不啟動第二個 daemon 1ms
+ ✓ tests/supervisor-health/io-fail-open.test.ts > 'tasklist' I/O 失敗時 fail-open keep，不 taskkill、不啟動第二個 daemon 0ms
+ ✓ tests/supervisor-health/io-fail-open.test.ts > 'child process query' I/O 失敗時 fail-open keep，不 taskkill、不啟動第二個 daemon 0ms
+ ✓ tests/supervisor-health/io-fail-open.test.ts > heartbeat mtime 非有限值時 fail-open keep，不誤啟動 daemon 1ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > !pidAlive => launch 1ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > pidAlive + heartbeat 過期 + childCount===0 => reap 0ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > pidAlive + heartbeat 新鮮 + childCount===0 => keep 0ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > heartbeatAgeMs 剛好等於門檻 => keep（嚴格大於才 reap） 0ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > childCount>0 且 heartbeat 過期但未給 hardCap/hasEngineChild => keep（向後相容） 0ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > pidAlive 但無 heartbeat 資訊 => fail-open keep 0ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > 第二段：heartbeat > hardCap 且無 engine 子進程 => reap（即使 childCount>0） 0ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > 第二段：heartbeat > hardCap 但有 engine 子進程 => keep（不誤殺等 LLM） 0ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > 第二段：heartbeat 剛好等於 hardCap => keep（嚴格大於） 0ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > 第二段：heartbeat 介於 stale 與 hardCap 之間且有 child => keep 0ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > 第二段：缺 hardCapMs => fail-open keep 0ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > 第二段：缺 hasEngineChild => fail-open keep（未知不殺） 0ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > 第二段：缺 heartbeat 即使 hardCap/hasEngineChild 齊全 => fail-open keep 0ms
+ ✓ tests/supervisor-health/classify-daemon.test.ts > 第一段優先：childCount===0 且過 stale 即使有 hardCap 也 reap 0ms
+ ✓ tests/autopilot-author.test.ts > authorGoal > 正常成案：模板組裝＋parseGoal 可回讀＋fence 逐字＝cfg.verifyCommand＋標記行 5ms
+ ✓ tests/autopilot-author.test.ts > authorGoal > 無 verifyCommand → null（無機械驗收不立案） 1ms
+ ✓ tests/autopilot-author.test.ts > authorGoal > LLM 輸出無 OBJECTIVE → null 1ms
+ ✓ tests/autopilot-author.test.ts > authorGoal > 佐證路徑圍欄：../ 逃逸被剔除 2ms
+ ✓ tests/autopilot-author.test.ts > authorGoal > objective 注入攻擊：夾帶連續無進展上限／引擎／佐證檔案 → null 1ms
+ ✓ tests/autopilot-author.test.ts > PerpetualState > round-trip＋損壞容錯 3ms
+ ✓ tests/autopilot-author.test.ts > authorGoal 北極星硬閘 > opts.northstar 設定 → prompt 含判準全文與 REJECT 協議 1ms
+ ✓ tests/autopilot-author.test.ts > authorGoal 北極星硬閘 > LLM 回 REJECT → null 並發 author-northstar-reject 事件 1ms
+ ✓ tests/autopilot-author.test.ts > authorGoal 北極星硬閘 > 未設 northstar → 不附閘段落，行為與現狀一致 1ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > defaultDailyAttemptCapGate > 無 caps → 原清單（向後相容） 2ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > defaultDailyAttemptCapGate > 今日 attempts 未達 cap → 保留 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > defaultDailyAttemptCapGate > 今日 attempts 已達 cap → 視為不可用並輪替下一候選 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > defaultDailyAttemptCapGate > attempts 超過 cap 亦跳過 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > defaultDailyAttemptCapGate > counts 缺該 tag → 視為 0（未達 cap） 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > defaultDailyAttemptCapGate > 全部達 cap → fail-open 回原清單 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > defaultDailyAttemptCapGate > 空候選 → 空陣列 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > dailyAttemptCapsFromEngines > 只收集正整數 cap；未設略過 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > dailyAttemptCapsFromEngines > engines 未設 → 空 map 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > todayCountsFromSummary > 轉 tag → attempts 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > loadTodayAttemptCounts > summaryFn 拋錯 → 空 map fail-open 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > loadTodayAttemptCounts > 空 dbFile → 空 map 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > loadTodayAttemptCounts > 正常 summary → 計數 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > loadDailyAttemptCapContext > 無任何 dailyAttemptCap → 不讀 db、counts 空 1ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > loadDailyAttemptCapContext > 有 cap 且 helper 失敗 → caps 仍有、counts 空（不攔截） 0ms
+ ✓ tests/daily-attempt-cap-gate.test.ts > loadDailyAttemptCapContext > 有 cap 且今日達額 → 輪替下一檔 0ms
+ ✓ tests/events.test.ts > append 寫 JSONL、每行可 parse、含 ts/type 5ms
+ ✓ tests/events.test.ts > appendOnce 24h 內同 type 去重 2ms
+ ✓ tests/events.test.ts > heartbeat 覆寫 heartbeat.json 2ms
+ ✓ tests/events.test.ts > heartbeat 可寫入 todayAttempts 摘要 { engine: { n, ok, cap? } } 2ms
+ ✓ tests/events.test.ts > appendOnce 遇 events-once.json 損壞不 throw，降級重建為合法 JSON 4ms
+ ✓ tests/events.test.ts > append 的 data 不可覆蓋內建 ts/type 2ms
+ ✓ tests/events.test.ts > heartbeat 寫入後目錄中無殘留 .tmp 檔 2ms
+ ✓ tests/events.test.ts > append 使 events.jsonl 超過 20000 行 → 保尾 10000 行，內容為最新且每行合法 JSON 215ms
+ ✓ tests/events.test.ts > events.jsonl 剛好 20000 行（未超過）不觸發保尾 11ms
+ ✓ tests/events.test.ts > appendOnce 觸發的 append 也計入輪替行數（appendOnce 不繞過保尾機制） 17ms
+ ✓ tests/today-attempts-view.test.ts > toTodayAttemptsMap > attempts 列轉 { engine: { n, ok, cap? } }；有 cap 才附 cap 2ms
+ ✓ tests/today-attempts-view.test.ts > toTodayAttemptsMap > 僅有 cap、無 attempts 的引擎也入表（n=0/ok=0） 0ms
+ ✓ tests/today-attempts-view.test.ts > toTodayAttemptsMap > 空列＋無 cap → 空物件 0ms
+ ✓ tests/today-attempts-view.test.ts > toTodayAttemptsMap > 略過空 engine 名 0ms
+ ✓ tests/today-attempts-view.test.ts > todayAttemptsMapFromSummary > summary.engines.attempts → map.n 0ms
+ ✓ tests/today-attempts-view.test.ts > todayAttemptsMapFromSummary > null／undefined summary → 僅 cap 列或空 0ms
+ ✓ tests/today-attempts-view.test.ts > remainingQuota > 有 cap → max(0, cap-n)；無 cap → null 0ms
+ ✓ tests/today-attempts-view.test.ts > formatTodayQuotaTable > 產出標題與表頭、含 cap／餘量 1ms
+ ✓ tests/today-attempts-view.test.ts > formatTodayQuotaTable > 次數 DESC 排序 0ms
+ ✓ tests/today-attempts-view.test.ts > formatTodayQuotaTable > 空 map → 空陣列（不印雜訊） 0ms
+ ✓ tests/today-attempts-view.test.ts > loadTodayAttemptsMap > 缺 run.db → 僅回 cap 列或空（fail-open） 2ms
+ ✓ tests/today-attempts-view.test.ts > loadTodayAttemptsMap > 有 attempts 與 cap → 合併為 heartbeat 形狀 13ms
+ ✓ tests/today-attempts-view.test.ts > loadTodayAttemptsMap > summaryFn 注入失敗／壞檔 → 空或僅 cap 2ms
+ ✓ tests/today-attempts-view.test.ts > digestQuotaLines > 合併 engineDayStats 與 cap → 表行 0ms
+ ✓ tests/today-attempts-view.test.ts > digestQuotaLines > 無列且無 cap → [] 0ms
+ ✓ tests/judge.test.ts > 回 MATCH → MATCH 16ms
+ ✓ tests/judge.test.ts > 回 MISMATCH → MISMATCH（即使字串也含 MATCH） 0ms
+ ✓ tests/judge.test.ts > url 未設 → SKIP 0ms
+ ✓ tests/judge.test.ts > fetch throw → SKIP（fail-open） 0ms
+ ✓ tests/judge.test.ts > 非 200 → SKIP；回文無關鍵字 → SKIP 0ms
+ ✓ tests/judge.test.ts > diff 全量送出，不丟失第 201 行後的實際改動 1ms
+ ✓ tests/judge.test.ts > prompt 用 <claim>/<diff> 邊界包裹且明言忽略內部指令（抗注入） 0ms
+ ✓ tests/judge.test.ts > diff 內含「MISMATCH」字樣但模型回應開頭為 MATCH → 判 MATCH（不被 diff 內容污染） 0ms
+ ✓ tests/judge.test.ts > 回應開頭 20 字內同時可判定時 MISMATCH 優先於 MATCH 0ms
+ ✓ tests/judge.test.ts > 回應開頭 20 字內無 MATCH/MISMATCH 關鍵字（結論寫在後段）→ SKIP，不再全文掃描 0ms
+ ✓ tests/judge.test.ts > prompt 含判準：數量差異不否決、截斷以檔案清單為準（誤殺對策 2026-07-28） 0ms
+ ✓ tests/judge.test.ts > effort/timeoutMs 傳遞：body 帶指定 reasoning_effort（judge 升級 xhigh 用） 0ms
+ ✓ tests/judge.test.ts > effort/timeoutMs 未設：body 維持 low（向後相容） 0ms
+ ✓ tests/engine-quota.test.ts > engine quota > 今日聚合依 UTC 半開日界統計各引擎 attempts 與成功數 17ms
+ ✓ tests/engine-quota.test.ts > engine quota > dailyAttemptCap 僅接受未設定或正整數 2ms
+ ✓ tests/engine-quota.test.ts > engine quota > 候選今日已達 cap 時跳過並使用下一檔 9ms
+ ✓ tests/engine-quota.test.ts > engine quota > run.db 讀取失敗時 fail-open 保留原候選 2ms
+ ✓ tests/engine-quota.test.ts > engine quota > heartbeat 與 digest 輸出固定 quota 欄位與表格格式 20ms
+ ✓ tests/autopilot-supplement.test.ts > parseAudit > CLEAN → clean 無任務 2ms
+ ✓ tests/autopilot-supplement.test.ts > parseAudit > GAPS + 任務（含 - 前綴）→ 不 clean 0ms
+ ✓ tests/autopilot-supplement.test.ts > parseAudit > GAPS 但無任務 → clean 0ms
+ ✓ tests/autopilot-supplement.test.ts > parseAudit > 亂格式（無標記）→ fail-open clean 0ms
+ ✓ tests/autopilot-supplement.test.ts > parseAudit > 空回應 → clean 0ms
+ ✓ tests/autopilot-supplement.test.ts > parseAudit > GAPS: 冒號變體 → 仍解析 0ms
+ ✓ tests/autopilot-supplement.test.ts > parseAudit > 首行非恰為 GAPS(話多開頭) → 保守 clean，不誤觸發 0ms
+ ✓ tests/autopilot-supplement.test.ts > verifyAndSupplement > audit 首輪 clean → 不補足 1ms
+ ✓ tests/autopilot-supplement.test.ts > verifyAndSupplement > audit 缺口→補足→再 audit clean → 收斂 0ms
+ ✓ tests/autopilot-supplement.test.ts > verifyAndSupplement > audit 一直有缺口 → 撞 supplementLimit 停，residualGaps 記錄 1ms
+ ✓ tests/autopilot-supplement.test.ts > verifyAndSupplement > fail-open：audit LLM 錯 → 視為 clean，不崩不生任務 0ms
+ ✓ tests/autopilot-supplement.test.ts > verifyAndSupplement > kill switch：isAlive false → 立即中止 rounds 0 0ms
+ ✓ tests/autopilot-supplement.test.ts > verifyAndSupplement > 機械接地：runVerify 輸出進 audit prompt 0ms
+ ✓ tests/digest-mechanisms.test.ts > 有事件時 digest 顯示近 7 日三種機制的正確計數 23ms
+ ✓ tests/digest-mechanisms.test.ts > 事件與 timeout 全為零時省略整段機制成效 11ms
+ ✓ tests/digest-mechanisms.test.ts > events.jsonl 缺檔不炸，run.db timeout 趨勢仍獨立產出 12ms
+ ✓ tests/digest-mechanisms.test.ts > run.db 指標失敗不會吃掉 events.jsonl 的事件計數 12ms
+ ✓ tests/digest-mechanisms.test.ts > judge-mismatch 攔截趨勢與 judge-skip 計數（judge 升級觀測 2026-07-28） 15ms
+ ✓ tests/merge-queue.test.ts > 同一主 repo 嚴格 FIFO，前者完成前不啟動後者 2ms
+ ✓ tests/merge-queue.test.ts > 不同主 repo 不共用 queue 0ms
+ ✓ tests/merge-queue.test.ts > 隔離 Git fixture：兩個並發 mergeBack 依序完成，主線保有兩個任務 commit 2500ms
+ ✓ tests/merge-queue.test.ts > 隔離 Git fixture：兩任務改同一檔時後者 merge-conflict，主線未遭污染 2204ms
+ ✓ tests/autopilot-goal.test.ts > config goalFile > goalFile 是可選字串，能被 parse 4ms
+ ✓ tests/autopilot-goal.test.ts > config goalFile > goalFile 省略時為 undefined 0ms
+ ✓ tests/autopilot-goal.test.ts > config goalFile > M9.6：auditModel 可選、supplementLimit 預設 2（向後相容） 1ms
+ ✓ tests/autopilot-goal.test.ts > config goalFile > M9.7：surveyCommand 可選、surveyTimeoutMs/discoverLenses 有預設（向後相容） 1ms
+ ✓ tests/autopilot-goal.test.ts > parseGoal > 抽出 objective / verifyCommand / engine / noProgressLimit 1ms
+ ✓ tests/autopilot-goal.test.ts > parseGoal > noProgressLimit 未寫時預設 3 0ms
+ ✓ tests/autopilot-goal.test.ts > parseGoal > 無驗收 code block 時 verifyCommand 為 undefined 0ms
+ ✓ tests/autopilot-goal.test.ts > parseGoal > json fence 在 sh fence 之前時，優先取 sh fence 的內容 0ms
+ ✓ tests/autopilot-goal.test.ts > parseGoal > 抽出 evidenceFiles（## 佐證檔案 段落，含/不含 - 前綴、空行忽略） 0ms
+ ✓ tests/autopilot-goal.test.ts > parseGoal > 無 佐證檔案 段落時 evidenceFiles 為 undefined（向後相容） 0ms
+ ✓ tests/autopilot-goal.test.ts > pinGoalEngine：指定引擎 → defaultEngine 與 rotation 同時鎖死 0ms
+ ✓ tests/autopilot-goal.test.ts > pinGoalEngine：未指定 → cfg 原樣返回（向後相容） 0ms
+ ✓ tests/routing-state-cleanup.test.ts > pruneRoutingState > 清除已解除隔離、已轉正候選、孤兒與超期歷史，保留仍有效狀態 4ms
+ ✓ tests/routing-state-cleanup.test.ts > pruneRoutingState > 無可清項目與非法時間參數皆維持原狀態參考 0ms
+ ✓ tests/routing-state-cleanup.test.ts > cleanupRoutingState > 只在有過期資料時原子覆寫既有狀態檔 7ms
+ ✓ tests/routing-state-cleanup.test.ts > cleanupRoutingState > 缺檔或損壞狀態不建立、不覆寫 3ms
+ ✓ tests/verifier.test.ts > verify fail → pass:false + rollback 被呼叫到 base 65ms
+ ✓ tests/verifier.test.ts > verify pass + judge 未設 → pass:true 且 judge SKIP 進 alerts 110ms
+ ✓ tests/verifier.test.ts > verify skip（無指令）→ pass 並 alert 47ms
+ ✓ tests/verifier.test.ts > rollback 回傳 false → check 結果 alerts 含 rollback-failed 53ms
+ ✓ tests/verifier.test.ts > rollback 拋例外 → alerts 含 rollback-exception 且 check 不 throw 56ms
+ ✓ tests/verifier.test.ts > 無 baseCommitHash 且 judgeUrl 有設 → judge 不被呼叫、alerts 含 judge-skipped 55ms
+ ✓ tests/verifier.test.ts > defaultRollback 在無 .adng-worktree marker 的目錄拒絕執行且 alerts 可見 56ms
+ ✓ tests/verifier.test.ts > 有 .adng-worktree marker 才允許 defaultRollback 嘗試 reset 116ms
+stderr | tests/bot-config.test.ts > loadBotConfig > Fix 3：botAllowedUserIds 存在但非陣列 → fail-closed 空陣列，不炸
+[bot/config] botAllowedUserIds 存在但非陣列，已忽略（fail-closed，全員鎖死）
+
+ ✓ tests/bot-config.test.ts > loadBotConfig > 讀 botAllowedUserIds/botGuildId/botTokenFile(相對路徑以 config 目錄 resolve) 5ms
+ ✓ tests/bot-config.test.ts > loadBotConfig > 缺欄位 → allowedUserIds 空陣列(fail-closed);JSON 損壞不炸 3ms
+ ✓ tests/bot-config.test.ts > loadBotConfig > Fix 3：botAllowedUserIds 陣列含數字元素 → 全部轉字串（避免與 include 比對永遠失敗、全員鎖死） 2ms
+ ✓ tests/bot-config.test.ts > loadBotConfig > Fix 3：botAllowedUserIds 存在但非陣列 → fail-closed 空陣列，不炸 3ms
+ ✓ tests/bot-config.test.ts > loadBotConfig > botGuildId 為數字型別 → 轉為字串（避免 discord.js API 型別不符） 2ms
+ ✓ tests/bot-config.test.ts > loadBotConfig > botGuildId 缺欄位 → undefined（不轉成字串 "undefined"） 2ms
+ ✓ tests/bot-config.test.ts > loadBotToken > env ADNG_BOT_TOKEN 優先 0ms
+ ✓ tests/bot-config.test.ts > loadBotToken > 無 env 時讀檔(支援 set/export 前綴與引號) 2ms
+ ✓ tests/bot-config.test.ts > loadBotToken > env ADNG_BOT_TOKEN 存在但空字串 → fallback 讀檔 2ms
+ ✓ tests/bot-config.test.ts > loadBotToken > env ADNG_BOT_TOKEN 存在但全空白 → fallback 讀檔 2ms
+ ✓ tests/bot-config.test.ts > loadBotToken > 皆無 → null;檔案缺失不炸 1ms
+ ✓ tests/bot-config.test.ts > listProjectConfigs > 掃 *.json(檔名排序,忽略非 json),name=去 .json 檔名 3ms
+ ✓ tests/bot-config.test.ts > listProjectConfigs > 目錄不存在 → [] 1ms
+ ✓ tests/bot-config.test.ts > listProjectConfigs > 目錄存在但空 → [] 1ms
+ ✓ tests/cli-commands.test.ts > CLI 搬移回歸：代表性子指令維持搬移前的輸出快照與 exit code 41ms
+ ✓ tests/cli-commands.test.ts > cli 公開匯出維持既有介面 0ms
+ ✓ tests/cli-commands.test.ts > CLI entry 可獨立載入並保留 argv 解析契約 0ms
+ ✓ tests/cli-commands.test.ts > CLI entry：缺少 config 時只負責回報用法，不載入子指令執行 1ms
+ ✓ tests/cli-commands.test.ts > formatCycleResult：字串結果原樣輸出，blocked 保留既有任務格式 0ms
+ ✓ tests/cli-commands.test.ts > printSuperviseResults：空結果維持既有 stdout 0ms
+ ✓ tests/cli-commands.test.ts > printSuperviseResults：錯誤維持 stderr 並設定 exit code 1 0ms
+ ✓ tests/autopilot-ledger.test.ts > ProblemsLedger > fingerprint 正規化：NFKC＋小寫＋去空白標點——等價標題同指紋 17ms
+ ✓ tests/autopilot-ledger.test.ts > ProblemsLedger > upsertSeen：新問題 INSERT status=open；重複發現只更新 lastSeen/value 9ms
+ ✓ tests/autopilot-ledger.test.ts > ProblemsLedger > setStatus/listByStatus/counts：狀態機與查詢 9ms
+ ✓ tests/autopilot-ledger.test.ts > ProblemsLedger > 冪等重開：同檔開兩次不炸，資料仍在 11ms
+ ✓ tests/autopilot-ledger.test.ts > readHandledProblemTitles：只回已處理狀態、last_seen DESC、limit 生效；缺檔回 [] 14ms
+ ✓ tests/adaptive-rotation.test.ts > 無 stats → 原樣返回基礎 rotation（fail-open，行為不變） 2ms
+ ✓ tests/adaptive-rotation.test.ts > 高成功率引擎獲得較多槽、低成功率較少，但都 ≥1（保底） 0ms
+ ✓ tests/adaptive-rotation.test.ts > 樣本不足（n<minSamples）的引擎一律基礎權重（不因小樣本暴衝或歸零） 0ms
+ ✓ tests/adaptive-rotation.test.ts > stats 只覆蓋部分引擎 → 未覆蓋者用基礎權重 0ms
+ ✓ tests/adaptive-rotation.test.ts > 有效列表長度不超過上限（防爆長） 1ms
+ ✓ tests/adaptive-rotation.test.ts > #2 手動權重（base 重複槽）被尊重，不因去重塌成 1 槽 0ms
+ ✓ tests/adaptive-rotation.test.ts > #5 小樣本剛過門檻不暴衝：單槽 5/5 只小幅加成，不跳到滿權重 0ms
+ ✓ tests/adaptive-rotation.test.ts > #6 unique 引擎數超過 maxSlots：以 unique 數為準保底 1，不丟引擎 0ms
+ ✓ tests/adaptive-rotation.test.ts > 基礎 rotation 中不在 stats 的引擎全部保留（不遺漏任何引擎） 0ms
+ ✓ tests/adaptive-rotation.test.ts > 全 0 成功率仍各保底 1 槽（不會產生空列表） 0ms
+ ✓ tests/globalcost.test.ts > globalBilledToday > 兩專案真金加總；訂閱引擎排除；昨日不計 32ms
+ ✓ tests/globalcost.test.ts > globalBilledToday > 壞鄰居跳過：壞 JSON／缺 run.db 都不影響加總、不 throw 13ms
+ ✓ tests/globalcost.test.ts > globalBilledToday > 整體故障回 0（fail-open）：configs 目錄不存在 2ms
+ ✓ tests/globalcost.test.ts > globalBilledToday > engine 空欄（歷史列）在非空訂閱清單下仍計入真金（fail-safe） 15ms
+ ✓ tests/globalcost.test.ts > globalBilledToday > config 缺 timezoneOffsetHours 時鏡像 Zod default(8)，不可低估為 0 13ms
+ ✓ tests/engine-rotation.test.ts > 顯式 tag：忽略 rotation，只回該 tag 2ms
+ ✓ tests/engine-rotation.test.ts > 未設 rotation（undefined/空陣列）：回 defaultEngine（向後相容硬線） 0ms
+ ✓ tests/engine-rotation.test.ts > hash 分散：不同 task id 得不同起點，清單為旋轉序（全員都在） 0ms
+ ✓ tests/engine-rotation.test.ts > failover：每失敗一次起點前進一格，繞圈回到頭 0ms
+ ✓ tests/engine-rotation.test.ts > 非 hex id（防呆）：視為 0，不 NaN 炸掉 0ms
+ ✓ tests/engine-rotation.test.ts > config 驗證：engineRotation 的 tag 必須在 engines 白名單內 5ms
+ ✓ tests/engine-rotation.test.ts > config 解析：subscription 檔位可只存在於 engines 白名單，不必列入 engineRotation 1ms
+ ✓ tests/engine-rotation.test.ts > entrySlots：新任務（failCount=0）起點只落零成本檔位 1ms
+ ✓ tests/engine-rotation.test.ts > entrySlots：失敗前進仍走全清單——連敗可走進付費檔位（緩升級不變） 0ms
+ ✓ tests/engine-rotation.test.ts > entrySlots 空/未設：行為與原公式完全一致（fail-open） 0ms
+ ✓ tests/engine-rotation.test.ts > entrySlots：顯式 engineTag 仍短路不受影響 0ms
+ ✓ tests/autopilot-run.test.ts > sessionAlive（M10.5 補洞：config 移除須在任務間煞停 session） > goal+config 在、無 stopFile → 活 2ms
+ ✓ tests/autopilot-run.test.ts > sessionAlive（M10.5 補洞：config 移除須在任務間煞停 session） > cfgPath 未提供（手動 /goal run 情境）→ 不影響存活 0ms
+ ✓ tests/autopilot-run.test.ts > sessionAlive（M10.5 補洞：config 移除須在任務間煞停 session） > config 被移除（M10.5 退役/優雅重啟）→ 死 0ms
+ ✓ tests/autopilot-run.test.ts > sessionAlive（M10.5 補洞：config 移除須在任務間煞停 session） > stopFile 出現 → 死 1ms
+ ✓ tests/autopilot-run.test.ts > sessionAlive（M10.5 補洞：config 移除須在任務間煞停 session） > restart.request 哨兵出現 → 死（2026-07-28 補洞：長 GOAL 不再餓死部署哨兵） 2ms
+ ✓ tests/autopilot-run.test.ts > stopAlertMessage > achieved → null（不告警） 0ms
+ ✓ tests/autopilot-run.test.ts > stopAlertMessage > no-progress → 含 goalId/kind/rounds 0ms
+ ✓ tests/autopilot-run.test.ts > stopAlertMessage > stuck → 含 reason 0ms
+ ✓ tests/autopilot-run.test.ts > stopAlertMessage > killed → 含 kind 0ms
+ ✓ tests/autopilot-run.test.ts > main：single-instance lock > lock 被佔時提早返回，不跑 session（不產生 goal-*.jsonl audit 檔） 314ms
+ ✓ tests/supervisor-health/wedge-hardcap.test.ts > hardCap 已過、childCount=1 且只剩 wsl.exe 殼進程 → reap 10ms
+ ✓ tests/supervisor-health/wedge-hardcap.test.ts > hardCap 已過、childCount=1 且只剩 cmd.exe 殼進程 → reap 4ms
+ ✓ tests/supervisor-health/wedge-hardcap.test.ts > hardCap 已過、childCount=1 且只剩 conhost.exe 殼進程 → reap 3ms
+ ✓ tests/supervisor-health/wedge-hardcap.test.ts > hardCap 已過但樹中有 node.exe engine → keep 4ms
+ ✓ tests/supervisor-health/wedge-hardcap.test.ts > hardCap 已過但樹中有 codex.exe engine → keep 3ms
+ ✓ tests/supervisor-health/wedge-hardcap.test.ts > hardCap 已過但樹中有 opencode.exe engine → keep 4ms
+ ✓ tests/supervisor-health/wedge-hardcap.test.ts > 仍在 staleThreshold 內且 childCount>0 → keep 3ms
+ ✓ tests/supervisor-health/wedge-hardcap.test.ts > hardCap 已過但'子進程樹 I/O 失敗' → fail-open keep 4ms
+ ✓ tests/supervisor-health/wedge-hardcap.test.ts > hardCap 已過但'子進程樹資訊無效' → fail-open keep 3ms
+ ✓ tests/supervisor-health/wedge-hardcap.test.ts > wedgeHardCapMs 必須大於 staleThresholdMs 1ms
+ ✓ tests/learn-wiring.test.ts > config learnings 欄位 > learningsFile/globalLearningsFile 可選、能 parse 4ms
+ ✓ tests/learn-wiring.test.ts > scheduler 教訓注入 > lessons.inject 有內容時附進 job.directive 1450ms
+ ✓ tests/learn-wiring.test.ts > scheduler 教訓注入 > inject throw 時派工照常、directive 不含教訓(fail-open) 1402ms
+ ✓ tests/learn-wiring.test.ts > scheduler 教訓注入 > 未接 lessons 時 directive 僅任務文字＋commit 自證行（無教訓、無 extraDirective） 1644ms
+ ✓ tests/supervisor-health/adng-daemons-shell.test.ts > adng-daemons.cmd：位元組層純 ASCII（不匹配 [^\x00-\x7F]） 3ms
+ ✓ tests/supervisor-health/adng-daemons-shell.test.ts > adng-daemons.cmd：薄殼只委派 node dist\cli.js supervise --configs-dir 1ms
+ ✓ tests/supervisor-health/adng-daemons-shell.test.ts > adng-daemons.cmd：執行體無 inline 判活／legacy 批次啟動邏輯 1ms
+ ✓ tests/supervisor-health/adng-daemons-shell.test.ts > daemon-console.log 共享鎖處理在 TS launchDaemon（非 cmd） 0ms
+ ✓ tests/signature-breaker.test.ts > detailSignature：取首行、trim、80 字上限 2ms
+ ✓ tests/signature-breaker.test.ts > 連續 5 次相同簽名失敗 → 熔斷 target（reason 帶簽名） 1ms
+ ✓ tests/signature-breaker.test.ts > 只有 4 次連續同簽名 → 不熔斷 0ms
+ ✓ tests/signature-breaker.test.ts > 最新一筆成功 → leading run 斷、不熔斷（歷史連敗不翻舊帳） 0ms
+ ✓ tests/signature-breaker.test.ts > 連續失敗但簽名不同（模型自身弱）→ 不熔斷 0ms
+ ✓ tests/signature-breaker.test.ts > rotation 外引擎不評估 0ms
+ ✓ tests/signature-breaker.test.ts > 多引擎交錯 rows 正確分組（各自算 leading run） 1ms
+ ✓ tests/signature-breaker.test.ts > 空簽名（detail 空白）不熔斷 0ms
+ ✓ tests/signature-breaker.test.ts > loadRecentBreakerRows：缺檔回 []（fail-open） 1ms
+ ✓ tests/signature-breaker.test.ts > loadRecentBreakerRows：讀 run.db、seq DESC、limit 生效 15ms
+ ✓ tests/lock-errors.test.ts > acquireLock 錯誤分類：ENOENT/EEXIST 讓步，其他 infra 故障 rethrow > renameSync ENOENT（競爭者已搶先接管）→ return false，不繼續清理 2ms
+ ✓ tests/lock-errors.test.ts > acquireLock 錯誤分類：ENOENT/EEXIST 讓步，其他 infra 故障 rethrow > renameSync EPERM（infra 故障）→ rethrow 0ms
+ ✓ tests/lock-errors.test.ts > acquireLock 錯誤分類：ENOENT/EEXIST 讓步，其他 infra 故障 rethrow > 第二次 mkdirSync EEXIST（rename 贏家仍撞上第三方新鎖）→ return false 0ms
+ ✓ tests/lock-errors.test.ts > acquireLock 錯誤分類：ENOENT/EEXIST 讓步，其他 infra 故障 rethrow > 第二次 mkdirSync EBUSY（infra 故障）→ rethrow 0ms
+ ✓ tests/lock-errors.test.ts > acquireLock 錯誤分類：ENOENT/EEXIST 讓步，其他 infra 故障 rethrow > statSync ENOENT（鎖目錄在檢查 age 前已被清走）→ return false 0ms
+ ✓ tests/lock-errors.test.ts > acquireLock 錯誤分類：ENOENT/EEXIST 讓步，其他 infra 故障 rethrow > statSync EBUSY（infra 故障）→ rethrow 0ms
+ ✓ tests/kernel-relocation-report.test.ts > kernel 搬移前後行數報告 > 搬移前基準提交的 kernel 頂層為 2700 行 777ms
+ ✓ tests/kernel-relocation-report.test.ts > kernel 搬移前後行數報告 > 目前 kernel 頂層為 2057 行，低於 2250 行且實際騰回 643 行 9ms
+ ✓ tests/kernel-relocation-report.test.ts > kernel 搬移前後行數報告 > 目前逐檔帳目與報告固定值一致，且未漏計或多計頂層檔案 7ms
+ ✓ tests/kernel-relocation-report.test.ts > kernel 搬移前後行數報告 > 報告記錄相同的可重現基準、結果與驗證指令 1ms
+ ✓ tests/learn-reflect.test.ts > reflectOnFailure > failed:從 lastAttempt 取證據,寫入一條教訓 16ms
+ ✓ tests/learn-reflect.test.ts > reflectOnFailure > LLM 回 NONE 不寫檔 7ms
+ ✓ tests/learn-reflect.test.ts > reflectOnFailure > blocked:直接用 result 內的 taskText 7ms
+ ✓ tests/learn-reflect.test.ts > reflectOnFailure > idle/done 不觸發;LLM throw 不炸(fail-open) 7ms
+ ✓ tests/learn-reflect.test.ts > RunDb.lastAttempt > 回最後一筆;空庫回 null 6ms
+ ✓ tests/learn-reflect.test.ts > makeLessonsPort > inject 轉呼 store;reflect 轉呼 reflectOnFailure 8ms
+ ✓ tests/autopilot-planner.test.ts > planner.plan > TASKS → 逐行任務清單 2ms
+ ✓ tests/autopilot-planner.test.ts > planner.plan > ACHIEVED → achieved 0ms
+ ✓ tests/autopilot-planner.test.ts > planner.plan > STUCK → stuck + 理由 0ms
+ ✓ tests/autopilot-planner.test.ts > planner.plan > LLM 空回應（fail-open）→ stuck 0ms
+ ✓ tests/autopilot-planner.test.ts > planner.plan > TASKS 去空行去重 0ms
+ ✓ tests/autopilot-planner.test.ts > planner.plan > TASKS 標記剝除不吃任務開頭數字（3D 列印外殼 / 2024 年度報告需完整保留） 0ms
+ ✓ tests/autopilot-planner.test.ts > planner.plan > TASKS 真正的清單標記（- / 數字.）仍正確剝除 0ms
+ ✓ tests/autopilot-planner.test.ts > planner.plan > lessonsText 有值 → 傳給 llm 的 prompt 包含教訓文字 0ms
+ ✓ tests/autopilot-planner.test.ts > planner.plan > lessonsText 未設 → prompt 與空字串時位元級相同（現狀不變） 0ms
+ ✓ tests/pick-ready-task-concurrency.test.ts > 隔離：同輪多個 pickReadyTask 只寫狀態、派事件一次 9ms
+ ✓ tests/pick-ready-task-concurrency.test.ts > 試探：同輪多個 pickReadyTask 只寫狀態、派事件一次 1ms
+ ✓ tests/pick-ready-task-concurrency.test.ts > 晉升：同輪多個 pickReadyTask 只寫狀態、派事件一次 1ms
+ ✓ tests/pick-ready-task-concurrency.test.ts > 未設 engineRotation：不進戰績路由層，直接沿用 defaultEngine 1ms
+ ✓ tests/engine-quota-accounting.test.ts > accountEngineQuotaByUtcDay > 跨 UTC 日界：只計今日半開區間，排除昨／明日 17ms
+ ✓ tests/engine-quota-accounting.test.ts > accountEngineQuotaByUtcDay > 成功判定：ok 只累加成功列；失敗列計入 n 但不計 ok 9ms
+ ✓ tests/engine-quota-accounting.test.ts > accountEngineQuotaByUtcDay > 資料庫讀取失敗 → fail-open 回空統計 {} 8ms
+ ✓ tests/learn-store.test.ts > parseLessons > 解析 L 編號/日期/文字,忽略標題與雜行 2ms
+ ✓ tests/learn-store.test.ts > LessonStore.add > 新檔寫入 L001,含標題 4ms
+ ✓ tests/learn-store.test.ts > LessonStore.add > 編號遞增取 max+1 3ms
+ ✓ tests/learn-store.test.ts > LessonStore.add > 去重:正規化互為包含則跳過 2ms
+ ✓ tests/learn-store.test.ts > LessonStore.add > 滿 30 條 FIFO 淘汰最舊 32ms
+ ✓ tests/learn-store.test.ts > LessonStore.add > 超長截斷至 200 code point、空字串回 false 2ms
+ ✓ tests/learn-store.test.ts > LessonStore.inject > 兩層皆空回空字串 1ms
+ ✓ tests/learn-store.test.ts > LessonStore.inject > 合併全局(前綴[全局])與專案層 2ms
+ ✓ tests/learn-store.test.ts > LessonStore.inject > 全局檔缺失不炸,只出專案層 2ms
+ ✓ tests/routing-check.test.ts > 一致時串起穩定診斷摘要與一致性結果 2ms
+ ✓ tests/routing-check.test.ts > 一致性警告使快速檢查失敗並列出警告代碼 0ms
+ ✓ tests/routing-check.test.ts > skipped no-rotation 的健康判定為 true 1ms
+ ✓ tests/routing-check.test.ts > skipped no-state-file 的健康判定為 true 0ms
+ ✓ tests/routing-check.test.ts > skipped state-corrupt 的健康判定為 false 0ms
+ ✓ tests/routing-check.test.ts > skipped unexpected-error 的健康判定為 false 0ms
+ ✓ tests/routing-check.test.ts > 手動入口解析相對 dataDir，無狀態檔時輸出 JSON 並成功 6ms
+ ✓ tests/routing-check.test.ts > 手動入口缺 --config 時回報用法 1ms
+ ✓ tests/scheduler-cleanup-partial.test.ts > done 後 cleanup 拋 WorktreeCleanupPartialError → events 記 worktree-cleanup-partial（非 worktree-kept），任務仍是 done 1218ms
+ ✓ tests/flaky-tracker.test.ts > 解析 dot reporter 的失敗順序、spec 與訊息 2ms
+ ✓ tests/flaky-tracker.test.ts > 聚合間歇與固定失敗，找出唯一不穩定測試 1ms
+ ✓ tests/flaky-tracker.test.ts > round 1／2 追蹤證據鎖定唯一候選與完整失敗上下文 1ms
+ ✓ tests/ledger-roi-contract.test.ts > 舊台帳經 goal 收案後回寫實際成本，並供 critic 摘要讀取 38ms
+ ✓ tests/lock-pidfile-cleanup.test.ts > writeOwnPidFile 失敗時補償清理鎖目錄（MEDIUM-1：不留幽靈鎖） > 初次 acquire：writeFileSync ENOSPC → acquireLock rethrow 且鎖目錄不存在，下次 acquire 立即成功 5ms
+ ✓ tests/lock-pidfile-cleanup.test.ts > writeOwnPidFile 失敗時補償清理鎖目錄（MEDIUM-1：不留幽靈鎖） > steal 重建：pid-dead steal 過程 writeFileSync ENOSPC → acquireLock rethrow 且新鎖目錄不存在，下次 acquire 立即成功 3ms
+ ✓ tests/e2e-mock.test.ts > M1 閉環：3 任務→2 完成 1 blocked→idle 3269ms
+ ✓ tests/daemon-cooldown-write-failure.test.ts > saveCooldownTable 寫入失敗（模擬磁碟故障）→ 告警照發、daemon 不炸（fail-open，鐵律 #4） 28ms
+ ✓ tests/routing-context.test.ts > 可注入讀取器會組合 rotation、近三日戰績與狀態檔 3ms
+ ✓ tests/routing-context.test.ts > 無資料、內容損壞與任一狀態 map 缺失都回到同一個 fallback 0ms
+ ✓ tests/routing-context.test.ts > 未設 engineRotation 時不讀 I/O，直接沿用既有路由 0ms
+ ✓ tests/isolation-policy.test.ts > shouldIsolateEngine > 樣本≥6 且成功率<30% → 隔離 1ms
+ ✓ tests/isolation-policy.test.ts > shouldIsolateEngine > 恰 30% 或更高 → 不隔離 0ms
+ ✓ tests/isolation-policy.test.ts > shouldIsolateEngine > 樣本不足 6 → 不隔離（即使成功率 0） 0ms
+ ✓ tests/isolation-policy.test.ts > shouldIsolateEngine > 非有限數字 → 不隔離 0ms
+ ✓ tests/isolation-policy.test.ts > isolationReason > 含近3日、樣本數與成功率 0ms
+ ✓ tests/isolation-policy.test.ts > selectEnginesToIsolate > 無 rotation → 空清單（維持原路徑） 1ms
+ ✓ tests/isolation-policy.test.ts > selectEnginesToIsolate > 只挑 rotation 內且達門檻者 0ms
+ ✓ tests/isolation-policy.test.ts > selectEnginesToIsolate > 不在 rotation 的爛戰績不隔離 0ms
+ ✓ tests/isolation-policy.test.ts > selectEnginesToIsolate > codex 恰 ~33% 不隔離 0ms
+ ✓ tests/preflight.test.ts > set 後 get 命中；未 set 回 null 4ms
+ ✓ tests/preflight.test.ts > TTL 過期回 null 84ms
+ ✓ tests/preflight.test.ts > cache 檔損壞視為空 cache 不 throw 3ms
+ ✓ tests/preflight.test.ts > 壞結果用 badTtlMs 提早過期，好結果用 ttlMs 88ms
+ ✓ tests/preflight.test.ts > entry 形狀損壞（ts 非數字）視為未命中且 set 不 throw 3ms
+ ✓ tests/preflight.test.ts > cacheFile 父目錄不存在時 set 不 throw（fail-open） 1ms
+ ✓ tests/preflight.test.ts > set ts=0 → 寫入即過期，get 立即 miss（invalidatePreflight 語意） 2ms
+ ✓ tests/verify.test.ts > 無 command → skip 1ms
+ ✓ tests/verify.test.ts > exit 0 → pass 60ms
+ ✓ tests/verify.test.ts > exit 1 → fail 且 detail 含輸出 54ms
+ ✓ tests/verify.test.ts > timeout → skip 不算 fail（附 detail） 1935ms
+ ✓ tests/verify.test.ts > exit 9009/127（command not found）→ skip 不算 fail 165ms
+ ✓ tests/verify.test.ts > 指令不存在（bare name 亂打）→ skip 不算 fail 122ms
+ ✓ tests/verify.test.ts > 對抗性反例：真測試失敗，stderr 引號開頭斷言 + 混入亂碼(U+FFFD) → 仍必須是 fail（不可誤放行成 skip） 98ms
+ ✓ tests/verify.test.ts > bare name 不存在（探測法）→ skip 且 detail 含 command-not-found 0ms
+ ✓ tests/verify.test.ts > 含路徑分隔符但檔案不存在 → skip（探測法，existsSync 直接判斷） 0ms
+ ✓ tests/web-index.test.ts > 首頁艦隊卡片每 30 秒刷新資料，並顯示空狀態 3ms
+ ✓ tests/engine-routing-decision.test.ts > 引擎路由決策契約 > 四種決策共用單一字面型別 2ms
+ ✓ tests/engine-routing-decision.test.ts > 引擎路由決策契約 > 無 engineRotation 時維持既有 defaultEngine 路徑 1ms
+ ✓ tests/engine-routing-decision.test.ts > 引擎路由決策契約 > 無 run.db 戰績時沿用既有候選順序 0ms
+ ✓ tests/engine-routing-decision.test.ts > 引擎路由決策契約 > 樣本數未達門檻時沿用既有候選順序 0ms
+ ✓ tests/engine-routing-decision.test.ts > 引擎路由決策契約 > 成功率恰在門檻時可晉升，低於門檻時不可晉升 0ms
+ ✓ tests/engine-routing-decision.test.ts > 引擎路由決策契約 > 有健康候選時，仍在隔離期的候選不應被派工 0ms
+ ✓ tests/events-tail-summary.test.ts > events.jsonl 尾段統計 > 只統計尾段有效事件，保留 verify-fail、preflight-failed、killed 的最近樣本 14ms
+ ✓ tests/events-tail-summary.test.ts > events.jsonl 尾段統計 > 檔案缺失、壞 JSON 與不足目標行數都 fail-open 回傳可用部分 4ms
+ ✓ tests/events-tail-summary.test.ts > events.jsonl 尾段統計 > 尾端位元組不足時忽略截斷的首行，仍回傳後續完整事件 4ms
+ ✓ tests/kernel-budget.test.ts > kernel 行數預算守門 > kernel 頂層行數 ≤ 工作上限 2700 7ms
+ ✓ tests/kernel-budget.test.ts > kernel 行數預算守門 > 計數與 wc -l 一致且非平凡（防守門空轉） 5ms
+ ✓ tests/no-commit-cap-advice.test.ts > 近 7 日樣本至少 5 且 no-commit 比率大於 30% 時提示調降 cap 19ms
+ ✓ tests/no-commit-cap-advice.test.ts > 比率恰為 30% 或樣本少於 5 時皆不提示 10ms
+ ✓ tests/no-commit-cap-advice.test.ts > dataDir 缺 run.db 時 fail-open 省略提示 8ms
+ ✓ tests/verify-incremental.test.ts > 空 diff → 全套 452ms
+ ✓ tests/verify-incremental.test.ts > src/tests 以外變更（config 類）→ 全套 479ms
+ ✓ tests/verify-incremental.test.ts > 純 src 變更 → related，且動態依賴測試恆在清單 524ms
+ ✓ tests/verify-incremental.test.ts > 分支上有 commit（worktree 情境）→ 以 merge-base 取差集走 related 679ms
+ ✓ tests/notify-dlq-rotate-failure.test.ts > DLQ 保尾輪替寫入失敗 → send 仍回 false 不拋、DLQ 追加本身照樣成功（send 永不 throw 的既有契約不可破，鐵律 #4） 25ms
+ ✓ tests/supervisor-health/launch-log-lock.test.ts > launchDaemon：openSync 共享鎖占用時回傳 undefined 且不 spawn 2ms
+ ✓ tests/supervisor-health/launch-log-lock.test.ts > launchDaemon：成功開啟 log 後 spawn detached daemon 並關閉父 fd 1ms
+ ✓ tests/supervisor-health/launch-log-lock.test.ts > launchDaemon：非共享鎖錯誤向上拋出 1ms
+ ✓ tests/autopilot-llm.test.ts > callAgent > 回傳 model 的 message content 2ms
+ ✓ tests/autopilot-llm.test.ts > callAgent > 無 url → 空字串（fail-open） 0ms
+ ✓ tests/autopilot-llm.test.ts > callAgent > http 非 2xx → 空字串（fail-open） 0ms
+ ✓ tests/autopilot-llm.test.ts > callAgent > fetch 例外 → 空字串（fail-open） 0ms
+ ✓ tests/autopilot-llm.test.ts > callAgent > callAgent 回傳 text 與 usage total_tokens 0ms
+ ✓ tests/autopilot-llm.test.ts > callAgent > 無 usage 欄位時 totalTokens 為 0 0ms
+ ✓ tests/digest-deliveries.test.ts > 今日交付：本地日內 task-done 前 5 筆＋等 N 筆，長標題截斷 5ms
+ ✓ tests/digest-deliveries.test.ts > 零 task-done／缺檔 → 空（整段省略） 3ms
+ ✓ tests/digest-deliveries.test.ts > GOAL 行：取 GOAL.md 首個非標題行截 40 字；缺檔回 null 3ms
+ ✓ tests/shadow-price.test.ts > shadowCostUsd：free 層檔位（devin 同門超額、oc flash） 2ms
+ ✓ tests/shadow-price.test.ts > shadowCostUsd：quota 層檔位（codex 三分身各價、xhigh 同 terra、grok） 0ms
+ ✓ tests/shadow-price.test.ts > shadowCostUsd：真金層（opencode/claude）null——已在 billed 帳不重複計 0ms
+ ✓ tests/shadow-price.test.ts > shadowTotals：分層加總，零記錄層為 0 0ms
+ ✓ tests/commit-hash.test.ts > cwd＝repo 根 → 回傳 HEAD hash（正常量測不受影響） 351ms
+ ✓ tests/commit-hash.test.ts > cwd＝repo 內子目錄（toplevel 不符）→ undefined，不回外層 repo 的 HEAD 252ms
+fatal: cannot change to 'C:\Users\ADMINI~1\AppData\Local\Temp\adng-ch-not-exist-xyz': No such file or directory
+ ✓ tests/commit-hash.test.ts > git 指令失敗（目錄不存在等）→ undefined（既有容錯語意不變） 48ms
+ ✓ tests/events-rotate-failure.test.ts > events.jsonl 保尾輪替寫入失敗 → append 不拋、新事件本身仍落地（觀測治理故障不可反殺主迴圈，鐵律 #4） 20ms
+ ✓ tests/devin-config-isolation.test.ts > ensureNoMcpImport：於 cwd 寫入 .devin/config.local.json，read_config_from 三個來源全關 4ms
+ ✓ tests/devin-config-isolation.test.ts > ensureNoMcpImport：冪等——內容已相同時不重寫檔案（mtime 不變） 2ms
+ ✓ tests/devin-config-isolation.test.ts > ensureNoMcpImport：cwd 下已有別的 .devin/config.local.json 內容 → 覆寫成關 MCP 版本 2ms
+ ✓ tests/engine-registry-command.test.ts > config engines.<tag>.command 必須傳到 adapter（不得退回裸名預設） 6ms
+ ✓ tests/windows-file-lock.test.ts > waitForChildLine：只以完整訊號行判定完成，不賭輪詢間隔 4ms
+ ✓ tests/windows-file-lock.test.ts > waitForChildLine：可注入 fake timer 精確驗證 timeout 邊界 2ms
+ ✓ tests/routing-state-atomic-failure.test.ts > rename 失敗時保留舊狀態且清除本次暫存檔 8ms
+ ✓ tests/engine-routing-report.test.ts > engine routing insertion point report > 盤點 pickReadyTask、事件派發與狀態讀寫入口 1ms
+ ✓ tests/engine-routing-report.test.ts > engine routing insertion point report > 標明戰績感知路由的最小改動點與 fallback 守門條件 0ms
+ ✓ tests/engine-routing-report.test.ts > engine routing insertion point report > 輸出檔案級變更清單且避開受限目錄 0ms
+ ✓ tests/verify-helpers.test.ts > composeJudgeDiff：短 diff 原文保留、檔案清單前置 2ms
+ ✓ tests/verify-helpers.test.ts > composeJudgeDiff：超長 diff 截尾並標示，清單仍完整 0ms
+ ✓ tests/verify-helpers.test.ts > composeJudgeDiff：nameStatus 空時不加頭（fail-open 等價原始 diff） 0ms
+ ✓ tests/mock-engine.test.ts > 依劇本輪流回應，耗盡後預設成功 3ms
+ ✓ tests/mock-engine.test.ts > preflight 恆 ok 0ms
+ ✓ tests/bot-reply.test.ts > buildReplyPayload > ephemeral 回覆使用 flags，不再傳已棄用的 ephemeral 欄位 2ms
+ ✓ tests/bot-reply.test.ts > buildReplyPayload > 一般回覆不附加 ephemeral flag 0ms
+ ✓ tests/note-filler-config.test.ts > note-filler 明確停用 OpenCode wall timeout 8ms
+ ✓ tests/smoke.test.ts > vitest runs 2ms
+
+ Test Files  128 passed (128)
+      Tests  1357 passed (1357)
+   Start at  12:48:45
+   Duration  252.04s (transform 4.53s, setup 794ms, import 13.55s, tests 214.86s, environment 11ms)
