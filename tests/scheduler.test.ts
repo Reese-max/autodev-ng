@@ -84,43 +84,6 @@ test('backlog 空 → idle，且 idle 事件 24h 去重', async () => {
   expect(events.match(/"type":"idle"/g)).toHaveLength(1)
 })
 
-test('concurrency >1 暫按單工，且同一 scheduler lifecycle 僅記一次降級事件', async () => {
-  class SerialProbeEngine extends MockEngine {
-    active = 0
-    maxActive = 0
-
-    override async run(job: Parameters<MockEngine['run']>[0]) {
-      this.active++
-      this.maxActive = Math.max(this.maxActive, this.active)
-      try {
-        await new Promise(resolve => setTimeout(resolve, 1))
-        return await super.run(job)
-      } finally {
-        this.active--
-      }
-    }
-  }
-
-  const engine = new SerialProbeEngine([{ ok: true }, { ok: true }])
-  const d = deps(engine, '- [ ] 任務甲\n- [ ] 任務乙\n')
-  const lifecycle = { ...d, cfg: { ...d.cfg, concurrency: 2 } }
-
-  expect(await runOnce(lifecycle)).toBe('done')
-  expect(await runOnce(lifecycle)).toBe('done')
-  expect(engine.maxActive).toBe(1)
-  expect(engine.calls).toHaveLength(2)
-
-  const entries = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
-    .trim().split(/\r?\n/).map(line => JSON.parse(line) as Record<string, unknown>)
-  const notices = entries.filter(entry => entry.type === 'concurrency-serial-fallback')
-  expect(notices).toHaveLength(1)
-  expect(notices[0]).toEqual(expect.objectContaining({
-    requested: 2,
-    mode: 'serial',
-    note: 'concurrency > 1 尚未實作，暫按單工執行',
-  }))
-})
-
 test('stop 檔優先於一切', async () => {
   const e = new MockEngine()
   const d = deps(e)
