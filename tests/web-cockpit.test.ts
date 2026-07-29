@@ -88,6 +88,67 @@ test('buildProjectSummary：heartbeat、成本、戰績與 backlog 各自 fail-o
   expect(noBacklog).toMatchObject({ state: 'idle', backlogOpen: 0, backlogBlocked: 0, todayCostUsd: 0 })
 })
 
+test('六面板回歸：來源全缺時艦隊摘要與四個駕駛艙端點均 fail-open', async () => {
+  const c = makeCtx('')
+  c.cfg.engines = {}
+  c.db.close()
+  rmSync(join(c.dir, 'run.db'))
+  rmSync(join(c.dir, 'backlog.md'))
+
+  expect(buildProjectSummary('p1', {
+    cfg: c.cfg, store: c.store, db: c.db, dbPath: join(c.dir, 'run.db'), localDayFn: localDay,
+  })).toMatchObject({
+    state: 'unknown', currentTask: null, todayCostUsd: 0, todayOk: 0, todayFail: 0,
+    backlogOpen: 0, backlogBlocked: 0,
+  })
+
+  const s = await startServer(c)
+  try {
+    const [engines, blocked, guardian, mechanisms] = await Promise.all([
+      fetch(`http://127.0.0.1:${s.port}/api/cockpit/engines`).then(r => r.json()),
+      fetch(`http://127.0.0.1:${s.port}/api/cockpit/blocked`).then(r => r.json()),
+      fetch(`http://127.0.0.1:${s.port}/api/cockpit/guardian`).then(r => r.json()),
+      fetch(`http://127.0.0.1:${s.port}/api/cockpit/mechanisms`).then(r => r.json()),
+    ])
+    expect(engines).toEqual({ engines: [], isolated: [] })
+    expect(blocked).toEqual({ blocked: [] })
+    expect(guardian).toEqual({ runs: [] })
+    expect(mechanisms).toEqual({ mergeRebased: 0, northstarReject: 0, engineIsolated: 0 })
+  } finally { s.close() }
+})
+
+test('六面板回歸：來源存在但零資料時回明確空狀態', async () => {
+  const c = makeCtx('')
+  c.cfg.engines = {}
+  writeFileSync(join(c.dir, 'engine-routing-state.json'), JSON.stringify({ isolated: {} }))
+  writeFileSync(join(c.dir, 'guardian-runs.jsonl'), '')
+  writeFileSync(join(c.dir, 'events.jsonl'), '')
+
+  expect(buildProjectSummary('p1', {
+    cfg: c.cfg, store: c.store, db: c.db, dbPath: join(c.dir, 'run.db'), localDayFn: localDay,
+  })).toMatchObject({
+    state: 'unknown', currentTask: null, todayCostUsd: 0, todayOk: 0, todayFail: 0,
+    backlogOpen: 0, backlogBlocked: 0,
+  })
+
+  const s = await startServer(c)
+  try {
+    const [engines, blocked, guardian, mechanisms] = await Promise.all([
+      fetch(`http://127.0.0.1:${s.port}/api/cockpit/engines`).then(r => r.json()),
+      fetch(`http://127.0.0.1:${s.port}/api/cockpit/blocked`).then(r => r.json()),
+      fetch(`http://127.0.0.1:${s.port}/api/cockpit/guardian`).then(r => r.json()),
+      fetch(`http://127.0.0.1:${s.port}/api/cockpit/mechanisms`).then(r => r.json()),
+    ])
+    expect(engines).toEqual({ engines: [], isolated: [] })
+    expect(blocked).toEqual({ blocked: [] })
+    expect(guardian).toEqual({ runs: [] })
+    expect(mechanisms).toEqual({ mergeRebased: 0, northstarReject: 0, engineIsolated: 0 })
+  } finally {
+    s.close()
+    c.db.close()
+  }
+})
+
 // ---------- (2) 引擎戰績 ----------
 test('GET /api/cockpit/engines：近 7 日統計＋隔離狀態＋cap；只出 allowlist 欄位', async () => {
   const c = makeCtx()
@@ -198,17 +259,22 @@ test('POST /api/backlog/reopen：無 token 403；有 token 移除 blocked 註記
     const body = await ok.json()
     expect(body.ok).toBe(true)
     expect(body.changed).toBe(true)
-    const md = readFileSync(join(c.dir, 'backlog.md'), 'utf8')
-    expect(md).not.toContain('adng:blocked')
-    expect(md).toContain('adng:autopilot') // 其他註記原樣保留
-    expect(md).toContain('卡住的任務')
-    expect(md).toContain('\r\n\r\n') // 重開不改寫原本換行格式
+    const reopenedMd = readFileSync(join(c.dir, 'backlog.md'), 'utf8')
+    expect(reopenedMd).not.toContain('adng:blocked')
+    expect(reopenedMd).toContain('adng:autopilot') // 其他註記原樣保留
+    expect(reopenedMd).toContain('卡住的任務')
+    expect(reopenedMd).toContain('\r\n\r\n') // 重開不改寫原本換行格式
 
     const again = await fetch(`http://127.0.0.1:${s.port}/api/backlog/reopen`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': TOKEN },
       body: JSON.stringify({ line: target.line, match: '卡住的任務' }),
     })
-    expect((await again.json()).changed).toBe(false)
+    expect(again.status).toBe(200)
+    expect(await again.json()).toEqual({ ok: true, changed: false })
+    expect(readFileSync(join(c.dir, 'backlog.md'), 'utf8')).toBe(reopenedMd)
+
+    const after = await (await fetch(`http://127.0.0.1:${s.port}/api/cockpit/blocked`)).json()
+    expect(after.blocked).toEqual([])
   } finally { s.close() }
 })
 
@@ -238,7 +304,9 @@ test('GET /api/cockpit/guardian：尾 10 筆 allowlist 欄位；缺檔回空', a
   try {
     const r = await (await fetch(`http://127.0.0.1:${s.port}/api/cockpit/guardian`)).json()
     expect(r.runs).toHaveLength(10)
-    expect(r.runs[0].summary).toBe('第11筆') // 最新在前
+    expect(r.runs.map((run: any) => run.summary)).toEqual(
+      Array.from({ length: 10 }, (_v, i) => `第${11 - i}筆`),
+    ) // 最近 10 筆，最新在前
     expect(r.runs[0].model).toBe('gpt-5.6-luna')
     expect(JSON.stringify(r)).not.toContain('fingerprint')
 
@@ -274,14 +342,17 @@ test('GET /api/cockpit/mechanisms：近 7 日三型計數；窗外不計；缺�
     const s2 = await startServer(c2)
     try {
       const zero = await (await fetch(`http://127.0.0.1:${s2.port}/api/cockpit/mechanisms`)).json()
-      expect(zero.mergeRebased).toBe(0)
+      expect(zero).toEqual({ mergeRebased: 0, northstarReject: 0, engineIsolated: 0 })
     } finally { s2.close() }
   } finally { s.close() }
 })
 
 // ---------- (6) 前端整合斷言（面板存在＋自動輪詢） ----------
-test('index.html 含駕駛艙四面板與艦隊卡片欄位渲染', () => {
+test('index.html 保留六個既有控制面板，並含四個駕駛艙面板與艦隊卡片欄位', () => {
   const html = readFileSync(join(__dirname, '..', 'web', 'index.html'), 'utf8')
+  for (const name of ['status', 'cost', 'backlog', 'log', 'lessons', 'goal']) {
+    expect(html).toContain(`data-panel="${name}"`)
+  }
   for (const marker of ['cockpit/engines', 'cockpit/blocked', 'cockpit/guardian', 'cockpit/mechanisms', 'backlog/reopen']) {
     expect(html).toContain(marker)
   }
