@@ -43,8 +43,8 @@ test('首頁艦隊卡片每 30 秒刷新資料，並顯示空狀態', async () =
   const document = new Document()
   const timers: Array<{ callback: () => unknown; ms: number }> = []
   let projects: any[] = [
-    { name: 'alpha', state: 'running', currentTask: '首輪資料', todayOk: 1, todayFail: 0, todayCostUsd: 0, backlogOpen: 1, backlogBlocked: 0, daemonAlive: true },
-    { name: 'beta', state: 'idle', todayOk: 0, todayFail: 1, todayCostUsd: 0, backlogOpen: 2, backlogBlocked: 1, daemonAlive: false },
+    { name: 'alpha', state: 'running', currentTask: '首輪資料', todayOk: 1, todayFail: 0, todayCostUsd: 0, backlogOpen: 1, backlogBlocked: 0, daemonAlive: true, daemonStatus: 'ALIVE' },
+    { name: 'beta', state: 'idle', todayOk: 0, todayFail: 1, todayCostUsd: 0, backlogOpen: 2, backlogBlocked: 1, daemonAlive: false, daemonStatus: 'DEAD' },
     { name: 'gamma', state: 'idle', todayOk: 2, todayFail: 0, todayCostUsd: 0, backlogOpen: 0, backlogBlocked: 0, daemonAlive: true },
   ]
   const context = {
@@ -61,6 +61,8 @@ test('首頁艦隊卡片每 30 秒刷新資料，並顯示空狀態', async () =
 
   const cards = document.getElementById('projectCards')
   expect(cards.innerHTML).toContain('alpha')
+  expect(cards.innerHTML).toContain('DEAD')
+  expect(cards.innerHTML).not.toContain('daemon 死')
   expect(cards.innerHTML.match(/data-project=/g)).toHaveLength(3)
 
   const pollTimer = timers.find(timer => timer.ms === 30000)

@@ -13,10 +13,12 @@ import { existsSync, readFileSync, writeFileSync, rmSync, openSync, mkdirSync } 
 import { fileURLToPath, pathToFileURL, URL as NodeURL } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import Database from 'better-sqlite3'
+import { fleetStatusFromLockPid } from '../src/engines/fleet-status.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const DIST_CLI = resolve(HERE, '../dist/cli.js')
 export const INDEX_HTML = resolve(HERE, 'index.html')
+export { fleetStatusFromLockPid }
 
 // ---------- argv ----------
 // M10.5 Task 7：--configs-dir 與 --config 互斥（main() 優先 configsDir 分流，鏡像 src/bot/index.ts 慣例）。
@@ -169,13 +171,15 @@ export function buildProjectSummary(name, ctx) {
     backlogBlocked = tasks.filter(t => t.status === 'blocked').length
   } catch { /* fail-open */ }
 
+  const daemonStatus = readDaemonLockOwner(ctx.cfg.dataDir)
   return {
     name,
     state: typeof heartbeat?.state === 'string' ? heartbeat.state : 'unknown',
     ts,
     currentTask: heartbeat?.currentTask ?? null,
     todayCostUsd, todayOk, todayFail, backlogOpen, backlogBlocked,
-    daemonAlive: readDaemonLockOwner(ctx.cfg.dataDir) === 'alive',
+    daemonStatus,
+    daemonAlive: daemonStatus === 'ALIVE',
   }
 }
 
@@ -204,17 +208,15 @@ function defaultIsPidAlive(pid) {
 /** 唯讀讀取真 daemon.lock 的持有者存活狀態（審查修正 HIGH）。daemon.lock 目錄與 pid.json 格式
  * 沿用 src/lock.ts／cli.ts cmdDaemon（lockDir = join(dataDir, 'daemon.lock')，pid.json = { pid, startedAt }）。
  * 這是「讀狀態」非「搶鎖」——不 mkdir/rename/寫入，只讀 pid.json + process.kill(pid,0) 驗活，符合鐵律 #1
- * （web 是遙控器）。缺檔/壞檔/pid 非法一律回 'unknown'（fallback：無法判定，交由呼叫端保守處理）。 */
+ * （web 是遙控器）。缺檔/壞檔/pid 非法一律回 'UNKNOWN'（fallback：無法判定，交由呼叫端保守處理）。 */
 export function readDaemonLockOwner(dataDir, isPidAliveFn = defaultIsPidAlive) {
   const pidFile = join(dataDir, 'daemon.lock', 'pid.json')
-  if (!existsSync(pidFile)) return 'unknown'
+  if (!existsSync(pidFile)) return 'UNKNOWN'
   try {
     const parsed = JSON.parse(readFileSync(pidFile, 'utf8'))
-    const pid = parsed && parsed.pid
-    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return 'unknown'
-    return isPidAliveFn(pid) ? 'alive' : 'dead'
+    return fleetStatusFromLockPid(parsed && parsed.pid, isPidAliveFn)
   } catch {
-    return 'unknown'
+    return 'UNKNOWN'
   }
 }
 
@@ -453,7 +455,7 @@ export async function spawnDaemonStart(state, spawnFn, cfgPath, dataDir, stopFil
   // 活性判定改查真 lock（審查修正 HIGH）：不只信本 web 進程的 in-memory child——daemon 可能被 CLI
   // 直接啟動、或 web server 重啟過（state.daemon 歸零）。真 daemon.lock 被活著的進程持有 → 直接回
   // 「已在執行中」，不清 stopFile、不 spawn（否則會誤清使用者的停止令＋新 daemon 撞 lock 瞬退但回假 202）。
-  if (isAlive(state.daemon) || lockOwnerFn(dataDir) === 'alive') {
+  if (isAlive(state.daemon) || lockOwnerFn(dataDir) === 'ALIVE') {
     return { alreadyRunning: true, pid: state.daemon?.pid }
   }
   // 確認無活 daemon 後才開關語意：start＝「恢復運作」，清掉既有 stopFile，否則新 daemon 第一輪就會

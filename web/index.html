@@ -519,7 +519,11 @@
           <div class="panelErr">讀取失敗:${esc(p.error)}</div></div>`
       }
       const blockedBadge = p.backlogBlocked > 0 ? `<span class="badge badge-yellow num">blocked ${p.backlogBlocked}</span>` : ''
-      const daemonBadge = p.daemonAlive ? '<span class="badge badge-green">daemon</span>' : '<span class="badge badge-red">daemon 死</span>'
+      const daemonBadge = p.daemonStatus === 'ALIVE' || (!p.daemonStatus && p.daemonAlive)
+        ? '<span class="badge badge-green">daemon</span>'
+        : p.daemonStatus === 'DEAD' || (!p.daemonStatus && !p.daemonAlive)
+          ? '<span class="badge badge-red">DEAD</span>'
+          : '<span class="badge badge-yellow">daemon ?</span>'
       return `<button type="button" class="fleet-card" data-project="${esc(p.name)}">
         <div class="fleet-id"><span class="dot dot-${esc(p.state)}"></span><span class="name">${esc(p.name)}</span></div>
         <div class="fleet-task ${p.currentTask ? '' : 'none'}">${p.currentTask ? esc(String(p.currentTask).slice(0, 90)) : '待命中'}</div>

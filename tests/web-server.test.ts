@@ -14,7 +14,7 @@ const mod: any = await import(webServerPath)
 const {
   parseArgs, makeToken, hasValidToken, readHeartbeat, readEventsTail, readDlqCount,
   readRecentAttempts, buildStatusPayload, createChildState, spawnRunOnce, spawnDaemonStart,
-  stopDaemon, createServer, readDaemonLockOwner, readBotAlive, readSilencedUntil, INDEX_HTML,
+  stopDaemon, createServer, readDaemonLockOwner, fleetStatusFromLockPid, readBotAlive, readSilencedUntil, INDEX_HTML,
   loadOrCreateToken, buildBotDeps,
 } = mod
 
@@ -272,28 +272,36 @@ test('spawnDaemonStart：spawn 後 daemon 快退 exit 0（800ms 內）→ 仍回
 })
 
 // ---------- daemon 活性改查真 lock（審查修正 HIGH） ----------
+test('fleetStatusFromLockPid：可注入 PID 判活；活 PID 不可顯示 DEAD，死 PID 維持 DEAD', () => {
+  const queried: number[] = []
+  expect(fleetStatusFromLockPid(4321, (pid: number) => { queried.push(pid); return true })).toBe('ALIVE')
+  expect(fleetStatusFromLockPid(4321, () => false)).toBe('DEAD')
+  expect(fleetStatusFromLockPid('4321', () => true)).toBe('UNKNOWN')
+  expect(queried).toEqual([4321])
+})
+
 test('readDaemonLockOwner：讀 dataDir/daemon.lock/pid.json（既有格式）+ 可注入 kill 探測', () => {
   const dir = tmp('adng-web-lock-')
   // 缺 pid.json → unknown
-  expect(readDaemonLockOwner(dir, () => true)).toBe('unknown')
+  expect(readDaemonLockOwner(dir, () => true)).toBe('UNKNOWN')
   // 建 daemon.lock 目錄 + pid.json（沿用 src/lock.ts writeOwnPidFile 格式）
   const { mkdirSync } = require('node:fs')
   mkdirSync(join(dir, 'daemon.lock'))
   writeFileSync(join(dir, 'daemon.lock', 'pid.json'), JSON.stringify({ pid: 4321, startedAt: '2026-01-01T00:00:00Z' }))
-  expect(readDaemonLockOwner(dir, () => true)).toBe('alive')   // 探測回活
-  expect(readDaemonLockOwner(dir, () => false)).toBe('dead')   // 探測回死
+  expect(readDaemonLockOwner(dir, () => true)).toBe('ALIVE')   // 探測回活
+  expect(readDaemonLockOwner(dir, () => false)).toBe('DEAD')   // 探測回死
   // 壞 pid（非正整數）→ unknown
   writeFileSync(join(dir, 'daemon.lock', 'pid.json'), JSON.stringify({ pid: 'x' }))
-  expect(readDaemonLockOwner(dir, () => true)).toBe('unknown')
+  expect(readDaemonLockOwner(dir, () => true)).toBe('UNKNOWN')
 })
 
-test('spawnDaemonStart：真 lock 判定為 alive（即使 state.daemon=null，如 CLI 直啟／web 重啟）→ 回 already running，不清 stopFile、不 spawn', async () => {
+test('spawnDaemonStart：真 lock 判定為 ALIVE（即使 state.daemon=null，如 CLI 直啟／web 重啟）→ 回 already running，不清 stopFile、不 spawn', async () => {
   const dir = tmp('adng-web-lock-alive-')
   const stopFile = join(dir, '.adng.stop')
   writeFileSync(stopFile, 'user-stop') // 使用者稍早寫入的停止令，不可被誤清
   const state = createChildState() // state.daemon = null（模擬 web 重啟或 daemon 由 CLI 啟動）
   const { spawnFn, created } = fakeSpawn()
-  const r = await spawnDaemonStart(state, spawnFn, 'cfg.json', dir, stopFile, { ...FAST, lockOwnerFn: () => 'alive' })
+  const r = await spawnDaemonStart(state, spawnFn, 'cfg.json', dir, stopFile, { ...FAST, lockOwnerFn: () => 'ALIVE' })
   expect(r.alreadyRunning).toBe(true)
   expect(existsSync(stopFile)).toBe(true)   // stopFile 未被清
   expect(created.length).toBe(0)            // 未 spawn
