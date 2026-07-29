@@ -22,7 +22,7 @@
   "globalDailyHardUsd": 40,
   "maxAttempts": 6,
   "perpetual": true,
-  "defaultEngine": "opencode",
+  "defaultEngine": "devin",
   "engineRotation": [
     "devin",
     "oc-deepseek",
@@ -37,11 +37,6 @@
   ],
   "discordChannelId": "1492793288514863164",
   "engines": {
-    "opencode": {
-      "adapter": "opencode",
-      "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe",
-      "timeoutMs": 0
-    },
     "devin": {
       "adapter": "devin",
       "command": "C:/Users/Administrator/AppData/Local/devin/cli/bin/devin.exe",
