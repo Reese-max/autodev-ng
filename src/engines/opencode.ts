@@ -87,10 +87,7 @@ export class OpencodeEngine implements Engine {
       return { ok: false, output: tailErr(r), costUsd: p.cost, failureReason: 'empty-output：exit 0 但無 text/step_finish（≠ 成功）' }
     }
     const output = tail(p.text)
-    // CLI 原生 usage 行（如 'tokens in=409412 out=1778 total=…'）；取最後一次出現（多段對話取終值）。
-    const m = [...r.stdout.matchAll(/tokens in=(d+) out=(d+)/g)].pop()
-    const tokensIn = m ? Number(m[1]) : undefined
-    const tokensOut = m ? Number(m[2]) : undefined
+    const { tokensIn, tokensOut } = parseTokensLine(r.stdout)
     const after = this.getCommitHash(job.projectPath)
     if (after === undefined || after === before) {
       return { ok: false, output, costUsd: p.cost, failureReason: 'no-commit(phantom completion?)', tokensIn, tokensOut }
@@ -154,3 +151,10 @@ function tailErr(r: { stdout: string; stderr: string }): string {
 }
 
 function tail(s: string, n = 2000): string { return s.length > n ? s.slice(-n) : s }
+
+/** CLI 原生 usage 行解析（如 'tokens in=409412 out=1778 total=…'）；取最後一次出現（多段對話取終值）。
+ * 2026-07-29 修：原 regex 的 \d 曾被寫入時轉義吃掉成字面 d，27 輪 token 全漏記——抽成可測函數防回歸。 */
+export function parseTokensLine(stdout: string): { tokensIn?: number; tokensOut?: number } {
+  const m = [...stdout.matchAll(/tokens in=(\d+) out=(\d+)/g)].pop()
+  return m ? { tokensIn: Number(m[1]), tokensOut: Number(m[2]) } : {}
+}

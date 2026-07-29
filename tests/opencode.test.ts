@@ -201,3 +201,10 @@ test('preflight：exit 0 但零輸出（silent-fail 形貌）判失敗', async (
   expect(r.ok).toBe(false)
   expect(r.detail).toContain('零輸出')
 })
+
+test('parseTokensLine：抓 CLI usage 行、多段取終值、無 usage 回空（2026-07-29 轉義吃字回歸鎖）', async () => {
+  const { parseTokensLine } = await import('../src/engines/opencode.js')
+  expect(parseTokensLine('...\ntokens in=409412 out=1778 total=412398 | model\n')).toEqual({ tokensIn: 409412, tokensOut: 1778 })
+  expect(parseTokensLine('tokens in=1 out=2\n中段\ntokens in=286901 out=1197 total=x')).toEqual({ tokensIn: 286901, tokensOut: 1197 })
+  expect(parseTokensLine('無 usage 行的輸出')).toEqual({})
+})
