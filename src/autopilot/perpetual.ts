@@ -12,6 +12,7 @@ import { discoverProblems, type DiscoverResult, type RankedProblem } from './dis
 import { parseGoal } from './goal.js'
 import { callAgent } from './llm.js'
 import { authorGoal, isAutoGoal, loadPerpetualState, savePerpetualState } from './author.js'
+import { gateAuthoredGoal, type GoalQualityGateResult } from './goal-quality-gate.js'
 import { runGoalWithDeps, type SessionResult } from './session.js'
 import { collectSurvey, hasSurveySources } from './survey-sources.js'
 import { readRecentGoalRoiSummary, settleProblemRoi } from './roi.js'
@@ -33,6 +34,7 @@ export interface PerpetualHooks {
   now(): Date
   discover(): Promise<DiscoverResult | undefined>
   author(problem: RankedProblem, fingerprint: string): Promise<string | null>
+  gateAuthoredGoal(md: string): Promise<GoalQualityGateResult>
   runSession(opts: { discovered?: DiscoverResult }): Promise<SessionResult | 'no-goal' | 'lock-busy'>
   billedToday(): number
 }
@@ -153,6 +155,7 @@ async function runBody(
     .filter(r => r.value >= threshold).slice(0, 3)
 
   let authored: { md: string; fp: string; title: string } | undefined
+  const qualityRejected = new Set<string>()
   for (const row of candidates) {
     const problem: RankedProblem = {
       title: row.title, lens: row.lens, value: row.value,
@@ -161,15 +164,31 @@ async function runBody(
     // 逐案自我隔離：單一候選 author throw 不得中斷其餘候選（fail-open per-attempt）。
     let md: string | null = null
     try { md = await hooks.author(problem, row.fingerprint) } catch { md = null }
-    if (md) { authored = { md, fp: row.fingerprint, title: row.title }; break }
+    if (!md) continue
+    let gate: GoalQualityGateResult
+    try {
+      gate = await hooks.gateAuthoredGoal(md)
+    } catch (error) {
+      gate = { ok: false, reason: `verify-unverifiable: gate ${String(error).slice(0, 240)}` }
+    }
+    if (!gate.ok) {
+      qualityRejected.add(row.fingerprint)
+      ledger.setStatus(row.fingerprint, 'deferred', `goal-quality-reject:${gate.reason}`)
+      quiet(() => events.append('perpetual-goal-rejected', { fingerprint: row.fingerprint, title: row.title, reason: gate.reason }))
+      continue
+    }
+    authored = { md, fp: row.fingerprint, title: row.title }
+    break
   }
 
   if (!authored) {
-    for (const row of candidates) ledger.setStatus(row.fingerprint, 'deferred', 'goal-authoring-failed')
+    for (const row of candidates) {
+      if (!qualityRejected.has(row.fingerprint)) ledger.setStatus(row.fingerprint, 'deferred', 'goal-authoring-failed')
+    }
     // finding 2：candidates 空（全部 value<門檻，author 從未被呼叫）與「author 全試過但皆回 null」
     // 是不同原因，拆開回報。finding 1：兩者都真的呼叫過 hooks.discover()，須武裝冷卻（同 discover-empty
     // 分支慣例），否則 daemon 下一個 idle tick 立刻重跑 discover（LLM 呼叫）直到燒穿當日額度。
-    const reason = candidates.length === 0 ? 'below-threshold' : 'goal-authoring-failed'
+    const reason = candidates.length === 0 ? 'below-threshold' : qualityRejected.size ? 'goal-quality-rejected' : 'goal-authoring-failed'
     quiet(() => events.append('perpetual-no-case', { reason }))
     state.consecutiveEmpty++
     state.lastSessionTs = now.toISOString()
@@ -286,6 +305,7 @@ export async function maybeRunPerpetual(
           onEvent: (type, data) => quiet(() => deps.events.append(type, data)),
           northstar: ((): string => { try { return readFileSync(join(cfg.dataDir, 'NORTHSTAR.md'), 'utf8') } catch { return '' } })() || undefined,
         }),
+    gateAuthoredGoal: md => gateAuthoredGoal(md, cfg),
     runSession: (opts) => runGoalWithDeps(deps, notifier, cfg, opts),
     billedToday: () => deps.db.billedCostForLocalDay(localDay(new Date().toISOString(), offset), offset, subscriptionTags(cfg))
   }

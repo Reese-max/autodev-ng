@@ -63,6 +63,7 @@ function cycleHooks(outcome: GoalOutcome): PerpetualHooks {
     now: () => END,
     discover: vi.fn(async () => ({ survey: '', ranked: [] })),
     author: vi.fn(async () => null),
+    gateAuthoredGoal: vi.fn(async () => ({ ok: true as const, verifyCommand: 'npm test' })),
     runSession: vi.fn(async () => ({ goalId: 'g1', outcome })),
     billedToday: () => 0
   }

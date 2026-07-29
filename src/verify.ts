@@ -11,7 +11,7 @@ const COMMAND_NOT_FOUND_RE = /not recognized|不是內部或外部命令|command
 export async function runVerify(opts: {
   command: string | undefined
   cwd: string
-  timeoutMs: number
+  timeoutMs: number; env?: Record<string, string>
 }): Promise<VerifyOutcome> {
   if (!opts.command || opts.command.trim() === '') return { status: 'skip', detail: 'no verifyCommand configured' }
   const tokens = tokenize(opts.command)
@@ -20,7 +20,7 @@ export async function runVerify(opts: {
   if (!commandExists(command)) {
     return { status: 'skip', detail: `verify infra failure（command-not-found: ${command}，探測法）` }
   }
-  const r = await runProcess({ command, args, cwd: opts.cwd, stdinText: '', timeoutMs: opts.timeoutMs })
+  const r = await runProcess({ command, args, cwd: opts.cwd, stdinText: '', timeoutMs: opts.timeoutMs, env: opts.env })
   if (r.timedOut) return { status: 'skip', detail: `verify timeout ${opts.timeoutMs}ms（不算 FAIL，需告警）` }
   if (r.exitCode === 0) return { status: 'pass', detail: `ok ${r.durationMs}ms` }
   const notFoundDetail = commandNotFoundDetail(r)

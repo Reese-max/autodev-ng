@@ -3,7 +3,6 @@ import { resolve, sep, join } from 'node:path'
 import type { Config } from '../types.js'
 import type { RankedProblem } from './discover.js'
 import { parseGoal } from './goal.js'
-import { runVerify } from '../verify.js'
 
 export type { RankedProblem }
 
@@ -48,20 +47,10 @@ function isInProject(projectPath: string, rel: string): boolean {
   return existsSync(abs)
 }
 
-export type RedCheckOutcome = 'red' | 'green' | 'broken'
-
 export interface AuthorGateOpts {
-  /** 紅燈檢查：執行候選驗收指令。red=非零退出（期望）、green=已綠（空洞）、broken=檢查故障。 */
-  redCheck?: (command: string) => Promise<RedCheckOutcome>
   onEvent?: (type: string, data: Record<string, unknown>) => void
   /** 北極星價值判準全文（硬閘）：設定時 author 須先自檢對齊，對不回 → REJECT → 不立案。 */
   northstar?: string
-}
-
-// 預設紅燈檢查走 runVerify（沿用 verifyTimeoutMs；timeout/command-not-found 皆 skip → broken）。
-async function defaultRedCheck(command: string, cfg: Config): Promise<RedCheckOutcome> {
-  const o = await runVerify({ command, cwd: cfg.projectPath, timeoutMs: cfg.verifyTimeoutMs })
-  return o.status === 'fail' ? 'red' : o.status === 'pass' ? 'green' : 'broken'
 }
 
 export async function authorGoal(
@@ -86,22 +75,11 @@ export async function authorGoal(
   let objective = objMatch?.[1]?.trim()
   if (!objective) return null
 
-  // 專屬驗收 + 紅燈檢查。任何不合格/故障一律 fail-open 沿用全域 verifyCommand（現行為）。
+  // 專屬驗收指令必須含 fingerprint；實測由 perpetual 寫檔前的隔離品質閘執行。
   let verifyCommand = cfg.verifyCommand
   const candidate = raw.match(/^VERIFY:\s*(.+)$/im)?.[1]?.trim()
   if (candidate && candidate.includes(fingerprint)) {
-    let outcome: RedCheckOutcome
-    try {
-      outcome = await (opts.redCheck ? opts.redCheck(candidate) : defaultRedCheck(candidate, cfg))
-    } catch { outcome = 'broken' }
-    emit('author-red-check', { fingerprint, outcome, command: candidate })
-    if (outcome === 'red') {
-      verifyCommand = candidate
-    } else if (outcome === 'green') {
-      // 候選驗收立案當下已綠＝空洞：改走 failing-test-first 協議
-      verifyCommand = candidate
-      objective = `首任務：先寫可重現問題的 failing test（紅燈），再實作轉綠。\n${objective}`
-    }
+    verifyCommand = candidate
   }
 
   const evMatch = raw.match(/EVIDENCE:\s*([\s\S]*)$/i)

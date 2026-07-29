@@ -52,6 +52,7 @@ function makeHooks(over: Partial<PerpetualHooks> = {}): PerpetualHooks {
     now: () => NOW,
     discover: vi.fn(async () => ({ survey: '', ranked: [] })),
     author: vi.fn(async () => null),
+    gateAuthoredGoal: vi.fn(async () => ({ ok: true as const, verifyCommand: 'npm test' })),
     runSession: vi.fn(async (): Promise<SessionResult> => achieved),
     billedToday: () => 0,
     ...over
@@ -275,6 +276,25 @@ describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {
     expect(evs).toContain('perpetual-goal-authored')
     expect(evs).toContain('perpetual-session-done')
     expect(notify).toHaveBeenCalledTimes(1)
+  })
+
+  test('品質閘拒絕 → 不寫 GOAL、不跑 session，台帳與事件保留具體原因', async () => {
+    const cfg = makeCfg(dir)
+    const fp = problemFingerprint('已綠驗收問題')
+    const gateAuthoredGoal = vi.fn(async () => ({ ok: false as const, reason: 'verify-green: ok 1ms' }))
+    const hooks = makeHooks({
+      discover: vi.fn(async () => ({ survey: '', ranked: [{ title: '已綠驗收問題', lens: 'tests', value: 8, rationale: 'r' }] })),
+      author: vi.fn(async () => autoGoalMd(fp, '修已綠驗收問題')),
+      gateAuthoredGoal
+    })
+    expect(await runPerpetualCycle(cfg, dir, events, async () => true, hooks)).toBe(false)
+    expect(gateAuthoredGoal).toHaveBeenCalledOnce()
+    expect(existsSync(cfg.goalFile!)).toBe(false)
+    expect(hooks.runSession).not.toHaveBeenCalled()
+    const ledger = new ProblemsLedger(join(dir, 'run.db'))
+    expect(ledger.get(fp)?.note).toBe('goal-quality-reject:verify-green: ok 1ms')
+    ledger.close()
+    expect(readEvents(dir).some(e => e.type === 'perpetual-goal-rejected' && e.reason === 'verify-green: ok 1ms')).toBe(true)
   })
 
   // 終審 finding 2/g：成案（GOAL 已落地、ledger in-progress）之後，runSession 無論 throw
