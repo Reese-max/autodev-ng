@@ -2,13 +2,13 @@
 
 ## 結論
 
-`src/*.ts` 頂層由 **2700 行**降至 **2057 行**，實際騰回 **643 行**。因此確認頂層嚴格低於
+`src/*.ts` 頂層由 **2700 行**降至 **2060 行**，實際騰回 **640 行**。因此確認頂層嚴格低於
 2250 行，且至少騰回 250 行。
 
 | 量測點 | 來源 | 頂層行數 | 與搬移前差異 |
 | --- | --- | ---: | ---: |
 | 搬移前 | `942554a00fdbed0b6666ff6f4a9bac140809fdce` | 2700 | 0 |
-| 搬移後 | 目前工作樹 `src/*.ts` | 2057 | -643 |
+| 搬移後 | 目前工作樹 `src/*.ts` | 2060 | -640 |
 
 搬移前基準是 `refactor(cli): 搬移子指令處理至子目錄`（`80825e5`）的直接前身；因此比較的是
 同一份 kernel 在實際搬移前後的檔案內容，而非 2700 行的匿名常數。
@@ -22,7 +22,7 @@
 搬移當下只改變頂層 `src/cli.ts`：406 行降至 21 行，騰回 385 行；其後 `src/proc.ts`
 為 Guardian 無活動看門狗增加 30 行安全邏輯，移除 `src/judge.ts` 的 diff 截斷一行，
 `src/scheduler.ts` 為簽名熔斷告警接線與 commit 自證行增加 7 行，`src/lock.ts` 為 Windows PID
-重用驗證增加 24 行，rebase-before-merge 與 digest blocked 清單再增 30 行，judge 驗收回饋閉環（db.lastFailureFor、scheduler 打回原因注入、verifier 檔案清單餵料）再增 20 行，免費起跑 zeroCostTags 再增 6 行，judge effort/timeout 可配置化再增 3 行，attempt duration_ms 觀測再增 12 行，目前淨騰回 254 行。併發基建 GOAL（2026-07-28）再把 notify.ts（137 行）與 proc.ts（153 行）整檔外移 src/engines/、新增 merge queue 與 concurrency 骨架共 9 行，降至 2162 行；上限同步收緊 2450→2250。digest 可讀性接線再增 5 行；token 觀測（RunResult usage＋tokens 欄＋digest 顯示）再增 16 行至 2183；影子帳接線（免費＋額度雙層）再增 5 行至 2188。此次再將 daemon 告警、冷卻表與日期回推純輔助外移至 `src/engines/daemon-alerts.ts`，`daemon.ts` 由 344 行降至 218 行；本次 mergeBack 收斂 rebase／ff 流程再減 5 行，頂層合計降至 2057 行；GOAL B 併發池餘 193 行。
+重用驗證增加 24 行，rebase-before-merge 與 digest blocked 清單再增 30 行，judge 驗收回饋閉環（db.lastFailureFor、scheduler 打回原因注入、verifier 檔案清單餵料）再增 20 行，免費起跑 zeroCostTags 再增 6 行，judge effort/timeout 可配置化再增 3 行，attempt duration_ms 觀測再增 12 行，目前淨騰回 254 行。併發基建 GOAL（2026-07-28）再把 notify.ts（137 行）與 proc.ts（153 行）整檔外移 src/engines/、新增 merge queue 與 concurrency 骨架共 9 行，降至 2162 行；上限同步收緊 2450→2250。digest 可讀性接線再增 5 行；token 觀測（RunResult usage＋tokens 欄＋digest 顯示）再增 16 行至 2183；影子帳接線（免費＋額度雙層）再增 5 行至 2188。此次再將 daemon 告警、冷卻表與日期回推純輔助外移至 `src/engines/daemon-alerts.ts`，`daemon.ts` 由 344 行降至 218 行；本次 mergeBack 收斂 rebase／ff 流程再減 5 行，頂層合計降至 2057 行；cached token 分離記帳（types+db）再增 3 行至 2060，GOAL B 併發池餘 190 行。
 
 ## 搬移位置核對
 
@@ -46,7 +46,7 @@
 | `src/backlog.ts` | 188 |
 | `src/cli.ts` | 21 |
 | `src/daemon.ts` | 218 |
-| `src/db.ts` | 172 |
+| `src/db.ts` | 173 |
 | `src/digest.ts` | 107 |
 | `src/events.ts` | 126 |
 | `src/globalcost.ts` | 40 |
@@ -54,11 +54,11 @@
 | `src/lock.ts` | 134 |
 | `src/preflight.ts` | 37 |
 | `src/scheduler.ts` | 342 |
-| `src/types.ts` | 168 |
+| `src/types.ts` | 170 |
 | `src/verifier.ts` | 99 |
 | `src/verify.ts` | 93 |
 | `src/worktree.ts` | 271 |
-| **總計** | **2057** |
+| **總計** | **2060** |
 
 ## 可重現驗證
 
@@ -72,5 +72,5 @@ npm run build
 ```
 
 第一個測試直接以 Git 讀取上述基準提交的 `src/*.ts`，並以相同計數函式讀取目前工作樹，斷言
-2700 → 2057、643 行騰回、<2250 與 ≥250，並逐檔比對上表及搬移目的地。第二個測試持續守住 ≤2250 的
+2700 → 2060、640 行騰回、<2250 與 ≥250，並逐檔比對上表及搬移目的地。第二個測試持續守住 ≤2250 的
 kernel 薄殼邊界；`kernel-budget` 仍保留既有 ≤2700 工作上限守門。

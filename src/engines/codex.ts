@@ -113,12 +113,13 @@ export class CodexEngine implements Engine {
     const output = tail(`${p.message}\n${usageLine(p.usage)}`)
     const tokensIn = p.usage?.input_tokens
     const tokensOut = p.usage?.output_tokens
+    const tokensCached = p.usage?.cached_input_tokens
 
     const after = this.getCommitHash(job.projectPath)
     if (after === undefined || after === before) {
-      return { ok: false, output, costUsd: 0, costUnknown: true, failureReason: 'no-commit(phantom completion?)', tokensIn, tokensOut }
+      return { ok: false, output, costUsd: 0, costUnknown: true, failureReason: 'no-commit(phantom completion?)', tokensIn, tokensOut, tokensCached }
     }
-    return { ok: true, output, costUsd: 0, costUnknown: true, commitHash: after, baseCommitHash: before, tokensIn, tokensOut }
+    return { ok: true, output, costUsd: 0, costUnknown: true, commitHash: after, baseCommitHash: before, tokensIn, tokensOut, tokensCached }
   }
 }
 

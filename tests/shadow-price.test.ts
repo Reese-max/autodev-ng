@@ -8,6 +8,9 @@ test('shadowCostUsd：free 層檔位（devin 同門超額、oc flash）', () => 
 
 test('shadowCostUsd：quota 層檔位（codex 三分身各價、xhigh 同 terra、grok）', () => {
   expect(shadowCostUsd('codex-sol', 1_000_000, 100_000)).toEqual({ usd: expect.closeTo(5 + 3), tier: 'quota' })
+  // cached 另計：95% 命中時 uncached 5% 全價＋cached 95% 一折
+  expect(shadowCostUsd('codex-sol', 1_000_000, 100_000, 950_000)).toEqual({ usd: expect.closeTo(0.05 * 5 + 0.95 * 0.5 + 0.1 * 30), tier: 'quota' })
+  expect(shadowCostUsd('codex-sol', 1_000_000, 0, 2_000_000)).toEqual({ usd: expect.closeTo(0.5), tier: 'quota' }) // cached>in 防呆：全按 cached 價
   expect(shadowCostUsd('codex-terra', 1_000_000, 100_000)).toEqual({ usd: expect.closeTo(2.5 + 1.5), tier: 'quota' })
   expect(shadowCostUsd('codex-terra-xhigh', 1_000_000, 100_000)).toEqual({ usd: expect.closeTo(2.5 + 1.5), tier: 'quota' }) // 同模型同價
   expect(shadowCostUsd('codex-luna', 1_000_000, 100_000)).toEqual({ usd: expect.closeTo(1 + 0.6), tier: 'quota' })

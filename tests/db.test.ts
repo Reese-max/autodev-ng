@@ -168,3 +168,11 @@ test('tokensIn/tokensOut：record 落地，歷史列 NULL；engineDayStats 聚�
   expect(stats.find(s => s.engine === 'oc-mimo')!.tokensIn).toBe(0) // NULL 計 0
   db.close()
 })
+
+test('tokensCached：record 落地、engineDayStats 聚合', () => {
+  const db = freshDb()
+  db.record({ taskId: 'c1', ok: true, costUsd: 0, detail: 'x', engine: 'codex-sol', tokensIn: 2_000_000, tokensOut: 10_000, tokensCached: 1_900_000, ts: '2026-07-29T01:00:00Z' })
+  const s = db.engineDayStats('2026-07-29').find(x => x.engine === 'codex-sol')!
+  expect(s.tokensCached).toBe(1_900_000)
+  db.close()
+})

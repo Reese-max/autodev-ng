@@ -117,12 +117,13 @@ export class DevinEngine implements Engine {
     const output = tail(`${r.stdout}\n${usageLine(exp)}`)
     const tokensIn = exp.final_metrics?.total_prompt_tokens
     const tokensOut = exp.final_metrics?.total_completion_tokens
+    const tokensCached = exp.final_metrics?.total_cached_tokens
     const after = this.getCommitHash(job.projectPath)
     if (after === undefined || after === before) {
       const hint = hasExecCommit(exp) ? '' : '；export 亦無 exec git commit 步驟'
-      return { ok: false, output, costUsd: 0, costUnknown: true, failureReason: `no-commit(phantom completion?)${hint}`, tokensIn, tokensOut }
+      return { ok: false, output, costUsd: 0, costUnknown: true, failureReason: `no-commit(phantom completion?)${hint}`, tokensIn, tokensOut, tokensCached }
     }
-    return { ok: true, output, costUsd: 0, costUnknown: true, commitHash: after, baseCommitHash: before, tokensIn, tokensOut }
+    return { ok: true, output, costUsd: 0, costUnknown: true, commitHash: after, baseCommitHash: before, tokensIn, tokensOut, tokensCached }
   }
 }
 

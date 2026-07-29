@@ -46,6 +46,8 @@ export interface RunResult {
    * opencode free 模型 fair-use）預警用——「免費」是錢不是量。 */
   tokensIn?: number
   tokensOut?: number
+  /** cache 命中部分（含於 tokensIn；影子帳按 cached 價計）。 */
+  tokensCached?: number
 }
 
 export interface PreflightResult { ok: boolean; detail: string }

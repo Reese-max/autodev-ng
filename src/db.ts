@@ -12,6 +12,7 @@ export interface AttemptRecord {
   /** 引擎自報 token（2026-07-29 免費層配額觀測）；解析不到/歷史列 NULL。 */
   tokensIn?: number
   tokensOut?: number
+  tokensCached?: number
 }
 
 /** M4 Task 3（成本記帳本地日界線）：純函數，把一個 UTC ISO 時戳依 offsetHours 平移後取
@@ -77,7 +78,7 @@ export class RunDb {
       }
     }
     // duration_ms／tokens migration（2026-07-28/29 觀測性）：同 engine 欄冪等手法；NULL＝歷史列。
-    for (const col of ['duration_ms', 'tokens_in', 'tokens_out']) {
+    for (const col of ['duration_ms', 'tokens_in', 'tokens_out', 'tokens_cached']) {
       if (!cols.some(c => c.name === col)) {
         try {
           this.db.exec(`ALTER TABLE attempts ADD COLUMN ${col} INTEGER`)
@@ -90,8 +91,8 @@ export class RunDb {
 
   record(r: AttemptRecord): void {
     this.db.prepare(
-      'INSERT INTO attempts(task_id, ts, ok, cost_usd, detail, engine, duration_ms, tokens_in, tokens_out) VALUES (?,?,?,?,?,?,?,?,?)'
-    ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail, r.engine ?? '', r.durationMs ?? null, r.tokensIn ?? null, r.tokensOut ?? null)
+      'INSERT INTO attempts(task_id, ts, ok, cost_usd, detail, engine, duration_ms, tokens_in, tokens_out, tokens_cached) VALUES (?,?,?,?,?,?,?,?,?,?)'
+    ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail, r.engine ?? '', r.durationMs ?? null, r.tokensIn ?? null, r.tokensOut ?? null, r.tokensCached ?? null)
   }
 
   /** 取 rowid（seq）最大一筆最近嘗試紀錄；空庫回 null。ok 欄位鏡像既有 record() 寫入慣例
@@ -154,11 +155,11 @@ export class RunDb {
 
   /** 每引擎日戰績（digest 路由決策依據）。engine 空欄＝M9.9 前歷史列，顯示 '(未標)'；派工數 DESC。
    * tokens 為引擎自報 usage 加總（NULL 歷史列計 0）——免費層配額觀測（2026-07-29）。 */
-  engineDayStats(day: string, offsetHours = 0): { engine: string; n: number; ok: number; costUsd: number; tokensIn: number; tokensOut: number }[] {
+  engineDayStats(day: string, offsetHours = 0): { engine: string; n: number; ok: number; costUsd: number; tokensIn: number; tokensOut: number; tokensCached: number }[] {
     const { startIso, endIso } = localDayUtcRange(day, offsetHours)
     return this.db.prepare(
-      "SELECT COALESCE(NULLIF(engine,''),'(未標)') AS engine, COUNT(*) AS n, COALESCE(SUM(ok),0) AS ok, COALESCE(SUM(cost_usd),0) AS costUsd, COALESCE(SUM(tokens_in),0) AS tokensIn, COALESCE(SUM(tokens_out),0) AS tokensOut FROM attempts WHERE ts >= ? AND ts < ? GROUP BY 1 ORDER BY n DESC"
-    ).all(startIso, endIso) as { engine: string; n: number; ok: number; costUsd: number; tokensIn: number; tokensOut: number }[]
+      "SELECT COALESCE(NULLIF(engine,''),'(未標)') AS engine, COUNT(*) AS n, COALESCE(SUM(ok),0) AS ok, COALESCE(SUM(cost_usd),0) AS costUsd, COALESCE(SUM(tokens_in),0) AS tokensIn, COALESCE(SUM(tokens_out),0) AS tokensOut, COALESCE(SUM(tokens_cached),0) AS tokensCached FROM attempts WHERE ts >= ? AND ts < ? GROUP BY 1 ORDER BY n DESC"
+    ).all(startIso, endIso) as { engine: string; n: number; ok: number; costUsd: number; tokensIn: number; tokensOut: number; tokensCached: number }[]
   }
 
   /** 加權輪替用：sinceIso 起各引擎 attempts 聚合（滾動窗）；空欄歷史列排除。 */
