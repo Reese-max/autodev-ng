@@ -4,7 +4,7 @@ import type { RunDb } from './db.js'
 import { countDlqLines, countVerifyAlertsToday } from './engines/digest-counts.js'
 import { digestDeliveryLines, digestGoalLine } from './engines/digest-deliveries.js'
 import { digestMechanismLines } from './engines/digest-mechanisms.js'
-import { freeTierShadowTotal } from './engines/shadow-price.js'
+import { shadowTotals } from './engines/shadow-price.js'
 import { digestQuotaLines } from './engines/today-attempts-view.js'
 
 export interface BuildDigestOpts {
@@ -51,9 +51,10 @@ export function buildDigest(opts: BuildDigestOpts): string {
   lines.push(...digestDeliveryLines(dataDir, isoDayUtc, offsetHours))
   // 每引擎戰績（路由決策依據）；零派工日自動省略。tokens＝引擎自報 usage（免費層配額觀測 2026-07-29），零值省略。
   for (const e of engineStats) lines.push(`  引擎 ${e.engine}：${e.ok}/${e.n} 成，$${e.costUsd.toFixed(4)}${e.tokensIn > 0 ? `，tokens ${fmtTokens(e.tokensIn)}/${fmtTokens(e.tokensOut)}` : ''}`)
-  // 影子帳（假價錢）：免費層 token 按市價 API 估值——「今天艦隊幫你省了多少」。零值省略。
-  const shadow = freeTierShadowTotal(engineStats)
-  if (shadow > 0) lines.push(`  免費層影子帳：市價估 $${shadow.toFixed(2)}，實付 $0（官方價 2026-07-29：devin $0.5/$2 每 M、oc 系 $0.14/$0.28）`)
+  // 影子帳：token 按官方市價估值（2026-07-29 檔位，來源見 engines/shadow-price.ts）。零值省略。
+  const shadow = shadowTotals(engineStats)
+  if (shadow.free > 0) lines.push(`  免費層影子帳：市價估 $${shadow.free.toFixed(2)}，實付 $0（devin $0.5/$2 每 M、oc 系 $0.14/$0.28）`)
+  if (shadow.quota > 0) lines.push(`  額度層影子帳：市價估 $${shadow.quota.toFixed(2)}，訂閱額度內（sol $5/$30、terra $2.5/$15、luna $1/$6、grok $1.25/$2.5）`)
   lines.push(...digestQuotaLines(engineStats, opts.engines)) // 今日額度消耗表；只在有 cap 設定時顯示（獨有資訊）
   lines.push(...digestMechanismLines(dataDir, isoDayUtc, offsetHours))
   // N=0 不印，避免雜訊；N>0 才浮出（鐵律 #4：fail-open-with-alert，不能只落 events.jsonl 沒人看）。
