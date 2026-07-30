@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { expect, test } from 'vitest'
+import { afterEach, expect, test } from 'vitest'
 import { BacklogStore, taskId } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
@@ -11,6 +11,14 @@ import { extractClaimedPaths, missingArtifacts } from '../src/engines/artifact-c
 import { runOnce, type Deps } from '../src/scheduler.js'
 import type { Engine, Job, PreflightResult, RunResult } from '../src/types.js'
 import { ConfigSchema } from '../src/types.js'
+
+const tempDirs: string[] = []
+const databases: RunDb[] = []
+
+afterEach(() => {
+  while (databases.length) databases.pop()!.close()
+  while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true, maxRetries: 5 })
+})
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }).trim()
@@ -47,6 +55,7 @@ class MockArtifactEngine implements Engine {
 
 function deps(engine: Engine): Deps {
   const dir = mkdtempSync(join(tmpdir(), 'adng-artifact-contract-'))
+  tempDirs.push(dir)
   initRepo(dir)
   const backlogFile = join(dir, 'BACKLOG.md')
   writeFileSync(backlogFile, '- [ ] 建立 tests/manual-goal-quality-metrics.py\n')
@@ -54,8 +63,10 @@ function deps(engine: Engine): Deps {
     projectPath: dir, backlogFile, dataDir: join(dir, 'data'), engine: 'mock',
     stopFile: join(dir, '.adng.stop'), worktreesDir: join(dir, 'worktrees'), maxAttempts: 2,
   })
+  const db = new RunDb(join(dir, 'run.db'))
+  databases.push(db)
   return {
-    cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')),
+    cfg, store: new BacklogStore(backlogFile), db,
     engines: { resolve: () => engine }, events: new EventLog(cfg.dataDir),
   }
 }
@@ -88,6 +99,12 @@ test('extractClaimedPaths：反斜線與 ./ 正規化', () => {
   ])
 })
 
+test('extractClaimedPaths：正規化後去重並保留首次宣稱順序', () => {
+  expect(extractClaimedPaths('`./src\\engines\\artifact-contract.ts`、src/engines/artifact-contract.ts')).toEqual([
+    'src/engines/artifact-contract.ts'
+  ])
+})
+
 test('missingArtifacts：base 已存在的路徑跳過', () => {
   expect(missingArtifacts(['./src\\existing.ts'], ['src/existing.ts'], [])).toEqual([])
 })
@@ -103,6 +120,7 @@ test('missingArtifacts：只保留 base 不存在且未變更的路徑', () => {
 
 test('firstMissingArtifact：變更檔只取 baseCommitHash..commitHash，不誤收後續 HEAD', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-artifact-range-'))
+  tempDirs.push(dir)
   initRepo(dir)
   const baseCommitHash = git(dir, ['rev-parse', 'HEAD'])
   writeFileSync(join(dir, 'other.txt'), 'other\n')
