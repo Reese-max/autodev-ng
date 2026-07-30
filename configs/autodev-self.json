@@ -24,21 +24,24 @@
       "model": "gpt-5.6-sol",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 5400000,
+      "effort": "xhigh"
     },
     "codex-luna": {
       "adapter": "codex",
       "model": "gpt-5.6-luna",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 5400000,
+      "effort": "high"
     },
     "codex-terra": {
       "adapter": "codex",
       "model": "gpt-5.6-terra",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 5400000,
+      "effort": "xhigh"
     },
     "codex-terra-xhigh": {
       "adapter": "codex",
@@ -46,7 +49,7 @@
       "effort": "xhigh",
       "costPerRunUsd": 2.43,
       "subscription": true,
-      "timeoutMs": 3600000
+      "timeoutMs": 5400000
     }
   },
   "discordChannelId": "1492793288514863164",
