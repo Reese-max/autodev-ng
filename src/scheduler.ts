@@ -4,6 +4,7 @@ import { localDay, type RunDb } from './db.js'
 import { loadIsolatedTagsForPick } from './engines/apply-stats-isolation.js'
 import { loadDailyAttemptCapContext } from './engines/daily-attempt-cap-gate.js'
 import { loadEngineStatsForWeighting } from './engines/adaptive-rotation.js'
+import { firstMissingArtifact } from './engines/artifact-contract-git.js'
 import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { enqueueMerge } from './engines/merge-queue.js'
@@ -164,6 +165,15 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
   db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached })
   if (!res.ok) engine.invalidatePreflight?.() // timeout/exit≠0/no-commit：引擎健康存疑，下輪重探（verify 拒收不算）
+
+  const missingArtifact = res.ok ? firstMissingArtifact(wt.cwd, res.output, res.baseCommitHash, res.commitHash) : undefined
+  if (missingArtifact) {
+    const reason = `artifact-missing:${missingArtifact}`
+    db.record({ taskId: task.id, ok: false, costUsd: 0, detail: reason, engine: engineTag, durationMs: Date.now() - runStartMs })
+    quiet(() => events.append('task-failed', { task: task.text, reason, outputTail: res.output.slice(-600) }))
+    quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
+    return resolveFailure({ cfg, store, db, events }, task, 'failed', reason)
+  }
 
   if (res.ok && verifier) {
     // verifier 本身故障（非 verify-fail / judge-mismatch 的明確拒絕）一律 pass-with-alert（鐵律 #4）：
