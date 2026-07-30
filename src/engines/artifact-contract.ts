@@ -1,4 +1,5 @@
 const SEGMENT = '[\\p{L}\\p{N}._@-]+'
+const GIT_RANGE_TOKEN_RE = /^[A-Za-z][A-Za-z0-9_-]*\.\.[A-Za-z][A-Za-z0-9_-]*$/
 // lookbehind 含 /、\、:（2026-07-30）：防止從絕對路徑中段重新匹配出假的 repo 相對路徑
 // （C:/Users/x/config.json 的 Users/x/config.json）——絕對路徑的跳過防呆會被這種殘段繞過。
 const BARE_PATH_RE = new RegExp(`(?<![\\p{L}\\p{N}._@\\\\/:-])(?:\\.[\\\\/])?(?:${SEGMENT}[\\\\/])+${SEGMENT}\\.[\\p{L}\\p{N}_-]+(?![\\p{L}\\p{N}._@-])`, 'gu')
@@ -26,7 +27,8 @@ export function extractClaimedPaths(text: string): string[] {
   const seen = new Set<string>()
   const add = (raw: string): void => {
     const path = toRepoRelative(normalizePath(raw))
-    if (path !== null && QUOTED_PATH_RE.test(path) && !seen.has(path)) {
+    // Git diff 範圍（例如 baseCommitHash..commitHash）不是交付物路徑，必須 fail-open。
+    if (path !== null && !GIT_RANGE_TOKEN_RE.test(path) && QUOTED_PATH_RE.test(path) && !seen.has(path)) {
       seen.add(path)
       paths.push(path)
     }

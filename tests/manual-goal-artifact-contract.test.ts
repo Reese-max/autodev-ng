@@ -106,6 +106,10 @@ test('extractClaimedPaths：無路徑回傳空陣列', () => {
   expect(extractClaimedPaths('完成必要修正，請重新驗證。')).toEqual([])
 })
 
+test('extractClaimedPaths：Git diff 範圍不是交付物路徑', () => {
+  expect(extractClaimedPaths('成功回報後使用 `baseCommitHash..commitHash` 對帳。')).toEqual([])
+})
+
 test('extractClaimedPaths：反斜線與 ./ 正規化', () => {
   expect(extractClaimedPaths('已完成 `./src\\engines\\artifact-contract.ts`。')).toEqual([
     'src/engines/artifact-contract.ts'
@@ -183,6 +187,18 @@ test('scheduler：交付齊全時維持 OK、驗收與 done 路徑', async () =>
   const d = deps(engine)
   let verified = false
   const result = await runOnce({ ...d, verifier: { check: async () => { verified = true; return { pass: true, alerts: [] } } } })
+  expect(result).toBe('done')
+  expect(verified).toBe(true)
+  expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [x]')
+  expect(readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')).toContain('task-done')
+})
+
+test('scheduler：成功回報的 diff 範圍字串不會變成缺件', async () => {
+  const engine = new MockArtifactEngine('baseCommitHash..commitHash', false)
+  const d = deps(engine)
+  let verified = false
+  const result = await runOnce({ ...d, verifier: { check: async () => { verified = true; return { pass: true, alerts: [] } } } })
+
   expect(result).toBe('done')
   expect(verified).toBe(true)
   expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [x]')
