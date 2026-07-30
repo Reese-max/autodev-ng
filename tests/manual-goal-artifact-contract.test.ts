@@ -89,6 +89,19 @@ test('extractClaimedPaths：note-filler 的 zh-TW 原句', () => {
   ])
 })
 
+// 2026-07-30 pa 實證回歸鎖：任務文字含 worktree 絕對路徑（WSL /mnt 形），每輪被誤判
+// artifact-missing 直到燒滿 blocked。worktrees/<id>/ 前綴須剝除還原 repo 相對路徑；
+// 純機器絕對路徑（碟符／mnt／home）不可執法，一律跳過。
+test('extractClaimedPaths：worktree 絕對路徑剝前綴還原 repo 相對', () => {
+  expect(extractClaimedPaths(
+    '將測試寫入 mnt/d/Users/x/Desktop/autodev-ng/data/pa/worktrees/15aac221/tests/test_targeted_mutation.py'
+  )).toEqual(['tests/test_targeted_mutation.py'])
+})
+
+test('extractClaimedPaths：機器絕對路徑不可執法一律跳過', () => {
+  expect(extractClaimedPaths('參考 `C:/Users/x/config.json` 與 `mnt/d/foo/bar.py` 及 home/u/a.ts')).toEqual([])
+})
+
 test('extractClaimedPaths：無路徑回傳空陣列', () => {
   expect(extractClaimedPaths('完成必要修正，請重新驗證。')).toEqual([])
 })

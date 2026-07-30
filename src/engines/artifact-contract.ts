@@ -1,9 +1,20 @@
 const SEGMENT = '[\\p{L}\\p{N}._@-]+'
-const BARE_PATH_RE = new RegExp(`(?<![\\p{L}\\p{N}._@-])(?:\\.[\\\\/])?(?:${SEGMENT}[\\\\/])+${SEGMENT}\\.[\\p{L}\\p{N}_-]+(?![\\p{L}\\p{N}._@-])`, 'gu')
+// lookbehind 含 /、\、:（2026-07-30）：防止從絕對路徑中段重新匹配出假的 repo 相對路徑
+// （C:/Users/x/config.json 的 Users/x/config.json）——絕對路徑的跳過防呆會被這種殘段繞過。
+const BARE_PATH_RE = new RegExp(`(?<![\\p{L}\\p{N}._@\\\\/:-])(?:\\.[\\\\/])?(?:${SEGMENT}[\\\\/])+${SEGMENT}\\.[\\p{L}\\p{N}_-]+(?![\\p{L}\\p{N}._@-])`, 'gu')
 const QUOTED_PATH_RE = new RegExp(`^(?:\\.[/])?(?:${SEGMENT}[/\\\\])*${SEGMENT}\\.[\\p{L}\\p{N}_-]+$`, 'u')
 
 function normalizePath(raw: string): string {
   return raw.trim().replace(/\\/g, '/').replace(/^(?:\.\/)+/, '')
+}
+
+/** 機器絕對路徑無法與 repo 相對 diff 清單比對（2026-07-30 pa 實證：任務文字含 worktree 絕對路徑
+ * → 每輪必誤判缺件）。先試剝 worktrees/<id>/ 前綴還原 repo 相對路徑；剝不出且帶絕對標記
+ * （碟符／leading slash／~、mnt、home）＝不可執法，回 null 跳過（fail-open）。 */
+function toRepoRelative(path: string): string | null {
+  const wt = /(?:^|\/)worktrees\/[^/]+\/(.+)$/.exec(path)
+  if (wt) return wt[1]!
+  return /^(?:[A-Za-z]:|\/|~\/|mnt\/|home\/)/.test(path) ? null : path
 }
 
 function isUrlPrefix(text: string, index: number): boolean {
@@ -14,8 +25,8 @@ export function extractClaimedPaths(text: string): string[] {
   const paths: string[] = []
   const seen = new Set<string>()
   const add = (raw: string): void => {
-    const path = normalizePath(raw)
-    if (QUOTED_PATH_RE.test(path) && !seen.has(path)) {
+    const path = toRepoRelative(normalizePath(raw))
+    if (path !== null && QUOTED_PATH_RE.test(path) && !seen.has(path)) {
       seen.add(path)
       paths.push(path)
     }
