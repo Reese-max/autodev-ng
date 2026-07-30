@@ -60,17 +60,45 @@ function deps(engine: Engine): Deps {
   }
 }
 
-test('extractClaimedPaths：僅接受反引號路徑或帶斜線副檔名的裸 token，並正規化', () => {
-  expect(extractClaimedPaths('已完成 `./src\\engines\\artifact-contract.ts`。建立 tests/manual-goal-quality-metrics.py；略過 README.md、tests/no-extension、src/output.ts@latest 與 https://example.com/docs/readme.md')).toEqual([
-    'src/engines/artifact-contract.ts', 'tests/manual-goal-quality-metrics.py'
+test('extractClaimedPaths：反引號路徑', () => {
+  expect(extractClaimedPaths('已完成 `src/engines/artifact-contract.ts`。')).toEqual([
+    'src/engines/artifact-contract.ts'
   ])
+})
+
+test('extractClaimedPaths：裸路徑', () => {
+  expect(extractClaimedPaths('已變更 src/engines/artifact-contract.ts。')).toEqual([
+    'src/engines/artifact-contract.ts'
+  ])
+})
+
+test('extractClaimedPaths：note-filler 的 zh-TW 原句', () => {
+  expect(extractClaimedPaths('建立 tests/manual-goal-quality-metrics.py')).toEqual([
+    'tests/manual-goal-quality-metrics.py'
+  ])
+})
+
+test('extractClaimedPaths：無路徑回傳空陣列', () => {
   expect(extractClaimedPaths('完成必要修正，請重新驗證。')).toEqual([])
 })
 
-test('missingArtifacts：只執法 baseHead 不存在且未出現在 changed files 的路徑', () => {
-  const claimed = ['./tests\\manual-goal-quality-metrics.py', 'src/existing.ts']
-  expect(missingArtifacts(claimed, ['./src\\existing.ts'], ['other.ts'])).toEqual(['tests/manual-goal-quality-metrics.py'])
-  expect(missingArtifacts(claimed, ['src/existing.ts'], ['./tests\\manual-goal-quality-metrics.py'])).toEqual([])
+test('extractClaimedPaths：反斜線與 ./ 正規化', () => {
+  expect(extractClaimedPaths('已完成 `./src\\engines\\artifact-contract.ts`。')).toEqual([
+    'src/engines/artifact-contract.ts'
+  ])
+})
+
+test('missingArtifacts：base 已存在的路徑跳過', () => {
+  expect(missingArtifacts(['./src\\existing.ts'], ['src/existing.ts'], [])).toEqual([])
+})
+
+test('missingArtifacts：changed files 已包含的路徑跳過', () => {
+  expect(missingArtifacts(['tests/manual-goal-quality-metrics.py'], [], ['./tests\\manual-goal-quality-metrics.py'])).toEqual([])
+})
+
+test('missingArtifacts：只保留 base 不存在且未變更的路徑', () => {
+  expect(missingArtifacts(['./tests\\manual-goal-quality-metrics.py', 'src/existing.ts'], ['./src\\existing.ts'], ['other.ts']))
+    .toEqual(['tests/manual-goal-quality-metrics.py'])
 })
 
 test('firstMissingArtifact：變更檔只取 baseCommitHash..commitHash，不誤收後續 HEAD', () => {
@@ -105,6 +133,18 @@ test('scheduler：缺件記 FAIL、跳過驗收、未 done 並保留 backlog', a
   expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [ ]')
   expect(readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')).not.toContain('task-done')
   expect(existsSync(join(d.cfg.worktreesDir, taskId('建立 tests/manual-goal-quality-metrics.py')))).toBe(true)
+})
+
+test('scheduler：多個缺件時 failureReason 固定採宣稱順序的第一件', async () => {
+  const engine = new MockArtifactEngine('tests/first-missing.py tests/second-missing.py', false)
+  const d = deps(engine)
+  const result = await runOnce({ ...d, verifier: { check: async () => ({ pass: true, alerts: [] }) } })
+
+  expect(result).toBe('failed')
+  expect(d.db.lastAttempt()).toMatchObject({
+    ok: false,
+    detail: 'artifact-missing:tests/first-missing.py'
+  })
 })
 
 test('scheduler：交付齊全時維持 OK、驗收與 done 路徑', async () => {
