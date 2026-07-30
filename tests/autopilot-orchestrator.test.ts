@@ -59,6 +59,27 @@ describe('runGoalSession', () => {
     expect(out).toMatchObject({ kind: 'stuck', reason: '沒框架' })
   })
 
+  // 2026-07-30 實證回歸鎖：GOAL 背景含「急救已完成」措辭，planner 口頭 ACHIEVED 而驗收檔不存在，
+  // 仍被記 achieved。planner 的 ACHIEVED 必須過 evalFn 機械驗收，紅燈不採信。
+  test('planner 口頭 ACHIEVED 但機械驗收紅 → 不採信，達上限轉 no-progress', async () => {
+    let evals = 0
+    const out = await runGoalSession(base({ objective: 'o', noProgressLimit: 2 }, {
+      planFn: async () => ({ kind: 'achieved' }),
+      evalFn: async () => { evals++; return { achieved: false, score: 0, detail: 'verify exit=1' } }
+    }))
+    expect(out.kind).toBe('no-progress')
+    expect(evals).toBe(2) // 每次口頭 ACHIEVED 都被強制驗證，而非首輪直接採信
+  })
+
+  test('planner 口頭 ACHIEVED、驗收第二輪轉綠 → 該輪才記 achieved', async () => {
+    let evals = 0
+    const out = await runGoalSession(base({ objective: 'o', noProgressLimit: 5 }, {
+      planFn: async () => ({ kind: 'achieved' }),
+      evalFn: async () => { evals++; return { achieved: evals >= 2, score: evals, detail: '' } }
+    }))
+    expect(out).toMatchObject({ kind: 'achieved', rounds: 2 })
+  })
+
   test('inner loop 不因 preflight-failed 無限緊迴圈：中止交還外層 no-progress 煞車', async () => {
     const out = await runGoalSession(base({ objective: 'o', noProgressLimit: 2 }, {
       planFn: async () => ({ kind: 'tasks', tasks: ['甲'] }),

@@ -58,7 +58,17 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
         ].join('\n')
       : `round ${round}`
     const planResult = await deps.planFn({ goal: deps.goal, repoSummary, history, lessonsText: deps.lessonsText })
-    if (planResult.kind === 'achieved') return { kind: 'achieved', rounds: round }
+    if (planResult.kind === 'achieved') {
+      // planner 口頭 ACHIEVED 不可信（2026-07-30 實證：GOAL 背景寫「急救已完成」即被誤判達標、
+      // 驗收檔不存在仍記 achieved）——一律過 evalFn 機械驗收；紅燈把 verify 輸出餵回下一輪。
+      const snap = await deps.evalFn(deps.cwd)
+      deps.onRound?.({ round, plan: planResult, snapshot: snap })
+      if (snap.achieved) return { kind: 'achieved', rounds: round }
+      history.push(`round ${round}: planner 宣告 ACHIEVED 但機械驗收未過（${snap.detail}）——不採信，繼續`)
+      noProgress++
+      if (noProgress >= deps.goal.noProgressLimit) return { kind: 'no-progress', rounds: round }
+      continue
+    }
     if (planResult.kind === 'stuck') return { kind: 'stuck', rounds: round, reason: planResult.reason }
 
     // tasks：append 進 backlog（autopilot 標記），逐條跑完該批
