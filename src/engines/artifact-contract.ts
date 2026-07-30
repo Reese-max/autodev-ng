@@ -1,5 +1,5 @@
 const SEGMENT = '[\\p{L}\\p{N}._@-]+'
-const BARE_PATH_RE = new RegExp(`(?<![\\p{L}\\p{N}._@-])(?:\\.[\\\\/])?(?:${SEGMENT}[\\\\/])+${SEGMENT}\\.[\\p{L}\\p{N}_-]+(?![\\p{L}\\p{N}._-])`, 'gu')
+const BARE_PATH_RE = new RegExp(`(?<![\\p{L}\\p{N}._@-])(?:\\.[\\\\/])?(?:${SEGMENT}[\\\\/])+${SEGMENT}\\.[\\p{L}\\p{N}_-]+(?![\\p{L}\\p{N}._@-])`, 'gu')
 const QUOTED_PATH_RE = new RegExp(`^(?:\\.[/])?(?:${SEGMENT}[/\\\\])*${SEGMENT}\\.[\\p{L}\\p{N}_-]+$`, 'u')
 
 function normalizePath(raw: string): string {

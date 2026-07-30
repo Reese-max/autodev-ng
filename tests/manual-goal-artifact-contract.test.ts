@@ -59,17 +59,17 @@ function deps(engine: Engine): Deps {
   }
 }
 
-test('extractClaimedPaths：反引號、裸路徑、zh-TW 敘述與無路徑', () => {
-  expect(extractClaimedPaths('已完成 `src\\engines\\artifact-contract.ts`。建立 tests/manual-goal-quality-metrics.py')).toEqual([
+test('extractClaimedPaths：僅接受反引號路徑或帶斜線副檔名的裸 token，並正規化', () => {
+  expect(extractClaimedPaths('已完成 `./src\\engines\\artifact-contract.ts`。建立 tests/manual-goal-quality-metrics.py；略過 README.md、tests/no-extension、src/output.ts@latest 與 https://example.com/docs/readme.md')).toEqual([
     'src/engines/artifact-contract.ts', 'tests/manual-goal-quality-metrics.py'
   ])
   expect(extractClaimedPaths('完成必要修正，請重新驗證。')).toEqual([])
 })
 
 test('missingArtifacts：只執法 baseHead 不存在且未出現在 changed files 的路徑', () => {
-  const claimed = ['tests/manual-goal-quality-metrics.py', 'src/existing.ts']
-  expect(missingArtifacts(claimed, ['src/existing.ts'], ['other.ts'])).toEqual(['tests/manual-goal-quality-metrics.py'])
-  expect(missingArtifacts(claimed, ['src/existing.ts'], ['tests/manual-goal-quality-metrics.py'])).toEqual([])
+  const claimed = ['./tests\\manual-goal-quality-metrics.py', 'src/existing.ts']
+  expect(missingArtifacts(claimed, ['./src\\existing.ts'], ['other.ts'])).toEqual(['tests/manual-goal-quality-metrics.py'])
+  expect(missingArtifacts(claimed, ['src/existing.ts'], ['./tests\\manual-goal-quality-metrics.py'])).toEqual([])
 })
 
 test('scheduler：缺件記 FAIL、跳過驗收、未 done 並保留 backlog', async () => {
