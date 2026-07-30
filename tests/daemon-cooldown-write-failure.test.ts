@@ -59,6 +59,7 @@ test('saveCooldownTable 寫入失敗（模擬磁碟故障）→ 告警照發、d
     cooldownMs: 1000,
     idleSleepMs: 5000,
     maxCycles: 1,
+    memFreeRatioFn: () => 1,
     sleepFn: async () => {}, // 測試不用真的等 idleSleepMs（避免撞 vitest 預設 test timeout）
   })
 

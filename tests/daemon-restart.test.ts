@@ -56,6 +56,7 @@ function baseOpts(d: Deps, notifier: Notifier, sleepCalls: number[], overrides: 
     lockDir: join(d.cfg.dataDir, '..', 'lock'),
     cooldownMs: 1000, idleSleepMs: 5000,
     sleepFn: fakeSleep(sleepCalls), maxCycles: 10,
+    memFreeRatioFn: () => 1,
     ...overrides,
   }
 }

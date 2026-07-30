@@ -62,6 +62,7 @@ function baseOpts(d: Deps, notifier: Notifier, sleepCalls: number[], overrides: 
     idleSleepMs: 5000,
     sleepFn: fakeSleep(sleepCalls),
     maxCycles: 10,
+    memFreeRatioFn: () => 1,
     ...overrides,
   }
 }
