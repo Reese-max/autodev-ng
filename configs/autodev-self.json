@@ -15,30 +15,30 @@
   "defaultEngine": "codex-sol",
   "engineRotation": [
     "codex-sol",
-    "codex-terra",
-    "codex-luna"
+    "codex-luna",
+    "codex-terra"
   ],
   "engines": {
     "codex-sol": {
       "adapter": "codex",
       "model": "gpt-5.6-sol",
-      "costPerRunUsd": 1,
+      "costPerRunUsd": 8.85,
       "subscription": true,
       "timeoutMs": 5400000,
-      "effort": "xhigh"
+      "effort": "max"
     },
     "codex-luna": {
       "adapter": "codex",
       "model": "gpt-5.6-luna",
-      "costPerRunUsd": 1,
+      "costPerRunUsd": 2.49,
       "subscription": true,
       "timeoutMs": 5400000,
-      "effort": "high"
+      "effort": "max"
     },
     "codex-terra": {
       "adapter": "codex",
       "model": "gpt-5.6-terra",
-      "costPerRunUsd": 1,
+      "costPerRunUsd": 2.43,
       "subscription": true,
       "timeoutMs": 5400000,
       "effort": "xhigh"
@@ -61,5 +61,5 @@
   "perpetualCooldownMs": 3600000,
   "judgeEffort": "xhigh",
   "judgeTimeoutMs": 180000,
-  "globalDailyHardUsd": 40
+  "globalDailyHardUsd": 60
 }
