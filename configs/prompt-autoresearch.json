@@ -38,7 +38,7 @@
       "adapter": "devin",
       "command": "C:/Users/Administrator/AppData/Local/devin/cli/bin/devin.exe",
       "costPerRunUsd": 0,
-      "timeoutMs": 2400000,
+      "timeoutMs": 3600000,
       "subscription": true
     },
     "codex-sol": {
@@ -46,21 +46,21 @@
       "model": "gpt-5.6-sol",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 2400000
+      "timeoutMs": 3600000
     },
     "codex-luna": {
       "adapter": "codex",
       "model": "gpt-5.6-luna",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 2400000
+      "timeoutMs": 3600000
     },
     "codex-terra": {
       "adapter": "codex",
       "model": "gpt-5.6-terra",
       "costPerRunUsd": 1,
       "subscription": true,
-      "timeoutMs": 2400000
+      "timeoutMs": 3600000
     },
     "oc-deepseek": {
       "adapter": "opencode",
@@ -68,7 +68,7 @@
       "model": "opencode/deepseek-v4-flash-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 1200000
+      "timeoutMs": 4500000
     },
     "oc-mimo": {
       "adapter": "opencode",
@@ -76,20 +76,20 @@
       "model": "opencode/mimo-v2.5-free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 1200000
+      "timeoutMs": 4500000
     },
     "agy": {
       "adapter": "agy",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 2400000
+      "timeoutMs": 3600000
     },
     "grok": {
       "adapter": "grok",
       "command": "C:/Users/Administrator/.grok/bin/grok.exe",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 2400000
+      "timeoutMs": 3600000
     }
   },
   "extraDirective": "只做任務明確要求的最小改動，改動完成必須讓現有測試全數通過。",
