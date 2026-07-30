@@ -6,6 +6,7 @@ import { expect, test } from 'vitest'
 import { BacklogStore, taskId } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
+import { firstMissingArtifact } from '../src/engines/artifact-contract-git.js'
 import { extractClaimedPaths, missingArtifacts } from '../src/engines/artifact-contract.js'
 import { runOnce, type Deps } from '../src/scheduler.js'
 import type { Engine, Job, PreflightResult, RunResult } from '../src/types.js'
@@ -72,14 +73,35 @@ test('missingArtifacts：只執法 baseHead 不存在且未出現在 changed fil
   expect(missingArtifacts(claimed, ['src/existing.ts'], ['./tests\\manual-goal-quality-metrics.py'])).toEqual([])
 })
 
+test('firstMissingArtifact：變更檔只取 baseCommitHash..commitHash，不誤收後續 HEAD', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-artifact-range-'))
+  initRepo(dir)
+  const baseCommitHash = git(dir, ['rev-parse', 'HEAD'])
+  writeFileSync(join(dir, 'other.txt'), 'other\n')
+  git(dir, ['add', '.'])
+  git(dir, ['commit', '-m', 'feat: other'])
+  const commitHash = git(dir, ['rev-parse', 'HEAD'])
+  mkdirSync(join(dir, 'tests'))
+  writeFileSync(join(dir, 'tests/manual-goal-quality-metrics.py'), 'late\n')
+  git(dir, ['add', '.'])
+  git(dir, ['commit', '-m', 'feat: late artifact'])
+
+  expect(firstMissingArtifact(dir, '建立 tests/manual-goal-quality-metrics.py', baseCommitHash, commitHash))
+    .toBe('tests/manual-goal-quality-metrics.py')
+})
+
 test('scheduler：缺件記 FAIL、跳過驗收、未 done 並保留 backlog', async () => {
   const engine = new MockArtifactEngine('tests/manual-goal-quality-metrics.py', false)
   const d = deps(engine)
+  const mainHead = git(d.cfg.projectPath, ['rev-parse', 'HEAD'])
   let verified = false
   const result = await runOnce({ ...d, verifier: { check: async () => { verified = true; return { pass: true, alerts: [] } } } })
   expect(result).toBe('failed')
+  expect(engine.called).toBe(1)
   expect(verified).toBe(false)
   expect(d.db.lastAttempt()).toMatchObject({ ok: false, detail: 'artifact-missing:tests/manual-goal-quality-metrics.py' })
+  expect(git(d.cfg.projectPath, ['rev-parse', 'HEAD'])).toBe(mainHead)
+  expect(existsSync(join(d.cfg.projectPath, 'other.txt'))).toBe(false)
   expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [ ]')
   expect(readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')).not.toContain('task-done')
   expect(existsSync(join(d.cfg.worktreesDir, taskId('建立 tests/manual-goal-quality-metrics.py')))).toBe(true)
