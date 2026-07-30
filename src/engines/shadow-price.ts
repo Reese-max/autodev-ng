@@ -18,6 +18,9 @@ const RATES: Array<{ re: RegExp; inPerM: number; outPerM: number; cachedPerM: nu
   { re: /^devin/, inPerM: 0.5, outPerM: 2, cachedPerM: 0.1, tier: 'free' },
   { re: /^agy/, inPerM: 0.5, outPerM: 2, cachedPerM: 0.1, tier: 'free' },
   { re: /^oc-/, inPerM: 0.14, outPerM: 0.28, cachedPerM: 0.0028, tier: 'free' },
+  // kilo-auto/free 路由到多款免費模型（nemotron/laguna/cobuddy…），逐輪不同——比照 flash 檔
+  // 估代表值而非精確值；帳單真相另以 kilo stats 核對（試點驗證合約 2026-07-30）。
+  { re: /^kilo/, inPerM: 0.14, outPerM: 0.28, cachedPerM: 0.0028, tier: 'free' },
   { re: /^codex-sol/, inPerM: 5, outPerM: 30, cachedPerM: 0.5, tier: 'quota' },
   { re: /^codex-terra/, inPerM: 2.5, outPerM: 15, cachedPerM: 0.25, tier: 'quota' },
   { re: /^codex-luna/, inPerM: 1, outPerM: 6, cachedPerM: 0.1, tier: 'quota' },
