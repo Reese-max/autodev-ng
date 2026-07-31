@@ -17,7 +17,7 @@
 
 ```
 # 心跳新鮮度（>30 分鐘未更新且 lock PID 存活 = wedged）
-data/<proj>/heartbeat.json 的 ts vs now；data/<proj>/daemon.lock/pid.json 的 pid 存活性
+（名冊＝configs/*.json 動態枚舉，dataDir 相對 configs/ 解析——勿硬編碼專案清單）data/<proj>/heartbeat.json 的 ts vs now；data/<proj>/daemon.lock/pid.json 的 pid 存活性
 
 # 出輪狀況（心跳新鮮但長時間零 attempts 也要查）
 run.db: SELECT ts, engine, ok FROM attempts ORDER BY seq DESC LIMIT 3

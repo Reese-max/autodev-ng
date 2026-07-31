@@ -21,7 +21,7 @@
   "discordChannelId": "1492793288514863164",
   "dailySoftUsd": 20,
   "dailyHardUsd": 30,
-  "globalDailyHardUsd": 40,
+  "globalDailyHardUsd": 60,
   "maxAttempts": 6,
   "perpetual": true,
   "defaultEngine": "devin",

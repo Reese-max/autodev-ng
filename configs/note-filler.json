@@ -19,22 +19,20 @@
   "timezoneOffsetHours": 8,
   "dailySoftUsd": 10,
   "dailyHardUsd": 20,
-  "globalDailyHardUsd": 40,
+  "globalDailyHardUsd": 60,
   "maxAttempts": 6,
   "perpetual": true,
   "defaultEngine": "devin",
   "engineRotation": [
     "devin",
     "oc-deepseek",
-    "devin",
-    "devin",
-    "devin",
     "oc-mimo",
-    "devin",
-    "devin",
+    "kilo",
+    "agy",
+    "grok",
+    "codex-luna",
     "codex-terra",
-    "codex-sol",
-    "kilo"
+    "codex-sol"
   ],
   "discordChannelId": "1492793288514863164",
   "engines": {

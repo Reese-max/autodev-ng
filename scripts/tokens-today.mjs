@@ -11,10 +11,14 @@ const day = process.argv[2] ?? new Date().toISOString().slice(0, 10)
 const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n ?? 0)
 
 let gIn = 0, gOut = 0
-for (const p of ['autodev-self', 'note-filler', 'prompt-autoresearch']) {
+const roster = require('node:fs').readdirSync(join(ROOT, 'configs')).filter(f => f.endsWith('.json'))
+  .map(f => { try { const c = JSON.parse(require('node:fs').readFileSync(join(ROOT, 'configs', f), 'utf8')); return c.dataDir ? join(ROOT, 'configs', c.dataDir) : join(ROOT, 'data', f.replace('.json','')) } catch { return null } })
+  .filter(Boolean)
+for (const dir of roster) {
+  const p = require('node:path').basename(dir)
   let rows
   try {
-    const db = new Database(join(ROOT, 'data', p, 'run.db'), { readonly: true })
+    const db = new Database(join(dir, 'run.db'), { readonly: true })
     rows = db.prepare(`SELECT engine, COUNT(*) n, SUM(ok) ok,
       COALESCE(SUM(tokens_in),0) ti, COALESCE(SUM(tokens_out),0) tout, COALESCE(SUM(tokens_cached),0) tc
       FROM attempts WHERE ts >= ? AND ts < date(?, '+1 day') GROUP BY engine ORDER BY ti DESC`).all(day, day)
