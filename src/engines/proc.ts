@@ -10,6 +10,25 @@ export interface ProcResult {
   durationMs: number
 }
 
+export interface FlatPidProcess {
+  pid: number
+  parentPid?: number
+  command: string
+}
+
+export interface ProcEventSink {
+  append(type: 'proc-zombie', data: { pid: number; command: string }): void
+}
+
+export interface KillTreeDeps {
+  platform?: NodeJS.Platform
+  taskkill?: (pid: number) => Promise<void>
+  wait?: (ms: number) => Promise<void>
+  isAlive?: (pid: number) => boolean
+  listProcesses?: () => Promise<FlatPidProcess[]>
+  kill?: (pid: number) => void
+}
+
 export const DEFAULT_ENGINE_IDLE_TIMEOUT_MS = 300_000
 
 /** 引擎呼叫鐵三角唯一執法點：stdin 餵 prompt 後立即 end、wall timeout、逾時雙層樹斬、stderr 全收。 */
@@ -27,6 +46,8 @@ export function runProcess(opts: {
   /** M5 Task 1：附加環境變數（疊在 process.env 上），供 m3 檔位注入 ANTHROPIC_BASE_URL
    * 等相容端點設定。未設時不帶 env 參數，行為與舊版完全一致（繼承父進程環境）。 */
   env?: Record<string, string>
+  /** 無法回收的 Windows 子進程事件；未提供時只做終止，不讓觀測故障影響主流程。 */
+  events?: ProcEventSink
 }): Promise<ProcResult> {
   return new Promise(resolve => {
     const t0 = Date.now()
@@ -72,7 +93,7 @@ export function runProcess(opts: {
       if (settled) return
       timedOut = true
       timeoutReason = reason
-      killTree(child.pid)
+      void killTree(child.pid, { command: opts.command, events: opts.events })
       // 樹斬後給 3s 收屍；若 close 仍不來，強制 settle（防 close 永不觸發）
       settleTimer = setTimeout(() => finish(null), 3000)
       settleTimer.unref()
@@ -144,12 +165,89 @@ function resolveSpawnTarget(command: string, args: string[]): { cmd: string; arg
   return { cmd: command, args }
 }
 
-/** 雙層樹斬：win32 用 taskkill /T /F（連子樹）；其他平台 SIGKILL。 */
-function killTree(pid: number | undefined): void {
-  if (pid === undefined) return
-  if (process.platform === 'win32') {
-    execFile('taskkill', ['/PID', String(pid), '/T', '/F'], () => { /* 盡力而為 */ })
-  } else {
-    try { process.kill(pid, 'SIGKILL') } catch { /* 已死 */ }
+/** 將可注入的扁平 PID 資料限縮為目標根及其後代，回傳葉到根的終止順序。 */
+export function pidTreeDeepestFirst(rootPid: number, processes: readonly FlatPidProcess[], rootCommand: string): FlatPidProcess[] {
+  const byPid = new Map<number, FlatPidProcess>()
+  const children = new Map<number, FlatPidProcess[]>()
+  for (const proc of processes) {
+    if (!byPid.has(proc.pid)) byPid.set(proc.pid, proc)
+    if (proc.parentPid !== undefined) {
+      const rows = children.get(proc.parentPid) ?? []
+      rows.push(proc)
+      children.set(proc.parentPid, rows)
+    }
   }
+
+  const ordered: FlatPidProcess[] = []
+  const seen = new Set<number>()
+  const visit = (proc: FlatPidProcess): void => {
+    if (seen.has(proc.pid)) return
+    seen.add(proc.pid)
+    for (const child of children.get(proc.pid) ?? []) visit(child)
+    ordered.push(proc)
+  }
+  visit(byPid.get(rootPid) ?? { pid: rootPid, command: rootCommand })
+  return ordered
+}
+
+/** Windows 二段樹斬：taskkill 後等 2 秒驗活；殘存者才以葉到根逐一 process.kill。 */
+export async function killTree(pid: number | undefined, opts: {
+  command: string
+  events?: ProcEventSink
+  processTree?: readonly FlatPidProcess[]
+  deps?: KillTreeDeps
+}): Promise<void> {
+  if (pid === undefined) return
+  const deps = opts.deps ?? {}
+  if ((deps.platform ?? process.platform) !== 'win32') {
+    try { deps.kill?.(pid) ?? process.kill(pid, 'SIGKILL') } catch { /* 已死 */ }
+    return
+  }
+
+  await (deps.taskkill ?? taskkill)(pid)
+  await (deps.wait ?? wait)(2_000)
+  if (!(deps.isAlive ?? isPidAlive)(pid)) return
+
+  const processes = opts.processTree ?? await (deps.listProcesses ?? listWindowsProcesses)()
+  for (const proc of pidTreeDeepestFirst(pid, processes, opts.command)) {
+    try { (deps.kill ?? process.kill)(proc.pid) } catch { /* 續驗活決定是否留痕 */ }
+    if (!(deps.isAlive ?? isPidAlive)(proc.pid)) continue
+    try { opts.events?.append('proc-zombie', { pid: proc.pid, command: proc.command }) } catch { /* 觀測不可反殺 */ }
+  }
+}
+
+function taskkill(pid: number): Promise<void> {
+  return new Promise(resolve => {
+    execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => resolve())
+  })
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function listWindowsProcesses(): Promise<FlatPidProcess[]> {
+  const command = 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine,Name | ConvertTo-Json -Compress'
+  return new Promise(resolve => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true, maxBuffer: 8_000_000 }, (err, stdout) => {
+      if (err || stdout.length === 0) return resolve([])
+      try {
+        const rows = JSON.parse(stdout) as Array<{ ProcessId?: number; ParentProcessId?: number; CommandLine?: string; Name?: string }> | { ProcessId?: number; ParentProcessId?: number; CommandLine?: string; Name?: string }
+        resolve((Array.isArray(rows) ? rows : [rows]).flatMap(row => typeof row.ProcessId === 'number'
+          ? [{ pid: row.ProcessId, parentPid: row.ParentProcessId, command: row.CommandLine || row.Name || '' }]
+          : []))
+      } catch {
+        resolve([])
+      }
+    })
+  })
 }

@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { runProcess } from '../src/engines/proc.js'
+import { killTree, runProcess } from '../src/engines/proc.js'
 
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-cli.mjs')
 const base = { command: process.execPath, args: [FAKE], cwd: process.cwd(), timeoutMs: 10_000 }
@@ -160,4 +160,54 @@ test('env 透傳：opts.env 是「疊加」不是「取代」——父進程既�
   } finally {
     delete process.env.ADNG_M5_PARENT
   }
+})
+
+test('killTree：taskkill 後等 2 秒驗活，才以注入扁平 PID 樹由深至淺回收並記錄殘存者', async () => {
+  const calls: string[] = []
+  const alive = new Set([10, 11, 12])
+  const events: Array<{ type: string; data: { pid: number; command: string } }> = []
+
+  await killTree(10, {
+    command: 'root-command',
+    processTree: [
+      { pid: 10, command: 'root-command' },
+      { pid: 11, parentPid: 10, command: 'child-command' },
+      { pid: 12, parentPid: 11, command: 'leaf-command' },
+    ],
+    events: { append: (type, data) => events.push({ type, data }) },
+    deps: {
+      platform: 'win32',
+      taskkill: async pid => { calls.push(`taskkill:${pid}`) },
+      wait: async ms => { calls.push(`wait:${ms}`) },
+      isAlive: pid => { calls.push(`alive:${pid}`); return alive.has(pid) },
+      kill: pid => {
+        calls.push(`kill:${pid}`)
+        if (pid === 11) alive.delete(pid)
+      },
+    },
+  })
+
+  expect(calls.slice(0, 3)).toEqual(['taskkill:10', 'wait:2000', 'alive:10'])
+  expect(calls.filter(call => call.startsWith('kill:'))).toEqual(['kill:12', 'kill:11', 'kill:10'])
+  expect(events).toEqual([
+    { type: 'proc-zombie', data: { pid: 12, command: 'leaf-command' } },
+    { type: 'proc-zombie', data: { pid: 10, command: 'root-command' } },
+  ])
+})
+
+test('killTree：taskkill 後根 PID 已死時，不列樹、不做 fallback、不寫殭屍事件', async () => {
+  const calls: string[] = []
+  await killTree(10, {
+    command: 'root-command',
+    events: { append: () => { throw new Error('不應寫入') } },
+    deps: {
+      platform: 'win32',
+      taskkill: async () => { calls.push('taskkill') },
+      wait: async ms => { calls.push(`wait:${ms}`) },
+      isAlive: () => false,
+      listProcesses: async () => { throw new Error('不應列樹') },
+      kill: () => { throw new Error('不應 fallback') },
+    },
+  })
+  expect(calls).toEqual(['taskkill', 'wait:2000'])
 })
