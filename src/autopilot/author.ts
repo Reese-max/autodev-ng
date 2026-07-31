@@ -53,6 +53,8 @@ function isInProject(projectPath: string, rel: string): boolean {
 
 export interface AuthorGateOpts {
   onEvent?: (type: string, data: Record<string, unknown>) => void
+  /** 讓 perpetual no-case 帶回首個候選的立案失敗類別。 */
+  onFailure?: (failure: string) => void
   /** 北極星價值判準全文（硬閘）：設定時 author 須先自檢對齊，對不回 → REJECT → 不立案。 */
   northstar?: string
   /** 品質閘退件原因：僅在重寫時帶入 prompt。 */
@@ -64,22 +66,31 @@ export async function authorGoal(
   problem: RankedProblem, cfg: Config, fingerprint: string,
   opts: AuthorGateOpts = {}
 ): Promise<string | null> {
-  if (!cfg.verifyCommand) return null // 無機械驗收不立案
   // 觀測面故障不擋立案主流程
   const emit = (type: string, data: Record<string, unknown>): void => {
     try { opts.onEvent?.(type, data) } catch { /* ignore */ }
   }
+  const reject = (type: string, failure: string, data: Record<string, unknown> = {}): null => {
+    emit(type, { fingerprint, title: problem.title, failure, ...data })
+    try { opts.onFailure?.(failure) } catch { /* ignore */ }
+    return null
+  }
+  if (!cfg.verifyCommand) return reject('author-config-reject', 'verify-command-missing') // 無機械驗收不立案
 
-  const raw = await chat(buildPrompt(problem, cfg, fingerprint, opts.northstar, opts.qualityFeedback))
+  let raw: string
+  try {
+    raw = await chat(buildPrompt(problem, cfg, fingerprint, opts.northstar, opts.qualityFeedback))
+  } catch (error) {
+    return reject('author-chat-error', 'chat-error', { error: String(error).slice(0, 200) })
+  }
   // 北極星硬閘：首個非空行 REJECT → 不立案（回 null 走既有 per-candidate fail-open 通道）
   const firstLine = raw.split(/\r?\n/).map(l => l.trim()).find(Boolean) ?? ''
   if (opts.northstar && /^REJECT\b/i.test(firstLine)) {
-    emit('author-northstar-reject', { fingerprint, title: problem.title, reason: firstLine.slice(0, 120) })
-    return null
+    return reject('author-northstar-reject', 'northstar-reject', { reason: firstLine.slice(0, 120), response: raw.slice(0, 200) })
   }
   const objMatch = raw.match(/OBJECTIVE:\s*([\s\S]*?)(?=\r?\nVERIFY:|\r?\nEVIDENCE:|$)/i)
   let objective = objMatch?.[1]?.trim()
-  if (!objective) return null
+  if (!objective) return reject('author-objective-missing', 'objective-missing', { response: raw.slice(0, 200) })
 
   // 專屬驗收指令必須含 fingerprint；實測由 perpetual 寫檔前的隔離品質閘執行。
   let verifyCommand = cfg.verifyCommand
@@ -126,8 +137,7 @@ export async function authorGoal(
     : JSON.stringify(g.evidenceFiles) !== JSON.stringify(expectedEvidence) ? 'evidence-files'
     : null
   if (lintReason) {
-    emit('author-lint-reject', { fingerprint, reason: lintReason })
-    return null
+    return reject('author-lint-reject', `lint-${lintReason}`, { reason: lintReason, response: raw.slice(0, 200) })
   }
   return md
 }

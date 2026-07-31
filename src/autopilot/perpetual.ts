@@ -34,7 +34,7 @@ export type PerpetualConfig = Config & {
 export interface PerpetualHooks {
   now(): Date
   discover(): Promise<DiscoverResult | undefined>
-  author(problem: RankedProblem, fingerprint: string, qualityFeedback?: string): Promise<string | null>
+  author(problem: RankedProblem, fingerprint: string, qualityFeedback?: string, onFailure?: (failure: string) => void): Promise<string | null>
   gateAuthoredGoal(md: string): Promise<GoalQualityGateResult>
   runSession(opts: { discovered?: DiscoverResult }): Promise<SessionResult | 'no-goal' | 'lock-busy'>
   billedToday(): number
@@ -157,6 +157,7 @@ async function runBody(
 
   let authored: { md: string; fp: string; title: string } | undefined
   const qualityRejected = new Set<string>()
+  let firstFailure: string | undefined
   for (const row of candidates) {
     const problem: RankedProblem = {
       title: row.title, lens: row.lens, value: row.value,
@@ -167,8 +168,12 @@ async function runBody(
     for (let rewrite = 0; rewrite <= MAX_AUTHOR_REWRITES; rewrite++) {
       // 逐案自我隔離：單一候選 author throw 不得中斷其餘候選（fail-open per-attempt）。
       let md: string | null = null
-      try { md = await hooks.author(problem, row.fingerprint, rejectionReason) } catch { break }
-      if (!md) break
+      let failure: string | undefined
+      try { md = await hooks.author(problem, row.fingerprint, rejectionReason, f => { failure ??= f }) } catch { failure = 'author-hook-error' }
+      if (!md) {
+        firstFailure ??= failure ?? 'author-returned-null'
+        break
+      }
       qualityAttempts++
       let gate: GoalQualityGateResult
       try {
@@ -187,6 +192,7 @@ async function runBody(
     }
     if (authored) break
     if (rejectionReason) {
+      firstFailure ??= 'goal-quality-rejected'
       qualityRejected.add(row.fingerprint)
       ledger.setStatus(row.fingerprint, 'deferred', `goal-quality-reject:${rejectionReason}`)
       quiet(() => events.append('goal-authoring-rejected', { fingerprint: row.fingerprint, title: row.title, reason: rejectionReason, attempts: qualityAttempts }))
@@ -201,7 +207,7 @@ async function runBody(
     // 是不同原因，拆開回報。finding 1：兩者都真的呼叫過 hooks.discover()，須武裝冷卻（同 discover-empty
     // 分支慣例），否則 daemon 下一個 idle tick 立刻重跑 discover（LLM 呼叫）直到燒穿當日額度。
     const reason = candidates.length === 0 ? 'below-threshold' : qualityRejected.size ? 'goal-quality-rejected' : 'goal-authoring-failed'
-    quiet(() => events.append('perpetual-no-case', { reason }))
+    quiet(() => events.append('perpetual-no-case', { reason, ...(firstFailure ? { firstFailure } : {}) }))
     state.consecutiveEmpty++
     state.lastSessionTs = now.toISOString()
     savePerpetualState(dataDir, state)
@@ -311,10 +317,11 @@ export async function maybeRunPerpetual(
         lenses: cfg.discoverLenses
       }, { objective: '', noProgressLimit: 2 }, cfg.projectPath)
     },
-    author: (problem, fingerprint, qualityFeedback) =>
+    author: (problem, fingerprint, qualityFeedback, onFailure) =>
       authorGoal((prompt: string) => callAgent(judgeLlm, prompt).then(r => r.text), problem, cfg, fingerprint,
         {
           onEvent: (type, data) => quiet(() => deps.events.append(type, data)),
+          onFailure,
           northstar: ((): string => { try { return readFileSync(join(cfg.dataDir, 'NORTHSTAR.md'), 'utf8') } catch { return '' } })() || undefined,
           qualityFeedback,
         }),
