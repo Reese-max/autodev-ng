@@ -116,6 +116,21 @@ test('taskkill 未能終止程序時逐 PID 由葉至根補殺，仍存活者寫
   ])
 })
 
+test('非 Windows killTree 有注入 kill 時不再呼叫全域 process.kill', async () => {
+  const injectedKill = vi.fn()
+  const processKill = vi.spyOn(process, 'kill').mockReturnValue(true)
+  try {
+    await killTree(987_654, {
+      command: 'mock-engine',
+      deps: { platform: 'linux', kill: injectedKill },
+    })
+    expect(injectedKill).toHaveBeenCalledWith(987_654)
+    expect(processKill).not.toHaveBeenCalled()
+  } finally {
+    processKill.mockRestore()
+  }
+})
+
 interface DaemonScenario {
   name: string
   heartbeatAgeMs: number

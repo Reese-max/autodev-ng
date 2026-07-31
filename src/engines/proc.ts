@@ -200,7 +200,10 @@ export async function killTree(pid: number | undefined, opts: {
   if (pid === undefined) return
   const deps = opts.deps ?? {}
   if ((deps.platform ?? process.platform) !== 'win32') {
-    try { deps.kill?.(pid) ?? process.kill(pid, 'SIGKILL') } catch { /* 已死 */ }
+    try {
+      if (deps.kill) deps.kill(pid)
+      else process.kill(pid, 'SIGKILL')
+    } catch { /* 已死 */ }
     return
   }
 
