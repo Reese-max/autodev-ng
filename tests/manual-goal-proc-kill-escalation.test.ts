@@ -88,17 +88,20 @@ test('taskkill 未能終止程序時逐 PID 由葉至根補殺，仍存活者寫
 
   await killTree(40, {
     command: 'root.exe',
-    processTree: [
-      { pid: 40, command: 'root.exe' },
-      { pid: 41, parentPid: 40, command: 'child.exe' },
-      { pid: 42, parentPid: 41, command: 'leaf.exe' },
-    ],
     events: { append: (type, data) => events.push({ type, data }) },
     deps: {
       platform: 'win32',
       taskkill: async pid => { calls.push(`taskkill:${pid}`) },
       wait: async ms => { calls.push(`wait:${ms}`) },
       isAlive: pid => { calls.push(`alive:${pid}`); return alive.has(pid) },
+      listProcesses: async () => {
+        calls.push('list')
+        return [
+          { pid: 40, command: 'root.exe' },
+          { pid: 41, parentPid: 40, command: 'child.exe' },
+          { pid: 42, parentPid: 41, command: 'leaf.exe' },
+        ]
+      },
       kill: pid => {
         calls.push(`kill:${pid}`)
         if (pid === 42) alive.delete(pid)
@@ -108,7 +111,7 @@ test('taskkill 未能終止程序時逐 PID 由葉至根補殺，仍存活者寫
 
   expect(calls).toEqual([
     'taskkill:40', 'wait:2000', 'alive:40',
-    'kill:42', 'alive:42', 'kill:41', 'alive:41', 'kill:40', 'alive:40',
+    'list', 'kill:42', 'alive:42', 'kill:41', 'alive:41', 'kill:40', 'alive:40',
   ])
   expect(events).toEqual([
     { type: 'proc-zombie', data: { pid: 41, command: 'child.exe' } },
