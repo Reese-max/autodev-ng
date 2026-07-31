@@ -60,6 +60,5 @@
   "worktreesDir": "../data/autodev-self/worktrees",
   "perpetualCooldownMs": 3600000,
   "judgeEffort": "xhigh",
-  "judgeTimeoutMs": 180000,
-  "globalDailyHardUsd": 60
+  "judgeTimeoutMs": 180000
 }
