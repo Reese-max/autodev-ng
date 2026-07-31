@@ -1,0 +1,7 @@
+【永久巡檢（headless）】依 D:\Users\Administrator\Desktop\autodev-ng\docs\supervision-playbook.md 執行艦隊巡檢。
+
+0. 互斥檢查：讀 D:\Users\Administrator\Desktop\autodev-ng\data\patrol-heartbeat.json——若 lastPatrolTs 距今 <60 分鐘，寫一行 skip 記錄後直接結束（避免與 session 巡檢重複處置）。開始巡檢時立即把 {lastPatrolTs: 現在ISO, source: "headless"} 寫回該檔。
+1. §1 健康檢查全艦隊——名冊動態枚舉 configs/*.json（勿硬編碼清單）：heartbeat 新鮮度＋lock PID 存活、最新 attempts、blocked 積壓、哨兵消費、各艦 GOAL 驗收實跑 exit code。
+2. 異常按 §0 授權分級處置：自動tier（§2 wedge 殺樹用 Stop-Process、§3 誤殺記帳補償、§4 blocked 重開每任務限一次、清殘鎖、放哨兵、schtasks /Run adng-daemons）直接做；需改程式碼→立 backlog 任務給 autodev-self（BacklogStore.append）；§8 條件（同招敗2次/不可逆/供應商帳務/程序外新事故）→ 寫入 D:\Users\Administrator\Desktop\autodev-ng\data\PATROL-ALERTS.md（附時間戳與證據）等人工。
+3. 繼任規則（§5.6）：手動 GOAL 驗收綠且無下一棒 → 備份後移除該艦 GOAL.md 轉 auto-goal；審新 auto-GOAL 價值對位，漂移記錄於 PATROL-ALERTS.md。
+4. 巡檢結束：把本輪「發現→動作→驗證」三元組（無異常則一行）附時間戳 append 到 D:\Users\Administrator\Desktop\autodev-ng\data\patrol-log.md。
