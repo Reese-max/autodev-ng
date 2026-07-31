@@ -67,6 +67,10 @@ BACKLOG-adng.md 的 adng:blocked 標記；data/<proj>/restart.request 存在且 
    2026-07-30 dc46 實證）；背景敘述須明標「場外已處置，非本 GOAL 工作」＋「驗收目前紅態」
 4. 放 restart.request 哨兵；in-flight 有價值輪次時可不放，等自然週期
 5. manualGoalDone 已記同 id 時：改 objective 文字產生新 goalId 即重新武裝
+6. 繼任規則（2026-07-31 使用者核定）：手動 GOAL 驗收綠且無人工下一棒指示 →
+   備份後**移除 GOAL.md**，讓 auto-goal 自主發掘接手（不再等人）。巡檢須審每個
+   新立 auto-GOAL 的價值對位（對 USER-SIGNALS／北極星），發現「好驗證但不重要」
+   的漂移型立案 → 記錄並於下輪重導；USER-SIGNALS.md 是使用者的方向盤，權重最高
 
 ## 6. 部署程序（改 autodev-ng 程式碼後）
 
