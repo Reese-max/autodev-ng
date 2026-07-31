@@ -102,6 +102,12 @@ test('extractClaimedPaths：機器絕對路徑不可執法一律跳過', () => {
   expect(extractClaimedPaths('參考 `C:/Users/x/config.json` 與 `mnt/d/foo/bar.py` 及 home/u/a.ts')).toEqual([])
 })
 
+// 2026-07-31 neciken 實證回歸鎖：反引號裸識別字（args.run、self.fit）是程式引用不是路徑，
+// 曾被當交付物誤判 artifact-missing 殺掉自報 OK 輪。無目錄分隔符＝不執法。
+test('extractClaimedPaths：反引號點分識別字不是路徑', () => {
+  expect(extractClaimedPaths('請確認 `args.run` 與 `self.fit` 的行為，輸出寫入 tests/out.py')).toEqual(['tests/out.py'])
+})
+
 test('extractClaimedPaths：無路徑回傳空陣列', () => {
   expect(extractClaimedPaths('完成必要修正，請重新驗證。')).toEqual([])
 })

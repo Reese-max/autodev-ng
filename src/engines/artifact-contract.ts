@@ -3,7 +3,9 @@ const GIT_RANGE_TOKEN_RE = /^[A-Za-z][A-Za-z0-9_-]*\.\.[A-Za-z][A-Za-z0-9_-]*$/
 // lookbehind 含 /、\、:（2026-07-30）：防止從絕對路徑中段重新匹配出假的 repo 相對路徑
 // （C:/Users/x/config.json 的 Users/x/config.json）——絕對路徑的跳過防呆會被這種殘段繞過。
 const BARE_PATH_RE = new RegExp(`(?<![\\p{L}\\p{N}._@\\\\/:-])(?:\\.[\\\\/])?(?:${SEGMENT}[\\\\/])+${SEGMENT}\\.[\\p{L}\\p{N}_-]+(?![\\p{L}\\p{N}._@-])`, 'gu')
-const QUOTED_PATH_RE = new RegExp(`^(?:\\.[/])?(?:${SEGMENT}[/\\\\])*${SEGMENT}\\.[\\p{L}\\p{N}_-]+$`, 'u')
+// 反引號路徑必須含目錄分隔符（* 改 +，2026-07-31 neciken 實證）：裸識別字 \`args.run\`
+// 會匹配零目錄形式被當交付物——點分識別字是程式引用不是路徑，寧可漏掉罕見的根目錄檔宣稱。
+const QUOTED_PATH_RE = new RegExp(`^(?:\\.[/])?(?:${SEGMENT}[/\\\\])+${SEGMENT}\\.[\\p{L}\\p{N}_-]+$`, 'u')
 
 function normalizePath(raw: string): string {
   return raw.trim().replace(/\\/g, '/').replace(/^(?:\.\/)+/, '')
