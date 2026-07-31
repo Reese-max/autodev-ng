@@ -13,8 +13,9 @@ function gitList(cwd: string, args: string[]): string[] {
 
 /** Git 查詢失敗時回 undefined，讓未能取得完整證據的契約維持 fail-open。 */
 export function firstMissingArtifact(
-  cwd: string, text: string, baseCommitHash?: string, commitHash?: string
+  cwd: string, text: string, baseCommitHash?: string, commitHash?: string, enabled = true
 ): string | undefined {
+  if (!enabled) return undefined
   const claimed = extractClaimedPaths(text)
   if (!claimed.length || !baseCommitHash || !commitHash) return undefined
   try {

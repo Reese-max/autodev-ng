@@ -166,7 +166,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached })
   if (!res.ok) engine.invalidatePreflight?.() // timeout/exit≠0/no-commit：引擎健康存疑，下輪重探（verify 拒收不算）
 
-  const missingArtifact = res.ok ? firstMissingArtifact(wt.cwd, res.output, res.baseCommitHash, res.commitHash) : undefined
+  const missingArtifact = res.ok ? firstMissingArtifact(wt.cwd, res.output, res.baseCommitHash, res.commitHash, cfg.artifactContract) : undefined
   if (missingArtifact) {
     const reason = `artifact-missing:${missingArtifact}`
     db.record({ taskId: task.id, ok: false, costUsd: 0, detail: reason, engine: engineTag, durationMs: Date.now() - runStartMs })

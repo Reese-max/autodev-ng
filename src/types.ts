@@ -110,10 +110,10 @@ export const ConfigSchema = z.object({
   // M4 Task 3（成本記帳）：本地日界線與失敗成本估計。台灣預設 +8；成本日界線與 digest 報日共用同一個 offset。
   timezoneOffsetHours: z.number().int().min(-12).max(14).default(DEFAULT_TIMEZONE_OFFSET_HOURS),
   failureCostEstimateUsd: z.number().nonnegative().default(1),
-  // M4 Task 6（worktree 接線）：worktreesDir 相對 config 檔目錄展開（cli.ts expandConfigPaths
-  // 慣例，同 stopFile）；worktree.ts 本身收絕對路徑，展開留在 assemble 層。extraDirective 為
-  // 每輪注入 engine prompt 尾端的專案特規文字（可選，未設時 job.directive 為 undefined）。
+  // M4 Task 6：worktreesDir 相對 config 檔目錄展開；worktree.ts 收絕對路徑，extraDirective 可注入 engine prompt 尾端。
   worktreesDir: z.string().default('worktrees'),
+  // 明示建立語意的 artifact 閘；單一專案可關閉，預設維持啟用。
+  artifactContract: z.boolean().default(true),
   extraDirective: z.string().optional(),
   stopFile: z.string().default('.adng.stop'),
   verifyCommand: z.string().optional(),

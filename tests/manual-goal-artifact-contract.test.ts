@@ -53,7 +53,7 @@ class MockArtifactEngine implements Engine {
   }
 }
 
-function deps(engine: Engine): Deps {
+function deps(engine: Engine, artifactContract?: boolean): Deps {
   const dir = mkdtempSync(join(tmpdir(), 'adng-artifact-contract-'))
   tempDirs.push(dir)
   initRepo(dir)
@@ -62,6 +62,7 @@ function deps(engine: Engine): Deps {
   const cfg = ConfigSchema.parse({
     projectPath: dir, backlogFile, dataDir: join(dir, 'data'), engine: 'mock',
     stopFile: join(dir, '.adng.stop'), worktreesDir: join(dir, 'worktrees'), maxAttempts: 2,
+    ...(artifactContract === undefined ? {} : { artifactContract }),
   })
   const db = new RunDb(join(dir, 'run.db'))
   databases.push(db)
@@ -71,22 +72,31 @@ function deps(engine: Engine): Deps {
   }
 }
 
-test('extractClaimedPaths：反引號路徑', () => {
-  expect(extractClaimedPaths('已完成 `src/engines/artifact-contract.ts`。')).toEqual([
-    'src/engines/artifact-contract.ts'
-  ])
+test('extractClaimedPaths：沒有建立語意的反引號路徑不執法', () => {
+  expect(extractClaimedPaths('已完成 `src/engines/artifact-contract.ts`。')).toEqual([])
 })
 
-test('extractClaimedPaths：裸路徑', () => {
-  expect(extractClaimedPaths('已變更 src/engines/artifact-contract.ts。')).toEqual([
-    'src/engines/artifact-contract.ts'
-  ])
+test('extractClaimedPaths：沒有建立語意的裸路徑不執法', () => {
+  expect(extractClaimedPaths('已變更 src/engines/artifact-contract.ts。')).toEqual([])
 })
 
-test('extractClaimedPaths：note-filler 的 zh-TW 原句', () => {
+test('extractClaimedPaths：明示建立句式仍執法', () => {
   expect(extractClaimedPaths('建立 tests/manual-goal-quality-metrics.py')).toEqual([
     'tests/manual-goal-quality-metrics.py'
   ])
+})
+
+test('extractClaimedPaths：建立動詞不鄰近路徑時不執法', () => {
+  expect(extractClaimedPaths(`建立功能${'說明'.repeat(41)} src/engines/artifact-contract.ts`)).toEqual([])
+})
+
+test.each([
+  ['執行期產物', '執行期產物 tests/metrics_history.jsonl 已由 gitignore 排除。'],
+  ['命名慣例字串', '命名慣例使用 `.訂正稿.md` 作為後綴。'],
+  ['引用既有檔', '引用既有檔 validate_deselection_ci.py 作為驗證依據。'],
+  ['資料檔', '資料檔 delivery_manifest.json 用於讀取。'],
+])('extractClaimedPaths：%s 不執法', (_kind, text) => {
+  expect(extractClaimedPaths(text)).toEqual([])
 })
 
 // 2026-07-30 pa 實證回歸鎖：任務文字含 worktree 絕對路徑（WSL /mnt 形），每輪被誤判
@@ -116,14 +126,14 @@ test('extractClaimedPaths：Git diff 範圍不是交付物路徑', () => {
   expect(extractClaimedPaths('成功回報後使用 `baseCommitHash..commitHash` 對帳。')).toEqual([])
 })
 
-test('extractClaimedPaths：反斜線與 ./ 正規化', () => {
-  expect(extractClaimedPaths('已完成 `./src\\engines\\artifact-contract.ts`。')).toEqual([
+test('extractClaimedPaths：建立語意下反斜線與 ./ 正規化', () => {
+  expect(extractClaimedPaths('新增 `./src\\engines\\artifact-contract.ts`。')).toEqual([
     'src/engines/artifact-contract.ts'
   ])
 })
 
-test('extractClaimedPaths：正規化後去重並保留首次宣稱順序', () => {
-  expect(extractClaimedPaths('`./src\\engines\\artifact-contract.ts`、src/engines/artifact-contract.ts')).toEqual([
+test('extractClaimedPaths：建立語意下正規化後去重並保留首次宣稱順序', () => {
+  expect(extractClaimedPaths('新增 `./src\\engines\\artifact-contract.ts`、src/engines/artifact-contract.ts')).toEqual([
     'src/engines/artifact-contract.ts'
   ])
 })
@@ -209,4 +219,18 @@ test('scheduler：成功回報的 diff 範圍字串不會變成缺件', async ()
   expect(verified).toBe(true)
   expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [x]')
   expect(readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')).toContain('task-done')
+})
+
+test('scheduler：artifactContract 預設啟用，但單艦可停用', async () => {
+  const defaulted = deps(new MockArtifactEngine('tests/manual-goal-quality-metrics.py', false))
+  expect(defaulted.cfg.artifactContract).toBe(true)
+
+  const engine = new MockArtifactEngine('tests/manual-goal-quality-metrics.py', false)
+  const d = deps(engine, false)
+  let verified = false
+  const result = await runOnce({ ...d, verifier: { check: async () => { verified = true; return { pass: true, alerts: [] } } } })
+
+  expect(d.cfg.artifactContract).toBe(false)
+  expect(result).toBe('done')
+  expect(verified).toBe(true)
 })
