@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
-import { runProcess } from './proc.js'
+import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { ensureNoMcpImport } from './devin-config-isolation.js'
@@ -14,6 +14,7 @@ export interface DevinOpts {
   baseArgs?: string[]
   timeoutMs?: number
   pingTimeoutMs?: number
+  idleTimeoutMs?: number
   cache: PreflightCache
   getCommitHash?: (cwd: string) => string | undefined
   env?: Record<string, string>
@@ -37,6 +38,7 @@ export class DevinEngine implements Engine {
   private readonly baseArgs: string[]
   private readonly timeoutMs: number
   private readonly pingTimeoutMs: number
+  private readonly idleTimeoutMs: number
   private readonly cache: PreflightCache
   private readonly getCommitHash: (cwd: string) => string | undefined
   private readonly env?: Record<string, string>
@@ -51,6 +53,7 @@ export class DevinEngine implements Engine {
     this.baseArgs = [...base, '--model', opts.model ?? 'swe-1.6']
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 90 * 1000
+    this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
     this.cache = opts.cache
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
     this.env = opts.env
@@ -58,7 +61,7 @@ export class DevinEngine implements Engine {
   }
 
   /** prompt／export 都走 tmp 檔（比照 grok 做法）：用後（同一 tmp 目錄）皆刪，不殘留內容或側檔。 */
-  private async runWithFiles(prompt: string, cwd: string, timeoutMs: number) {
+  private async runWithFiles(prompt: string, cwd: string, timeoutMs: number, idleTimeoutMs?: number) {
     const dir = mkdtempSync(join(tmpdir(), 'adng-devin-'))
     const promptFile = join(dir, 'prompt.txt')
     const exportFile = join(dir, 'export.json')
@@ -66,7 +69,7 @@ export class DevinEngine implements Engine {
       writeFileSync(promptFile, prompt.replace(/\r\n/g, '\n'), 'utf8') // Node utf8 不寫 BOM；CRLF 正規化為 LF
       const r = await runProcess({
         command: this.command, args: [...this.baseArgs, '--prompt-file', promptFile, '--export', exportFile],
-        cwd, stdinText: '', timeoutMs, env: this.env
+        cwd, stdinText: '', timeoutMs, ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }), env: this.env
       })
       let exp: DevinExport | undefined
       try { exp = JSON.parse(readFileSync(exportFile, 'utf8')) as DevinExport } catch { /* 未產出/損毀 → undefined，交給 silent-fail 判定 */ }
@@ -105,7 +108,7 @@ export class DevinEngine implements Engine {
 
     ensureNoMcpImport(job.projectPath) // 關 MCP 匯入——從源頭消除 serena 孤兒＋.serena 污染
     const before = this.getCommitHash(job.projectPath)
-    const { r, exp } = await this.runWithFiles(prompt, job.projectPath, this.timeoutMs)
+    const { r, exp } = await this.runWithFiles(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs)
 
     if (r.timedOut) return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {

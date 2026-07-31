@@ -1,5 +1,5 @@
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
-import { runProcess } from './proc.js'
+import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -10,6 +10,7 @@ export interface CopilotOpts {
   baseArgs?: string[] // 預設 --output-format json＋--allow-all-tools（非互動必帶，規格卡卡 5）。model 旗標另組
   timeoutMs?: number
   pingTimeoutMs?: number
+  idleTimeoutMs?: number
   cache: PreflightCache
   getCommitHash?: (cwd: string) => string | undefined
   env?: Record<string, string>
@@ -30,6 +31,7 @@ export class CopilotEngine implements Engine {
   private readonly baseArgs: string[]
   private readonly timeoutMs: number
   private readonly pingTimeoutMs: number
+  private readonly idleTimeoutMs: number
   private readonly cache: PreflightCache
   private readonly getCommitHash: (cwd: string) => string | undefined
   private readonly env?: Record<string, string>
@@ -40,6 +42,7 @@ export class CopilotEngine implements Engine {
     this.baseArgs = [...(opts.baseArgs ?? ['--output-format', 'json', '--allow-all-tools']), '--model', opts.model ?? 'gpt-5.4-mini']
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 180 * 1000 // 冷啟 110s 實測 → 90s 級必假陰性
+    this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
     this.cache = opts.cache
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
     this.env = opts.env
@@ -71,7 +74,7 @@ export class CopilotEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const r = await runProcess({
       command: this.command, args: [...this.baseArgs, '-p', buildPrompt(job)],
-      cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, maxOutputChars: OUTPUT_CAP, env: this.env
+      cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, maxOutputChars: OUTPUT_CAP, env: this.env
     })
 
     if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }

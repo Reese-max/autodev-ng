@@ -10,6 +10,8 @@ export interface ProcResult {
   durationMs: number
 }
 
+export const DEFAULT_ENGINE_IDLE_TIMEOUT_MS = 300_000
+
 /** 引擎呼叫鐵三角唯一執法點：stdin 餵 prompt 後立即 end、wall timeout、逾時雙層樹斬、stderr 全收。 */
 export function runProcess(opts: {
   command: string

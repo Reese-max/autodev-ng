@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
-import { runProcess } from './proc.js'
+import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -13,6 +13,7 @@ export interface GrokOpts {
   baseArgs?: string[]
   timeoutMs?: number
   pingTimeoutMs?: number
+  idleTimeoutMs?: number
   cache: PreflightCache
   getCommitHash?: (cwd: string) => string | undefined
   env?: Record<string, string>
@@ -34,6 +35,7 @@ export class GrokEngine implements Engine {
   private readonly baseArgs: string[]
   private readonly timeoutMs: number
   private readonly pingTimeoutMs: number
+  private readonly idleTimeoutMs: number
   private readonly cache: PreflightCache
   private readonly getCommitHash: (cwd: string) => string | undefined
   private readonly env?: Record<string, string>
@@ -47,20 +49,21 @@ export class GrokEngine implements Engine {
     this.baseArgs = opts.model ? [...base, '-m', opts.model] : base
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 120 * 1000 // config 掛 MCP servers 會拖慢冷啟（規格卡）
+    this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
     this.cache = opts.cache
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
     this.env = opts.env
   }
 
   /** prompt 寫 tmp 檔（UTF-8 無 BOM、LF）走 --prompt-file；用後即刪（刪失敗不炸）。 */
-  private async runWithPromptFile(prompt: string, cwd: string, timeoutMs: number) {
+  private async runWithPromptFile(prompt: string, cwd: string, timeoutMs: number, idleTimeoutMs?: number) {
     const dir = mkdtempSync(join(tmpdir(), 'adng-grok-'))
     const file = join(dir, 'prompt.txt')
     try {
       writeFileSync(file, prompt.replace(/\r\n/g, '\n'), 'utf8') // Node utf8 不寫 BOM；CRLF 正規化為 LF
       return await runProcess({
         command: this.command, args: [...this.baseArgs, '--prompt-file', file],
-        cwd, stdinText: '', timeoutMs, env: this.env
+        cwd, stdinText: '', timeoutMs, ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }), env: this.env
       })
     } finally {
       try { rmSync(dir, { recursive: true, force: true }) } catch { /* tmp 刪失敗不反殺結果 */ }
@@ -99,7 +102,7 @@ export class GrokEngine implements Engine {
     ].join('\n')
 
     const before = this.getCommitHash(job.projectPath)
-    const r = await this.runWithPromptFile(prompt, job.projectPath, this.timeoutMs)
+    const r = await this.runWithPromptFile(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs)
 
     // 失敗路徑才附 stderr（先濾 telemetry 雜訊）；成功路徑不附（規格卡：stderr 有例行雜訊）。
     if (r.timedOut) return { ok: false, output: tail(filterTelemetry(r.stderr)), costUsd: 0, costUnknown: true, failureReason: 'timeout' }

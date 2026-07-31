@@ -38,6 +38,21 @@ test('pingTimeoutMs 可設正整數，非正整數被拒', () => {
   }
 })
 
+test('idleTimeoutMs 可設非負整數，負數與非整數被拒', () => {
+  const base = { projectPath: 'x', backlogFile: 'x', dataDir: 'x', defaultEngine: 'codex' }
+  for (const idleTimeoutMs of [0, 300_000]) {
+    const cfg = ConfigSchema.parse({
+      ...base, engines: { codex: { adapter: 'codex', costPerRunUsd: 0, idleTimeoutMs } }
+    })
+    expect(cfg.engines.codex?.idleTimeoutMs).toBe(idleTimeoutMs)
+  }
+  for (const idleTimeoutMs of [-1, 1.5]) {
+    expect(() => ConfigSchema.parse({
+      ...base, engines: { codex: { adapter: 'codex', costPerRunUsd: 0, idleTimeoutMs } }
+    })).toThrow()
+  }
+})
+
 test('非法 engine 被拒', () => {
   expect(() => ConfigSchema.parse({
     projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'gpt99'

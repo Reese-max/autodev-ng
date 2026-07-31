@@ -1,5 +1,5 @@
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
-import { runProcess } from './proc.js'
+import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -12,6 +12,7 @@ export interface ClaudeCliOpts {
   baseArgs?: string[]
   timeoutMs?: number
   pingTimeoutMs?: number
+  idleTimeoutMs?: number
   cache: PreflightCache
   getCommitHash?: (cwd: string) => string | undefined
   /** M5 Task 1（m3 檔位）：附加環境變數，透傳 runProcess（如 ANTHROPIC_BASE_URL /
@@ -28,6 +29,7 @@ export class ClaudeCliEngine implements Engine {
   private readonly baseArgs: string[]
   private readonly timeoutMs: number
   private readonly pingTimeoutMs: number
+  private readonly idleTimeoutMs: number
   private readonly cache: PreflightCache
   private readonly getCommitHash: (cwd: string) => string | undefined
   private readonly env?: Record<string, string>
@@ -39,6 +41,7 @@ export class ClaudeCliEngine implements Engine {
     this.baseArgs = opts.model ? [...base, '--model', opts.model] : base
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 90 * 1000 // 舊教訓：cold start 可達 40s+
+    this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
     this.cache = opts.cache
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
     this.env = opts.env
@@ -81,7 +84,7 @@ export class ClaudeCliEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const r = await runProcess({
       command: this.command, args: this.baseArgs, cwd: job.projectPath,
-      stdinText: prompt, timeoutMs: this.timeoutMs, env: this.env
+      stdinText: prompt, timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, env: this.env
     })
 
     // M4 Task 3（真花錢前必修）：以下三種路徑 costUsd 記 0 只是「沒能力解出真值」的佔位，

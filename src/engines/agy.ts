@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
-import { runProcess } from './proc.js'
+import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -26,7 +26,7 @@ export interface AgyOpts {
   command?: string // 預設 wsl.exe；測試代換為 process.execPath 跑 fake script（配 argvPrefix）
   argvPrefix?: string[] // 測試用：插在 wsl 參數前（fake script 路徑）。生產不設
   distro?: string; agyBin?: string; model?: string
-  timeoutMs?: number; pingTimeoutMs?: number
+  timeoutMs?: number; pingTimeoutMs?: number; idleTimeoutMs?: number
   cache: PreflightCache
   getCommitHash?: (cwd: string) => string | undefined
 }
@@ -44,6 +44,7 @@ export class AgyEngine implements Engine {
   private readonly model?: string
   private readonly timeoutMs: number
   private readonly pingTimeoutMs: number
+  private readonly idleTimeoutMs: number
   private readonly cache: PreflightCache
   private readonly getCommitHash: (cwd: string) => string | undefined
 
@@ -56,6 +57,7 @@ export class AgyEngine implements Engine {
     this.model = opts.model
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 120 * 1000 // WSL 跨界＋冷啟，比 claude-cli 再寬
+    this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
     this.cache = opts.cache
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
   }
@@ -121,7 +123,7 @@ export class AgyEngine implements Engine {
     const r = await runProcess({
       command: this.command,
       args: this.wslArgs(job.projectPath, ['--add-dir', toWslPath(job.projectPath), ...this.agyFlags(this.timeoutMs - 30_000, prompt)]),
-      cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs
+      cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs
     })
 
     if (r.timedOut) {

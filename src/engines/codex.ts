@@ -1,5 +1,5 @@
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
-import { runProcess } from './proc.js'
+import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -14,6 +14,7 @@ export interface CodexOpts {
   pingArgs?: string[]
   timeoutMs?: number
   pingTimeoutMs?: number
+  idleTimeoutMs?: number
   cache: PreflightCache
   getCommitHash?: (cwd: string) => string | undefined
   env?: Record<string, string>
@@ -35,6 +36,7 @@ export class CodexEngine implements Engine {
   private readonly pingArgs: string[]
   private readonly timeoutMs: number
   private readonly pingTimeoutMs: number
+  private readonly idleTimeoutMs: number
   private readonly cache: PreflightCache
   private readonly getCommitHash: (cwd: string) => string | undefined
   private readonly env?: Record<string, string>
@@ -48,6 +50,7 @@ export class CodexEngine implements Engine {
     this.pingArgs = [...(opts.pingArgs ?? ['exec', '--json', '-s', 'read-only', '--ephemeral', '--skip-git-repo-check']), ...modelArgs]
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 180 * 1000 // skills 冷載入＋忙機器實測可超過 90s
+    this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
     this.cache = opts.cache
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
     this.env = opts.env
@@ -90,7 +93,7 @@ export class CodexEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const r = await runProcess({
       command: this.command, args: this.baseArgs, cwd: job.projectPath,
-      stdinText: prompt, timeoutMs: this.timeoutMs, env: this.env
+      stdinText: prompt, timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, env: this.env
     })
 
     if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }

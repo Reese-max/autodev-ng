@@ -79,7 +79,7 @@ export const EngineConfigSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
   model: z.string().optional(),
   effort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional(), // codex CLI 接受 max；judgeEffort 走本機 proxy 且不接受 max，勿共用枚舉
-  timeoutMs: z.number().int().nonnegative().optional(), pingTimeoutMs: z.number().int().positive().optional(), // 未設＝adapter 預設；timeoutMs 另允許 0 停用 wall timeout
+  timeoutMs: z.number().int().nonnegative().optional(), pingTimeoutMs: z.number().int().positive().optional(), idleTimeoutMs: z.number().int().nonnegative().optional(), // 未設＝adapter 預設；timeoutMs/idleTimeoutMs 另允許 0 停用
   /** 單引擎每日 attempts 上限（可選）；未設＝不限。正整數，與 today-attempts 聚合對齊。 */
   dailyAttemptCap: z.number().int().positive().optional(),
 })

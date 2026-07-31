@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
-import { runProcess } from './proc.js'
+import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -10,7 +10,7 @@ export interface OpencodeOpts {
   id?: string
   command?: string // 預設 PATH 裸名 opencode.exe；npm 全域常只有 .cmd shim 在 PATH（真 exe 在 node_modules 深處）→ 解析失敗時 preflight detail 會指引以 config engines.<tag>.command 指定完整路徑
   model?: string // provider/model（預設 zen/big-pickle）。免費陣容輪替快，preflight 必驗三元組
-  baseArgs?: string[]; timeoutMs?: number; pingTimeoutMs?: number
+  baseArgs?: string[]; timeoutMs?: number; pingTimeoutMs?: number; idleTimeoutMs?: number
   cache: PreflightCache; getCommitHash?: (cwd: string) => string | undefined
   /** 透傳 runProcess；zen apiKey 以 OPENCODE_ZEN_KEY 傳入（profile 內寫 {env:...} 引用，key 不落地）。 */
   env?: Record<string, string>
@@ -26,7 +26,7 @@ export interface OpencodeOpts {
 export class OpencodeEngine implements Engine {
   readonly id: string
   private readonly command: string; private readonly args: string[]; private readonly model: string
-  private readonly timeoutMs: number; private readonly pingTimeoutMs: number
+  private readonly timeoutMs: number; private readonly pingTimeoutMs: number; private readonly idleTimeoutMs: number
   private readonly cache: PreflightCache; private readonly env?: Record<string, string>
   private readonly getCommitHash: (cwd: string) => string | undefined
   private readonly profileDir: string
@@ -37,6 +37,7 @@ export class OpencodeEngine implements Engine {
     this.model = opts.model ?? 'zen/big-pickle'
     this.args = [...(opts.baseArgs ?? ['run', '--format', 'json', '--pure', '--dangerously-skip-permissions']), '-m', this.model]
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000; this.pingTimeoutMs = opts.pingTimeoutMs ?? 90 * 1000
+    this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
     this.cache = opts.cache; this.env = opts.env; this.profileDir = opts.profileDir
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
   }
@@ -75,7 +76,7 @@ export class OpencodeEngine implements Engine {
       `任務：${job.directive ?? job.task.text}`
     ].join('\n')
     const before = this.getCommitHash(job.projectPath)
-    const r = await this.exec(prompt, job.projectPath, this.timeoutMs)
+    const r = await this.exec(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs)
     const p = parseNdjson(r.stdout)
     if (r.timedOut) return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
@@ -101,9 +102,10 @@ export class OpencodeEngine implements Engine {
   }
 
   /** 確保隔離 profile 存在 → XDG 重導向 spawn → 事後保守清 snapshot（吞錯，不影響結果）。 */
-  private async exec(stdinText: string, cwd: string, timeoutMs: number): ReturnType<typeof runProcess> {
+  private async exec(stdinText: string, cwd: string, timeoutMs: number, idleTimeoutMs?: number): ReturnType<typeof runProcess> {
     const xdg = this.ensureProfile()
     const r = await runProcess({ command: this.command, args: this.args, cwd, stdinText, timeoutMs,
+      ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }),
       env: { ...this.env, ...xdg } })
     try { rmSync(join(xdg.XDG_DATA_HOME, 'opencode', 'snapshot'), { recursive: true, force: true }) } catch { /* 盡力而為 */ }
     return r

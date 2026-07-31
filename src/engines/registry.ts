@@ -41,7 +41,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, tag === 'claude' ? 'preflight-cache.json' : `preflight-cache-${tag}.json`)),
           command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
-          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs
+          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs
         })
       case 'codex':
         return new CodexEngine({
@@ -49,7 +49,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
-          effort: ec.effort, timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs
+          effort: ec.effort, timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs
         })
       case 'copilot':
         return new CopilotEngine({
@@ -57,7 +57,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model), // 未設鎖 gpt-5-mini（adapter 預設）
-          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs
+          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs
         })
       case 'agy':
         // M5 Task 4：WSL 內 Antigravity CLI。ec.env 不透傳（WSL 邊界，Windows env 不會自動
@@ -67,7 +67,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           command: ec.command,
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
-          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs
+          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs
         })
       case 'grok':
         // M5 Task 7：xAI grok CLI（原生 .exe 直呼；prompt 走 --prompt-file tmp 檔；無 usage 欄位）。
@@ -76,7 +76,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
-          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs
+          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs
         })
       case 'qwen': {
         // M5 Task 6：qwen 殼接本機 OpenAI 相容 proxy（規格卡卡 3）。base URL／API key 沿 Task 1
@@ -90,7 +90,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           baseUrl: qenv?.OPENAI_BASE_URL,
           apiKey: qenv?.OPENAI_API_KEY,
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
-          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs
+          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs
         })
       }
       case 'opencode':
@@ -101,7 +101,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           command: ec.command, env: expandEnvMap(ec.env), profileDir: join(cfg.dataDir, 'opencode-profile'),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model), timeoutMs: ec.timeoutMs,
-          pingTimeoutMs: ec.pingTimeoutMs
+          pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs
         })
       case 'devin':
         // M5 Task 9：Devin CLI（原生 .exe 直呼；prompt/export 走 tmp 檔；固定鎖 swe-1.6 免費模型）。
@@ -111,7 +111,8 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
-          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs, profileDir: join(cfg.dataDir, 'devin-profile')
+          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs,
+          profileDir: join(cfg.dataDir, 'devin-profile')
         })
       default:
         throw new Error(`adapter ${ec.adapter} 尚未實作（M5 Task 3-8 逐一落地）`)
