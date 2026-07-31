@@ -16,6 +16,7 @@ const { readFileSync, statSync } = vi.hoisted(() => ({
 vi.mock('node:fs', () => ({
   closeSync: vi.fn(),
   mkdirSync: vi.fn(),
+  rmSync: vi.fn(),
   openSync: vi.fn(),
   readFileSync,
   readdirSync: vi.fn(),

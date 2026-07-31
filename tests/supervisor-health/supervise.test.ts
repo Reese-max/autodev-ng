@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import {
@@ -9,6 +9,7 @@ import {
   openDaemonConsoleLog,
   superviseConfig,
   superviseDirectory,
+  HEARTBEAT_WATCHDOG_MS,
   type CommandRunner,
 } from '../../src/supervisor/supervise.js'
 
@@ -124,6 +125,92 @@ test('supervisor 使用 config 的 staleThresholdMs', () => {
   })
 
   expect(result.action).toBe('reap')
+})
+
+test('30 分鐘 watchdog：PID 活著且 heartbeat 逾期時殺樹、清鎖、記錄凍結分鐘並重拉', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-watchdog-'))
+  const { configPath, dataDir } = writeConfig(root)
+  const pid = 77
+  const nowMs = Date.now()
+  writePid(dataDir, pid)
+  const heartbeat = join(dataDir, 'heartbeat.json')
+  writeFileSync(heartbeat, '{}')
+  const frozenMinutes = 35
+  utimesSync(heartbeat, new Date(nowMs - frozenMinutes * 60_000), new Date(nowMs - frozenMinutes * 60_000))
+  const commands: string[] = []
+  const effects: string[] = []
+
+  const result = superviseConfig(configPath, {
+    nowMs,
+    runCommand: (command, args) => {
+      commands.push(`${command} ${args.join(' ')}`)
+      if (command === 'tasklist') return `"node.exe","${pid}","Console","1","1,000 K"\r\n`
+      if (command === 'powershell.exe') return '2\r\n'
+      if (command === 'taskkill') return ''
+      throw new Error(`unexpected command: ${command} ${args.join(' ')}`)
+    },
+    launch: () => { effects.push('launch'); return 7007 },
+  })
+
+  expect(result.action).toBe('reap')
+  expect(result.heartbeatAgeMs).toBeGreaterThan(HEARTBEAT_WATCHDOG_MS)
+  expect(commands).toContain(`taskkill /PID ${pid} /T /F`)
+  expect(effects).toEqual(['launch'])
+  expect(existsSync(join(dataDir, 'daemon.lock'))).toBe(false)
+  const events = readFileSync(join(dataDir, 'events.jsonl'), 'utf8')
+    .trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+  expect(events).toContainEqual(expect.objectContaining({ type: 'daemon-wedge-recovered', frozenMinutes }))
+})
+
+test('PID 已死時清除殘鎖重拉，不寫 wedge recovery 事件', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-dead-lock-'))
+  const { configPath, dataDir } = writeConfig(root)
+  const pid = 78
+  writePid(dataDir, pid)
+  const heartbeat = join(dataDir, 'heartbeat.json')
+  writeFileSync(heartbeat, '{}')
+  const effects: string[] = []
+
+  const result = superviseConfig(configPath, {
+    runCommand: command => {
+      if (command === 'tasklist') return 'INFO: No tasks are running which match the specified criteria.'
+      throw new Error(`unexpected command: ${command}`)
+    },
+    launch: () => { effects.push('launch'); return 7008 },
+  })
+
+  expect(result).toMatchObject({ action: 'launch', pidAlive: false })
+  expect(effects).toEqual(['launch'])
+  expect(existsSync(join(dataDir, 'daemon.lock'))).toBe(false)
+  expect(existsSync(join(dataDir, 'events.jsonl'))).toBe(false)
+})
+
+test('PID 活著且 heartbeat 新鮮時不動 lock、daemon 或事件', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-fresh-heartbeat-'))
+  const { configPath, dataDir } = writeConfig(root)
+  const pid = 79
+  const nowMs = Date.now()
+  writePid(dataDir, pid)
+  const heartbeat = join(dataDir, 'heartbeat.json')
+  writeFileSync(heartbeat, '{}')
+  utimesSync(heartbeat, new Date(nowMs - 5 * 60_000), new Date(nowMs - 5 * 60_000))
+  const effects: string[] = []
+
+  const result = superviseConfig(configPath, {
+    nowMs,
+    runCommand: (command, args) => {
+      if (command === 'tasklist') return `"node.exe","${pid}","Console","1","1,000 K"\r\n`
+      if (command === 'powershell.exe') return '0\r\n'
+      throw new Error(`unexpected command: ${command} ${args.join(' ')}`)
+    },
+    launch: () => { effects.push('launch'); return 7009 },
+    reap: () => { effects.push('reap') },
+  })
+
+  expect(result.action).toBe('keep')
+  expect(effects).toEqual([])
+  expect(existsSync(join(dataDir, 'daemon.lock'))).toBe(true)
+  expect(existsSync(join(dataDir, 'events.jsonl'))).toBe(false)
 })
 
 interface SupervisorScenario {

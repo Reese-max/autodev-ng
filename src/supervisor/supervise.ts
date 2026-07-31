@@ -1,10 +1,13 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { EventLog } from '../events.js'
+import { releaseLock } from '../lock.js'
 import { ConfigSchema, DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
 import { classifyDaemon, hasEngineProcess, type DaemonAction } from './health.js'
 
 export { DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
+export const HEARTBEAT_WATCHDOG_MS = 30 * 60_000
 const COMMAND_TIMEOUT_MS = 10_000
 
 export type CommandRunner = (command: string, args: string[]) => string
@@ -238,12 +241,14 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
   let probeFailed = probeErrors.length > 0
 
   let pidAlive = false
+  let pidProbeSucceeded = false
   let childCount = 0
   let hasEngineChild: boolean | null = null
   if (pid !== null) {
     let tasklistSucceeded = true
     try {
       pidAlive = isNodePidAlive(pid, runCommand)
+      pidProbeSucceeded = true
     } catch (error) {
       // 探測失敗時保守視為存活且有 child，避免誤殺；下次 supervise 會重試。
       tasklistSucceeded = false
@@ -271,7 +276,10 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
     }
   }
 
-  const action = probeFailed
+  const watchdogExpired = pidProbeSucceeded && pidAlive && heartbeatAgeMs != null && heartbeatAgeMs > HEARTBEAT_WATCHDOG_MS
+  const action = watchdogExpired
+    ? 'reap'
+    : probeFailed
     ? 'keep'
     : classifyDaemon({
       pidAlive,
@@ -293,6 +301,18 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
       if (pid === null) throw new Error('reap 決策缺少 PID')
       const reap = options.reap ?? (targetPid => reapDaemonTree(targetPid, runCommand))
       reap(pid)
+    }
+    if (pid !== null) {
+      releaseLock(join(dataDir, 'daemon.lock'))
+    }
+    if (watchdogExpired && heartbeatAgeMs != null) {
+      try {
+        new EventLog(dataDir).append('daemon-wedge-recovered', {
+          frozenMinutes: Math.floor(heartbeatAgeMs / 60_000),
+        })
+      } catch (error) {
+        probeErrors.push(`event: ${errorText(error)}`)
+      }
     }
     launchedPid = launch(absolutePath, dataDir)
     // openSync share-busy → launchDaemon returns undefined (batch-parity silent skip)
