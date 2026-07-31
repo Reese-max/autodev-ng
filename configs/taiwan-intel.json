@@ -1,0 +1,105 @@
+{
+  "projectPath": "D:/Users/Administrator/Desktop/爬蟲資料/taiwan-intel-dashboard",
+  "backlogFile": "D:/Users/Administrator/Desktop/爬蟲資料/taiwan-intel-dashboard/BACKLOG-adng.md",
+  "dataDir": "../data/taiwan-intel",
+  "worktreesDir": "../data/taiwan-intel/worktrees",
+  "goalFile": "../data/taiwan-intel/GOAL.md",
+  "verifyCommand": "npm test",
+  "verifyTimeoutMs": 300000,
+  "judgeUrl": "http://127.0.0.1:8317/v1",
+  "judgeModel": "gpt-5.6-terra",
+  "judgeApiKey": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h",
+  "judgeEffort": "xhigh",
+  "judgeTimeoutMs": 180000,
+  "reviewEngine": "gpt-5.6-terra",
+  "auditModel": "gpt-5.6-sol",
+  "surveyCommand": "npm test",
+  "botTokenFile": "C:/Users/Administrator/.adng/bot.env",
+  "botAllowedUserIds": [
+    "844236700611379200"
+  ],
+  "discordChannelId": "1492793288514863164",
+  "dailySoftUsd": 20,
+  "dailyHardUsd": 30,
+  "maxAttempts": 6,
+  "perpetual": true,
+  "defaultEngine": "devin",
+  "engineRotation": [
+    "devin",
+    "oc-deepseek",
+    "oc-mimo",
+    "kilo",
+    "agy",
+    "grok",
+    "codex-luna",
+    "codex-terra",
+    "codex-sol"
+  ],
+  "engines": {
+    "devin": {
+      "adapter": "devin",
+      "command": "C:/Users/Administrator/AppData/Local/devin/cli/bin/devin.exe",
+      "costPerRunUsd": 0,
+      "subscription": true,
+      "timeoutMs": 3600000
+    },
+    "oc-deepseek": {
+      "adapter": "opencode",
+      "model": "opencode/deepseek-v4-flash-free",
+      "costPerRunUsd": 0,
+      "subscription": true,
+      "timeoutMs": 4500000,
+      "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe"
+    },
+    "oc-mimo": {
+      "adapter": "opencode",
+      "model": "opencode/mimo-v2.5-free",
+      "costPerRunUsd": 0,
+      "subscription": true,
+      "timeoutMs": 4500000,
+      "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe"
+    },
+    "kilo": {
+      "adapter": "opencode",
+      "command": "kilo",
+      "model": "kilo/kilo-auto/free",
+      "costPerRunUsd": 0,
+      "subscription": true,
+      "timeoutMs": 4500000,
+      "dailyAttemptCap": 5
+    },
+    "agy": {
+      "adapter": "agy",
+      "costPerRunUsd": 0,
+      "subscription": true,
+      "timeoutMs": 3600000
+    },
+    "grok": {
+      "adapter": "grok",
+      "costPerRunUsd": 0,
+      "subscription": true,
+      "timeoutMs": 3600000
+    },
+    "codex-sol": {
+      "adapter": "codex",
+      "model": "gpt-5.6-sol",
+      "costPerRunUsd": 1,
+      "subscription": true,
+      "timeoutMs": 3600000
+    },
+    "codex-luna": {
+      "adapter": "codex",
+      "model": "gpt-5.6-luna",
+      "costPerRunUsd": 1,
+      "subscription": true,
+      "timeoutMs": 3600000
+    },
+    "codex-terra": {
+      "adapter": "codex",
+      "model": "gpt-5.6-terra",
+      "costPerRunUsd": 1,
+      "subscription": true,
+      "timeoutMs": 3600000
+    }
+  }
+}

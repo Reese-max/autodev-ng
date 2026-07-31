@@ -7,7 +7,7 @@ import { ConfigSchema } from '../src/types.js'
 // 在 zen 端點懸掛日造成 daemon 凍結 2.5 小時（無界等待＝艦隊停擺）。現改鎖安全恆等式：
 // 三專案所有引擎的牆鐘限必須有界（>0 且 <=2 小時）。懸掛偵測正解是 idleTimeoutMs（插管中），
 // 牆鐘只防跑飛；再想「明確停用 wall timeout」必須連同 idle 護欄一起設計，不得裸奔。
-test.each(['note-filler', 'prompt-autoresearch', 'autodev-self', 'neciken'])('%s 全引擎牆鐘限有界（>0 且 <=2h）', name => {
+test.each(['note-filler', 'prompt-autoresearch', 'autodev-self', 'neciken', 'taiwan-intel'])('%s 全引擎牆鐘限有界（>0 且 <=2h）', name => {
   const file = resolve(import.meta.dirname, '..', 'configs', `${name}.json`)
   const cfg = ConfigSchema.parse(JSON.parse(readFileSync(file, 'utf8')))
 
