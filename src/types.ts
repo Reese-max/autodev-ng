@@ -82,7 +82,7 @@ export const EngineConfigSchema = z.object({
   timeoutMs: z.number().int().nonnegative().optional(), pingTimeoutMs: z.number().int().positive().optional(), idleTimeoutMs: z.number().int().nonnegative().optional(), // 未設＝adapter 預設；timeoutMs/idleTimeoutMs 另允許 0 停用
   /** 單引擎每日 attempts 上限（可選）；未設＝不限。正整數，與 today-attempts 聚合對齊。 */
   dailyAttemptCap: z.number().int().positive().optional(),
-})
+}).refine(ec => !((ec.timeoutMs === 0 || (ec.timeoutMs ?? 0) > 7_200_000) && !ec.idleTimeoutMs), { path: ['timeoutMs'], message: 'timeoutMs 為 0 或超過 7200000 時必須設定大於 0 的 idleTimeoutMs' })
 export type EngineConfig = z.infer<typeof EngineConfigSchema>
 
 // M10.6：timezoneOffsetHours 的 Zod 預設單一真相源——globalcost 讀 raw JSON 拿不到 Zod default，
