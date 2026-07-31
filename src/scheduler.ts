@@ -103,7 +103,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
 
   const picked = await pickReadyTask({ cfg, store, db, events, engines, notify }, openTasks)
   if (typeof picked === 'string' || 'kind' in picked) {
-    if (picked === 'preflight-failed') writeHeartbeat(events, cfg, { state: 'idle', todayCostUsd: spent })
+    if (picked === 'preflight-failed') writeHeartbeat(events, cfg, { state: 'preflight-failed', todayCostUsd: spent })
     return picked
   }
   const { task, engine, engineTag, fixedCost } = picked

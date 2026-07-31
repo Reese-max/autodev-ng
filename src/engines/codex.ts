@@ -47,7 +47,7 @@ export class CodexEngine implements Engine {
     this.baseArgs = [...(opts.baseArgs ?? ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox']), ...modelArgs, ...effortArgs]
     this.pingArgs = [...(opts.pingArgs ?? ['exec', '--json', '-s', 'read-only', '--ephemeral', '--skip-git-repo-check']), ...modelArgs]
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
-    this.pingTimeoutMs = opts.pingTimeoutMs ?? 90 * 1000
+    this.pingTimeoutMs = opts.pingTimeoutMs ?? 180 * 1000 // skills 冷載入＋忙機器實測可超過 90s
     this.cache = opts.cache
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
     this.env = opts.env

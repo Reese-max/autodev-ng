@@ -25,6 +25,19 @@ test('timeout 與專案成本軟硬頂可用 0 明確停用', () => {
   expect(cfg.engines.oc?.timeoutMs).toBe(0)
 })
 
+test('pingTimeoutMs 可設正整數，非正整數被拒', () => {
+  const base = { projectPath: 'x', backlogFile: 'x', dataDir: 'x', defaultEngine: 'codex' }
+  const cfg = ConfigSchema.parse({
+    ...base, engines: { codex: { adapter: 'codex', costPerRunUsd: 0, pingTimeoutMs: 180_000 } }
+  })
+  expect(cfg.engines.codex?.pingTimeoutMs).toBe(180_000)
+  for (const pingTimeoutMs of [0, -1, 1.5]) {
+    expect(() => ConfigSchema.parse({
+      ...base, engines: { codex: { adapter: 'codex', costPerRunUsd: 0, pingTimeoutMs } }
+    })).toThrow()
+  }
+})
+
 test('非法 engine 被拒', () => {
   expect(() => ConfigSchema.parse({
     projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'gpt99'

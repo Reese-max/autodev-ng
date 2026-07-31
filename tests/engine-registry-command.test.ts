@@ -28,3 +28,31 @@ test('config engines.<tag>.command 必須傳到 adapter（不得退回裸名預�
     expect(engine.command, `engines.${tag}.command 未透傳到 adapter`).toContain('C:/custom/')
   }
 })
+
+test('config pingTimeoutMs 透傳所有支援 adapter，Codex 未設時預設 180s', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'adng-reg-ping-'))
+  const cfg = ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir, defaultEngine: 'claude',
+    engines: {
+      claude: { adapter: 'claude-cli', pingTimeoutMs: 101_000 },
+      codex: { adapter: 'codex', costPerRunUsd: 0, pingTimeoutMs: 102_000 },
+      copilot: { adapter: 'copilot', costPerRunUsd: 0, pingTimeoutMs: 103_000 },
+      agy: { adapter: 'agy', costPerRunUsd: 0, pingTimeoutMs: 104_000 },
+      grok: { adapter: 'grok', costPerRunUsd: 0, pingTimeoutMs: 105_000 },
+      qwen: { adapter: 'qwen', costPerRunUsd: 0, pingTimeoutMs: 106_000 },
+      opencode: { adapter: 'opencode', pingTimeoutMs: 107_000 },
+      devin: { adapter: 'devin', costPerRunUsd: 0, pingTimeoutMs: 108_000 },
+    },
+  })
+  const registry = makeEngineRegistry(cfg)
+  for (const [tag, ec] of Object.entries(cfg.engines)) {
+    const engine = registry.resolve(tag) as unknown as { pingTimeoutMs: number }
+    expect(engine.pingTimeoutMs, `engines.${tag}.pingTimeoutMs 未透傳到 adapter`).toBe(ec.pingTimeoutMs)
+  }
+
+  const defaults = makeEngineRegistry(ConfigSchema.parse({
+    projectPath: 'x', backlogFile: 'x', dataDir,
+    engines: { codex: { adapter: 'codex', costPerRunUsd: 0 } }, defaultEngine: 'codex',
+  }))
+  expect((defaults.resolve('codex') as unknown as { pingTimeoutMs: number }).pingTimeoutMs).toBe(180_000)
+})

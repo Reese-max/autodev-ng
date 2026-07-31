@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { join } from 'node:path'
 
 export interface HeartbeatState {
-  state: 'running' | 'idle' | 'stopped' | 'cost-stopped'
+  state: 'running' | 'idle' | 'stopped' | 'cost-stopped' | 'preflight-failed'
   currentTask?: string
   todayCostUsd: number
   /** 今日 attempts：engine → { n, ok, cap? } */

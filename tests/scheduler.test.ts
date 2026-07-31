@@ -280,12 +280,12 @@ test('engine 連 throw 兩次 → 第二次回 blocked（補齊 engine-error →
   expect(d.store.nextTask()).toBeNull() // blocked 不再撿
 })
 
-test('preflight 失敗時 heartbeat 更新為 idle（不留 stale running）', async () => {
+test('preflight 失敗時 heartbeat 標成 preflight-failed（不偽裝 idle）', async () => {
   const e = new MockEngine([], { ok: false, detail: 'auth dead' })
   const d = deps(e)
   expect(await runOnce(d)).toBe('preflight-failed')
   const hb = JSON.parse(readFileSync(join(d.cfg.dataDir, 'heartbeat.json'), 'utf8'))
-  expect(hb.state).toBe('idle')
+  expect(hb.state).toBe('preflight-failed')
 })
 
 test('heartbeat 含 todayAttempts 摘要欄位（無 attempts 時為空物件或僅 cap 列）', async () => {
