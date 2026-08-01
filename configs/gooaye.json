@@ -100,5 +100,7 @@
       "timeoutMs": 3600000
     }
   },
-  "engineIsolation": false
+  "engineIsolation": false,
+  "worktreeAddTimeoutMs": 240000,
+  "gitTimeoutMs": 60000
 }
