@@ -8,6 +8,7 @@ import { firstMissingArtifact } from './engines/artifact-contract-git.js'
 import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { enqueueMerge } from './engines/merge-queue.js'
+import type { TaskTerminalNotice } from './engines/notify.js'
 import { pickCandidateTags } from './engines/pick-candidates.js'
 import { singleFlightPickRouting } from './engines/pick-ready-single-flight.js'
 import { quiet, type EventLog } from './events.js'
@@ -32,6 +33,8 @@ export interface Deps {
   engines: EngineResolver
   /** 告警面（可選）：引擎隔離等route事故推 Discord；未設或送失敗不影響派工（fail-open）。 */
   notify?: (text: string) => Promise<boolean>
+  /** Telegram 任務終態通知；assemble 僅在 token/chat ID 齊全時接線。 */
+  taskTerminalNotify?: (notice: TaskTerminalNotice) => Promise<boolean>
   events: EventLog
   verifier?: { check(job: Job, res: RunResult): Promise<VerifierCheck> }
   /** M7：未接線時 undefined，行為與現狀完全一致（fail-open 硬線）。 */
@@ -156,7 +159,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     engine.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
     quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-    return resolveFailure({ cfg, store, db, events }, task, 'engine-error', String(err))
+    return resolveFailure(deps, task, 'engine-error', String(err), { costUsd: fixedCost ?? 0 })
   }
 
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默。失敗成本估計（M4 Task 3）：costUnknown===true
@@ -168,6 +171,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   const baseDetail = res.failureReason ?? res.commitHash ?? ''
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
   db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached })
+  const quotaUsage = { costUsd: recordedCostUsd, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached }
   if (!res.ok) engine.invalidatePreflight?.() // timeout/exit≠0/no-commit：引擎健康存疑，下輪重探（verify 拒收不算）
 
   const missingArtifact = res.ok ? firstMissingArtifact(wt.cwd, res.output, res.baseCommitHash, res.commitHash, cfg.artifactContract) : undefined
@@ -176,7 +180,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     db.record({ taskId: task.id, ok: false, costUsd: 0, detail: reason, engine: engineTag, durationMs: Date.now() - runStartMs })
     quiet(() => events.append('task-failed', { task: task.text, reason, outputTail: res.output.slice(-600) }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-    return resolveFailure({ cfg, store, db, events }, task, 'failed', reason)
+    return resolveFailure(deps, task, 'failed', reason, quotaUsage)
   }
 
   if (res.ok && verifier) {
@@ -195,7 +199,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
       quiet(() => events.append('task-verify-failed', { task: task.text, reason: vc.reason }))
       // engine 失敗/verify 拒：rollback 已在 worktree 內安全跑過，保留現場供 debug（不清理）。
       quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-      return resolveFailure({ cfg, store, db, events }, task, 'failed', `verify 拒收：${vc.reason ?? '未附原因'}`)
+      return resolveFailure(deps, task, 'failed', `verify 拒收：${vc.reason ?? '未附原因'}`, quotaUsage)
     }
   }
 
@@ -247,6 +251,11 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
         }))
       }
     }
+    await notifyTaskTerminal(deps, {
+      outcome: 'done', taskId: task.id, taskText: task.text,
+      resultSummary: `commit ${merge.commitHash ?? res.commitHash ?? 'unknown'}`,
+      ...quotaUsage,
+    })
     return 'done'
   }
 
@@ -257,7 +266,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   }))
   // engine 失敗（res.ok===false，非例外）：既有流程走 resolveFailure，worktree 保留現場。
   quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-  return resolveFailure({ cfg, store, db, events }, task, 'failed', res.failureReason ?? '未知')
+  return resolveFailure(deps, task, 'failed', res.failureReason ?? '未知', quotaUsage)
 }
 
 /** 環境級 blocked：不計 maxAttempts；store.report 失敗只記事件。 */
@@ -318,15 +327,29 @@ export async function pickReadyTask(
 }
 
 /** 達 maxAttempts → blocked（lastFailure 進註記）；report 拋錯只吞錯。 */
-function resolveFailure(
-  { cfg, store, db, events }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events'>,
+async function resolveFailure(
+  deps: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'taskTerminalNotify'>,
   task: Task,
   base: 'failed' | 'engine-error',
-  lastFailure: string
-): CycleResult {
+  lastFailure: string,
+  quotaUsage: Pick<TaskTerminalNotice, 'costUsd' | 'tokensIn' | 'tokensOut' | 'tokensCached'>
+): Promise<CycleResult> {
+  const { cfg, store, db, events } = deps
   if (db.failCount(task.id) < cfg.maxAttempts) return base
   const hint = lastFailure.replace(/\s+/g, ' ').trim().slice(0, 80) || '未知'
-  return blockTask({ store, events }, task, 'max-attempts', `連敗 ${cfg.maxAttempts} 次，人工介入（最後失敗：${hint}）`)
+  const result = blockTask({ store, events }, task, 'max-attempts', `連敗 ${cfg.maxAttempts} 次，人工介入（最後失敗：${hint}）`)
+  await notifyTaskTerminal(deps, {
+    outcome: 'failed', taskId: task.id, taskText: task.text,
+    resultSummary: lastFailure, attempts: cfg.maxAttempts, ...quotaUsage,
+  })
+  return result
+}
+
+async function notifyTaskTerminal(
+  { taskTerminalNotify }: Pick<Deps, 'taskTerminalNotify'>,
+  notice: TaskTerminalNotice
+): Promise<void> {
+  try { await taskTerminalNotify?.(notice) } catch { /* 通知面故障不得改寫任務終態。 */ }
 }
 
 /** 訂閱制引擎 tag 清單（邊際成本≈0，不踩日頂）。 */

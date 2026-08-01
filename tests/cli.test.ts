@@ -36,7 +36,21 @@ test('assemble：mock engine → registry 以 defaultEngine 解析出 MockEngine
     expect(deps.engines.resolve(cfg.defaultEngine)).toBeInstanceOf(MockEngine)
     expect(deps.verifier).toBeInstanceOf(KernelVerifier)
     expect(notifier).toBeInstanceOf(DiscordNotifier)
+    expect(deps.taskTerminalNotify).toBeUndefined()
     expect(cfg).toBe(deps.cfg)
+  } finally {
+    deps.db.close()
+  }
+})
+
+test('assemble：Telegram token/chat ID 齊全才接入任務終態通知', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cli-'))
+  const cfgPath = writeConfig(dir, { telegramBotToken: '123:ABC', telegramChatId: '-100123' })
+  const { deps, cfg } = assemble(cfgPath)
+  try {
+    expect(cfg.telegramBotToken).toBe('123:ABC')
+    expect(cfg.telegramChatId).toBe('-100123')
+    expect(deps.taskTerminalNotify).toBeTypeOf('function')
   } finally {
     deps.db.close()
   }

@@ -135,3 +135,70 @@ export class DiscordNotifier {
     rotateDlqIfNeeded(dlqPath)
   }
 }
+
+export interface TaskTerminalNotice {
+  outcome: 'done' | 'failed'
+  taskId: string
+  taskText: string
+  resultSummary: string
+  costUsd: number
+  tokensIn?: number
+  tokensOut?: number
+  tokensCached?: number
+  attempts?: number
+}
+
+function oneLine(text: string, limit: number): string {
+  return [...text.replace(/\s+/g, ' ').trim()].slice(0, limit).join('') || '未提供'
+}
+
+export function formatTelegramTaskMessage(n: TaskTerminalNotice): string {
+  const done = n.outcome === 'done'
+  const tokens = n.tokensIn === undefined && n.tokensOut === undefined && n.tokensCached === undefined
+    ? 'tokens 未回報'
+    : `tokens in=${n.tokensIn ?? '?'} / out=${n.tokensOut ?? '?'} / cached=${n.tokensCached ?? '?'}`
+  const acceptance = done ? '通過' : `未通過${n.attempts ? `（已達 ${n.attempts} 次上限）` : '（最終失敗）'}`
+  return [
+    `${done ? '✅' : '❌'} AutoDev 任務${done ? '完成' : '最終失敗'}`,
+    `任務識別：${n.taskId}｜${oneLine(n.taskText, 240)}`,
+    `成果摘要：${oneLine(n.resultSummary, 1_200)}`,
+    `驗收狀態：${acceptance}`,
+    `本次額度用量：US$${n.costUsd.toFixed(4)}；${tokens}`,
+  ].join('\n')
+}
+
+export interface TelegramNotifierOpts {
+  botToken: string | undefined
+  chatId: string | number | undefined
+  fetchFn?: typeof fetch
+}
+
+/** Telegram 是加值通知面：缺設定、逾時、非 2xx 或 fetch 例外一律回 false，不向排程拋錯。 */
+export class TelegramNotifier {
+  constructor(private readonly opts: TelegramNotifierOpts) {}
+
+  async send(text: string): Promise<boolean> {
+    const token = this.opts.botToken?.trim()
+    const chatId = typeof this.opts.chatId === 'string' ? this.opts.chatId.trim() : this.opts.chatId
+    if (!token || chatId === undefined || chatId === '') return false
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15_000)
+    try {
+      const response = await (this.opts.fetchFn ?? globalThis.fetch)(
+        `https://api.telegram.org/bot${token}/sendMessage`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: [...text].slice(0, 4_000).join('') }),
+          signal: controller.signal,
+        }
+      )
+      return response.status >= 200 && response.status < 300
+    } catch {
+      return false
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  }
+}

@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DiscordNotifier, loadDiscordToken } from '../src/engines/notify.js'
+import { DiscordNotifier, formatTelegramTaskMessage, loadDiscordToken, TelegramNotifier } from '../src/engines/notify.js'
 
 function tokenFile(content: string): string {
   const f = join(mkdtempSync(join(tmpdir(), 'adng-tk-')), 'tokens.env')
@@ -124,4 +124,45 @@ test('DLQ 剛好 2000 行（未超過）不觸發保尾', async () => {
   await n.send('x')
   const lines = readFileSync(join(dir, 'notify-dlq.jsonl'), 'utf8').trim().split('\n')
   expect(lines).toHaveLength(2000)
+})
+
+test('TelegramNotifier：設定齊全時送至 Bot API，chat ID 與文字放 JSON body', async () => {
+  const { fn, calls } = okFetch()
+  const n = new TelegramNotifier({ botToken: '123:ABC', chatId: '-100123', fetchFn: fn })
+  expect(await n.send('任務完成')).toBe(true)
+  expect(calls).toHaveLength(1)
+  expect(calls[0]!.url).toBe('https://api.telegram.org/bot123:ABC/sendMessage')
+  expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ chat_id: '-100123', text: '任務完成' })
+})
+
+test('TelegramNotifier：缺 token/chat ID 不呼叫 fetch；非 2xx 與 fetch 例外皆 fail-open', async () => {
+  const { fn, calls } = okFetch()
+  expect(await new TelegramNotifier({ botToken: undefined, chatId: '1', fetchFn: fn }).send('x')).toBe(false)
+  expect(await new TelegramNotifier({ botToken: 't', chatId: undefined, fetchFn: fn }).send('x')).toBe(false)
+  expect(calls).toHaveLength(0)
+  const bad = (async () => new Response('nope', { status: 500 })) as typeof fetch
+  expect(await new TelegramNotifier({ botToken: 't', chatId: 1, fetchFn: bad }).send('x')).toBe(false)
+  const boom = (async () => { throw new Error('ECONNRESET') }) as unknown as typeof fetch
+  expect(await new TelegramNotifier({ botToken: 't', chatId: 1, fetchFn: boom }).send('x')).toBe(false)
+})
+
+test('formatTelegramTaskMessage：完成與最終失敗皆含任務、成果、驗收與本次額度', () => {
+  const done = formatTelegramTaskMessage({
+    outcome: 'done', taskId: 'abc12345', taskText: '修正排程', resultSummary: 'commit deadbeef',
+    costUsd: 0.25, tokensIn: 100, tokensOut: 20, tokensCached: 10,
+  })
+  expect(done).toContain('abc12345｜修正排程')
+  expect(done).toContain('成果摘要：commit deadbeef')
+  expect(done).toContain('驗收狀態：通過')
+  expect(done).toContain('US$0.2500；tokens in=100 / out=20 / cached=10')
+
+  const failed = formatTelegramTaskMessage({
+    outcome: 'failed', taskId: 'abc12345', taskText: '修正\n排程', resultSummary: 'verify\nfailed',
+    costUsd: 1, attempts: 2,
+  })
+  expect(failed).toContain('任務最終失敗')
+  expect(failed).toContain('abc12345｜修正 排程')
+  expect(failed).toContain('成果摘要：verify failed')
+  expect(failed).toContain('驗收狀態：未通過（已達 2 次上限）')
+  expect(failed).toContain('US$1.0000；tokens 未回報')
 })

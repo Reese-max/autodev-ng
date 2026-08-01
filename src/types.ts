@@ -141,6 +141,8 @@ export const ConfigSchema = z.object({
   discoverLenses: z.array(z.string()).default(['correctness', 'tests', 'perf', 'design', 'security']),
   discordChannelId: z.string().optional(),
   discordTokenFile: z.string().default('C:/Users/Administrator/openab/.env.tokens'),
+  telegramBotToken: z.string().optional(),
+  telegramChatId: z.union([z.string(), z.number().int()]).optional(),
   // M5 Task 1（引擎矩陣）：engines＝本專案引擎白名單（tag → 引擎設定），defaultEngine＝
   // 無 tag 任務的預設 tag。engines 未設時於下方 transform 依 legacy engine 欄位補
   // { claude: { adapter: <engine> } }——既有 config（如 voice-actress.json 不加 engines 段）

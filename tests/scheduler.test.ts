@@ -13,6 +13,7 @@ import { MockEngine } from '../src/engines/mock.js'
 import { ConfigSchema } from '../src/types.js'
 import { KernelVerifier } from '../src/verifier.js'
 import { acquireWindowsFileLock } from './helpers/windows-file-lock.js'
+import type { TaskTerminalNotice } from '../src/engines/notify.js'
 
 /** M4 Task 6：scheduler 現在對每個任務執行 prepareWorktree/mergeBack，需要 projectPath 是
  * 真的 git repo——所有會走到 engine.run 的測試都靠這個 helper 建臨時 git repo（mkdtemp +
@@ -65,6 +66,36 @@ test('happy path：done + backlog 打勾 + 記帳', async () => {
   expect(await runOnce(d)).toBe('done')
   expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [x] 任務一')
   expect(d.db.costForLocalDay(localDay(new Date().toISOString(), 0), 0)).toBeCloseTo(0.3)
+})
+
+test('task-done 終態通知只送一次且通知失敗不改寫完成結果', async () => {
+  const d = deps(new MockEngine([{ ok: true, costUsd: 0.3 }]))
+  const notices: TaskTerminalNotice[] = []
+  const result = await runOnce({
+    ...d,
+    taskTerminalNotify: async notice => { notices.push(notice); throw new Error('Telegram down') },
+  })
+  expect(result).toBe('done')
+  expect(notices).toHaveLength(1)
+  expect(notices[0]).toMatchObject({ outcome: 'done', taskId: taskId('任務一'), taskText: '任務一', costUsd: 0.3 })
+  expect(notices[0]!.resultSummary).toContain('commit ')
+})
+
+test('重試中失敗不通知；達 maxAttempts 的最終失敗只送一次', async () => {
+  const d = deps(new MockEngine([
+    { ok: false, reason: 'timeout', costUsd: 0.1 },
+    { ok: false, reason: 'verify failed', costUsd: 0.2 },
+  ]))
+  const notices: TaskTerminalNotice[] = []
+  const withTelegram = { ...d, taskTerminalNotify: async (notice: TaskTerminalNotice) => { notices.push(notice); return true } }
+  expect(await runOnce(withTelegram)).toBe('failed')
+  expect(notices).toHaveLength(0)
+  expect(await runOnce(withTelegram)).toMatchObject({ kind: 'blocked', reason: 'max-attempts' })
+  expect(notices).toHaveLength(1)
+  expect(notices[0]).toMatchObject({
+    outcome: 'failed', taskId: taskId('任務一'), taskText: '任務一',
+    resultSummary: 'verify failed', costUsd: 0.2, attempts: 2,
+  })
 })
 
 test('敗第 1 次留 open；敗第 2 次 blocked（鐵律：不無限重試）', async () => {

@@ -4,7 +4,7 @@ import { ZodError } from 'zod'
 import { BacklogStore } from '../backlog.js'
 import { RunDb } from '../db.js'
 import { EventLog } from '../events.js'
-import { DiscordNotifier } from '../engines/notify.js'
+import { DiscordNotifier, formatTelegramTaskMessage, TelegramNotifier } from '../engines/notify.js'
 import { KernelVerifier } from '../verifier.js'
 import { reviewDiff } from '../engines/review-gate.js'
 import { makeEngineRegistry } from '../engines/registry.js'
@@ -77,13 +77,19 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
     tokenFile: cfg.discordTokenFile,
     dataDir: cfg.dataDir,
   })
+  const telegramNotifier = new TelegramNotifier({ botToken: cfg.telegramBotToken, chatId: cfg.telegramChatId })
+  const telegramConfigured = cfg.telegramBotToken?.trim() && String(cfg.telegramChatId ?? '').trim()
   const lessonStore = new LessonStore(cfg.learningsFile ?? join(cfg.dataDir, 'learnings.md'), cfg.globalLearningsFile)
   const lessons = makeLessonsPort({
     lessons: lessonStore, db, backlog: store,
     llm: { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs }, events
   })
 
-  const deps: Deps = { cfg, store, db, engines, events, verifier, lessons, cfgPath: absCfgPath, notify: text => notifier.send(text) }
+  const deps: Deps = {
+    cfg, store, db, engines, events, verifier, lessons, cfgPath: absCfgPath,
+    notify: text => notifier.send(text),
+    ...(telegramConfigured ? { taskTerminalNotify: notice => telegramNotifier.send(formatTelegramTaskMessage(notice)) } : {}),
+  }
   return { deps, notifier, cfg }
 }
 
