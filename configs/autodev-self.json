@@ -3,7 +3,7 @@
   "backlogFile": "../data/autodev-self/BACKLOG.md",
   "dataDir": "../data/autodev-self",
   "goalFile": "../data/autodev-self/GOAL.md",
-  "maxAttempts": 6,
+  "maxAttempts": 3,
   "timezoneOffsetHours": 8,
   "dailySoftUsd": 5,
   "dailyHardUsd": 10,

@@ -19,7 +19,7 @@
   "timezoneOffsetHours": 8,
   "dailySoftUsd": 10,
   "dailyHardUsd": 20,
-  "maxAttempts": 6,
+  "maxAttempts": 3,
   "perpetual": true,
   "defaultEngine": "oc-deepseek",
   "engineRotation": [

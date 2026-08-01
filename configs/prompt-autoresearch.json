@@ -17,7 +17,7 @@
   "surveyCommand": "python -m pytest tests/ -q --cov=lib --cov=scripts --cov=api --cov-report=term-missing --deselect tests/test_architecture_surface.py::ArchitectureSurfaceTests::test_experiment_report_snapshot_contract",
   "dailySoftUsd": 20,
   "dailyHardUsd": 30,
-  "maxAttempts": 6,
+  "maxAttempts": 3,
   "perpetual": true,
   "defaultEngine": "oc-deepseek",
   "engineRotation": [

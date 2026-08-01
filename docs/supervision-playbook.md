@@ -53,7 +53,12 @@ BACKLOG-adng.md 的 adng:blocked 標記；data/<proj>/restart.request 存在且 
 1. 讀 blocked reason 與歷輪拒收理由（run.db attempts detail）
 2. 改寫任務文字＝新 task id＝失敗數歸零；必含：
    a. 棒次與重開日期；b. 既有實況（哪些已存在、只准接線/不准重做）；
-   c. 歷輪拒收根因逐條轉為靶心指引；d. 屢敗或急件 → 行尾釘 `[engine:codex-terra]`
+   c. 歷輪拒收根因逐條轉為靶心指引；
+   d. **重開任務一律行尾釘 `[engine:codex-terra]`**（2026-08-01 起）——任務會進 blocked
+   就表示免費層已證明啃不動它，重開再讓它先在免費層失敗一輪是純浪費（實測失敗輪中位
+   12 分鐘）。唯一例外：拒收根因確定是基建誤傷（孤兒分支／誤殺／逾時）時不釘，因為
+   任務難度未被證明。maxAttempts 自 2026-08-01 起為 3（原 6）：注定失敗的任務燒 36 分
+   而非 72 分即進 blocked，靠巡檢帶精準靶心重開，勝過盲目重試
 3. 移除舊行的 adng:blocked 標記（同行改寫）或標 superseded
 4. 殘留 worktree 卡 prepareWorktree 時：新 id 自然繞開；殘目錄待關機自清，不硬清
 5. 同一任務人工重開以一次為限；再敗＝升級人工（不無限重開）
