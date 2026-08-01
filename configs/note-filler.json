@@ -21,9 +21,8 @@
   "dailyHardUsd": 20,
   "maxAttempts": 6,
   "perpetual": true,
-  "defaultEngine": "devin",
+  "defaultEngine": "oc-deepseek",
   "engineRotation": [
-    "devin",
     "oc-deepseek",
     "oc-mimo",
     "kilo",
