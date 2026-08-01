@@ -1,10 +1,11 @@
 import { describe, test, expect } from 'vitest'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runGoalSession, type OrchestratorDeps } from '../src/autopilot/orchestrator.js'
-import { BacklogStore } from '../src/backlog.js'
+import { BacklogStore, parseBacklog, taskId } from '../src/backlog.js'
 import type { Goal } from '../src/autopilot/goal.js'
+import { EventLog } from '../src/events.js'
 
 function base(goal: Goal, overrides: Partial<OrchestratorDeps>): OrchestratorDeps {
   const dir = mkdtempSync(join(tmpdir(), 'adng-orch-'))
@@ -13,7 +14,11 @@ function base(goal: Goal, overrides: Partial<OrchestratorDeps>): OrchestratorDep
   const store = new BacklogStore(backlogFile)
   return {
     goalId: 'g1', goal, cwd: dir,
-    kernelDeps: { store } as unknown as OrchestratorDeps['kernelDeps'],
+    kernelDeps: {
+      store,
+      cfg: { backlogFile },
+      events: new EventLog(dir),
+    } as unknown as OrchestratorDeps['kernelDeps'],
     planFn: async () => ({ kind: 'achieved' }),
     evalFn: async () => ({ achieved: true, score: 1, detail: '' }),
     runOnceFn: async () => 'idle',
@@ -139,6 +144,52 @@ describe('runGoalSession', () => {
     expect(seenHistory).toContain('既有任務(blocked): 已卡死的舊任務')
     expect(seenHistory).toContain('既有任務(open): 還開著的舊任務')
     expect(appended).toEqual(['全新任務']) // 同文舊任務被擋、新任務照常 append
+  })
+
+  test('首次命中 blocked：舊行 superseded 對照新 ID，重開文字逐字帶拒收根因', async () => {
+    const deps = base({ objective: 'o', noProgressLimit: 1 }, {})
+    const oldText = '修正主分支衝突'
+    const reason = 'merge-conflict：主分支已前進 > 舊基線'
+    writeFileSync(join(deps.cwd, 'BACKLOG.md'), `- [ ] [engine:agy] ${oldText} <!-- adng:autopilot goal:g0 round:1 --> <!-- adng:blocked reason=${JSON.stringify(reason)} -->\n`)
+    deps.planFn = async () => ({ kind: 'tasks', tasks: [oldText, '同批其他候選'] })
+    deps.evalFn = async () => ({ achieved: true, score: 1, detail: '' })
+
+    expect((await runGoalSession(deps)).kind).toBe('achieved')
+
+    const md = readFileSync(join(deps.cwd, 'BACKLOG.md'), 'utf8')
+    const reopened = parseBacklog(md).find(task => task.text.startsWith(`${oldText}（既有實況：`))!
+    expect(reopened.id).toBe(taskId(reopened.text))
+    expect(reopened.status).toBe('open')
+    expect(reopened.engineTag).toBe('agy')
+    expect(reopened.text).toContain(`adng:blocked reason=${JSON.stringify(reason)}`)
+    expect(md).toContain(`<!-- adng:superseded by:${reopened.id} -->`)
+    expect(md).toContain(`id:${reopened.id} reopen-from:${taskId(oldText)}`)
+    expect(md).toContain('- [ ] 同批其他候選')
+  })
+
+  test('重開任務再 blocked：append exhausted 事件並跳過它，仍追加同批其他候選', async () => {
+    const deps = base({ objective: 'o', noProgressLimit: 1 }, {})
+    const oldText = '修正重複失敗'
+    writeFileSync(join(deps.cwd, 'BACKLOG.md'), `- [ ] ${oldText} <!-- adng:blocked reason="第一次失敗" -->\n`)
+    deps.planFn = async () => ({ kind: 'tasks', tasks: [oldText] })
+    deps.evalFn = async () => ({ achieved: true, score: 1, detail: '' })
+    await runGoalSession(deps)
+
+    const reopened = deps.kernelDeps.store.read().find(task => task.text.startsWith(`${oldText}（既有實況：`))!
+    deps.kernelDeps.store.report(reopened.id, { kind: 'blocked', reason: '修復仍失敗' })
+    deps.planFn = async () => ({ kind: 'tasks', tasks: [reopened.text, '額度耗盡後的下一候選'] })
+
+    expect((await runGoalSession(deps)).kind).toBe('achieved')
+    const md = readFileSync(join(deps.cwd, 'BACKLOG.md'), 'utf8')
+    expect(md).toContain('- [ ] 額度耗盡後的下一候選')
+    expect(md.match(/adng:superseded/g)).toHaveLength(1)
+    const events = readFileSync(join(deps.cwd, 'events.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line))
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'blocked-reopen-exhausted',
+      existingStatus: 'blocked',
+      reopenHistory: 'reopened',
+      taskId: reopened.id,
+    }))
   })
 
   test('M9.7：discovered 有排序問題時 repoSummary 含問題清單', async () => {

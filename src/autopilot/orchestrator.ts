@@ -1,8 +1,11 @@
 import type { Deps, CycleResult } from '../scheduler.js'
+import type { Task } from '../types.js'
+import { quiet } from '../events.js'
 import type { Goal } from './goal.js'
 import type { PlanResult, PlanInput } from './planner.js'
 import type { ProgressSnapshot } from './evaluator.js'
 import type { RankedProblem } from './discover.js'
+import { applyDedupReopen } from './dedup-reopen.js'
 
 export type GoalOutcome =
   | { kind: 'achieved'; rounds: number }
@@ -31,6 +34,8 @@ export interface OrchestratorDeps {
 export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcome> {
   const history: string[] = []
   const appendedTexts = new Set<string>()
+  const existingByText = new Map<string, Task>()
+  const handledDuplicates = new Set<string>()
   // 跨 session 去重（2026-07-17 實證：goal 8a0d 出現多批 round:0 近同文任務）：daemon 重啟後
   // 新 session 的 history 歸零，planner 看不到 backlog 已 done/blocked 的舊案而重複立案白燒
   // attempts。開場把 backlog 既有任務（含狀態）種進 history 供 planner 參照、種進 appendedTexts
@@ -38,6 +43,9 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
   try {
     for (const t of deps.kernelDeps.store.read().slice(-50)) {
       appendedTexts.add(t.text)
+      const previous = existingByText.get(t.text)
+      const rank: Record<Task['status'], number> = { blocked: 0, open: 1, done: 2 }
+      if (!previous || rank[t.status] >= rank[previous.status]) existingByText.set(t.text, t)
       history.push(`既有任務(${t.status}): ${t.text}`)
     }
   } catch { /* fail-open */ }
@@ -73,7 +81,30 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
 
     // tasks：append 進 backlog（autopilot 標記），逐條跑完該批
     for (const t of planResult.tasks) {
-      if (appendedTexts.has(t)) continue // 本 session 已 append 過，跳過（防多輪重複污染 backlog）
+      if (appendedTexts.has(t)) {
+        const existing = existingByText.get(t)
+        if (!existing || handledDuplicates.has(t)) continue
+        let applied: ReturnType<typeof applyDedupReopen>
+        try {
+          applied = applyDedupReopen(deps.kernelDeps.cfg.backlogFile, existing, { goalId: deps.goalId, round })
+        } catch {
+          handledDuplicates.add(t)
+          continue
+        } // 單一候選檔案漂移／I/O 故障不拖垮其餘候選
+        if (applied.decision.kind === 'reject') {
+          handledDuplicates.add(t)
+          if ('event' in applied.decision) {
+            const event = applied.decision.event
+            quiet(() => deps.kernelDeps.events.append(event.type, { ...event.data, taskId: existing.id, task: existing.text }))
+          }
+          continue
+        }
+        if (!applied.reopened) continue
+        appendedTexts.add(applied.reopened.text)
+        existingByText.set(applied.reopened.text, { ...applied.reopened, status: 'open', source: 'autopilot' })
+        history.push(`round ${round}: ${applied.reopened.text}`)
+        continue
+      }
       appendedTexts.add(t)
       deps.kernelDeps.store.append(t, { goalId: deps.goalId, round })
       history.push(`round ${round}: ${t}`)
