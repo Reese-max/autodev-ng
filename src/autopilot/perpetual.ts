@@ -113,7 +113,12 @@ async function runBody(
       if (typeof result !== 'object') return false // lock-busy / no-goal：沒真的跑，不記狀態
       // killed＝外力中斷（stopFile/config-gone/daemon 輪替），不消耗一次性執行權也不寫冷卻
       // 時間戳——重啟後立即重新拾取（2026-07-19 實證：兩個手動 GOAL 被 daemon 輪替燒掉）。
-      if (result.outcome.kind !== 'killed') {
+      if (result.outcome.kind === 'stuck' && result.outcome.retryable === true) {
+        const { reason, rounds } = result.outcome
+        quiet(() => events.append('manual-goal-retryable', {
+          goalId, reason, rounds
+        }))
+      } else if (result.outcome.kind !== 'killed') {
         state.manualGoalDone = goalId
         state.lastSessionTs = now.toISOString()
         savePerpetualState(dataDir, state)
@@ -303,7 +308,7 @@ export async function maybeRunPerpetual(
 ): Promise<boolean> {
   const cfg = deps.cfg as PerpetualConfig
   const offset = cfg.timezoneOffsetHours
-  const judgeLlm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }
+  const judgeLlm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs }
 
   const hooks: PerpetualHooks = {
     now: () => new Date(),
@@ -311,7 +316,7 @@ export async function maybeRunPerpetual(
       if (!cfg.surveyCommand && !hasSurveySources(cfg.dataDir)) return undefined
       return discoverProblems({
         finderLlm: judgeLlm,
-        criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey },
+        criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs },
         runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd) }),
         readRoiSummary: () => readRecentGoalRoiSummary(join(cfg.dataDir, 'run.db')),
         readHandledTitles: () => readHandledProblemTitles(join(cfg.dataDir, 'run.db')),

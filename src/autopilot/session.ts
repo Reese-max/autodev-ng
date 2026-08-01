@@ -66,7 +66,7 @@ export async function runGoalWithDeps(
     const kernelDeps = goal.engine
       ? { ...deps, cfg: pinGoalEngine(cfg, goal.engine) }
       : deps
-    const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }
+    const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs }
     const auditFile = join(cfg.dataDir, `goal-${goalId}.jsonl`)
     // M7 Task 5：session 開始時讀一次教訓（不逐輪重讀），fail-open——教訓面故障不擋 GOAL 啟動
     let lessonsText = ''
@@ -84,7 +84,7 @@ export async function runGoalWithDeps(
       try {
         discovered = await discoverProblems({
           finderLlm: llm,
-          criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey },
+          criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs },
           runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd) }),
           readRoiSummary: () => readRecentGoalRoiSummary(join(cfg.dataDir, 'run.db')),
           readHandledTitles: () => readHandledProblemTitles(join(cfg.dataDir, 'run.db')),
@@ -114,7 +114,7 @@ export async function runGoalWithDeps(
     if (outcome.kind === 'achieved' && cfg.auditModel) {
       try {
         const sup = await verifyAndSupplement({
-          auditLlm: { url: cfg.judgeUrl, model: cfg.auditModel, apiKey: cfg.judgeApiKey },
+          auditLlm: { url: cfg.judgeUrl, model: cfg.auditModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs },
           runVerify: (cmd, wd) => {
             try { return { exitCode: 0, passed: 1, output: execSync(cmd, { cwd: wd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }).slice(-2000) } }
             catch (e) { const er = e as { status?: number; stdout?: string }; return { exitCode: er.status ?? 1, passed: 0, output: (er.stdout ?? '').slice(-2000) } }

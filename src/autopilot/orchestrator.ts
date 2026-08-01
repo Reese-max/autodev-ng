@@ -10,7 +10,7 @@ import { applyDedupReopen } from './dedup-reopen.js'
 export type GoalOutcome =
   | { kind: 'achieved'; rounds: number }
   | { kind: 'no-progress'; rounds: number }
-  | { kind: 'stuck'; rounds: number; reason: string }
+  | { kind: 'stuck'; rounds: number; reason: string; retryable?: true }
   | { kind: 'killed'; rounds: number }
 
 export interface RoundLog { round: number; plan: PlanResult; snapshot: ProgressSnapshot }
@@ -77,7 +77,10 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
       if (noProgress >= deps.goal.noProgressLimit) return { kind: 'no-progress', rounds: round }
       continue
     }
-    if (planResult.kind === 'stuck') return { kind: 'stuck', rounds: round, reason: planResult.reason }
+    if (planResult.kind === 'stuck') return {
+      kind: 'stuck', rounds: round, reason: planResult.reason,
+      ...(planResult.retryable ? { retryable: true as const } : {})
+    }
 
     // tasks：append 進 backlog（autopilot 標記），逐條跑完該批
     for (const t of planResult.tasks) {

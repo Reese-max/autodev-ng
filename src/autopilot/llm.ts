@@ -1,12 +1,12 @@
-export interface LlmOpts { url?: string; model: string; apiKey: string; fetchFn?: typeof fetch }
+export interface LlmOpts { url?: string; model: string; apiKey: string; timeoutMs?: number; fetchFn?: typeof fetch }
 
-export interface LlmResult { text: string; totalTokens: number }
+export interface LlmResult { text: string; totalTokens: number; error?: string }
 
 export async function callAgent(opts: LlmOpts, prompt: string): Promise<LlmResult> {
   if (!opts.url) return { text: '', totalTokens: 0 }
   const f = opts.fetchFn ?? fetch
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 30_000)
+  const timer = opts.timeoutMs === undefined ? undefined : setTimeout(() => controller.abort(), opts.timeoutMs)
   try {
     const res = await f(`${opts.url.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -18,7 +18,7 @@ export async function callAgent(opts: LlmOpts, prompt: string): Promise<LlmResul
         messages: [{ role: 'user', content: prompt }]
       })
     })
-    if (!res.ok) return { text: '', totalTokens: 0 }
+    if (!res.ok) return { text: '', totalTokens: 0, error: `HTTP ${res.status}` }
     const data = await res.json() as {
       choices?: Array<{ message?: { content?: string } }>
       usage?: { total_tokens?: number }
@@ -26,9 +26,12 @@ export async function callAgent(opts: LlmOpts, prompt: string): Promise<LlmResul
     const text = data.choices?.[0]?.message?.content ?? ''
     const totalTokens = typeof data.usage?.total_tokens === 'number' ? data.usage.total_tokens : 0
     return { text, totalTokens }
-  } catch {
-    return { text: '', totalTokens: 0 }
+  } catch (error) {
+    const detail = controller.signal.aborted
+      ? `timeout after ${opts.timeoutMs}ms`
+      : `call failed: ${error instanceof Error ? error.message : String(error)}`
+    return { text: '', totalTokens: 0, error: detail }
   } finally {
-    clearTimeout(timer)
+    if (timer !== undefined) clearTimeout(timer)
   }
 }

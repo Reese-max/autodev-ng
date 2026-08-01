@@ -80,7 +80,7 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
   const lessonStore = new LessonStore(cfg.learningsFile ?? join(cfg.dataDir, 'learnings.md'), cfg.globalLearningsFile)
   const lessons = makeLessonsPort({
     lessons: lessonStore, db, backlog: store,
-    llm: { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }, events
+    llm: { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs }, events
   })
 
   const deps: Deps = { cfg, store, db, engines, events, verifier, lessons, cfgPath: absCfgPath, notify: text => notifier.send(text) }

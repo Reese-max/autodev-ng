@@ -4,7 +4,7 @@ import { callAgent, type LlmOpts } from './llm.js'
 export type PlanResult =
   | { kind: 'tasks'; tasks: string[] }
   | { kind: 'achieved' }
-  | { kind: 'stuck'; reason: string }
+  | { kind: 'stuck'; reason: string; retryable?: true }
 
 export interface PlanInput { goal: Goal; repoSummary: string; history: string[]; lessonsText?: string }
 
@@ -28,7 +28,9 @@ function buildPrompt(input: PlanInput): string {
 }
 
 export async function plan(llm: LlmOpts, input: PlanInput): Promise<PlanResult> {
-  const out = (await callAgent(llm, buildPrompt(input))).text.trim()
+  const result = await callAgent(llm, buildPrompt(input))
+  if (result.error !== undefined) return { kind: 'stuck', reason: `planner 呼叫失敗：${result.error}`, retryable: true }
+  const out = result.text.trim()
   if (!out) return { kind: 'stuck', reason: 'planner 無回應' }
   const lines = out.split(/\r?\n/)
   const head = (lines[0] ?? '').trim()

@@ -66,7 +66,7 @@ export async function main(cfgPath: string): Promise<void> {
   }
 
   const { deps, cfg } = assemble(cfgPath)
-  const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }
+  const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs }
   // resolve：/goal run spawn 子進程時 cwd 不保證等於這裡，cfgPath 必須是絕對路徑才可靠。
   // M9.4 fast-follow #2：events 沿用 assemble() 組好的長壽 EventLog 實例（deps.events），
   // 不再讓 doAsk 每呼叫自建一份（O(n) 全檔讀行數）。
@@ -147,7 +147,7 @@ export async function mainMulti(configsDir: string): Promise<void> {
     try {
       const { deps, cfg } = assemble(cfgPath)
       const botCfg = loadBotConfig(cfgPath)
-      const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey }
+      const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs }
       const botDeps: BotDeps = { cfg, store: deps.store, db: deps.db, llm, cfgPath: resolve(cfgPath), events: deps.events }
       projects.set(name, { deps: botDeps, allowed: botCfg.allowedUserIds })
       loadedConfigs.push({ name, botCfg })

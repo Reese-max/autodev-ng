@@ -84,13 +84,11 @@ export const EngineConfigSchema = z.object({
   dailyAttemptCap: z.number().int().positive().optional(),
 }).refine(ec => !((ec.timeoutMs === 0 || (ec.timeoutMs ?? 0) > 7_200_000) && !ec.idleTimeoutMs), { path: ['timeoutMs'], message: 'timeoutMs 為 0 或超過 7200000 時必須設定大於 0 的 idleTimeoutMs' })
 export type EngineConfig = z.infer<typeof EngineConfigSchema>
-
 // M10.6：timezoneOffsetHours 的 Zod 預設單一真相源——globalcost 讀 raw JSON 拿不到 Zod default，
 // 改從此常數鏡像（M10.5 缺欄低估事故的根因就是兩處預設不一致）。台灣 +8。
 export const DEFAULT_TIMEZONE_OFFSET_HOURS = 8
 export const DEFAULT_STALE_THRESHOLD_MS = 30 * 60_000
 export const DEFAULT_WEDGE_HARD_CAP_MS = 120 * 60_000
-
 export const ConfigSchema = z.object({
   projectPath: z.string().min(1),
   backlogFile: z.string().min(1),
