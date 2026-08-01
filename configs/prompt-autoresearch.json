@@ -23,7 +23,6 @@
   "engineRotation": [
     "oc-deepseek",
     "oc-mimo",
-    "agy",
     "grok",
     "codex-luna",
     "codex-terra",
