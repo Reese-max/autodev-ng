@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { Config } from '../types.js'
+import { quiet } from '../events.js'
 import type { Deps } from '../scheduler.js'
 import { finalizeRunOnceHeartbeat, runOnce } from '../scheduler.js'
 import { acquireLock, releaseLock } from '../lock.js'
@@ -85,7 +86,8 @@ export async function runGoalWithDeps(
         discovered = await discoverProblems({
           finderLlm: llm,
           criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs },
-          runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd) }),
+          runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd, (type, data) => quiet(() => deps.events.append(type, data))) }),
+          onEvent: (type, data) => quiet(() => deps.events.append(type, data)),
           readRoiSummary: () => readRecentGoalRoiSummary(join(cfg.dataDir, 'run.db')),
           readHandledTitles: () => readHandledProblemTitles(join(cfg.dataDir, 'run.db')),
           lenses: cfg.discoverLenses

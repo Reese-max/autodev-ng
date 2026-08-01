@@ -6,6 +6,8 @@ import { runDbSevenDaySummary } from '../engines/run-db-summary.js'
 import { summarizeEventsTail } from '../engines/events-tail-summary.js'
 
 export const MAX_SURVEY_LENGTH = 8000
+export const SURVEY_OUTPUT_TRUNCATED_EVENT = 'survey-output-truncated'
+const SURVEY_TRUNCATION_MARKER_PREFIX = '…（survey stdout 已截斷'
 /** 組合訊號最高權重標頭（USER-SIGNALS 置頂標記）。 */
 export const USER_SIGNALS_HEADING = '最高權重證據：USER-SIGNALS.md'
 /** 組合訊號次高權重標頭（NORTHSTAR 緊接 USER-SIGNALS）。 */
@@ -14,6 +16,54 @@ const CONTEXT_HEADER = '# 其他勘查訊號\n'
 const SEP = '\n\n'
 
 interface SurveyOptions { nowIso?: string }
+
+export type SurveyEventSink = (type: string, data: Record<string, unknown>) => void
+
+export interface SurveyOutput {
+  text: string
+  truncated: boolean
+  originalLength: number
+  omittedLines: number
+}
+
+/** Prompt 邊界的 survey 防線：超長時只保留尾端，並把截斷原因留在輸出開頭。 */
+export function truncateSurveyOutput(output: string, maxLen = MAX_SURVEY_LENGTH): SurveyOutput {
+  const limit = Math.max(0, Math.floor(maxLen))
+  if (output.length <= limit) return { text: output, truncated: false, originalLength: output.length, omittedLines: 0 }
+  if (limit === 0) return { text: '', truncated: true, originalLength: output.length, omittedLines: 1 }
+
+  const fallbackMarker = '…（截斷）\n'
+  let tailLength = Math.max(0, limit - fallbackMarker.length)
+  let omittedLines = countOmittedLines(output, tailLength)
+  let marker = `…（survey stdout 已截斷，前段省略 ${omittedLines} 行）\n`
+  if (marker.length > limit) marker = fallbackMarker.slice(0, limit)
+  tailLength = Math.max(0, limit - marker.length)
+  omittedLines = countOmittedLines(output, tailLength)
+  marker = `…（survey stdout 已截斷，前段省略 ${omittedLines} 行）\n`
+  if (marker.length > limit) marker = fallbackMarker.slice(0, limit)
+  const text = marker + output.slice(-Math.max(0, limit - marker.length))
+  return { text, truncated: true, originalLength: output.length, omittedLines }
+}
+
+function countOmittedLines(output: string, tailLength: number): number {
+  const prefix = output.slice(0, Math.max(0, output.length - tailLength))
+  if (!prefix) return 0
+  return prefix.split(/\r?\n/).length - (prefix.endsWith('\n') ? 1 : 0)
+}
+
+export function emitSurveyTruncation(result: SurveyOutput, onEvent?: SurveyEventSink): void {
+  if (!result.truncated || !onEvent) return
+  try {
+    onEvent(SURVEY_OUTPUT_TRUNCATED_EVENT, {
+      originalLength: result.originalLength,
+      retainedLength: result.text.length,
+      omittedLines: result.omittedLines,
+      maxLength: MAX_SURVEY_LENGTH,
+    })
+  } catch {
+    // 觀測面故障不可反殺 discovery。
+  }
+}
 
 function runDbSummary(dataDir: string, nowIso: string): string {
   const engines = runDbSevenDaySummary(join(dataDir, 'run.db'), nowIso)
@@ -50,10 +100,19 @@ function fitLowWeight(base: string, summaries: string, budget: number): string {
   if (!base && !summaries) return ''
   if (budget <= 0) return ''
   if (!base) return summaries.slice(-budget)
-  if (base.length >= budget) return base.slice(-budget)
+  if (base.length >= budget) return tailPreservingSurveyMarker(base, budget)
   if (!summaries) return base
   const summaryBudget = budget - base.length - SEP.length
   return summaryBudget > 0 ? base + SEP + summaries.slice(0, summaryBudget) : base
+}
+
+function tailPreservingSurveyMarker(text: string, budget: number): string {
+  const markerEnd = text.startsWith(SURVEY_TRUNCATION_MARKER_PREFIX) ? text.indexOf('\n') : -1
+  if (markerEnd >= 0 && markerEnd + 1 <= budget) {
+    const tailBudget = budget - markerEnd - 1
+    return text.slice(0, markerEnd + 1) + (tailBudget > 0 ? text.slice(-tailBudget) : '')
+  }
+  return text.slice(-budget)
 }
 
 /**
@@ -128,7 +187,11 @@ export function hasSurveySources(dataDir: string): boolean {
 }
 
 /** 保留既有 surveyCommand 的 stdout/失敗 stdout，再附加多源摘要。 */
-export function collectSurvey(cfg: Pick<Config, 'surveyCommand' | 'surveyTimeoutMs' | 'dataDir'>, cwd: string): string {
+export function collectSurvey(
+  cfg: Pick<Config, 'surveyCommand' | 'surveyTimeoutMs' | 'dataDir'>,
+  cwd: string,
+  onEvent?: SurveyEventSink,
+): string {
   let base = ''
   if (cfg.surveyCommand) {
     try {
@@ -137,5 +200,7 @@ export function collectSurvey(cfg: Pick<Config, 'surveyCommand' | 'surveyTimeout
       base = (error as { stdout?: string }).stdout ?? ''
     }
   }
-  return assembleSurvey(base, cfg.dataDir)
+  const bounded = truncateSurveyOutput(base)
+  emitSurveyTruncation(bounded, onEvent)
+  return assembleSurvey(bounded.text, cfg.dataDir)
 }

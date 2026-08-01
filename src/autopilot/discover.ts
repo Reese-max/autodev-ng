@@ -1,7 +1,10 @@
 import type { Goal } from './goal.js'
 import { callAgent, type LlmOpts } from './llm.js'
 import { gatherEvidence } from './evaluator.js'
-import { NORTHSTAR_HEADING } from './survey-sources.js'
+import {
+  emitSurveyTruncation, NORTHSTAR_HEADING, truncateSurveyOutput,
+  type SurveyEventSink,
+} from './survey-sources.js'
 
 export interface Candidate { lens: string; title: string; detail: string }
 export interface RankedProblem { title: string; lens: string; value: number; rationale: string }
@@ -36,6 +39,7 @@ export interface DiscoverDeps {
   readRoiSummary?: () => string
   /** ledger 已處理清單（in-progress/fixed/deferred/rejected 的 title）：餵 critic 做語意去重。 */
   readHandledTitles?: () => string[]
+  onEvent?: SurveyEventSink
   lenses: string[]
 }
 export interface DiscoverResult { survey: string; ranked: RankedProblem[] }
@@ -88,7 +92,13 @@ export function criticPrompt(cands: Candidate[], northstar: string, roiSummary =
 
 export async function discoverProblems(deps: DiscoverDeps, goal: Goal, cwd: string): Promise<DiscoverResult> {
   let survey = ''
-  if (deps.runSurvey) { try { survey = deps.runSurvey('', cwd).output } catch { survey = '' } }
+  if (deps.runSurvey) {
+    try {
+      const bounded = truncateSurveyOutput(deps.runSurvey('', cwd).output)
+      emitSurveyTruncation(bounded, deps.onEvent)
+      survey = bounded.text
+    } catch { survey = '' }
+  }
   const evidence = gatherEvidence(goal.evidenceFiles, cwd, deps.readEvidence)
   const found = await Promise.all(deps.lenses.map(async (lens) => {
     try { return parseCandidates(lens, (await callAgent(deps.finderLlm, finderPrompt(lens, survey, evidence))).text.trim()) }
