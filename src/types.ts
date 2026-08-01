@@ -114,6 +114,8 @@ export const ConfigSchema = z.object({
   worktreesDir: z.string().default('worktrees'),
   // 明示建立語意的 artifact 閘；單一專案可關閉，預設維持啟用。
   artifactContract: z.boolean().default(true),
+  // 戰績自動隔離（近3日樣本≥6且成功率<30% 即封 24h）。false＝完全停用，rotation 不因戰績封任何檔位。
+  engineIsolation: z.boolean().default(true),
   extraDirective: z.string().optional(),
   stopFile: z.string().default('.adng.stop'),
   verifyCommand: z.string().optional(),

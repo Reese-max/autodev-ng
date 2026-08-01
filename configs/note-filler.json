@@ -114,5 +114,6 @@
   ],
   "judgeEffort": "xhigh",
   "judgeTimeoutMs": 180000,
-  "reviewEngine": "gpt-5.6-terra"
+  "reviewEngine": "gpt-5.6-terra",
+  "engineIsolation": false
 }

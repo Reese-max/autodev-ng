@@ -93,5 +93,6 @@
   "extraDirective": "只做任務明確要求的最小改動，改動完成必須讓現有測試全數通過。",
   "perpetualCooldownMs": 3600000,
   "judgeEffort": "xhigh",
-  "judgeTimeoutMs": 180000
+  "judgeTimeoutMs": 180000,
+  "engineIsolation": false
 }

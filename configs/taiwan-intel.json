@@ -100,5 +100,6 @@
       "subscription": true,
       "timeoutMs": 3600000
     }
-  }
+  },
+  "engineIsolation": false
 }
