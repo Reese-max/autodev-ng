@@ -103,7 +103,7 @@
       "dailyAttemptCap": 10
     }
   },
-  "extraDirective": "Python 一律用主專案 venv:\"D:/Users/Administrator/Desktop/筆記補齊/.venv/Scripts/python.exe\" 加 -X utf8;嚴禁 pip install 到全域 Python(本機 24/7 系統共用)。不得弱化既有品質閘:原稿逐字不可變、無來源/【待補證】→pending_evidence、只掛實際引用來源、法條引用須通過離線查核。grok proxy 在 http://127.0.0.1:8318/v1(model grok-4.3),整合測試標記 integration 平時跳過。",
+  "extraDirective": "本任務可平行化：若你的工具支援子 agent／平行工具呼叫，請把彼此獨立的部分（例如各檔案的調查、多筆資料的處理、測試撰寫與實作）拆給子 agent 同時進行，最後由你彙整成單一一致的改動並自行 commit。若拆解會讓改動失去一致性（例如同一檔案的相依修改），就不要拆。",
   "perpetualCooldownMs": 3600000,
   "discoverLenses": [
     "功能缺口與使用者價值——筆記產出的品質、可讀性、缺什麼會更有用",
