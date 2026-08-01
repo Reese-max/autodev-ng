@@ -184,6 +184,48 @@ describe('runPerpetualCycle 手動 GOAL', () => {
   })
 })
 
+describe('runPerpetualCycle cooldown 與 GOAL 優先序', () => {
+  let dir: string; let events: EventLog
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'adng-perp-')); events = new EventLog(dir) })
+  afterEach(() => safeRm(dir))
+
+  const recentSession = { lastSessionTs: '2026-07-13T23:59:59Z', consecutiveEmpty: 0, currentCooldownMs: 6000, manualGoalDone: '' }
+
+  test('冷卻期內放入手動 GOAL → 立即執行，不呼叫 discover', async () => {
+    const cfg = makeCfg(dir)
+    writeFileSync(cfg.goalFile!, '# GOAL\n\n冷卻期手動目標\n\n## 驗收\n\n```sh\nnpm test\n```\n')
+    savePerpetualState(dir, recentSession)
+    const hooks = makeHooks()
+
+    expect(await runPerpetualCycle(cfg, dir, events, async () => true, hooks)).toBe(true)
+    expect(hooks.runSession).toHaveBeenCalledWith({})
+    expect(hooks.discover).not.toHaveBeenCalled()
+  })
+
+  test('冷卻期內無 GOAL → 維持不觸發 discover', async () => {
+    savePerpetualState(dir, recentSession)
+    const hooks = makeHooks()
+
+    expect(await runPerpetualCycle(makeCfg(dir), dir, events, async () => true, hooks)).toBe(false)
+    expect(hooks.discover).not.toHaveBeenCalled()
+    expect(readState(dir).lastSessionTs).toBe(recentSession.lastSessionTs)
+  })
+
+  test('冷卻期內 auto-goal 殘留檔 → 維持冷卻，不執行 session', async () => {
+    const cfg = makeCfg(dir)
+    const fp = problemFingerprint('冷卻期自動目標')
+    writeFileSync(cfg.goalFile!, autoGoalMd(fp, '冷卻期自動目標'))
+    savePerpetualState(dir, recentSession)
+    const hooks = makeHooks()
+
+    expect(await runPerpetualCycle(cfg, dir, events, async () => true, hooks)).toBe(false)
+    expect(hooks.runSession).not.toHaveBeenCalled()
+    expect(hooks.discover).not.toHaveBeenCalled()
+    expect(existsSync(cfg.goalFile!)).toBe(true)
+    expect(readState(dir).lastSessionTs).toBe(recentSession.lastSessionTs)
+  })
+})
+
 describe('runPerpetualCycle auto-goal 殘留', () => {
   let dir: string; let events: EventLog
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'adng-perp-')); events = new EventLog(dir) })

@@ -70,7 +70,8 @@ export async function runPerpetualCycle(
     const threshold = cfg.perpetualValueThreshold ?? DEFAULT_VALUE_THRESHOLD
     state = loadPerpetualState(dataDir, cooldownDefault)
     const now = hooks.now()
-    if (state.lastSessionTs && now.getTime() - Date.parse(state.lastSessionTs) < state.currentCooldownMs) return false
+    const manualGoalPresent = Boolean(cfg.goalFile && existsSync(cfg.goalFile) && !isAutoGoal(readFileSync(cfg.goalFile, 'utf8')))
+    if (!manualGoalPresent && state.lastSessionTs && now.getTime() - Date.parse(state.lastSessionTs) < state.currentCooldownMs) return false
 
     ledger = new ProblemsLedger(join(dataDir, 'run.db'))
     return await runBody(cfg, dataDir, events, notify, hooks, state, now, threshold, ledger)
