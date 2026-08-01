@@ -124,9 +124,9 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   } catch (err) {
     quiet(() => events.append('worktree-prepare-failed', { task: task.text, error: String(err) }))
     const code = (err as { code?: string })?.code
-    const reason: BlockedReason = code === 'worktree-timeout' ? 'infra:worktree-timeout'
+    const reason: BlockedReason = code === 'worktree-timeout' || code === 'ETIMEDOUT' || code === 'ETIME' ? 'infra:worktree-timeout'
       : code === 'worktree-locked' || code === 'worktree-invalid' ? code : 'not-a-git-repo'
-    const detail = reason === 'infra:worktree-timeout' ? `infra:worktree-timeout：${String(err)}` : `worktree 建立失敗：${String(err)}`
+    const detail = reason === 'infra:worktree-timeout' ? `infra:worktree-timeout：逾時 ${cfg.worktreeAddTimeoutMs}ms；可調整 config 欄位 worktreeAddTimeoutMs；${String(err)}` : `worktree 建立失敗：${String(err)}`
     return blockTask({ store, events }, task, reason, detail)
   }
 
