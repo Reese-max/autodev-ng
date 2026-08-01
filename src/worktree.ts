@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 export interface WorktreeHandle { cwd: string; branch: string; baseBranch: string; baseHead: string }
 export type MergeBackFailReason = 'branch-switched' | 'merge-conflict'
 export interface MergeBackResult { merged: boolean; commitHash?: string; reason?: MergeBackFailReason; rebased?: boolean }
+export interface WorktreeTimeoutOptions { gitTimeoutMs?: number; worktreeAddTimeoutMs?: number }
 
 /** worktree 根目錄的旗標檔：verifier 的 defaultRollback 守門用它辨識「這是 adng 管理的
  * worktree」才允許 `git reset --hard`，防止誤傷使用者一般專案目錄裡未提交的工作。 */
@@ -13,6 +14,17 @@ const ADD_REMOVE_TIMEOUT_MS = 30_000
 const QUICK_TIMEOUT_MS = 10_000
 /** rebase 需重放任務分支全部 commit，給寬於 QUICK 的上限。 */
 const REBASE_TIMEOUT_MS = 60_000
+
+function worktreeTimeouts(options?: WorktreeTimeoutOptions): Required<WorktreeTimeoutOptions> {
+  return {
+    gitTimeoutMs: options?.gitTimeoutMs ?? QUICK_TIMEOUT_MS,
+    worktreeAddTimeoutMs: options?.worktreeAddTimeoutMs ?? ADD_REMOVE_TIMEOUT_MS,
+  }
+}
+
+function isWorktreeTimeout(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException | undefined)?.code === 'worktree-timeout'
+}
 
 function branchNameFor(taskId: string): string {
   return `adng/${taskId}`
@@ -24,7 +36,12 @@ function branchNameFor(taskId: string): string {
  * 的 console／daemon log；改為 pipe 後仍完整保留在拋出的 Error 內（.stderr／訊息字串),
  * 只是不再無條件洗版。 */
 function git(args: string[], cwd: string, timeoutMs: number): string {
-  return execFileSync('git', args, { cwd, timeout: timeoutMs, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+  try {
+    return execFileSync('git', args, { cwd, timeout: timeoutMs, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException | undefined)?.code !== 'ETIMEDOUT') throw err
+    throw Object.assign(new Error(`git ${args.join(' ')} 逾時（${timeoutMs}ms）：${String(err)}`), { code: 'worktree-timeout' })
+  }
 }
 
 /** 容錯版 git 呼叫：任何失敗（含逾時）一律吞掉——供殘留自癒使用，呼叫端本來就預期
@@ -40,25 +57,26 @@ function gitTolerant(args: string[], cwd: string, timeoutMs: number): void {
 /** 主 repo 目前所在分支名稱（`git symbolic-ref --short HEAD`）。detached HEAD 時這條指令
  * 本身就會失敗上拋——呼叫端依語境決定：prepareWorktree 直接拒絕開工；mergeBack 判定
  * branch-switched（HIGH 修復：ff-only 本身看不出「快轉到的是不是原本那條分支」）。 */
-function currentBranch(projectPath: string): string {
-  return git(['symbolic-ref', '--short', 'HEAD'], projectPath, QUICK_TIMEOUT_MS).trim()
+function currentBranch(projectPath: string, gitTimeoutMs: number): string {
+  return git(['symbolic-ref', '--short', 'HEAD'], projectPath, gitTimeoutMs).trim()
 }
 
 /** 非 git 專案探測：`git rev-parse --git-dir` 失敗 → 上拋明確錯誤，呼叫端（scheduler）
  * 歸類 blocked+告警，不炸 daemon（鐵律 #4 fail-open）。 */
-function assertGitRepo(projectPath: string): void {
+function assertGitRepo(projectPath: string, gitTimeoutMs: number): void {
   try {
-    git(['rev-parse', '--git-dir'], projectPath, QUICK_TIMEOUT_MS)
+    git(['rev-parse', '--git-dir'], projectPath, gitTimeoutMs)
   } catch (err) {
+    if (isWorktreeTimeout(err)) throw err
     throw new Error(`prepareWorktree: ${projectPath} 不是 git 專案（git rev-parse --git-dir 失敗）：${String(err)}`)
   }
 }
 
 /** 殘留自癒：worktree remove --force + prune + rmSync 容忍失敗；branch -D 移到「確認目錄已消失」之後才執行——
  * 2a929ec9 產線事故：目錄被鎖(Windows,前次中斷進程未退)時舊順序先砍分支致成果懸空；仍在就上拋保留分支,待重試/人工介入。 */
-function cleanStaleWorktree(projectPath: string, worktreePath: string, branch: string): void {
-  gitTolerant(['worktree', 'remove', '--force', worktreePath], projectPath, ADD_REMOVE_TIMEOUT_MS)
-  gitTolerant(['worktree', 'prune'], projectPath, QUICK_TIMEOUT_MS)
+function cleanStaleWorktree(projectPath: string, worktreePath: string, branch: string, timeouts: Required<WorktreeTimeoutOptions>): void {
+  gitTolerant(['worktree', 'remove', '--force', worktreePath], projectPath, timeouts.worktreeAddTimeoutMs)
+  gitTolerant(['worktree', 'prune'], projectPath, timeouts.gitTimeoutMs)
   try {
     rmSync(worktreePath, { recursive: true, force: true })
   } catch {
@@ -66,7 +84,7 @@ function cleanStaleWorktree(projectPath: string, worktreePath: string, branch: s
   }
   // Task 2：掛 code='worktree-locked' 供 scheduler 分流（唯一判準，不用字串比對）。
   if (existsSync(worktreePath)) throw Object.assign(new Error(`prepareWorktree: 殘留 worktree 目錄無法移除(可能有前次中斷的進程仍佔用):${worktreePath}——成果分支 ${branch} 已保留,待進程退出後下次重試/人工介入`), { code: 'worktree-locked' })
-  gitTolerant(['branch', '-D', branch], projectPath, QUICK_TIMEOUT_MS)
+  gitTolerant(['branch', '-D', branch], projectPath, timeouts.gitTimeoutMs)
 }
 
 /** devin-serena-fix 保底：devin adapter 已用 `ensureNoMcpImport` 從源頭關掉 MCP 匯入，
@@ -106,17 +124,19 @@ function ensureMarkerIgnored(projectPath: string): void {
  * （或 symbolic-ref 直接失敗）；(2) checkout 完整——tracked 檔缺失（porcelain 的 D 狀態）
  * 即半套 checkout。不符掛 code='worktree-invalid' 供 scheduler 分流 blocked，絕不派工。
  * 只檢 D 不檢 M：autocrlf 等行尾差異可讓乾淨 checkout 立即顯示 modified，誤擋會封死整個專案。 */
-export function assertWorktreeCheckout(worktreePath: string, branch: string): void {
+export function assertWorktreeCheckout(worktreePath: string, branch: string, options?: WorktreeTimeoutOptions): void {
+  const timeouts = worktreeTimeouts(options)
   let head: string
   try {
-    head = git(['symbolic-ref', '--short', 'HEAD'], worktreePath, QUICK_TIMEOUT_MS).trim()
+    head = git(['symbolic-ref', '--short', 'HEAD'], worktreePath, timeouts.gitTimeoutMs).trim()
   } catch (err) {
+    if (isWorktreeTimeout(err)) throw err
     throw Object.assign(new Error(`prepareWorktree: worktree 無效（${worktreePath} 解析不到 HEAD 分支，checkout 未落地？）：${String(err)}`), { code: 'worktree-invalid' })
   }
   if (head !== branch) {
     throw Object.assign(new Error(`prepareWorktree: worktree 無效（${worktreePath} 的 HEAD 在 ${head} 而非 ${branch}——目錄空掉時 git 會往上解析到外層 repo）`), { code: 'worktree-invalid' })
   }
-  const missing = git(['status', '--porcelain'], worktreePath, ADD_REMOVE_TIMEOUT_MS)
+  const missing = git(['status', '--porcelain'], worktreePath, timeouts.worktreeAddTimeoutMs)
     .split('\n').filter(l => l.startsWith(' D') || l.startsWith('D '))
   if (missing.length > 0) {
     throw Object.assign(new Error(`prepareWorktree: worktree 無效（checkout 不完整，${missing.length} 個 tracked 檔缺失）：${worktreePath}`), { code: 'worktree-invalid' })
@@ -129,15 +149,17 @@ export function assertWorktreeCheckout(worktreePath: string, branch: string): vo
  * 前次崩潰留下的殘留（目錄/分支）先自癒清掉再重建；清乾淨後 `git worktree add` 仍失敗
  * 才真正上拋——呼叫端（scheduler）依錯誤內容歸 blocked+告警，不炸 daemon（鐵律 #4）。
  */
-export function prepareWorktree(projectPath: string, worktreesDir: string, taskId: string): WorktreeHandle {
-  assertGitRepo(projectPath)
+export function prepareWorktree(projectPath: string, worktreesDir: string, taskId: string, options?: WorktreeTimeoutOptions): WorktreeHandle {
+  const timeouts = worktreeTimeouts(options)
+  assertGitRepo(projectPath, timeouts.gitTimeoutMs)
 
   // HIGH 修復：engine+verify 耗時可達數十分鐘，期間主 repo 若被切走分支，mergeBack 需要
   // 「當時身分」核對；detached HEAD 無具名分支可記，當下拒絕開工上拋（scheduler 歸 blocked）。
   let baseBranch: string
   try {
-    baseBranch = currentBranch(projectPath)
+    baseBranch = currentBranch(projectPath, timeouts.gitTimeoutMs)
   } catch (err) {
+    if (isWorktreeTimeout(err)) throw err
     throw new Error(`prepareWorktree: 主 repo 處於 detached HEAD，拒絕開工：${String(err)}`)
   }
 
@@ -145,16 +167,16 @@ export function prepareWorktree(projectPath: string, worktreesDir: string, taskI
   const worktreePath = join(worktreesDir, taskId)
 
   mkdirSync(worktreesDir, { recursive: true })
-  cleanStaleWorktree(projectPath, worktreePath, branch)
+  cleanStaleWorktree(projectPath, worktreePath, branch, timeouts)
 
-  git(['worktree', 'add', '-b', branch, worktreePath, 'HEAD'], projectPath, ADD_REMOVE_TIMEOUT_MS)
-  assertWorktreeCheckout(worktreePath, branch)
+  git(['worktree', 'add', '-b', branch, worktreePath, 'HEAD'], projectPath, timeouts.worktreeAddTimeoutMs)
+  assertWorktreeCheckout(worktreePath, branch, timeouts)
 
   ensureMarkerIgnored(projectPath)
   writeFileSync(join(worktreePath, WORKTREE_MARKER), JSON.stringify({ taskId, createdAt: new Date().toISOString() }))
 
   // M4 Task 6 ledger 縫（reset-backward）：記下開工當時的 HEAD，供 mergeBack 核對回退。
-  const baseHead = git(['rev-parse', 'HEAD'], projectPath, QUICK_TIMEOUT_MS).trim()
+  const baseHead = git(['rev-parse', 'HEAD'], projectPath, timeouts.gitTimeoutMs).trim()
 
   return { cwd: worktreePath, branch, baseBranch, baseHead }
 }
@@ -166,10 +188,11 @@ export function prepareWorktree(projectPath: string, worktreesDir: string, taskI
  * cleanupWorktree 的 branch -d 一併清掉、靜默遺失）。身分不符一律回
  * `{merged:false, reason:'branch-switched'}`，不執行 merge、不拋——呼叫端決定 blocked。
  */
-export function mergeBack(projectPath: string, branch: string, expectedBaseBranch: string, expectedBaseHead: string, worktreePath?: string): MergeBackResult {
+export function mergeBack(projectPath: string, branch: string, expectedBaseBranch: string, expectedBaseHead: string, worktreePath?: string, options?: WorktreeTimeoutOptions): MergeBackResult {
+  const timeouts = worktreeTimeouts(options)
   let nowBranch: string
   try {
-    nowBranch = currentBranch(projectPath)
+    nowBranch = currentBranch(projectPath, timeouts.gitTimeoutMs)
   } catch {
     return { merged: false, reason: 'branch-switched' } // detached HEAD
   }
@@ -180,10 +203,10 @@ export function mergeBack(projectPath: string, branch: string, expectedBaseBranc
   // 把使用者剛丟棄的 commit 整段復活。核對現 HEAD 與開工當時 baseHead：正常前進
   // （baseHead 仍是現 HEAD 祖先）放行，留給 ff-only 自行判定（no-op 快轉或 merge-conflict，
   // 既有語意不變）；非祖先（回退/歷史改寫）一律拒合，沿用 branch-switched 歸 blocked。
-  const nowHead = git(['rev-parse', 'HEAD'], projectPath, QUICK_TIMEOUT_MS).trim()
+  const nowHead = git(['rev-parse', 'HEAD'], projectPath, timeouts.gitTimeoutMs).trim()
   if (nowHead !== expectedBaseHead) {
     try {
-      git(['merge-base', '--is-ancestor', expectedBaseHead, nowHead], projectPath, QUICK_TIMEOUT_MS)
+      git(['merge-base', '--is-ancestor', expectedBaseHead, nowHead], projectPath, timeouts.gitTimeoutMs)
     } catch {
       return { merged: false, reason: 'branch-switched' }
     }
@@ -194,19 +217,19 @@ export function mergeBack(projectPath: string, branch: string, expectedBaseBranc
   let rebased = false
   if (nowHead !== expectedBaseHead && worktreePath) {
     try {
-      git(['rebase', expectedBaseBranch], worktreePath, REBASE_TIMEOUT_MS)
+      git(['rebase', expectedBaseBranch], worktreePath, Math.max(REBASE_TIMEOUT_MS, timeouts.worktreeAddTimeoutMs))
     } catch {
-      try { git(['rebase', '--abort'], worktreePath, QUICK_TIMEOUT_MS) } catch { /* 無進行中 rebase 亦安全 */ }
+      try { git(['rebase', '--abort'], worktreePath, timeouts.gitTimeoutMs) } catch { /* 無進行中 rebase 亦安全 */ }
       return { merged: false, reason: 'merge-conflict' }
     }
     rebased = true
   }
   try {
-    git(['merge', '--ff-only', branch], projectPath, QUICK_TIMEOUT_MS)
+    git(['merge', '--ff-only', branch], projectPath, timeouts.gitTimeoutMs)
   } catch {
     return { merged: false, reason: 'merge-conflict' }
   }
-  const commitHash = git(['rev-parse', 'HEAD'], projectPath, QUICK_TIMEOUT_MS).trim()
+  const commitHash = git(['rev-parse', 'HEAD'], projectPath, timeouts.gitTimeoutMs).trim()
   return { merged: true, commitHash, ...(rebased ? { rebased } : {}) }
 }
 
@@ -235,7 +258,8 @@ const DIRTY_LIST_MAX_LINES = 10
  * （已寫進 .git/info/exclude），不以 untracked 身分擋安全網——exclude 寫入失敗（fail-open
  * 殘留）時由 porcelain 過濾兜底。
  */
-export function cleanupWorktree(projectPath: string, worktreePath: string, branch: string): void {
+export function cleanupWorktree(projectPath: string, worktreePath: string, branch: string, options?: WorktreeTimeoutOptions): void {
+  const timeouts = worktreeTimeouts(options)
   const markerPath = join(worktreePath, WORKTREE_MARKER)
   let markerTaskId: string | undefined
   try {
@@ -248,7 +272,7 @@ export function cleanupWorktree(projectPath: string, worktreePath: string, branc
     throw new Error(`cleanupWorktree: marker taskId(${String(markerTaskId)}) 與分支 ${branch} 不符，拒絕刪除 ${worktreePath}`)
   }
 
-  const dirtyLines = git(['status', '--porcelain'], worktreePath, ADD_REMOVE_TIMEOUT_MS)
+  const dirtyLines = git(['status', '--porcelain'], worktreePath, timeouts.worktreeAddTimeoutMs)
     .split('\n').map(l => l.trimEnd()).filter(l => l !== '' && l.slice(3) !== WORKTREE_MARKER)
   if (dirtyLines.length > 0) {
     const shown = dirtyLines.slice(0, DIRTY_LIST_MAX_LINES).join('\n')
@@ -263,8 +287,8 @@ export function cleanupWorktree(projectPath: string, worktreePath: string, branc
   }
   rmSync(worktreePath, { recursive: true, force: true, maxRetries: 5 })
   try {
-    git(['worktree', 'prune'], projectPath, QUICK_TIMEOUT_MS)
-    git(['branch', '-d', branch], projectPath, QUICK_TIMEOUT_MS)
+    git(['worktree', 'prune'], projectPath, timeouts.gitTimeoutMs)
+    git(['branch', '-d', branch], projectPath, timeouts.gitTimeoutMs)
   } catch (err) {
     throw new WorktreeCleanupPartialError(`cleanupWorktree: 目錄已刪，僅 git 記錄清理失敗（prune/branch -d）：${String(err)}`)
   }

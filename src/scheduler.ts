@@ -52,6 +52,8 @@ export type BlockedReason =
   // 2026-07-16 事故：worktree add 後 checkout 未落地（assertWorktreeCheckout 掛 code==='worktree-invalid'）——
   // 空目錄派工會讓引擎遊走到別的 repo 繞過 verify 閘，必須在派工前擋下。
   | 'worktree-invalid'
+  // Git 操作逾時是基礎設施容量問題，不是引擎能力不足；巡檢可直接依 infra: 前綴分流。
+  | 'infra:worktree-timeout'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
@@ -115,12 +117,14 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   // fail-open 不炸 daemon，鐵律 #4）。
   let wt: WorktreeHandle
   try {
-    wt = prepareWorktree(cfg.projectPath, cfg.worktreesDir, task.id)
+    wt = prepareWorktree(cfg.projectPath, cfg.worktreesDir, task.id, cfg)
   } catch (err) {
     quiet(() => events.append('worktree-prepare-failed', { task: task.text, error: String(err) }))
     const code = (err as { code?: string })?.code
-    const reason: BlockedReason = code === 'worktree-locked' || code === 'worktree-invalid' ? code : 'not-a-git-repo'
-    return blockTask({ store, events }, task, reason, `worktree 建立失敗：${String(err)}`)
+    const reason: BlockedReason = code === 'worktree-timeout' ? 'infra:worktree-timeout'
+      : code === 'worktree-locked' || code === 'worktree-invalid' ? code : 'not-a-git-repo'
+    const detail = reason === 'infra:worktree-timeout' ? `infra:worktree-timeout：${String(err)}` : `worktree 建立失敗：${String(err)}`
+    return blockTask({ store, events }, task, reason, detail)
   }
 
   const runStartMs = Date.now() // 輪耗時觀測（duration_ms）：涵蓋 engine.run＋verify＋judge＋review 全輪
@@ -198,7 +202,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   if (res.ok) {
     // engine 成功 + verify 通過（或未設 verifier）→ 嘗試把任務分支 ff-only 合回主 repo。
     // merge queue（併發基建）：合併一次一個；串行下等價直呼，併發池（GOAL B）沿用同一入口。
-    const merge = await enqueueMerge(cfg.projectPath, () => mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd))
+    const merge = await enqueueMerge(cfg.projectPath, () => mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, cfg))
     if (merge.rebased) quiet(() => events.append('merge-rebased', { task: task.text, branch: wt.branch }))
     if (!merge.merged) {
       if (merge.reason === 'branch-switched') {
@@ -227,7 +231,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     quiet(() => events.append('task-done', { task: task.text, cost: recordedCostUsd, commit: merge.commitHash }))
 
     try {
-      cleanupWorktree(cfg.projectPath, wt.cwd, wt.branch)
+      cleanupWorktree(cfg.projectPath, wt.cwd, wt.branch, cfg)
     } catch (err) {
       if (err instanceof WorktreeCleanupPartialError) {
         // M5 Task 2：rmSync 已成功、僅 git 記錄（prune/branch -d）清理失敗——現場已不在，

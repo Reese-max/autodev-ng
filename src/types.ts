@@ -110,6 +110,9 @@ export const ConfigSchema = z.object({
   failureCostEstimateUsd: z.number().nonnegative().default(1),
   // M4 Task 6：worktreesDir 相對 config 檔目錄展開；worktree.ts 收絕對路徑，extraDirective 可注入 engine prompt 尾端。
   worktreesDir: z.string().default('worktrees'),
+  // 大型 repo 的 worktree checkout／porcelain 可遠超小型專案預設；未設維持既有 10s／30s。
+  gitTimeoutMs: z.number().int().positive().default(10_000),
+  worktreeAddTimeoutMs: z.number().int().positive().default(30_000),
   // 明示建立語意的 artifact 閘；單一專案可關閉，預設維持啟用。
   artifactContract: z.boolean().default(true),
   // 戰績自動隔離（近3日樣本≥6且成功率<30% 即封 24h）。false＝完全停用，rotation 不因戰績封任何檔位。

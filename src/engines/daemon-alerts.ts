@@ -62,6 +62,7 @@ function blockedReasonText(reason: BlockedReason): string {
     case 'engine-not-allowed': return '任務指定引擎不在本專案 engines 白名單（或引擎無法建立），需人工修 tag 或 config'
     case 'worktree-locked': return 'worktree 殘留目錄被佔用無法清理（前次中斷進程未放手）'
     case 'worktree-invalid': return 'worktree checkout 未落地（空目錄/tracked 檔缺失），已拒絕派工，需人工檢查 git 狀態'
+    case 'infra:worktree-timeout': return 'worktree Git 操作逾時（基礎設施容量問題，非引擎能力不足）'
   }
 }
 
