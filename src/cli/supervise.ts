@@ -1,5 +1,6 @@
 import { basename, resolve } from 'node:path'
 import { runFleetGuardian, type GuardianReport } from '../guardian/fleet.js'
+import { appendSuperviseRun, superviseRunLogPath } from '../supervisor/run-log.js'
 import { superviseConfig, superviseDirectory, type SuperviseDirectoryResult } from '../supervisor/supervise.js'
 import { assemble } from './assemble.js'
 
@@ -45,21 +46,33 @@ async function sendGuardianNotification(configPath: string, text: string): Promi
 export async function cmdSupervise(
   cliPath: string, configPath?: string, configsDir?: string, guardianMode: GuardianMode = 'inline',
 ): Promise<void> {
+  const startedAtMs = Date.now()
+  const logPath = superviseRunLogPath(configPath, configsDir)
+  let results: SuperviseDirectoryResult[] = []
   const options = { cliPath }
-  if (configsDir) {
-    const results = superviseDirectory(configsDir, options)
-    printSuperviseResults(results)
-    if (guardianMode === 'off') return
-    printGuardianReports(await runFleetGuardian(results, {
-      cliPath,
-      fleetDataDir: resolve(configsDir, '..', 'data', 'guardian'),
-      notifyFn: sendGuardianNotification,
-    }))
-    return
-  }
   try {
-    printSuperviseResults([superviseConfig(configPath!, options)])
+    if (configsDir) {
+      results = superviseDirectory(configsDir, options)
+      printSuperviseResults(results)
+      if (guardianMode !== 'off') {
+        printGuardianReports(await runFleetGuardian(results, {
+          cliPath,
+          fleetDataDir: resolve(configsDir, '..', 'data', 'guardian'),
+          notifyFn: sendGuardianNotification,
+        }))
+      }
+    } else {
+      try {
+        results = [superviseConfig(configPath!, options)]
+      } catch (err) {
+        results = [{ configPath: resolve(configPath!), error: err instanceof Error ? err.message : String(err) }]
+      }
+      printSuperviseResults(results)
+    }
+    appendSuperviseRun(logPath, startedAtMs, results)
   } catch (err) {
-    printSuperviseResults([{ configPath: resolve(configPath!), error: err instanceof Error ? err.message : String(err) }])
+    appendSuperviseRun(logPath, startedAtMs, results, err)
+    console.error(err instanceof Error && err.stack ? err.stack : String(err))
+    process.exitCode = 1
   }
 }
