@@ -232,7 +232,8 @@ async function runBody(
     `自主工程師立案：${authored.title}`,
     `lens：${authored.problem.lens}｜critic VALUE：${authored.problem.value}`,
     `rationale：${authored.problem.rationale.replace(/\s+/g, ' ').trim()}`,
-    `驗收：${goal.verifyCommand ?? '未提供'}`
+    `驗收：${goal.verifyCommand ?? '未提供'}`,
+    '介入：沿用既有 stopFile 暫停，或置換 GOAL.md 接手。'
   ].join('\n'))
   const startedAt = hooks.now().toISOString()
   ledger.setRoi(authored.fp, { startedAt })

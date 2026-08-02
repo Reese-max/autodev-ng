@@ -78,6 +78,7 @@ test('perpetual-goal-authored 立即走同一 notify 通道，帶完整成案與
   expect(message).toContain(`critic VALUE：${problem.value}`)
   expect(message).toContain(`rationale：${problem.rationale}`)
   expect(message).toContain(`驗收：${verifyCommand}`)
+  expect(message).toContain('介入：沿用既有 stopFile 暫停，或置換 GOAL.md 接手。')
 })
 
 test('Discord 成案通知失敗進既有 DLQ，立案、GOAL 寫入與 session 交接仍成功', async () => {
