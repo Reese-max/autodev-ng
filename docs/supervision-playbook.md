@@ -16,7 +16,7 @@
 ## 1. 健康檢查（每輪巡檢的固定查詢）
 
 ```
-# 心跳新鮮度（>30 分鐘未更新且 lock PID 存活 = wedged）
+# 心跳新鮮度（wedged 三證缺一不可：心跳凍結 >30 分＋lock PID 存活＋run.db 無新 attempt，見 §1.1）
 （名冊＝configs/*.json 動態枚舉，dataDir 相對 configs/ 解析——勿硬編碼專案清單）data/<proj>/heartbeat.json 的 ts vs now；data/<proj>/daemon.lock/pid.json 的 pid 存活性
 
 # 出輪狀況（心跳新鮮但長時間零 attempts 也要查）
@@ -29,7 +29,24 @@ BACKLOG-adng.md 的 adng:blocked 標記；data/<proj>/restart.request 存在且 
 從 GOAL.md 抽 sh fence 指令實跑，exit code 為準
 ```
 
+### 1.1 兩個反覆踩雷的判讀陷阱（2026-08-02 第四、五度實證後固化）
+
+- **時區陷阱（PowerShell）**：比對 heartbeat ts 禁用 `ConvertFrom-Json` 後直接 `Parse`——
+  會把 `...Z` 當本地時間，GMT+8 產生正好 +480 分鐘的偽 wedge（已四度復發）。正解：
+  `$raw -match '"ts"\s*:\s*"([^"]+)"'` 取原始字串，再
+  `[DateTimeOffset]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture,
+  [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)`，
+  一律比 epoch 差值。
+- **長輪陷阱**：daemon 在單一 agentic 長輪（實測可達 50 分鐘）期間**不更新心跳、不消費哨兵**。
+  心跳凍結 >30 分＋PID 存活仍可能完全健康——2026-08-02T15:27Z 誤殺實證：note-filler 心跳凍 49 分，
+  但 run.db 於 15:10Z／15:16Z 仍正常寫入 attempts（該輪 duration 49.5 分，起點＝心跳凍結時刻）。
+  判 wedged 前必查 `SELECT ts, duration_ms FROM attempts ORDER BY seq DESC LIMIT 1`：
+  最新 attempt 完成時刻**晚於**心跳凍結時刻＝活著，不殺；心跳凍結時刻 ≈ 最新長輪起點＝長輪進行中。
+  哨兵 >30 分未消費同理，先驗 run.db 再論積壓。
+
 ## 2. Wedge 處置（心跳凍結、進程活著）
+
+0. 進入本節前先完成 §1.1 的 run.db 活性驗證——attempts 仍在推進＝不是 wedge，回頭等長輪結束再驗。
 
 1. 找 daemon 子進程：`Get-CimInstance Win32_Process | Where ParentProcessId -eq <daemonPid>`
 2. 子進程建立時刻 ≈ 心跳凍結時刻 → 即為吊死源
