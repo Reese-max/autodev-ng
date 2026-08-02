@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BacklogStore } from '../src/backlog.js'
+import { cmdDaemon } from '../src/cli/daemon.js'
 import { runDaemon } from '../src/daemon.js'
 import { RunDb } from '../src/db.js'
 import { buildDigest, shouldSendDigest } from '../src/digest.js'
@@ -30,6 +31,7 @@ afterEach(() => {
     rmSync(fixture.root, { recursive: true, force: true })
   }
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 function fixture(): Fixture {
@@ -138,6 +140,31 @@ test('Discord 未設定時沿用既有 DLQ，digest 不阻斷排程且保留重�
   expect(fetchFn).not.toHaveBeenCalled()
   const dlq = JSON.parse(readFileSync(join(f.dataDir, 'notify-dlq.jsonl'), 'utf8')) as { reason: string; textHead: string }
   expect(dlq).toMatchObject({ reason: 'not-configured', textHead: [...f.digest].slice(0, 120).join('') })
+  expect(existsSync(join(f.dataDir, 'digest-stamp.json'))).toBe(false)
+  expect(shouldSendDigest(f.dataDir, f.today)).toBe(true)
+  expect(JSON.parse(readFileSync(join(f.dataDir, 'heartbeat.json'), 'utf8'))).toMatchObject({ state: 'stopped' })
+})
+
+test('CLI 組裝後的每日 digest Discord 失敗會進 DLQ，且不阻斷停止與重送', async () => {
+  const f = fixture()
+  const cfgPath = join(f.root, 'config.json')
+  writeFileSync(join(f.root, 'tokens.env'), 'LPBOT_TOKEN=test-token\n')
+  writeFileSync(cfgPath, JSON.stringify({
+    projectPath: '.', backlogFile: 'BACKLOG.md', dataDir: 'digest-output', engine: 'mock',
+    stopFile: '.adng.stop', worktreesDir: 'worktrees', timezoneOffsetHours: 0,
+    discordChannelId: 'digest-channel', discordTokenFile: 'tokens.env',
+  }))
+  const fetchFn = vi.fn(async () => new Response('{}', { status: 503 }))
+  vi.stubGlobal('fetch', fetchFn)
+
+  await cmdDaemon(cfgPath)
+
+  expect(fetchFn).toHaveBeenCalledWith(
+    'https://discord.com/api/v10/channels/digest-channel/messages',
+    expect.objectContaining({ method: 'POST' }),
+  )
+  const dlq = JSON.parse(readFileSync(join(f.dataDir, 'notify-dlq.jsonl'), 'utf8')) as { reason: string; textHead: string }
+  expect(dlq).toMatchObject({ reason: 'http-503', textHead: [...f.digest].slice(0, 120).join('') })
   expect(existsSync(join(f.dataDir, 'digest-stamp.json'))).toBe(false)
   expect(shouldSendDigest(f.dataDir, f.today)).toBe(true)
   expect(JSON.parse(readFileSync(join(f.dataDir, 'heartbeat.json'), 'utf8'))).toMatchObject({ state: 'stopped' })
