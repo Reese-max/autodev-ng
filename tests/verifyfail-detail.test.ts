@@ -42,6 +42,26 @@ test('超長 Vitest 鄰近行仍同時保留失敗名稱、AssertionError 與統
   expect(detail.length).toBeLessThanOrEqual(1000)
 })
 
+test('清除 C1 ANSI 序列，只把最後一組統計附加在 detail 末尾', () => {
+  const detail = formatVerifyFailureDetail('', [
+    '\u009B31mFAIL tests/first.test.ts > first\u009B0m',
+    'first context',
+    ' Test Files  2 failed | 1 passed (3)',
+    '      Tests  2 failed | 1 passed (3)',
+    'retrying',
+    '× tests/final.test.ts > final',
+    'final context',
+    ' Test Files  1 failed | 2 passed (3)',
+    '      Tests  1 failed | 2 passed (3)',
+  ].join('\n'))
+
+  expect(detail).not.toContain('\u009B')
+  expect(detail).not.toContain('2 failed | 1 passed')
+  expect(detail).toContain('FAIL tests/first.test.ts > first')
+  expect(detail).toContain('× tests/final.test.ts > final')
+  expect(detail).toMatch(/Test Files  1 failed \| 2 passed \(3\)\n\s*Tests  1 failed \| 2 passed \(3\)$/)
+})
+
 test('非 Vitest 且無失敗標記時回退清理後的合併輸出尾段', () => {
   const stderr = `compiler prelude\n${'e'.repeat(1_050)}${ansi('31', 'stderr tail')}`
   const stdout = `${'o'.repeat(80)}\nstdout tail`
