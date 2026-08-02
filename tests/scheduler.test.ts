@@ -407,6 +407,7 @@ test('no-commit 立即 nudge 同一引擎一次：產生新 commit 後沿用 ver
 
   expect(await runOnce({ ...d, verifier })).toBe('done')
   expect(e.calls).toHaveLength(2)
+  expect(e.calls[0]!.directive).toContain('完成定義＝存在新 commit，無 commit 視為未完成。')
   expect(e.calls[1]!.directive).toBe('你宣稱完成但 worktree 無新 commit；已完成請執行 git add 與 git commit，未完成請如實回報。')
   expect(verified).toMatchObject({ ok: true, baseCommitHash: base })
   expect(verified!.commitHash).not.toBe(base)
@@ -481,6 +482,7 @@ test('extraDirective 未設定時 job.directive 仍恆附任務文字＋commit �
   await runOnce(d)
   expect(e.calls[0]!.directive).toContain('任務一')
   expect(e.calls[0]!.directive).toContain('git log -1')
+  expect(e.calls[0]!.directive).toContain('完成定義＝存在新 commit，無 commit 視為未完成。')
 })
 
 test('上一輪失敗時 directive 注入驗收打回原因（判官回饋閉環 2026-07-28）', async () => {
