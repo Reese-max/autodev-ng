@@ -55,6 +55,17 @@ test('verify fail detail：保留失敗與統計行且不超過 1000 字元', ()
   expect(detail).toContain('Tests  1 failed')
 })
 
+test('verify fail detail：非 Vitest 無法辨識失敗行時，回退合併輸出尾段且清理 ANSI', () => {
+  const stderr = `runner diagnostic\n${'x'.repeat(980)}\u001B[31mstderr tail\u001B[0m`
+  const stdout = 'stdout tail'
+  const detail = formatVerifyFailureDetail(stderr, stdout)
+
+  expect(detail).toBe(`${stderr}\n${stdout}`.replace(/\u001B\[[0-9;]*m/g, '').slice(-1000))
+  expect(detail.length).toBeLessThanOrEqual(1000)
+  expect(detail).not.toContain('\u001B')
+  expect(detail.endsWith('stderr tail\nstdout tail')).toBe(true)
+})
+
 test('timeout → skip 不算 fail（附 detail）', async () => {
   const r = await runVerify({ command: `"${NODE}" -e "setInterval(()=>{},1e3)"`, cwd: process.cwd(), timeoutMs: 1200 })
   expect(r.status).toBe('skip')
