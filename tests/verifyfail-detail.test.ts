@@ -3,7 +3,7 @@ import { formatVerifyFailureDetail } from '../src/engines/verify-detail.js'
 
 const ansi = (code: string, text: string) => `\u001B[${code}m${text}\u001B[0m`
 
-test('ANSI Vitest 輸出保留失敗名稱、AssertionError 鄰近內容與末尾統計', () => {
+test('ANSI 移除：Vitest 輸出保留失敗名稱、AssertionError 鄰近內容與末尾統計', () => {
   const passed = Array.from({ length: 80 }, (_, i) => ansi('32', ` ✓ tests/passed-${i}.test.ts`)).join('\n')
   const detail = formatVerifyFailureDetail('', [
     passed,
@@ -24,7 +24,45 @@ test('ANSI Vitest 輸出保留失敗名稱、AssertionError 鄰近內容與末�
   expect(detail.length).toBeLessThanOrEqual(1000)
 })
 
-test('超長 Vitest 鄰近行仍同時保留失敗名稱、AssertionError 與統計', () => {
+test('FAIL、✗、×、AssertionError 與鄰近上下文都會被擷取且移除 ANSI', () => {
+  const detail = formatVerifyFailureDetail('', [
+    'before FAIL context',
+    ansi('31', 'FAIL tests/fail.test.ts > rejects invalid input'),
+    'after FAIL context',
+    'before ✗ context',
+    ansi('33', '✗ tests/cross.test.ts > rejects invalid input'),
+    'after ✗ context',
+    'before × context',
+    ansi('35', '× tests/multiply.test.ts > rejects invalid input'),
+    'after × context',
+    'before AssertionError context',
+    ansi('31', 'AssertionError: expected 401 to be 422'),
+    'after AssertionError context',
+    ansi('31', ' Test Files  4 failed | 0 passed (4)'),
+    ansi('31', '      Tests  4 failed | 0 passed (4)'),
+  ].join('\n'))
+
+  for (const line of [
+    'FAIL tests/fail.test.ts > rejects invalid input',
+    '✗ tests/cross.test.ts > rejects invalid input',
+    '× tests/multiply.test.ts > rejects invalid input',
+    'AssertionError: expected 401 to be 422',
+    'before FAIL context',
+    'after FAIL context',
+    'before ✗ context',
+    'after ✗ context',
+    'before × context',
+    'after × context',
+    'before AssertionError context',
+    'after AssertionError context',
+  ]) expect(detail).toContain(line)
+  expect(detail).toContain('Test Files  4 failed | 0 passed (4)')
+  expect(detail).toContain('Tests  4 failed | 0 passed (4)')
+  expect(detail).not.toContain('\u001B')
+  expect(detail.length).toBeLessThanOrEqual(1000)
+})
+
+test('超長 Vitest 鄰近行仍同時保留失敗名稱、AssertionError 與統計且不超過 1000 字', () => {
   const detail = formatVerifyFailureDetail([
     'FAIL tests/oversized.test.ts > suite > keeps useful diagnostics',
     `debug payload: ${'x'.repeat(1_200)}`,
@@ -63,7 +101,7 @@ test('接近實際 Vitest 結構時，尾端通過列表不會擠掉失敗病灶
   expect(detail.length).toBeLessThanOrEqual(1000)
 })
 
-test('清除 C1 ANSI 序列，只把最後一組統計附加在 detail 末尾', () => {
+test('保留最後一組 Test Files／Tests 統計並清除 C1 ANSI 序列', () => {
   const detail = formatVerifyFailureDetail('', [
     '\u009B31mFAIL tests/first.test.ts > first\u009B0m',
     'first context',
@@ -83,7 +121,7 @@ test('清除 C1 ANSI 序列，只把最後一組統計附加在 detail 末尾', 
   expect(detail).toMatch(/Test Files  1 failed \| 2 passed \(3\)\n\s*Tests  1 failed \| 2 passed \(3\)$/)
 })
 
-test('非 Vitest 且無失敗標記時回退清理後的合併輸出尾段', () => {
+test('無失敗行時退回清理後合併輸出的尾 1000 字', () => {
   const stderr = `compiler prelude\n${'e'.repeat(1_050)}${ansi('31', 'stderr tail')}`
   const stdout = `${'o'.repeat(80)}\nstdout tail`
   const clean = `${stderr}\n${stdout}`.replace(/\u001B\[[0-9;]*m/g, '')
