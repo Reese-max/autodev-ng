@@ -20,6 +20,31 @@ test('exit 1 → fail 且 detail 含輸出', async () => {
   expect(r.detail).toContain('3 tests failed')
 })
 
+test('runVerify fail → 實際合併輸出後保留病灶與統計，且移除 ANSI／通過列表', async () => {
+  const stderr = [
+    '\u001B[31m FAIL tests/live.test.ts > rejects invalid input\u001B[0m',
+    '\u001B[31mAssertionError: expected 1 to be 2\u001B[0m',
+    'at tests/live.test.ts:12:3',
+  ].join('\n')
+  const stdout = [
+    Array.from({ length: 80 }, (_, i) => `\u001B[32m ✓ tests/passed-${i}.test.ts\u001B[0m`).join('\n'),
+    '\u001B[31m Test Files  1 failed | 80 passed (81)\u001B[0m',
+    '\u001B[31m      Tests  1 failed | 80 passed (81)\u001B[0m',
+  ].join('\n')
+  const payload = Buffer.from(`${stderr}\0${stdout}`).toString('base64')
+  const script = `const [stderr,stdout]=Buffer.from('${payload}','base64').toString().split('\\0');process.stderr.write(stderr);process.stdout.write(stdout);process.exit(1)`
+  const r = await runVerify({ command: `"${NODE}" -e "${script}"`, cwd: process.cwd(), timeoutMs: 10_000 })
+
+  expect(r.status).toBe('fail')
+  expect(r.detail).toContain('FAIL tests/live.test.ts > rejects invalid input')
+  expect(r.detail).toContain('AssertionError: expected 1 to be 2')
+  expect(r.detail).toContain('Test Files  1 failed | 80 passed (81)')
+  expect(r.detail).toContain('Tests  1 failed | 80 passed (81)')
+  expect(r.detail).not.toContain('passed-0.test.ts')
+  expect(r.detail).not.toContain('\u001B')
+  expect(r.detail.length).toBeLessThanOrEqual(1000)
+})
+
 test('無失敗特徵行時，清理 ANSI 後 detail 回退為尾段 1000 字', async () => {
   const stderr = `\u001B[31mcompiler diagnostic\u001B[0m\n${'x'.repeat(1_005)}\ncompiler tail`
   const stdout = '\u001B[32mstdout tail\u001B[0m'

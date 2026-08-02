@@ -26,7 +26,7 @@ export async function runVerify(opts: {
   const notFoundDetail = commandNotFoundDetail(r)
   if (notFoundDetail) return { status: 'skip', detail: notFoundDetail }
   if (r.exitCode === null && r.stdout === '' && r.stderr === '') return { status: 'skip', detail: 'verify infra failure（spawn 全空）' }
-  return { status: 'fail', detail: formatVerifyFailureDetail(r.stderr, r.stdout) }
+  return { status: 'fail', detail: formatVerifyFailureDetail(r.stderr, r.stdout).slice(0, 1000) }
 }
 
 /**
