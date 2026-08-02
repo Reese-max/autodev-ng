@@ -20,10 +20,10 @@ session 間(idle),避免打斷進行中工作。
 | GOAL-roi.md | ProblemsLedger 加成本/結果欄,session 末結算 ROI | ✅ 2026-07-24 上線(ledger-roi 33/33 綠;supplement 稽核殘 5 條證據缺口,屬文書層) |
 | GOAL-kernel-slim.md | kernel 減壓:cli.ts 子指令外移 src/cli/,騰回 ≥250 行——後續 kernel 改動的前置 | 🔄 執行中(已派 2026-07-24) |
 | GOAL-verify-tiered.md | 分層驗收:輪內先跑 GOAL 專屬指令,綠了才跑全套——砍紅→綠迭代的 14 分鐘全套稅 | 待派(調到 kernel-slim 後:要動 verifier.ts 接線,kernel 零餘裕時必撞) |
-| GOAL-visibility.md | 產出可見性:digest+立案通知經 notify 送達使用者(北極星判準 3,USER-SIGNALS 頭兩痛) | 待派 |
+| GOAL-visibility.md | 產出可見性:digest+立案通知經 notify 送達使用者(北極星判準 3,USER-SIGNALS 頭兩痛) | 🔄 執行中(2026-08-02 巡檢派工;紅態 exit 1「No test files found」已確認,parseGoal 通過) |
 | GOAL-signal-quality.md | 發掘器訊號源:repo 健康指標+run.db 72h/前4日雙段+cost/observability 雙鏡頭 | 待派 |
-| GOAL-verifyfail-detail.md | verify-fail detail 修繕:strip ANSI+擷取失敗區塊,失敗紀錄可診斷 | 待派 |
-| GOAL-nocommit-nudge.md | phantom completion 當場補救:no-commit 先 nudge 一次再定生死 | 待派 |
+| GOAL-verifyfail-detail.md | verify-fail detail 修繕:strip ANSI+擷取失敗區塊,失敗紀錄可診斷 | ✅ 2026-08-02 驗收綠(3 passed,0c47064) |
+| GOAL-nocommit-nudge.md | phantom completion 當場補救:no-commit 先 nudge 一次再定生死 | ✅ 2026-08-02 驗收綠(6 passed,d156b84) |
 | GOAL-merge-rebase.md | merge-conflict 自動 rebase onto main 重試一次再 blocked | 待派 |
 | GOAL-critic-probe.md | critic 實證探針:候選宣稱機械查證(實跑測試/數事件),矛盾者重降權 | 待派 |
 | GOAL-northstar.md | 北極星節流自我迭代(機器提議、人核准 APPROVED 才併) | 待派 |
