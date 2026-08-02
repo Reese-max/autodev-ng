@@ -45,6 +45,29 @@ test('runVerify fail → 實際合併輸出後保留病灶與統計，且移除 
   expect(r.detail.length).toBeLessThanOrEqual(1000)
 })
 
+test('runVerify：Failed Tests 區塊在前且尾端有大量通過列表時仍保留失敗測試名', async () => {
+  const passed = Array.from({ length: 160 }, (_, i) => `\u001B[32m ✓ tests/passed-${i}.test.ts\u001B[0m`).join('\n')
+  const output = [
+    '\u001B[31m⎯⎯ Failed Tests 1 ⎯⎯\u001B[0m',
+    '\u001B[41;30m FAIL \u001B[0m \u001B[2mtests/cart.test.ts\u001B[0m > checkout > rejects invalid total',
+    '\u001B[31mAssertionError: expected 401 to be 422\u001B[0m',
+    ' ❯ tests/cart.test.ts:42:9',
+    '⎯⎯',
+    passed,
+    '\u001B[31m Test Files  1 failed | 160 passed (161)\u001B[0m',
+    '\u001B[31m      Tests  1 failed | 160 passed (161)\u001B[0m',
+  ].join('\n')
+  const payload = Buffer.from(output).toString('base64')
+  const script = `process.stdout.write(Buffer.from('${payload}','base64'));process.exit(1)`
+  const r = await runVerify({ command: `"${NODE}" -e "${script}"`, cwd: process.cwd(), timeoutMs: 10_000 })
+
+  expect(r.status).toBe('fail')
+  expect(r.detail).toContain('tests/cart.test.ts > checkout > rejects invalid total')
+  expect(r.detail).toContain('AssertionError: expected 401 to be 422')
+  expect(r.detail).not.toContain('tests/passed-0.test.ts')
+  expect(r.detail).not.toContain('\u001B')
+})
+
 test('無失敗特徵行時，清理 ANSI 後 detail 回退為尾段 1000 字', async () => {
   const stderr = `\u001B[31mcompiler diagnostic\u001B[0m\n${'x'.repeat(1_005)}\ncompiler tail`
   const stdout = '\u001B[32mstdout tail\u001B[0m'
