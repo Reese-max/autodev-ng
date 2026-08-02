@@ -7,6 +7,7 @@ import { loadEngineStatsForWeighting } from './engines/adaptive-rotation.js'
 import { firstMissingArtifact } from './engines/artifact-contract-git.js'
 import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
+import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetryReason, retriedBlockedReason, worktreeFailureReason, type InfrastructureRetryReason, type InfraRetryState } from './engines/infra-retry.js'
 import { enqueueMerge } from './engines/merge-queue.js'
 import { nudgeNoCommit } from './engines/no-commit-nudge.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
@@ -46,18 +47,8 @@ export interface Deps {
 
 /** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
  * ——不是每種 blocked 都是「連敗」，含糊文案會誤導人工介入的方向。 */
-export type BlockedReason =
-  | 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'branch-switched'
-  // M5 Task 1：任務 tag 不在本專案 engines 白名單（或引擎無法建立）。直接 blocked，
-  // 系統不自作主張換引擎（鐵律 #1 精神；zen 不派 voice-actress 即靠白名單落地）。
-  | 'engine-not-allowed'
-  // Task 2：worktree 殘留鎖定失敗（cleanStaleWorktree 掛 code==='worktree-locked'），獨立於 not-a-git-repo，避免人工誤判方向。
-  | 'worktree-locked'
-  // 2026-07-16 事故：worktree add 後 checkout 未落地（assertWorktreeCheckout 掛 code==='worktree-invalid'）——
-  // 空目錄派工會讓引擎遊走到別的 repo 繞過 verify 閘，必須在派工前擋下。
-  | 'worktree-invalid'
-  // Git 操作逾時是基礎設施容量問題，不是引擎能力不足；巡檢可直接依 infra: 前綴分流。
-  | 'infra:worktree-timeout'
+// infra codes distinguish retryable worktree／外部終止，其他 reason 維持既有終態。
+export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
@@ -69,7 +60,7 @@ export type CycleResult =
   // 前 40 字相同會撞出同一個 key、互相吞告警；taskId 全域唯一不會有這問題）。
   | { kind: 'blocked'; taskId: string; taskText: string; reason: BlockedReason }
 
-export async function runOnce(deps: Deps): Promise<CycleResult> {
+export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: false }): Promise<CycleResult> {
   const { cfg, store, db, engines, events, verifier, notify } = deps
   noteSerialConcurrency(deps)
   if (existsSync(cfg.stopFile)) {
@@ -107,7 +98,8 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   const dups = store.duplicateIds()
   if (dups.length > 0) quiet(() => events.appendOnce('duplicate-tasks', { ids: dups }))
 
-  const picked = await pickReadyTask({ cfg, store, db, events, engines, notify }, openTasks)
+  const candidates = retry.taskId ? openTasks.filter(task => task.id === retry.taskId) : openTasks; if (candidates.length === 0) return 'idle'
+  const picked = await pickReadyTask({ cfg, store, db, events, engines, notify }, candidates)
   if (typeof picked === 'string' || 'kind' in picked) {
     if (picked === 'preflight-failed') writeHeartbeat(events, cfg, { state: 'preflight-failed', todayCostUsd: spent })
     return picked
@@ -124,10 +116,8 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     wt = prepareWorktree(cfg.projectPath, cfg.worktreesDir, task.id, cfg)
   } catch (err) {
     quiet(() => events.append('worktree-prepare-failed', { task: task.text, error: String(err) }))
-    const code = (err as { code?: string })?.code
-    const reason: BlockedReason = code === 'worktree-timeout' || code === 'ETIMEDOUT' || code === 'ETIME' ? 'infra:worktree-timeout'
-      : code === 'worktree-locked' || code === 'worktree-invalid' ? code : 'not-a-git-repo'
-    const detail = reason === 'infra:worktree-timeout' ? `infra:worktree-timeout：逾時 ${cfg.worktreeAddTimeoutMs}ms；可調整 config 欄位 worktreeAddTimeoutMs；${String(err)}` : `worktree 建立失敗：${String(err)}`
+    const reason: BlockedReason = worktreeFailureReason(err), detail = reason === 'infra:worktree-timeout' ? `infra:worktree-timeout：逾時 ${cfg.worktreeAddTimeoutMs}ms；可調整 config 欄位 worktreeAddTimeoutMs；${String(err)}` : `worktree 建立失敗：${String(err)}`
+    if (isInfrastructureRetryReason(reason)) return retryInfrastructure(deps, task, retry, reason, detail)
     return blockTask({ store, events }, task, reason, detail)
   }
 
@@ -154,6 +144,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   try {
     res = await engine.run({ task, projectPath: wt.cwd, directive })
   } catch (err) {
+    if (isExternalEngineTermination(err)) return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${String(err)}`)
     // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
     db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, durationMs: Date.now() - runStartMs })
     engine.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
@@ -161,6 +152,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
     return resolveFailure(deps, task, 'engine-error', String(err), { costUsd: fixedCost ?? 0 })
   }
+  if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`)
   res = await nudgeNoCommit(engine, { task, projectPath: wt.cwd, directive }, res, wt.baseHead)
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默。失敗成本估計（M4 Task 3）：costUnknown===true
   // （timeout/exit≠0/輸出不可解析）改記 cfg.failureCostEstimateUsd，detail 帶 cost-estimated 標記；
@@ -218,11 +210,12 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
           'branch-switched：主 repo 分支已切換或處於 detached HEAD，成果未合回，需人工介入合併'
         )
       }
-      // 主分支同時被使用者/第三方動過，ff 不可行——不硬 merge，worktree/分支保留給人工，
-      // 直接 blocked（不計入 maxAttempts：這不是任務本身失敗，是環境衝突）。
+      // 主分支衝突先清理並重派同一任務；第二次才 blocked，不計入 maxAttempts。
       quiet(() => events.append('merge-conflict', { task: task.text, branch: wt.branch }))
-      return blockTask({ store, events }, task, 'merge-conflict', 'merge-conflict：主分支已前進，需人工介入合併')
+      return retryInfrastructure(deps, task, retry, 'merge-conflict', 'merge-conflict：主分支已前進，需人工介入合併')
     }
+
+    if (retry.retried && retry.source === 'merge-conflict' && merge.commitHash === wt.baseHead) return retryInfrastructure(deps, task, retry, 'merge-conflict', 'merge-conflict：重試派工未產生可合併的新 commit，需人工介入合併')
 
     try {
       store.report(task.id, { kind: 'done', commitHash: merge.commitHash ?? res.commitHash ?? 'unknown' })
@@ -281,8 +274,15 @@ function blockTask(
   } catch (err) {
     quiet(() => events.append('report-failed', { task: task.text, kind: 'blocked', error: String(err), willRepick: true }))
   }
-  quiet(() => events.append('task-blocked', { task: task.text, reason }))
+  quiet(() => events.append('task-blocked', { task: task.text, reason, ...(humanReason.includes('retried=1') ? { retried: 1 } : {}) }))
   return { kind: 'blocked', taskId: task.id, taskText: task.text, reason }
+}
+
+async function retryInfrastructure(deps: Deps, task: Task, retry: InfraRetryState, reason: InfrastructureRetryReason, detail: string): Promise<CycleResult> {
+  if (retry.retried) return blockTask({ store: deps.store, events: deps.events }, task, reason, retriedBlockedReason(detail))
+  quiet(() => deps.events.append('infra-retry', { task: task.text, reason, retried: 1 }))
+  try { cleanupRetryWorktree(deps.cfg.projectPath, deps.cfg.worktreesDir, task.id, deps.cfg) } catch (err) { quiet(() => deps.events.append('infra-retry-cleanup-failed', { task: task.text, reason, error: String(err) })) }
+  return runOnce(deps, { taskId: task.id, retried: true, source: reason })
 }
 
 /** 戰績隔離→輪替候選→preflight；全壞→preflight-failed；白名單外/單候選 resolve 拋→blocked。 */

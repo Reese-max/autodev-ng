@@ -63,6 +63,7 @@ function blockedReasonText(reason: BlockedReason): string {
     case 'worktree-locked': return 'worktree 殘留目錄被佔用無法清理（前次中斷進程未放手）'
     case 'worktree-invalid': return 'worktree checkout 未落地（空目錄/tracked 檔缺失），已拒絕派工，需人工檢查 git 狀態'
     case 'infra:worktree-timeout': return 'worktree Git 操作逾時（基礎設施容量問題，非引擎能力不足）'
+    case 'infra:engine-external-termination': return '引擎子進程遭外部終止（基礎設施問題，非引擎能力不足）'
   }
 }
 
