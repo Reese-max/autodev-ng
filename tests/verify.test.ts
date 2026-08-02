@@ -20,6 +20,18 @@ test('exit 1 → fail 且 detail 含輸出', async () => {
   expect(r.detail).toContain('3 tests failed')
 })
 
+test('無失敗特徵行時，清理 ANSI 後 detail 回退為尾段 1000 字', async () => {
+  const stderr = `\u001B[31mcompiler diagnostic\u001B[0m\n${'x'.repeat(1_005)}\ncompiler tail`
+  const stdout = '\u001B[32mstdout tail\u001B[0m'
+  const payload = Buffer.from(`${stderr}\0${stdout}`).toString('base64')
+  const script = `const [stderr,stdout]=Buffer.from('${payload}','base64').toString().split('\\0');process.stderr.write(stderr);process.stdout.write(stdout);process.exit(1)`
+  const r = await runVerify({ command: `"${NODE}" -e "${script}"`, cwd: process.cwd(), timeoutMs: 10_000 })
+
+  expect(r.status).toBe('fail')
+  expect(r.detail).toBe(`${stderr}\n${stdout}`.replace(/\u001B\[[0-9;]*m/g, '').slice(-1_000))
+  expect(r.detail).not.toContain('\u001B')
+})
+
 test('verify fail detail：移除 ANSI、保留失敗行鄰近上下文與末尾統計', () => {
   const detail = formatVerifyFailureDetail(
     [
