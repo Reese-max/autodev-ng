@@ -124,3 +124,20 @@ test('Discord 通知失敗寫入既有 DLQ，digest 保持可重送且排程仍�
   expect(shouldSendDigest(f.dataDir, f.today)).toBe(true)
   expect(JSON.parse(readFileSync(join(f.dataDir, 'heartbeat.json'), 'utf8'))).toMatchObject({ state: 'stopped' })
 })
+
+test('Discord 未設定時沿用既有 DLQ，digest 不阻斷排程且保留重送資格', async () => {
+  const f = fixture()
+  const tokenFile = join(f.root, 'tokens.env')
+  writeFileSync(tokenFile, 'LPBOT_TOKEN=test-token\n')
+  const fetchFn = vi.fn() as unknown as typeof fetch
+  const discord = new DiscordNotifier({ channelId: undefined, tokenFile, dataDir: f.dataDir, fetchFn })
+
+  expect(await run(f, discord)).toBe('stopped')
+
+  expect(fetchFn).not.toHaveBeenCalled()
+  const dlq = JSON.parse(readFileSync(join(f.dataDir, 'notify-dlq.jsonl'), 'utf8')) as { reason: string; textHead: string }
+  expect(dlq).toMatchObject({ reason: 'not-configured', textHead: [...f.digest].slice(0, 120).join('') })
+  expect(existsSync(join(f.dataDir, 'digest-stamp.json'))).toBe(false)
+  expect(shouldSendDigest(f.dataDir, f.today)).toBe(true)
+  expect(JSON.parse(readFileSync(join(f.dataDir, 'heartbeat.json'), 'utf8'))).toMatchObject({ state: 'stopped' })
+})
