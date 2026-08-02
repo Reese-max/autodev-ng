@@ -317,7 +317,7 @@ describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {
     const evs = eventTypes(dir)
     expect(evs).toContain('perpetual-goal-authored')
     expect(evs).toContain('perpetual-session-done')
-    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledTimes(2)
   })
 
   test('品質閘拒絕後回饋 author 重寫，第二稿通過才成案', async () => {

@@ -161,7 +161,7 @@ async function runBody(
     : discovered.ranked.map(p => ({ ...p, fingerprint: problemFingerprint(p.title) })))
     .filter(r => r.value >= threshold).slice(0, 3)
 
-  let authored: { md: string; fp: string; title: string } | undefined
+  let authored: { md: string; fp: string; title: string; problem: RankedProblem } | undefined
   const qualityRejected = new Set<string>()
   let firstFailure: string | undefined
   for (const row of candidates) {
@@ -186,12 +186,12 @@ async function runBody(
         gate = await hooks.gateAuthoredGoal(md)
       } catch (error) {
         quiet(() => events.append('goal-quality-gate-warning', { fingerprint: row.fingerprint, title: row.title, warning: `gate-exception: ${String(error).slice(0, 240)}` }))
-        authored = { md, fp: row.fingerprint, title: row.title }
+        authored = { md, fp: row.fingerprint, title: row.title, problem }
         break
       }
       if (gate.ok) {
         if (gate.warning) quiet(() => events.append('goal-quality-gate-warning', { fingerprint: row.fingerprint, title: row.title, warning: gate.warning }))
-        authored = { md, fp: row.fingerprint, title: row.title }
+        authored = { md, fp: row.fingerprint, title: row.title, problem }
         break
       }
       rejectionReason = gate.reason
@@ -220,13 +220,20 @@ async function runBody(
     return false
   }
 
-  // 成案：tmp+rename 原子寫 GOAL；ledger in-progress；發 authored 事件。
-  const goalId = goalIdOf(parseGoal(authored.md).objective)
+  // 成案：tmp+rename 原子寫 GOAL；ledger in-progress；發 authored 事件與即時通知。
+  const goal = parseGoal(authored.md)
+  const goalId = goalIdOf(goal.objective)
   const tmp = `${goalFile}.tmp`
   writeFileSync(tmp, authored.md)
   renameSync(tmp, goalFile!)
   ledger.setStatus(authored.fp, 'in-progress', '', goalId)
   quiet(() => events.append('perpetual-goal-authored', { fingerprint: authored.fp, goalId, title: authored.title }))
+  await notify([
+    `自主工程師立案：${authored.title}`,
+    `lens：${authored.problem.lens}｜critic VALUE：${authored.problem.value}`,
+    `rationale：${authored.problem.rationale.replace(/\s+/g, ' ').trim()}`,
+    `驗收：${goal.verifyCommand ?? '未提供'}`
+  ].join('\n'))
   const startedAt = hooks.now().toISOString()
   ledger.setRoi(authored.fp, { startedAt })
 

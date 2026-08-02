@@ -470,7 +470,7 @@ describe('goal ROI 主流程', () => {
       expect(await runPerpetualCycle(cfg, dir, new EventLog(dir), notify, hooks)).toBe(true)
       expect(hooks.author).toHaveBeenCalledTimes(1)
       expect(hooks.runSession).toHaveBeenCalledTimes(1)
-      expect(notify).toHaveBeenCalledTimes(1)
+      expect(notify).toHaveBeenCalledTimes(2)
     } finally { ioFailure.mockRestore() }
   })
 
