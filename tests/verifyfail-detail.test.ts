@@ -42,6 +42,27 @@ test('超長 Vitest 鄰近行仍同時保留失敗名稱、AssertionError 與統
   expect(detail.length).toBeLessThanOrEqual(1000)
 })
 
+test('接近實際 Vitest 結構時，尾端通過列表不會擠掉失敗病灶', () => {
+  const passed = Array.from({ length: 120 }, (_, i) => ansi('32', ` ✓ tests/passed-${i}.test.ts`)).join('\n')
+  const detail = formatVerifyFailureDetail('', [
+    '⎯⎯ Failed Tests 1 ⎯⎯',
+    ansi('41;30', ' FAIL ') + ' ' + ansi('2', 'tests/cart.test.ts') + ' > checkout > rejects invalid total',
+    ansi('31', 'AssertionError: expected 401 to be 422'),
+    ' ❯ tests/cart.test.ts:42:9',
+    '⎯⎯',
+    passed,
+    ansi('31', ' Test Files  1 failed | 120 passed (121)'),
+    ansi('31', '      Tests  1 failed | 120 passed (121)'),
+  ].join('\n'))
+
+  expect(detail).toContain('tests/cart.test.ts > checkout > rejects invalid total')
+  expect(detail).toContain('AssertionError: expected 401 to be 422')
+  expect(detail).not.toContain('passed-0.test.ts')
+  expect(detail).not.toContain('\u001B')
+  expect(detail).toMatch(/Test Files  1 failed \| 120 passed \(121\)\n\s*Tests  1 failed \| 120 passed \(121\)$/)
+  expect(detail.length).toBeLessThanOrEqual(1000)
+})
+
 test('清除 C1 ANSI 序列，只把最後一組統計附加在 detail 末尾', () => {
   const detail = formatVerifyFailureDetail('', [
     '\u009B31mFAIL tests/first.test.ts > first\u009B0m',
@@ -72,5 +93,12 @@ test('非 Vitest 且無失敗標記時回退清理後的合併輸出尾段', () 
   expect(detail).toContain('stderr tail')
   expect(detail).toContain('stdout tail')
   expect(detail).not.toContain('\u001B')
+  expect(detail.length).toBeLessThanOrEqual(1000)
+})
+
+test('空的非 Vitest 輸出回傳空 detail 且維持長度上限', () => {
+  const detail = formatVerifyFailureDetail('', '')
+
+  expect(detail).toBe('')
   expect(detail.length).toBeLessThanOrEqual(1000)
 })
