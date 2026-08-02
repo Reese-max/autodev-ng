@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runOnce, type Deps } from '../src/scheduler.js'
 import { BacklogStore, taskId } from '../src/backlog.js'
-import type { Disposition } from '../src/types.js'
+import type { Disposition, RunResult } from '../src/types.js'
 import { RunDb, localDay, type AttemptRecord } from '../src/db.js'
 import Database from 'better-sqlite3'
 import { EventLog } from '../src/events.js'
@@ -384,6 +384,68 @@ test('失敗成本估計：自訂 failureCostEstimateUsd（如 2.5）流動到 d
   const spyDb = new RecordSpyDb(join(dir, 'run-spy3.db'))
   await runOnce({ ...d, cfg: customCfg, db: spyDb })
   expect(spyDb.records[0]!.costUsd).toBeCloseTo(2.5)
+})
+
+test('no-commit 立即 nudge 同一引擎一次：產生新 commit 後沿用 verifier 與原始 base', async () => {
+  const e = new MockEngine([
+    { ok: false, reason: 'no-commit(phantom completion?)' },
+    {
+      ok: true,
+      beforeResult: job => {
+        const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: job.projectPath, encoding: 'utf8' }).trim()
+        commitFile(job.projectPath, 'nudged.txt', 'done\n', 'fix: 補提交完成成果')
+        return base
+      },
+    },
+  ])
+  const d = deps(e)
+  const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: d.cfg.projectPath, encoding: 'utf8' }).trim()
+  let verified: RunResult | undefined
+  const verifier: NonNullable<Deps['verifier']> = {
+    check: async (_job, result) => { verified = result; return { pass: true, alerts: [] } },
+  }
+
+  expect(await runOnce({ ...d, verifier })).toBe('done')
+  expect(e.calls).toHaveLength(2)
+  expect(e.calls[1]!.directive).toBe('你宣稱完成但 worktree 無新 commit；已完成請執行 git add 與 git commit，未完成請如實回報。')
+  expect(verified).toMatchObject({ ok: true, baseCommitHash: base })
+  expect(verified!.commitHash).not.toBe(base)
+})
+
+test('nudge 後 HEAD 仍未前進：同一 attempt 只呼叫兩次並記 no-commit [nudged]', async () => {
+  const e = new MockEngine([
+    { ok: false, reason: 'no-commit(phantom completion?)' },
+    { ok: true }, // 引擎再次宣稱完成，但真實 worktree HEAD 仍沒前進
+  ])
+  const d = deps(e)
+  const spyDb = new RecordSpyDb(join(dir, 'run-nudge-no-commit.db'))
+
+  expect(await runOnce({ ...d, db: spyDb })).toBe('failed')
+  expect(e.calls).toHaveLength(2)
+  expect(spyDb.records).toHaveLength(1)
+  expect(spyDb.records[0]!.detail).toContain('no-commit')
+  expect(spyDb.records[0]!.detail).toContain('nudged')
+})
+
+test.each([
+  ['engine error', () => new MockEngine([
+    { ok: false, reason: 'no-commit(phantom completion?)' }, { throw: 'nudge exploded' },
+  ])],
+  ['timeout', () => new MockEngine([
+    { ok: false, reason: 'no-commit(phantom completion?)' }, { ok: false, reason: 'timeout', costUnknown: true },
+  ])],
+] as const)('nudge %s fail-open：不轉 engine-error，只記一筆 no-commit [nudged]', async (_case, makeEngine) => {
+  const e = makeEngine()
+  const d = deps(e)
+  const spyDb = new RecordSpyDb(join(dir, `run-nudge-${_case.replace(' ', '-')}.db`))
+
+  expect(await runOnce({ ...d, db: spyDb })).toBe('failed')
+  expect(e.calls).toHaveLength(2)
+  expect(spyDb.records).toHaveLength(1)
+  expect(spyDb.records[0]!.detail).toContain('no-commit')
+  expect(spyDb.records[0]!.detail).toContain('nudged')
+  expect(spyDb.records[0]!.detail).not.toContain('timeout')
+  expect(readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')).not.toContain('"type":"engine-error"')
 })
 
 test('Fix 2：engine 失敗時 task-failed 事件帶 outputTail（截尾 600 字，$10 的診斷線索不蒸發）', async () => {

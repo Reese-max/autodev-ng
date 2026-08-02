@@ -8,6 +8,7 @@ import { firstMissingArtifact } from './engines/artifact-contract-git.js'
 import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { enqueueMerge } from './engines/merge-queue.js'
+import { nudgeNoCommit } from './engines/no-commit-nudge.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
 import { pickCandidateTags } from './engines/pick-candidates.js'
 import { singleFlightPickRouting } from './engines/pick-ready-single-flight.js'
@@ -148,8 +149,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
   // 幻影完成對策（run.db 四大失敗來源分析 2026-07-27）：自證硬指令恆附派工尾。
   directive = `${directive ?? task.text}\n\n完成的定義＝已產生新 git commit。結束前執行 git log -1 --oneline 自證；沒有 commit 就如實回報失敗原因，不得宣稱完成。`
 
-  // try 只包 engine.run 本身：db.record／store.report／events 的下游 I/O 故障
-  // 不該被誤判成「引擎錯誤」而污染 failCount。
+  // try 只包 engine.run：下游 I/O 故障不該被誤判成引擎錯誤而污染 failCount。
   let res: RunResult
   try {
     res = await engine.run({ task, projectPath: wt.cwd, directive })
@@ -161,7 +161,7 @@ export async function runOnce(deps: Deps): Promise<CycleResult> {
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
     return resolveFailure(deps, task, 'engine-error', String(err), { costUsd: fixedCost ?? 0 })
   }
-
+  res = await nudgeNoCommit(engine, { task, projectPath: wt.cwd, directive }, res, wt.baseHead)
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默。失敗成本估計（M4 Task 3）：costUnknown===true
   // （timeout/exit≠0/輸出不可解析）改記 cfg.failureCostEstimateUsd，detail 帶 cost-estimated 標記；
   // 引擎解析出真值（含 is_error、真值恰好 0）照記真值。M5 Task 1：fixedCost 有設（非真值引擎）
