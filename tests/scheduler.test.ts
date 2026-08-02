@@ -33,7 +33,7 @@ function initGitRepo(dir: string): void {
 
 function commitFile(cwd: string, name: string, content: string, message: string): void {
   writeFileSync(join(cwd, name), content)
-  execFileSync('git', ['add', '.'], { cwd, stdio: 'ignore' })
+  execFileSync('git', ['add', '--', name], { cwd, stdio: 'ignore' })
   execFileSync('git', ['commit', '-m', message], { cwd, stdio: 'ignore' })
 }
 

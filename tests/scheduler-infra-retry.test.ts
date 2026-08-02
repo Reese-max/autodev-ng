@@ -116,6 +116,22 @@ test('merge-conflict 首次失敗會清理後重派同一任務', async () => {
   expect(d.db.failCount(taskId('任務一'))).toBe(0)
 })
 
+test('dirty-worktree 直接 blocked，不重試，並保留告警所需的精確檔案資訊', async () => {
+  const engine = new MockEngine([{ ok: true }])
+  const d = testDeps(engine)
+  worktreeMock.prepareWorktree.mockReturnValue(handle(d.cfg.projectPath))
+  worktreeMock.mergeBack.mockReturnValue({
+    merged: false, reason: 'dirty-worktree', dirtyFileCount: 2, dirtyFiles: ['README.md', 'src/worktree.ts'],
+  })
+
+  await expect(runOnce(d)).resolves.toEqual({
+    kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一', reason: 'dirty-worktree',
+    alertDetail: '主工作目錄有 2 個未提交變更檔阻擋合併，需先提交或移至分支保存；檔案：README.md、src/worktree.ts',
+  })
+  expect(engine.calls).toHaveLength(1)
+  expect(infraRetryMock.cleanupRetryWorktree).not.toHaveBeenCalled()
+})
+
 test.each(['verify-fail: 測試紅', 'review-reject: 審查拒絕'])('(d) 引擎能力失敗 %s 仍計入 maxAttempts', async reason => {
   const engine = new MockEngine([{ ok: true }])
   const d = testDeps(engine, 1)

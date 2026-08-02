@@ -455,3 +455,41 @@ test('mergeBack 不帶 worktreePath：分岔行為與現狀完全一致（merge-
   expect(result.merged).toBe(false)
   expect(result.reason).toBe('merge-conflict')
 })
+
+test('mergeBack：主工作目錄有已追蹤變更 → dirty-worktree，不嘗試 ff-only，回傳總數與前五個檔名', () => {
+  const { repo, worktreesDir } = newRepo()
+  for (let i = 1; i <= 6; i++) writeFileSync(join(repo, `tracked-${i}.txt`), 'base\n')
+  execFileSync('git', ['add', '.'], { cwd: repo, stdio: 'ignore' })
+  execFileSync('git', ['commit', '-m', 'chore: add tracked fixtures'], { cwd: repo, stdio: 'ignore' })
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  commitFile(wt.cwd, 'feature.txt', 'from worktree\n', 'feat: worktree 端完成')
+  for (let i = 1; i <= 6; i++) writeFileSync(join(repo, `tracked-${i}.txt`), 'dirty\n')
+  const before = headOf(repo)
+
+  expect(mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead)).toEqual({
+    merged: false, reason: 'dirty-worktree', dirtyFileCount: 6,
+    dirtyFiles: ['tracked-1.txt', 'tracked-2.txt', 'tracked-3.txt', 'tracked-4.txt', 'tracked-5.txt'],
+  })
+  expect(headOf(repo)).toBe(before)
+  expect(existsSync(join(repo, 'feature.txt'))).toBe(false)
+})
+
+test('mergeBack：主工作目錄乾淨但內容衝突 → 維持 merge-conflict', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  commitFile(wt.cwd, 'same.txt', 'worktree version\n', 'feat: worktree 改 same.txt')
+  commitFile(repo, 'same.txt', 'main version\n', 'chore: 主分支改 same.txt')
+
+  expect(mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd)).toEqual({ merged: false, reason: 'merge-conflict' })
+})
+
+test('mergeBack：主工作目錄乾淨且可快轉 → 正常合併', () => {
+  const { repo, worktreesDir } = newRepo()
+  const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
+  commitFile(wt.cwd, 'feature.txt', 'from worktree\n', 'feat: worktree 端完成')
+
+  const result = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead)
+  expect(result.merged).toBe(true)
+  expect(result.commitHash).toBe(headOf(repo))
+  expect(readFileSync(join(repo, 'feature.txt'), 'utf8')).toBe('from worktree\n')
+})

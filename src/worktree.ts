@@ -3,8 +3,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileS
 import { dirname, join } from 'node:path'
 
 export interface WorktreeHandle { cwd: string; branch: string; baseBranch: string; baseHead: string }
-export type MergeBackFailReason = 'branch-switched' | 'merge-conflict'
-export interface MergeBackResult { merged: boolean; commitHash?: string; reason?: MergeBackFailReason; rebased?: boolean }
+export type MergeBackFailReason = 'branch-switched' | 'merge-conflict' | 'dirty-worktree'
+export interface MergeBackResult { merged: boolean; commitHash?: string; reason?: MergeBackFailReason; rebased?: boolean; dirtyFileCount?: number; dirtyFiles?: string[] }
 export interface WorktreeTimeoutOptions { gitTimeoutMs?: number; worktreeAddTimeoutMs?: number }
 
 /** worktree 根目錄的旗標檔：verifier 的 defaultRollback 守門用它辨識「這是 adng 管理的
@@ -14,6 +14,7 @@ const ADD_REMOVE_TIMEOUT_MS = 30_000
 const QUICK_TIMEOUT_MS = 10_000
 /** rebase 需重放任務分支全部 commit，給寬於 QUICK 的上限。 */
 const REBASE_TIMEOUT_MS = 60_000
+const DIRTY_WORKTREE_LIST_MAX = 5
 
 function worktreeTimeouts(options?: WorktreeTimeoutOptions): Required<WorktreeTimeoutOptions> {
   return {
@@ -197,6 +198,17 @@ export function mergeBack(projectPath: string, branch: string, expectedBaseBranc
     return { merged: false, reason: 'branch-switched' } // detached HEAD
   }
   if (nowBranch !== expectedBaseBranch) return { merged: false, reason: 'branch-switched' }
+
+  // 主工作目錄有已追蹤的未提交變更時，ff-only 失敗不是分支衝突；先停下保留現場，
+  // 不讓 scheduler 以 merge-conflict 誤導人工，也不在隔離 worktree 進行無效 rebase。
+  const dirty = git(['status', '--porcelain', '--untracked-files=no'], projectPath, timeouts.gitTimeoutMs)
+    .split('\n').map(line => line.trimEnd()).filter(line => line !== '')
+  if (dirty.length > 0) return {
+    merged: false,
+    reason: 'dirty-worktree',
+    dirtyFileCount: dirty.length,
+    dirtyFiles: dirty.slice(0, DIRTY_WORKTREE_LIST_MAX).map(line => line.slice(3)),
+  }
 
   // reset-backward 縫（Task 6 ledger）：任務期間使用者對主分支 reset --hard 回退——分支名
   // 沒變、身分核對看不出來，而任務分支自 baseHead 分出（含被丟棄段），ff-only 會「成功」

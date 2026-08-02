@@ -48,7 +48,7 @@ export interface Deps {
 /** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
  * ——不是每種 blocked 都是「連敗」，含糊文案會誤導人工介入的方向。 */
 // infra codes distinguish retryable worktree／外部終止，其他 reason 維持既有終態。
-export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
+export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'dirty-worktree' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
@@ -58,7 +58,7 @@ export type CycleResult =
   // blocked 的呼叫鏈直接帶回，不該繞去讀一個為了別的目的而存在的檔案）。
   // taskId 供 daemon 冷卻閘 key 使用（修正：舊版 key 用任務文字前 40 字，兩個長任務
   // 前 40 字相同會撞出同一個 key、互相吞告警；taskId 全域唯一不會有這問題）。
-  | { kind: 'blocked'; taskId: string; taskText: string; reason: BlockedReason }
+  | { kind: 'blocked'; taskId: string; taskText: string; reason: BlockedReason; alertDetail?: string }
 
 export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: false }): Promise<CycleResult> {
   const { cfg, store, db, engines, events, verifier, notify } = deps
@@ -210,6 +210,12 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
           'branch-switched：主 repo 分支已切換或處於 detached HEAD，成果未合回，需人工介入合併'
         )
       }
+      if (merge.reason === 'dirty-worktree') {
+        const files = merge.dirtyFiles ?? []
+        const detail = `主工作目錄有 ${merge.dirtyFileCount ?? files.length} 個未提交變更檔阻擋合併，需先提交或移至分支保存${files.length > 0 ? `；檔案：${files.join('、')}` : ''}`
+        quiet(() => events.append('dirty-worktree', { task: task.text, branch: wt.branch, fileCount: merge.dirtyFileCount, files }))
+        return blockTask({ store, events }, task, 'dirty-worktree', detail)
+      }
       // 主分支衝突先清理並重派同一任務；第二次才 blocked，不計入 maxAttempts。
       quiet(() => events.append('merge-conflict', { task: task.text, branch: wt.branch }))
       return retryInfrastructure(deps, task, retry, 'merge-conflict', 'merge-conflict：主分支已前進，需人工介入合併')
@@ -275,7 +281,7 @@ function blockTask(
     quiet(() => events.append('report-failed', { task: task.text, kind: 'blocked', error: String(err), willRepick: true }))
   }
   quiet(() => events.append('task-blocked', { task: task.text, reason, ...(humanReason.includes('retried=1') ? { retried: 1 } : {}) }))
-  return { kind: 'blocked', taskId: task.id, taskText: task.text, reason }
+  return { kind: 'blocked', taskId: task.id, taskText: task.text, reason, ...(reason === 'dirty-worktree' ? { alertDetail: humanReason } : {}) }
 }
 
 async function retryInfrastructure(deps: Deps, task: Task, retry: InfraRetryState, reason: InfrastructureRetryReason, detail: string): Promise<CycleResult> {

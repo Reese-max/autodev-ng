@@ -53,11 +53,12 @@ export function isAlertableResult(result: CycleResult): boolean {
   return typeof result === 'object' || result === 'cost-hard-stop' || result === 'preflight-failed'
 }
 
-function blockedReasonText(reason: BlockedReason): string {
+function blockedReasonText(reason: BlockedReason, detail?: string): string {
   switch (reason) {
     case 'max-attempts': return '連敗達上限，需人工介入'
     case 'not-a-git-repo': return 'worktree 建立失敗（非 git 專案或主 repo 狀態異常），需人工介入'
     case 'merge-conflict': return '主分支已前進導致無法自動合併，需人工介入合併'
+    case 'dirty-worktree': return detail ?? '主工作目錄有未提交變更檔阻擋合併，需先提交或移至分支保存'
     case 'branch-switched': return '主 repo 分支已切換或處於 detached HEAD，成果未合回，需人工介入合併'
     case 'engine-not-allowed': return '任務指定引擎不在本專案 engines 白名單（或引擎無法建立），需人工修 tag 或 config'
     case 'worktree-locked': return 'worktree 殘留目錄被佔用無法清理（前次中斷進程未放手）'
@@ -69,7 +70,7 @@ function blockedReasonText(reason: BlockedReason): string {
 
 export function baseAlertMessage(result: CycleResult): string {
   if (typeof result === 'object') {
-    return `daemon 告警：任務 blocked（${blockedReasonText(result.reason)}）——任務：${[...result.taskText].slice(0, 80).join('')}`
+    return `daemon 告警：任務 blocked（${blockedReasonText(result.reason, result.alertDetail)}）——任務：${[...result.taskText].slice(0, 80).join('')}`
   }
   switch (result) {
     case 'cost-hard-stop': return 'daemon 告警：cost-hard-stop——今日成本已達硬停上限，暫停派工'

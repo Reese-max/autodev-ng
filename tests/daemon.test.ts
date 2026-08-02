@@ -687,3 +687,12 @@ test('Task 2：baseAlertMessage 對 worktree-locked 出對應人話文案，不�
   expect(msg).toContain('佔用')
   expect(msg).not.toContain('非 git 專案')
 })
+
+test('baseAlertMessage：dirty-worktree 據實帶出未提交檔案數與前幾個檔名', () => {
+  const msg = baseAlertMessage({
+    kind: 'blocked', taskId: 't11', taskText: '合回成果', reason: 'dirty-worktree',
+    alertDetail: '主工作目錄有 2 個未提交變更檔阻擋合併，需先提交或移至分支保存；檔案：README.md、src/worktree.ts',
+  })
+  expect(msg).toContain('主工作目錄有 2 個未提交變更檔阻擋合併，需先提交或移至分支保存')
+  expect(msg).toContain('README.md、src/worktree.ts')
+})
