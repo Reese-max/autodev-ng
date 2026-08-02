@@ -1,12 +1,12 @@
 import { existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { runProcess, type ProcResult } from './engines/proc.js'
+import { formatVerifyFailureDetail } from './engines/verify-detail.js'
 
 export type VerifyStatus = 'pass' | 'fail' | 'skip'
 export interface VerifyOutcome { status: VerifyStatus; detail: string }
 
 const COMMAND_NOT_FOUND_RE = /not recognized|不是內部或外部命令|command not found/i
-
 /** 機械層驗證：跑專案自己的測試指令。timeout=skip+detail（慢測試不可誤殺，舊教訓）；infra 故障 fail-open。 */
 export async function runVerify(opts: {
   command: string | undefined
@@ -26,7 +26,7 @@ export async function runVerify(opts: {
   const notFoundDetail = commandNotFoundDetail(r)
   if (notFoundDetail) return { status: 'skip', detail: notFoundDetail }
   if (r.exitCode === null && r.stdout === '' && r.stderr === '') return { status: 'skip', detail: 'verify infra failure（spawn 全空）' }
-  return { status: 'fail', detail: (r.stderr + '\n' + r.stdout).trim().slice(-1000) }
+  return { status: 'fail', detail: formatVerifyFailureDetail(r.stderr, r.stdout) }
 }
 
 /**

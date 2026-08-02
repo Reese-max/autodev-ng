@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest'
+import { formatVerifyFailureDetail } from '../src/engines/verify-detail.js'
 import { runVerify } from '../src/verify.js'
 
 const NODE = process.execPath
@@ -17,6 +18,41 @@ test('exit 1 → fail 且 detail 含輸出', async () => {
   const r = await runVerify({ command: `"${NODE}" -e "console.error('3 tests failed');process.exit(1)"`, cwd: process.cwd(), timeoutMs: 10_000 })
   expect(r.status).toBe('fail')
   expect(r.detail).toContain('3 tests failed')
+})
+
+test('verify fail detail：移除 ANSI、保留失敗行鄰近上下文與末尾統計', () => {
+  const detail = formatVerifyFailureDetail(
+    [
+      'before failure',
+      '\u001B[31mFAIL tests/verify.test.ts > failure\u001B[0m',
+      'AssertionError: expected 1 to be 2',
+      'after assertion',
+      '✗ another failure',
+      'after checkmark',
+      '× third failure',
+      'after cross'
+    ].join('\n'),
+    ['unrelated output', ' Test Files  1 failed', '      Tests  3 failed'].join('\n')
+  )
+  expect(detail).not.toContain('\u001B')
+  expect(detail).toContain('before failure')
+  expect(detail).toContain('AssertionError: expected 1 to be 2')
+  expect(detail).toContain('✗ another failure')
+  expect(detail).toContain('× third failure')
+  expect(detail).not.toContain('unrelated output')
+  expect(detail).toContain('Test Files  1 failed')
+  expect(detail).toContain('Tests  3 failed')
+})
+
+test('verify fail detail：保留失敗與統計行且不超過 1000 字元', () => {
+  const detail = formatVerifyFailureDetail(
+    `FAIL tests/huge.test.ts > keeps the failure\n${'x'.repeat(1_200)}`,
+    ' Test Files  1 failed\n      Tests  1 failed'
+  )
+  expect(detail.length).toBeLessThanOrEqual(1000)
+  expect(detail).toContain('FAIL tests/huge.test.ts')
+  expect(detail).toContain('Test Files  1 failed')
+  expect(detail).toContain('Tests  1 failed')
 })
 
 test('timeout → skip 不算 fail（附 detail）', async () => {
