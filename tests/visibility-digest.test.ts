@@ -109,6 +109,7 @@ test('每日 digest 組裝完成後主動送出完整內容並標記送達', asy
   expect(bodies).toEqual([f.digest])
   expect(bodies[0]).toContain('完成 1 筆／失敗 1 筆')
   expect(JSON.parse(readFileSync(join(f.dataDir, 'digest-stamp.json'), 'utf8'))).toEqual({ lastSentDay: f.today })
+  expect(shouldSendDigest(f.dataDir, f.today)).toBe(false)
 })
 
 test('Discord 通知失敗寫入既有 DLQ，digest 保持可重送且排程仍成功', async () => {
