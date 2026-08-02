@@ -28,10 +28,20 @@
     "oc-deepseek",
     "oc-mimo",
     "kilo",
-    "grok",
+    "oc-deepseek",
+    "oc-mimo",
+    "kilo",
+    "oc-deepseek",
+    "oc-mimo",
+    "kilo",
+    "oc-deepseek",
+    "oc-mimo",
+    "kilo",
+    "oc-deepseek",
+    "oc-mimo",
+    "kilo",
     "codex-luna",
-    "codex-terra",
-    "codex-sol"
+    "codex-terra"
   ],
   "engines": {
     "devin": {

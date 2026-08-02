@@ -23,10 +23,16 @@
   "engineRotation": [
     "oc-deepseek",
     "oc-mimo",
-    "grok",
+    "oc-deepseek",
+    "oc-mimo",
+    "oc-deepseek",
+    "oc-mimo",
+    "oc-deepseek",
+    "oc-mimo",
+    "oc-deepseek",
+    "oc-mimo",
     "codex-luna",
-    "codex-terra",
-    "codex-sol"
+    "codex-terra"
   ],
   "discordChannelId": "1492793288514863164",
   "engines": {
