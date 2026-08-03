@@ -112,7 +112,7 @@ export const ConfigSchema = z.object({
   worktreesDir: z.string().default('worktrees'),
   // 大型 repo 的 worktree checkout／porcelain 可遠超小型專案預設；未設維持既有 10s／30s。
   gitTimeoutMs: z.number().int().positive().default(10_000),
-  worktreeAddTimeoutMs: z.number().int().positive().default(30_000),
+  worktreeAddTimeoutMs: z.number().int().positive().default(30_000), worktreeRetentionMs: z.number().int().nonnegative().default(24 * 60 * 60 * 1000),
   // 明示建立語意的 artifact 閘；單一專案可關閉，預設維持啟用。
   artifactContract: z.boolean().default(true),
   // 戰績自動隔離（近3日樣本≥6且成功率<30% 即封 24h）。false＝完全停用，rotation 不因戰績封任何檔位。

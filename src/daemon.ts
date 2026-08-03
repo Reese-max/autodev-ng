@@ -9,10 +9,10 @@ import { quiet } from './events.js'
 import { maybeRunPerpetual, perpetualDigestLine } from './autopilot/perpetual.js'
 import { baseAlertMessage, cooldownKeyFor, isAlertableResult, loadCooldownTable, safeSend, sendCooldownAlert, yesterdayLocal } from './engines/daemon-alerts.js'
 import { cleanupRoutingState } from './engines/routing-state-cleanup.js'
+import { recordWorktreeGc } from './engines/worktree-gc.js'
 import { checkRoutingStateConsistency } from './engines/routing-state-consistency.js'
 
 export { baseAlertMessage, yesterdayLocal } from './engines/daemon-alerts.js'
-
 export interface Notifier {
   send(text: string): Promise<boolean>
 }
@@ -45,7 +45,6 @@ const CRASH_PAUSE_MS = 30 * 60 * 1000
 function defaultSleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
-
 /** M4 Task 3：本地日字串（取代舊版純 UTC 切割）。offsetHours=0 時與舊行為完全一致（相容性錨點）。 */
 function todayLocal(offsetHours: number): string {
   return localDay(new Date().toISOString(), offsetHours)
@@ -153,6 +152,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
 
       // restart.request 哨兵（見 autopilot/restart-sentinel.ts）：cycle 邊界檢查優雅重啟，attempt 進行中不中斷。
       if (consumeRestartSentinel(deps.cfg.dataDir, deps.events, opts.unlinkFn)) return 'restart-requested'
+      quiet(() => recordWorktreeGc(deps.cfg, deps.events))
 
       // M7.5:OOM 閘——可用記憶體 <15% 跳過本輪派工(舊系統教訓:高壓下 spawn 只會雪崩)
       // stop 優先於 OOM 跳輪——否則低記憶體期間操作者停不下 daemon(全分支審查 IMPORTANT)
