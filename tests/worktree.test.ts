@@ -417,7 +417,7 @@ test('cleanupWorktree：rmSync 已成功、branch -d 失敗（未合併分支）
 // rebase-before-merge（2026-07-27）：消「主分支前進但檔案不相干」的假衝突
 // ---------------------------------------------------------------------------
 
-test('mergeBack＋worktreePath：主分支前進但檔案不相干 → worktree 內 rebase 後合回成功', () => {
+test('mergeBack＋worktreePath：首次 ff-only 失敗時僅補救一次，rebase 最新 main 後合回成功', () => {
   const { repo, worktreesDir } = newRepo()
   const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
   commitFile(wt.cwd, 'feature.txt', 'from worktree\n', 'feat: worktree 端完成')
@@ -431,15 +431,19 @@ test('mergeBack＋worktreePath：主分支前進但檔案不相干 → worktree 
   expect(log).toContain('第三方推進')
 })
 
-test('mergeBack＋worktreePath：真衝突（同檔同行）→ rebase abort、現場乾淨、回 merge-conflict', () => {
+test('mergeBack＋worktreePath：真衝突（同檔同行）→ main 還原、rebase abort、未合併分支與 commit 保留', () => {
   const { repo, worktreesDir } = newRepo()
   const wt = prepareWorktree(repo, worktreesDir, TASK_ID)
   commitFile(wt.cwd, 'same.txt', 'worktree version\n', 'feat: worktree 改 same.txt')
   commitFile(repo, 'same.txt', 'main version\n', 'chore: 主分支改 same.txt')
+  const mainHead = headOf(repo)
+  const taskHead = execFileSync('git', ['rev-parse', wt.branch], { cwd: repo, encoding: 'utf8' }).trim()
 
   const result = mergeBack(repo, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd)
   expect(result.merged).toBe(false)
   expect(result.reason).toBe('merge-conflict')
+  expect(headOf(repo)).toBe(mainHead)
+  expect(execFileSync('git', ['rev-parse', wt.branch], { cwd: repo, encoding: 'utf8' }).trim()).toBe(taskHead)
   // rebase 已 abort：worktree 無 rebase-in-progress 殘留、工作樹乾淨
   const status = execFileSync('git', ['status', '--porcelain'], { cwd: wt.cwd, encoding: 'utf8' })
   expect(status.trim()).toBe('')

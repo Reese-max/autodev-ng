@@ -7,7 +7,6 @@ export type InfrastructureRetryReason =
   | 'infra:worktree-timeout'
   | 'worktree-locked'
   | 'worktree-invalid'
-  | 'merge-conflict'
   | 'infra:engine-external-termination'
 
 export type WorktreeFailureReason = InfrastructureRetryReason | 'not-a-git-repo'

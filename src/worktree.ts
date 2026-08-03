@@ -224,22 +224,25 @@ export function mergeBack(projectPath: string, branch: string, expectedBaseBranc
     }
   }
 
-  // queue 內取得併入權後，若主線已前進，先在隔離 worktree rebase 到最新主線，再做唯一
-  // 一次 ff-only。rebase／ff 任一失敗都沿用 merge-conflict；不重試、不硬合。
+  // merge 失敗時只做一次補救：先 abort 主 repo 的 merge 狀態，再把任務分支 rebase 到
+  // 當下主線並重新 ff-only 一次。不可遞迴／迴圈；任一失敗均保留 worktree 與分支。
   let rebased = false
-  if (nowHead !== expectedBaseHead && worktreePath) {
+  let rescueAttempted = false
+  try {
+    git(['merge', '--ff-only', branch], projectPath, timeouts.gitTimeoutMs)
+  } catch {
+    if (!worktreePath || rescueAttempted) return { merged: false, reason: 'merge-conflict' }
+    rescueAttempted = true
+    gitTolerant(['merge', '--abort'], projectPath, timeouts.gitTimeoutMs)
+    const latestMain = git(['rev-parse', 'HEAD'], projectPath, timeouts.gitTimeoutMs).trim()
     try {
-      git(['rebase', expectedBaseBranch], worktreePath, Math.max(REBASE_TIMEOUT_MS, timeouts.worktreeAddTimeoutMs))
+      git(['rebase', latestMain], worktreePath, Math.max(REBASE_TIMEOUT_MS, timeouts.worktreeAddTimeoutMs))
+      git(['merge', '--ff-only', branch], projectPath, timeouts.gitTimeoutMs)
     } catch {
       try { git(['rebase', '--abort'], worktreePath, timeouts.gitTimeoutMs) } catch { /* 無進行中 rebase 亦安全 */ }
       return { merged: false, reason: 'merge-conflict' }
     }
     rebased = true
-  }
-  try {
-    git(['merge', '--ff-only', branch], projectPath, timeouts.gitTimeoutMs)
-  } catch {
-    return { merged: false, reason: 'merge-conflict' }
   }
   const commitHash = git(['rev-parse', 'HEAD'], projectPath, timeouts.gitTimeoutMs).trim()
   return { merged: true, commitHash, ...(rebased ? { rebased } : {}) }

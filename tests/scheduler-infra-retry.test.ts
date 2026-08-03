@@ -104,15 +104,17 @@ test('(c) 基建重試仍失敗才 blocked，reason 標記 retried=1', async () 
   expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('retried=1')
 })
 
-test('merge-conflict 首次失敗會清理後重派同一任務', async () => {
-  const engine = new MockEngine([{ ok: true }, { ok: true }])
+test('merge-conflict 經唯一 rebase 補救後仍失敗 → 直接 blocked，絕不清理或重派', async () => {
+  const engine = new MockEngine([{ ok: true }])
   const d = testDeps(engine)
   worktreeMock.prepareWorktree.mockReturnValue(handle(d.cfg.projectPath))
-  worktreeMock.mergeBack.mockReturnValueOnce({ merged: false, reason: 'merge-conflict' }).mockReturnValueOnce({ merged: true, commitHash: 'retry-merged' })
+  worktreeMock.mergeBack.mockReturnValue({ merged: false, reason: 'merge-conflict' })
 
-  expect(await runOnce(d)).toBe('done')
-  expect(engine.calls).toHaveLength(2)
-  expect(infraRetryMock.cleanupRetryWorktree).toHaveBeenCalledTimes(1)
+  await expect(runOnce(d)).resolves.toEqual({
+    kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一', reason: 'merge-conflict',
+  })
+  expect(engine.calls).toHaveLength(1)
+  expect(infraRetryMock.cleanupRetryWorktree).not.toHaveBeenCalled()
   expect(d.db.failCount(taskId('任務一'))).toBe(0)
 })
 

@@ -216,12 +216,10 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
         quiet(() => events.append('dirty-worktree', { task: task.text, branch: wt.branch, fileCount: merge.dirtyFileCount, files }))
         return blockTask({ store, events }, task, 'dirty-worktree', detail)
       }
-      // 主分支衝突先清理並重派同一任務；第二次才 blocked，不計入 maxAttempts。
+      // mergeBack 已做過唯一一次 rebase 補救；失敗時不可清理 worktree／分支，保留未合併成果。
       quiet(() => events.append('merge-conflict', { task: task.text, branch: wt.branch }))
-      return retryInfrastructure(deps, task, retry, 'merge-conflict', 'merge-conflict：主分支已前進，需人工介入合併')
+      return blockTask({ store, events }, task, 'merge-conflict', 'merge-conflict：rebase 補救失敗，成果未合回，需人工介入合併')
     }
-
-    if (retry.retried && retry.source === 'merge-conflict' && merge.commitHash === wt.baseHead) return retryInfrastructure(deps, task, retry, 'merge-conflict', 'merge-conflict：重試派工未產生可合併的新 commit，需人工介入合併')
 
     try {
       store.report(task.id, { kind: 'done', commitHash: merge.commitHash ?? res.commitHash ?? 'unknown' })
