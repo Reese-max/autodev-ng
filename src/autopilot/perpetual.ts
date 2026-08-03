@@ -68,13 +68,7 @@ export async function runPerpetualCycle(
     if (existsSync(cfg.stopFile)) return false
     if (cfg.dailyHardUsd > 0 && hooks.billedToday() >= cfg.dailyHardUsd) return false
 
-    const cooldownDefault = cfg.perpetualCooldownMs ?? DEFAULT_COOLDOWN_MS
-    const threshold = cfg.perpetualValueThreshold ?? DEFAULT_VALUE_THRESHOLD
-    state = loadPerpetualState(dataDir, cooldownDefault)
     const now = hooks.now()
-    const manualGoalPresent = Boolean(cfg.goalFile && existsSync(cfg.goalFile) && !isAutoGoal(readFileSync(cfg.goalFile, 'utf8')))
-    if (!manualGoalPresent && state.lastSessionTs && now.getTime() - Date.parse(state.lastSessionTs) < state.currentCooldownMs) return false
-
     const workspace = hooks.preflight?.()
     if (workspace && !workspace.ok) {
       try {
@@ -89,6 +83,12 @@ export async function runPerpetualCycle(
       }
       return false
     }
+
+    const cooldownDefault = cfg.perpetualCooldownMs ?? DEFAULT_COOLDOWN_MS
+    const threshold = cfg.perpetualValueThreshold ?? DEFAULT_VALUE_THRESHOLD
+    state = loadPerpetualState(dataDir, cooldownDefault)
+    const manualGoalPresent = Boolean(cfg.goalFile && existsSync(cfg.goalFile) && !isAutoGoal(readFileSync(cfg.goalFile, 'utf8')))
+    if (!manualGoalPresent && state.lastSessionTs && now.getTime() - Date.parse(state.lastSessionTs) < state.currentCooldownMs) return false
 
     ledger = new ProblemsLedger(join(dataDir, 'run.db'))
     return await runBody(cfg, dataDir, events, notify, hooks, state, now, threshold, ledger)

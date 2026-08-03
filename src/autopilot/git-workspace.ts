@@ -40,7 +40,7 @@ function windowsPath(path: string): boolean {
 }
 
 function commandPath(path: string): string {
-  return JSON.stringify(path)
+  return `"${path.replace(/"/g, '\\"')}"`
 }
 
 function blocked(
