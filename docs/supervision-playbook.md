@@ -84,7 +84,12 @@ BACKLOG-adng.md 的 adng:blocked 標記；data/<proj>/restart.request 存在且 
    maxAttempts 自 2026-08-01 起為 3（原 6）：注定失敗的任務燒 36 分
    而非 72 分即進 blocked，靠巡檢帶精準靶心重開，勝過盲目重試
 3. 移除舊行的 adng:blocked 標記（同行改寫）或標 superseded
-4. 殘留 worktree 卡 prepareWorktree 時：新 id 自然繞開；殘目錄待關機自清，不硬清
+4. 殘留 worktree 卡 prepareWorktree 時：新 id 自然繞開；殘目錄待關機自清，**不硬清**。
+   人工清掃殘目錄的唯一安全窗（2026-08-03 血訓）：該艦 daemon 已停或 state=idle **且**
+   run.db 最新 attempt 非進行中。重開任務與原任務同文字＝同 id＝同 worktree 路徑——
+   清掃時該 id 可能正有活輪在跑，刪其 worktree 會讓引擎 git 上溯到 autodev-ng 主 repo，
+   把船的工作 commit 進錯 repo 甚至 reset 掉主 repo 未提交變更（45703e9/95923c8 實案，
+   rescue/* 分支留存）。批次清掃一律逐 id 對照「無活輪」後才動手。
 5. 同一任務人工重開以一次為限；再敗＝升級人工（不無限重開）
 
 ## 5. GOAL 換棒／重新武裝
