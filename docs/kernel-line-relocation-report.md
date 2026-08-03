@@ -53,12 +53,16 @@
 | `src/judge.ts` | 41 |
 | `src/lock.ts` | 134 |
 | `src/preflight.ts` | 37 |
-| `src/scheduler.ts` | 385 |
-| `src/types.ts` | 175 |
+| `src/scheduler.ts` | 445 |
+| `src/types.ts` | 177 |
 | `src/verifier.ts` | 99 |
 | `src/verify.ts` | 93 |
-| `src/worktree.ts` | 307 |
-| **總計** | **2144** |
+| `src/worktree.ts` | 349 |
+| **總計** | **2248** |
+
+2026-08-03 帳目校正：infra-retry／rebase 補救／髒樹守門等連串交付使 `scheduler.ts` +60、
+`worktree.ts` +42，reap 前 run.db 活性雙證閘使 `types.ts` +2，合計 2248、騰回 452 行。
+**距 2250 上限僅餘 2 行**——下一筆 kernel 頂層增長必須先搬移邏輯至 `src/engines/`。
 
 ## 可重現驗證
 
