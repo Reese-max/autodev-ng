@@ -1,10 +1,11 @@
+import Database from 'better-sqlite3'
 import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { pidTreeDeepestFirst, type FlatPidProcess } from '../engines/proc.js'
 import { EventLog } from '../events.js'
 import { releaseLock } from '../lock.js'
-import { ConfigSchema, DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
+import { ConfigSchema, DEFAULT_REAP_GRACE_MS, DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
 import { classifyDaemon, hasEngineProcess, type DaemonAction } from './health.js'
 
 export { DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
@@ -58,13 +59,30 @@ function isEnoent(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'ENOENT'
 }
 
-function configDataDir(configPath: string): { dataDir: string; staleThresholdMs: number; wedgeHardCapMs: number } {
+function configDataDir(configPath: string): { dataDir: string; staleThresholdMs: number; wedgeHardCapMs: number; reapGraceMs?: number } {
   const absolutePath = resolve(configPath)
   const cfg = ConfigSchema.parse(JSON.parse(readFileSync(absolutePath, 'utf8')))
   return {
     dataDir: resolve(dirname(absolutePath), cfg.dataDir),
     staleThresholdMs: cfg.staleThresholdMs,
     wedgeHardCapMs: cfg.wedgeHardCapMs,
+    reapGraceMs: cfg.reapGraceMs,
+  }
+}
+
+/** run.db 最新 attempt 完成時刻（epoch ms）；庫缺/鎖住/空庫回 null（呼叫端自行決定語義）。 */
+function latestAttemptEndMs(dataDir: string): number | null {
+  try {
+    const db = new Database(join(dataDir, 'run.db'), { readonly: true, fileMustExist: true })
+    try {
+      const row = db.prepare('SELECT ts FROM attempts ORDER BY seq DESC LIMIT 1').get() as { ts?: string } | undefined
+      const parsed = row?.ts ? Date.parse(row.ts) : NaN
+      return Number.isFinite(parsed) ? parsed : null
+    } finally {
+      db.close()
+    }
+  } catch {
+    return null
   }
 }
 
@@ -320,7 +338,7 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
   }
 
   const watchdogExpired = pidProbeSucceeded && pidAlive && heartbeatAgeMs != null && heartbeatAgeMs > HEARTBEAT_WATCHDOG_MS
-  const action = watchdogExpired
+  let action: DaemonAction = watchdogExpired
     ? 'reap'
     : probeFailed
     ? 'keep'
@@ -332,6 +350,25 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
       hardCapMs: wedgeHardCapMs,
       hasEngineChild,
     })
+
+  // §1.1 長輪陷阱雙證閘（2026-08-03）：daemon 單一 agentic 長輪（實測可達 50 分鐘）期間不更新
+  // 心跳，僅憑心跳凍結 reap 會誤殺健康 daemon（2026-08-02 note-filler、2026-08-03 prompt-autoresearch
+  // 兩度實證）。reap 前讀 run.db：最新 attempt 完成於心跳凍結之後＝活著；或引擎子進程存在且凍結
+  // 時長未超過單輪寬限（reapGraceMs，預設 90 分鐘）＝長輪進行中。雙證（心跳凍結 ≥ 寬限＋run.db
+  // 靜默）齊全才 reap。run.db 不可讀（null）時不擋——維持原 watchdog 行為，避免殭屍永生。
+  if (action === 'reap' && heartbeatAgeMs != null) {
+    const nowMs = options.nowMs ?? Date.now()
+    const graceMs = config.reapGraceMs ?? DEFAULT_REAP_GRACE_MS
+    const lastEndMs = latestAttemptEndMs(dataDir)
+    const attemptAfterFreeze = lastEndMs !== null && lastEndMs > nowMs - heartbeatAgeMs
+    const longRoundLikely = childCount > 0 && heartbeatAgeMs < graceMs
+    if (attemptAfterFreeze || (lastEndMs !== null && longRoundLikely)) {
+      action = 'keep'
+      probeErrors.push(
+        `reap-downgraded: run.db ${attemptAfterFreeze ? '最新 attempt 完成於心跳凍結後' : `子進程存在且凍結 ${Math.round(heartbeatAgeMs / 60000)} 分未逾寬限 ${Math.round(graceMs / 60000)} 分`}，判定長輪進行中不殺`,
+      )
+    }
+  }
 
   let launchedPid: number | undefined
   if (action !== 'keep') {

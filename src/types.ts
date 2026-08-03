@@ -89,6 +89,8 @@ export type EngineConfig = z.infer<typeof EngineConfigSchema>
 export const DEFAULT_TIMEZONE_OFFSET_HOURS = 8
 export const DEFAULT_STALE_THRESHOLD_MS = 30 * 60_000
 export const DEFAULT_WEDGE_HARD_CAP_MS = 120 * 60_000
+/** §1.1 長輪寬限：心跳凍結但引擎子進程仍在時，凍結未逾此值不 reap（實測單輪可達 50 分＋verify 10 分）。 */
+export const DEFAULT_REAP_GRACE_MS = 90 * 60_000
 export const ConfigSchema = z.object({
   projectPath: z.string().min(1),
   backlogFile: z.string().min(1),
@@ -103,6 +105,8 @@ export const ConfigSchema = z.object({
   cooldownMs: z.number().int().nonnegative().default(60_000),
   // supervisor：heartbeat 過期門檻；未設時保守維持 30 分鐘，覆寫不得低於 15 分鐘。
   staleThresholdMs: z.number().int().min(900_000).default(DEFAULT_STALE_THRESHOLD_MS),
+  // supervisor：§1.1 長輪寬限——reap 前的雙證閘之一；覆寫下限 30 分鐘（低於單輪常態必誤殺）。
+  reapGraceMs: z.number().int().min(1_800_000).optional(),
   // supervisor：有子進程時的 wedge 硬上限；預設 120 分鐘。
   wedgeHardCapMs: z.number().int().min(900_001).default(DEFAULT_WEDGE_HARD_CAP_MS),
   // M4 Task 3（成本記帳）：本地日界線與失敗成本估計。台灣預設 +8；成本日界線與 digest 報日共用同一個 offset。
