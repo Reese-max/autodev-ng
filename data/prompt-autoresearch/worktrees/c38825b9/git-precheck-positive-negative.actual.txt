@@ -1,0 +1,8 @@
+CASE=positive: verify HEAD commit
+a61811ea83911ca1c8f60ed730e51fda445428bc
+EXIT=0
+CASE=positive: diff check current scope
+EXIT=0
+CASE=negative: reject missing commit
+fatal: Needed a single revision
+EXIT=128
