@@ -1,5 +1,7 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { BacklogStore } from './backlog.js'
+import { parseGoal } from './autopilot/goal.js'
 import { localDay, type RunDb } from './db.js'
 import { loadIsolatedTagsForPick } from './engines/apply-stats-isolation.js'
 import { loadDailyAttemptCapContext } from './engines/daily-attempt-cap-gate.js'
@@ -17,7 +19,8 @@ import { quiet, type EventLog } from './events.js'
 import { globalBilledToday } from './globalcost.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
 import type { VerifierCheck } from './verifier.js'
-import { cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError, type WorktreeHandle } from './worktree.js'
+import { cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError, type MergeBackResult, type WorktreeHandle } from './worktree.js'
+import { runVerify } from './verify.js'
 
 /** M7：教訓注入/反思 port（Task 2 makeLessonsPort 的輸出型別）。inject() 供 scheduler
  * 附進 job.directive；reflect() 留給 Task 4/5 接線（本 task 只注入 inject）。 */
@@ -198,7 +201,13 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
   if (res.ok) {
     // engine 成功 + verify 通過（或未設 verifier）→ 嘗試把任務分支 ff-only 合回主 repo。
     // merge queue（併發基建）：合併一次一個；串行下等價直呼，併發池（GOAL B）沿用同一入口。
-    const merge = await enqueueMerge(cfg.projectPath, () => mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, cfg))
+    const merge = await enqueueMerge(cfg.projectPath, () => mergeAfterRebaseVerify(cfg, wt))
+    if (merge.rebaseAttempted) quiet(() => events.append('rebase-attempted', {
+      task: task.text,
+      branch: wt.branch,
+      rebaseAttempted: true,
+      ...(merge.failureStage ? { stage: merge.failureStage } : {}),
+    }))
     if (merge.rebased) quiet(() => events.append('merge-rebased', { task: task.text, branch: wt.branch }))
     if (!merge.merged) {
       if (merge.reason === 'branch-switched') {
@@ -217,8 +226,20 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
         return blockTask({ store, events }, task, 'dirty-worktree', detail)
       }
       // mergeBack 已做過唯一一次 rebase 補救；失敗時不可清理 worktree／分支，保留未合併成果。
-      quiet(() => events.append('merge-conflict', { task: task.text, branch: wt.branch }))
-      return blockTask({ store, events }, task, 'merge-conflict', 'merge-conflict：rebase 補救失敗，成果未合回，需人工介入合併')
+      quiet(() => events.append('merge-conflict', {
+        task: task.text,
+        branch: wt.branch,
+        ...(merge.rebaseAttempted ? { rebaseAttempted: true } : {}),
+        ...(merge.failureStage ? { stage: merge.failureStage } : {}),
+      }))
+      const detail = merge.failureStage === 'verify'
+        ? 'merge-conflict：rebase 後驗收紅燈，成果未合回，需人工介入合併'
+        : merge.failureStage === 'rebase'
+          ? 'merge-conflict：rebase 補救衝突，成果未合回，需人工介入合併'
+          : merge.failureStage === 'merge'
+            ? 'merge-conflict：rebase 後重試合併失敗，成果未合回，需人工介入合併'
+            : 'merge-conflict：rebase 補救失敗，成果未合回，需人工介入合併'
+      return blockTask({ store, events }, task, 'merge-conflict', detail)
     }
 
     try {
@@ -264,6 +285,47 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
   // engine 失敗（res.ok===false，非例外）：既有流程走 resolveFailure，worktree 保留現場。
   quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
   return resolveFailure(deps, task, 'failed', res.failureReason ?? '未知', quotaUsage)
+}
+
+/** rebase 成功後仍在 merge queue 內驗收；只有非紅燈才允許唯一一次 merge 重試。 */
+async function mergeAfterRebaseVerify(cfg: Config, wt: WorktreeHandle): Promise<MergeBackResult> {
+  const timeouts = { gitTimeoutMs: cfg.gitTimeoutMs, worktreeAddTimeoutMs: cfg.worktreeAddTimeoutMs }
+  const first = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
+    ...timeouts,
+    deferAfterRebase: true,
+  })
+  if (!first.rebased || first.failureStage !== 'verify') return first
+
+  const command = rebasedGoalVerifyCommand(cfg, wt.cwd)
+  let verification
+  try {
+    verification = await runVerify({ command, cwd: wt.cwd, timeoutMs: cfg.verifyTimeoutMs })
+  } catch {
+    return { ...first, failureStage: 'verify' }
+  }
+  // runVerify 的 skip 是既有 fail-open 語意（未設指令、逾時或驗證工具故障），只有明確 fail 阻擋合併。
+  if (verification.status === 'fail') return { ...first, failureStage: 'verify' }
+
+  return mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
+    ...timeouts,
+    allowRebase: false,
+    rebaseAttempted: true,
+  })
+}
+
+function rebasedGoalVerifyCommand(cfg: Config, worktreePath: string): string | undefined {
+  if (!cfg.goalFile) return cfg.verifyCommand
+  const projectPath = resolve(cfg.projectPath)
+  const configuredGoal = resolve(cfg.goalFile)
+  const rel = relative(projectPath, configuredGoal)
+  if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) return cfg.verifyCommand
+  const goalPath = join(worktreePath, rel)
+  try {
+    const parsed = parseGoal(readFileSync(goalPath, 'utf8').replace(/\r\n/g, '\n'))
+    return parsed.verifyCommand?.trim() || cfg.verifyCommand
+  } catch {
+    return cfg.verifyCommand
+  }
 }
 
 /** 環境級 blocked：不計 maxAttempts；store.report 失敗只記事件。 */
