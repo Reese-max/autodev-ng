@@ -18,6 +18,18 @@ function temp(): string {
   return dir
 }
 
+function linuxTemp(): string {
+  const dir = mkdtempSync(join(process.cwd(), '.adng-git-workspace-'))
+  dirs.push(dir)
+  return dir
+}
+
+function linuxPath(path: string): string {
+  return /^[A-Za-z]:[\\/]/.test(path)
+    ? `/${path.slice(3).replaceAll('\\', '/')}`
+    : path.replaceAll('\\', '/')
+}
+
 describe('inspectGitWorkspace', () => {
   test('.git 目錄與 HEAD 可讀', () => {
     const project = temp()
@@ -35,6 +47,51 @@ describe('inspectGitWorkspace', () => {
     writeFileSync(join(project, '.git'), `gitdir: ${gitDir}\n`)
     writeFileSync(join(gitDir, 'HEAD'), '0123456789abcdef\n')
     expect(inspectGitWorkspace(project)).toMatchObject({ ok: true, dotGit: 'file', gitDir, head: '0123456789abcdef' })
+  })
+
+  test('Linux 工作區的 .git 檔指向 Windows 路徑時不得進入候選排名或宣稱最佳', async () => {
+    const project = linuxTemp()
+    writeFileSync(join(project, '.git'), 'gitdir: C:\\Users\\foreign\\repo\\.git\\worktrees\\candidate\n')
+    const projectPath = linuxPath(project)
+    const result = inspectGitWorkspace(projectPath, 'linux')
+    expect(result).toMatchObject({ ok: false, reason: 'windows-path-unresolvable', projectPath })
+
+    const discover = vi.fn(async () => ({
+      survey: '',
+      ranked: [{ title: '不可排名候選', lens: 'tests', value: 10, rationale: 'invalid workspace' }]
+    }))
+    const cycle = await runPerpetualCycle({
+      perpetual: true, projectPath, dataDir: project, goalFile: join(project, 'GOAL.md'),
+      stopFile: join(project, '.stop'), dailyHardUsd: 0, perpetualCooldownMs: 0
+    } as never, project, new EventLog(project), async () => true, {
+      now: () => new Date('2026-08-03T00:00:00.000Z'),
+      preflight: () => result, discover,
+      author: async () => null, gateAuthoredGoal: async () => ({ ok: true }),
+      runSession: async () => 'no-goal', billedToday: () => 0
+    } as never)
+    expect(cycle).toBe(false)
+    expect(discover).not.toHaveBeenCalled()
+    expect(JSON.parse(readFileSync(join(project, 'research-blocked.jsonl'), 'utf8'))).toMatchObject({
+      reason: 'windows-path-unresolvable', deliverable: false
+    })
+  })
+
+  test('Linux 模擬有效 worktree 仍可驗證 HEAD 與工作區身分', () => {
+    const root = linuxTemp()
+    const project = join(root, 'worktree')
+    const gitDir = join(root, 'main.git', 'worktrees', 'worktree')
+    mkdirSync(project, { recursive: true })
+    mkdirSync(gitDir, { recursive: true })
+    writeFileSync(join(project, '.git'), 'gitdir: ../main.git/worktrees/worktree\n')
+    writeFileSync(join(gitDir, 'HEAD'), '0123456789abcdef0123456789abcdef01234567\n')
+
+    expect(inspectGitWorkspace(linuxPath(project), 'linux')).toEqual({
+      ok: true,
+      projectPath: linuxPath(project),
+      gitDir: linuxPath(gitDir),
+      dotGit: 'file',
+      head: '0123456789abcdef0123456789abcdef01234567'
+    })
   })
 
   test('Linux 拒絕 Windows 路徑，不把它當成不存在的 repo', () => {
