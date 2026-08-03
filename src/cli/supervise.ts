@@ -1,5 +1,6 @@
 import { basename, resolve } from 'node:path'
 import { runOutputZeroPatrol } from '../engines/output-zero-alert.js'
+import { patrolAlertFile } from '../engines/patrol-alerts.js'
 import { runFleetGuardian, type GuardianReport } from '../guardian/fleet.js'
 import { appendSuperviseRun, superviseRunLogPath } from '../supervisor/run-log.js'
 import { superviseConfig, superviseDirectory, type SuperviseDirectoryResult } from '../supervisor/supervise.js'
@@ -56,7 +57,7 @@ export async function cmdSupervise(
       results = superviseDirectory(configsDir, options)
       printSuperviseResults(results)
       const alerts = await runOutputZeroPatrol(results.map(result => result.configPath), {
-        alertFile: resolve(configsDir, '..', 'PATROL-ALERTS.md'),
+        alertFile: patrolAlertFile(configsDir),
         notify: sendGuardianNotification,
       })
       for (const alert of alerts) console.warn(`patrol ${alert.fleet}: ${alert.message}`)

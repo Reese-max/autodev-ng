@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import Database from 'better-sqlite3'
 import { localDay, localDayUtcRange } from '../db.js'
 import { ConfigSchema } from '../types.js'
+import { migrateLegacyPatrolAlerts } from './patrol-alerts.js'
 
 type GitRunner = (cwd: string, args: string[]) => string
 const DEFAULT_OUTPUT_ZERO_ALERT_DAYS = 2
@@ -124,13 +125,15 @@ function unmergedAdngBranches(git: GitRunner, projectPath: string, ref: string):
   return branches === null ? null : branches.split(/\r?\n/).filter(Boolean).length
 }
 
-function appendPatrolAlert(file: string, configPath: string, alert: OutputZeroAlert): boolean {
+export function appendPatrolAlert(file: string, configPath: string, alert: OutputZeroAlert): boolean {
   const marker = `<!-- adng-output-zero:${encodeURIComponent(configPath)}:${alert.days.at(-1)!.day} -->`
   try {
+    migrateLegacyPatrolAlerts(file)
     const existing = existsSync(file) ? readFileSync(file, 'utf8') : ''
     if (existing.includes(marker)) return false
     const header = existing === '' ? '# PATROL-ALERTS\n\n' : ''
     const daily = alert.days.map(day => `${day.day} commit=${day.commits}, attempts=${day.attempts}`).join('；')
+    mkdirSync(dirname(file), { recursive: true })
     appendFileSync(file, `${header}${marker}\n- ${alert.message}\n  - 每日統計：${daily}\n`, 'utf8')
     return true
   } catch {
@@ -145,6 +148,7 @@ export async function runOutputZeroPatrol(
   const alerts: OutputZeroAlert[] = []
   const git = options.git ?? runGit
   const nowIso = options.nowIso ?? new Date().toISOString()
+  migrateLegacyPatrolAlerts(options.alertFile)
   for (const configPath of configPaths) {
     try {
       const absoluteConfigPath = resolve(configPath)
