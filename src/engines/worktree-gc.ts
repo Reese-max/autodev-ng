@@ -21,6 +21,12 @@ export interface WorktreeGcResult {
 
 interface ListedWorktree { path: string; branch: string }
 
+const GIT_SAFE_DIRECTORY_ENV = {
+  GIT_CONFIG_COUNT: '1',
+  GIT_CONFIG_KEY_0: 'safe.directory',
+  GIT_CONFIG_VALUE_0: '*',
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -29,6 +35,8 @@ function git(projectPath: string, args: string[], timeoutMs: number): string {
   return execFileSync('git', args, {
     cwd: projectPath, timeout: timeoutMs, encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    // GC 只透過子進程環境放寬唯讀 Git 檢查，不寫入使用者的 global gitconfig。
+    env: { ...process.env, ...GIT_SAFE_DIRECTORY_ENV },
   })
 }
 
