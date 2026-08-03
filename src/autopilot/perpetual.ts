@@ -16,6 +16,7 @@ import { gateAuthoredGoal, type GoalQualityGateResult } from './goal-quality-gat
 import { runGoalWithDeps, type SessionResult } from './session.js'
 import { collectSurvey, hasSurveySources } from './survey-sources.js'
 import { readRecentGoalRoiSummary, settleProblemRoi } from './roi.js'
+import { inspectGitWorkspace, persistGitWorkspaceBlock, type GitWorkspacePreflight } from './git-workspace.js'
 
 /** 外環主邏輯（M10.0 perpetual engineer）。fail-open 是治理鐵律（#4）：本函式由 daemon
  * idle loop 呼叫，任何 throw 都不得逸出——整體包 try/catch，異常記 perpetual-error 回 false。 */
@@ -33,6 +34,7 @@ export type PerpetualConfig = Config & {
 
 export interface PerpetualHooks {
   now(): Date
+  preflight?(): GitWorkspacePreflight
   discover(): Promise<DiscoverResult | undefined>
   author(problem: RankedProblem, fingerprint: string, qualityFeedback?: string, onFailure?: (failure: string) => void): Promise<string | null>
   gateAuthoredGoal(md: string): Promise<GoalQualityGateResult>
@@ -73,6 +75,21 @@ export async function runPerpetualCycle(
     const manualGoalPresent = Boolean(cfg.goalFile && existsSync(cfg.goalFile) && !isAutoGoal(readFileSync(cfg.goalFile, 'utf8')))
     if (!manualGoalPresent && state.lastSessionTs && now.getTime() - Date.parse(state.lastSessionTs) < state.currentCooldownMs) return false
 
+    const workspace = hooks.preflight?.()
+    if (workspace && !workspace.ok) {
+      try {
+        const record = persistGitWorkspaceBlock(join(dataDir, 'research-blocked.jsonl'), workspace)
+        quiet(() => events.append('research-blocked', { ...record }))
+      } catch (error) {
+        quiet(() => events.append('research-blocked', {
+          projectPath: workspace.projectPath, reason: workspace.reason,
+          detail: workspace.detail, repairCommands: workspace.repairCommands,
+          deliverable: false, persistenceError: String(error)
+        }))
+      }
+      return false
+    }
+
     ledger = new ProblemsLedger(join(dataDir, 'run.db'))
     return await runBody(cfg, dataDir, events, notify, hooks, state, now, threshold, ledger)
   } catch (e) {
@@ -111,14 +128,20 @@ async function runBody(
       }
       const result = await hooks.runSession({})
       if (typeof result !== 'object') return false // lock-busy / no-goal：沒真的跑，不記狀態
+      const { outcome } = result
       // killed＝外力中斷（stopFile/config-gone/daemon 輪替），不消耗一次性執行權也不寫冷卻
       // 時間戳——重啟後立即重新拾取（2026-07-19 實證：兩個手動 GOAL 被 daemon 輪替燒掉）。
-      if (result.outcome.kind === 'stuck' && result.outcome.retryable === true) {
-        const { reason, rounds } = result.outcome
+      if (outcome.kind === 'stuck' && outcome.retryable === true) {
+        const { reason, rounds } = outcome
         quiet(() => events.append('manual-goal-retryable', {
           goalId, reason, rounds
         }))
-      } else if (result.outcome.kind !== 'killed') {
+      } else if (outcome.kind === 'blocked') {
+        quiet(() => events.append('research-blocked', {
+          goalId, reason: outcome.reason, detail: outcome.detail,
+          repairCommands: outcome.repairCommands, deliverable: false
+        }))
+      } else if (outcome.kind !== 'killed') {
         state.manualGoalDone = goalId
         state.lastSessionTs = now.toISOString()
         savePerpetualState(dataDir, state)
@@ -261,6 +284,17 @@ async function closeout(
   if (typeof result !== 'object') return false // 沒真的跑（lock-busy/no-goal）：不回寫、不刪、留待下輪
 
   const { outcome } = result
+  if (outcome.kind === 'blocked') {
+    ledger.setStatus(fp, 'deferred', `blocked ${outcome.reason}: ${outcome.detail}`, goalId)
+    state.lastSessionTs = now.toISOString()
+    savePerpetualState(dataDir, state)
+    quiet(() => events.append('research-blocked', {
+      fingerprint: fp, goalId, reason: outcome.reason,
+      detail: outcome.detail, repairCommands: outcome.repairCommands, deliverable: false
+    }))
+    await notify(`自主工程師：${title} → blocked（${outcome.reason}）；請先修復 Git 工作區`)
+    return false
+  }
   const done = outcome.kind === 'achieved'
   if (done) {
     const gaps = result.supplement?.residualGaps?.length ?? 0
@@ -320,6 +354,7 @@ export async function maybeRunPerpetual(
 
   const hooks: PerpetualHooks = {
     now: () => new Date(),
+    preflight: () => inspectGitWorkspace(cfg.projectPath),
     discover: async () => {
       if (!cfg.surveyCommand && !hasSurveySources(cfg.dataDir)) return undefined
       return discoverProblems({

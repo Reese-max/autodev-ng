@@ -6,11 +6,13 @@ import type { PlanResult, PlanInput } from './planner.js'
 import type { ProgressSnapshot } from './evaluator.js'
 import type { RankedProblem } from './discover.js'
 import { applyDedupReopen } from './dedup-reopen.js'
+import type { GitWorkspaceBlockReason } from './git-workspace.js'
 
 export type GoalOutcome =
   | { kind: 'achieved'; rounds: number }
   | { kind: 'no-progress'; rounds: number }
   | { kind: 'stuck'; rounds: number; reason: string; retryable?: true }
+  | { kind: 'blocked'; rounds: number; reason: GitWorkspaceBlockReason; detail: string; repairCommands: string[] }
   | { kind: 'killed'; rounds: number }
 
 export interface RoundLog { round: number; plan: PlanResult; snapshot: ProgressSnapshot }

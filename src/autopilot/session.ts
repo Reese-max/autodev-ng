@@ -16,6 +16,7 @@ import { discoverProblems, type DiscoverResult } from './discover.js'
 import { runGoalSession, type OrchestratorDeps, type GoalOutcome } from './orchestrator.js'
 import { collectSurvey, hasSurveySources } from './survey-sources.js'
 import { readRecentGoalRoiSummary, settleGoalRoi } from './roi.js'
+import { inspectGitWorkspace, persistGitWorkspaceBlock } from './git-workspace.js'
 
 export interface SessionResult {
   goalId: string
@@ -36,6 +37,7 @@ export function sessionAlive(goalFile: string, stopFile: string, cfgPath?: strin
 export function stopAlertMessage(goalId: string, outcome: GoalOutcome): string | null {
   if (outcome.kind === 'achieved') return null
   const base = `autopilot GOAL 停機（goal ${goalId}）：${outcome.kind}，共 ${outcome.rounds} 輪`
+  if (outcome.kind === 'blocked') return `${base}——${outcome.reason}：${outcome.detail}；修復：${outcome.repairCommands.join('；')}`
   return outcome.kind === 'stuck' ? `${base}——${outcome.reason}` : base
 }
 
@@ -63,12 +65,28 @@ export async function runGoalWithDeps(
     const goal = parseGoal(goalMd)
     const goalId = createHash('sha1').update(goal.objective).digest('hex').slice(0, 4)
     const startedAt = new Date().toISOString()
+    const auditFile = join(cfg.dataDir, `goal-${goalId}.jsonl`)
+    const workspace = inspectGitWorkspace(cfg.projectPath)
+    if (!workspace.ok) {
+      let record
+      try { record = persistGitWorkspaceBlock(join(cfg.dataDir, 'research-blocked.jsonl'), workspace) } catch (error) {
+        quiet(() => deps.events.append('research-blocked', {
+          goalId, projectPath: workspace.projectPath, reason: workspace.reason,
+          detail: workspace.detail, repairCommands: workspace.repairCommands,
+          deliverable: false, persistenceError: String(error)
+        }))
+      }
+      if (record) {
+        try { appendFileSync(auditFile, JSON.stringify({ ...record, goalId }) + '\n') } catch { /* audit is best-effort */ }
+        quiet(() => deps.events.append('research-blocked', { goalId, ...record }))
+      }
+      return { goalId, outcome: { kind: 'blocked', rounds: 0, reason: workspace.reason, detail: workspace.detail, repairCommands: workspace.repairCommands } }
+    }
     // GOAL 指定引擎時鎖死選擎（config 白名單須含此引擎）
     const kernelDeps = goal.engine
       ? { ...deps, cfg: pinGoalEngine(cfg, goal.engine) }
       : deps
     const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs }
-    const auditFile = join(cfg.dataDir, `goal-${goalId}.jsonl`)
     // M7 Task 5：session 開始時讀一次教訓（不逐輪重讀），fail-open——教訓面故障不擋 GOAL 啟動
     let lessonsText = ''
     try { lessonsText = deps.lessons?.inject() ?? '' } catch { /* fail-open */ }
@@ -131,7 +149,7 @@ export async function runGoalWithDeps(
         console.log(`supplement: ${JSON.stringify(sup)}`)
       } catch (e) { console.error('supplement 階段故障（fail-open，保留 achieved）:', String(e)) }
     }
-    if (outcome.kind !== 'killed') {
+    if (outcome.kind !== 'killed' && outcome.kind !== 'blocked') {
       settleGoalRoi({
         events: deps.events, dbFile: join(cfg.dataDir, 'run.db'), backlogFile: cfg.backlogFile,
         goalId, result: outcome.kind, startedAt, endedAt: new Date().toISOString()
