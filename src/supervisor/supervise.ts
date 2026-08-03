@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { pidTreeDeepestFirst, type FlatPidProcess } from '../engines/proc.js'
 import { EventLog } from '../events.js'
 import { releaseLock } from '../lock.js'
 import { ConfigSchema, DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
@@ -222,7 +223,49 @@ export function launchDaemon(configPath: string, dataDir: string, cliPath: strin
 
 export function reapDaemonTree(pid: number, runCommand: CommandRunner = defaultRunCommand): void {
   if (!Number.isInteger(pid) || pid <= 0) throw new Error(`無效 daemon PID: ${pid}`)
-  runCommand('taskkill', ['/PID', String(pid), '/T', '/F'])
+  if (process.platform !== 'win32') {
+    try { process.kill(pid, 'SIGKILL') } catch { /* 已死 */ }
+    return
+  }
+  // 快路徑：taskkill /T /F 對健康樹最快；卡死樹會「存取被拒」拋錯（playbook §2.3），
+  // 舊版在此直接讓錯誤外拋 → decision=error → 不 relaunch → 孤兒抱住 worktree。改吞錯走後備。
+  try { runCommand('taskkill', ['/PID', String(pid), '/T', '/F']) } catch { /* 走後備樹斬 */ }
+  if (!pidAliveSync(pid)) return
+  sleepSync(2_000)
+  if (!pidAliveSync(pid)) return
+  // 後備：CIM 枚舉全樹、葉到根逐一 TerminateProcess（等效 Stop-Process -Force，§2.3 唯一可靠殺法）
+  for (const proc of pidTreeDeepestFirst(pid, listProcessesSync(runCommand), '')) {
+    try { process.kill(proc.pid) } catch { /* 已死 */ }
+  }
+  sleepSync(500) // TerminateProcess 非同步沉降，防偽「仍存活」
+  if (pidAliveSync(pid)) throw new Error(`reapDaemonTree: PID ${pid} 樹斬後仍存活`)
+}
+
+function pidAliveSync(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+function listProcessesSync(runCommand: CommandRunner): FlatPidProcess[] {
+  const script = 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress'
+  let raw = ''
+  try {
+    raw = runCommand('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script])
+  } catch { return [] }
+  try {
+    const rows = JSON.parse(raw) as Array<{ ProcessId?: number; ParentProcessId?: number; Name?: string }>
+    return (Array.isArray(rows) ? rows : [rows]).flatMap(row => typeof row.ProcessId === 'number'
+      ? [{ pid: row.ProcessId, parentPid: row.ParentProcessId, command: row.Name ?? '' }]
+      : [])
+  } catch { return [] }
 }
 
 export function superviseConfig(configPath: string, options: SuperviseOptions = {}): SuperviseResult {
