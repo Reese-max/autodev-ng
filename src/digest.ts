@@ -4,6 +4,7 @@ import type { RunDb } from './db.js'
 import { countDlqLines, countVerifyAlertsToday } from './engines/digest-counts.js'
 import { digestDeliveryLines, digestGoalLine } from './engines/digest-deliveries.js'
 import { digestMechanismLines } from './engines/digest-mechanisms.js'
+import { reviewCalibrationDigestLines } from './engines/review-calibration.js'
 import { shadowTotals } from './engines/shadow-price.js'
 import { digestQuotaLines } from './engines/today-attempts-view.js'
 
@@ -24,6 +25,8 @@ export interface BuildDigestOpts {
   engines?: Record<string, { dailyAttemptCap?: number }>
   /** blocked 任務文字清單；未傳/空＝整段省略。積壓需人工，只落 backlog 檔沒人看（鐵律 #4）。 */
   blockedTasks?: string[]
+  /** review 校準週報目錄；有連兩週偏差時才追加換模型建議。 */
+  reviewCalibrationDir?: string
 }
 
 /** token 顯示：百萬以上 M、千以上 K，一位小數。 */
@@ -57,6 +60,7 @@ export function buildDigest(opts: BuildDigestOpts): string {
   if (shadow.quota > 0) lines.push(`  額度層影子帳：市價估 $${shadow.quota.toFixed(2)}，訂閱額度內（cached 另計 10% 檔；sol $5/$30、terra $2.5/$15、luna $1/$6）`)
   lines.push(...digestQuotaLines(engineStats, opts.engines)) // 今日額度消耗表；只在有 cap 設定時顯示（獨有資訊）
   lines.push(...digestMechanismLines(dataDir, isoDayUtc, offsetHours))
+  if (opts.reviewCalibrationDir) lines.push(...reviewCalibrationDigestLines(opts.reviewCalibrationDir))
   // N=0 不印，避免雜訊；N>0 才浮出（鐵律 #4：fail-open-with-alert，不能只落 events.jsonl 沒人看）。
   if (verifySkip > 0) {
     lines.push(`⚠ 本日 verify 略過 ${verifySkip} 次（單輪 fail-open 放行，非整道閘未開；詳見 events verify-alert）`)

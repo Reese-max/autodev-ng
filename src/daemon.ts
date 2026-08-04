@@ -11,6 +11,7 @@ import { baseAlertMessage, cooldownKeyFor, isAlertableResult, loadCooldownTable,
 import { cleanupRoutingState } from './engines/routing-state-cleanup.js'
 import { recordWorktreeGc } from './engines/worktree-gc.js'
 import { checkRoutingStateConsistency } from './engines/routing-state-consistency.js'
+import { maybeRunWeeklyReviewCalibration, reviewCalibrationDir } from './engines/review-calibration.js'
 
 export { baseAlertMessage, yesterdayLocal } from './engines/daemon-alerts.js'
 export interface Notifier {
@@ -72,10 +73,11 @@ async function checkAndSendDigest(deps: Deps, notifier: Notifier): Promise<void>
 
   let blockedTasks: string[] = []
   try { blockedTasks = deps.store.read().filter(t => t.status === 'blocked').map(t => t.text) } catch { /* fail-open：讀失敗省略該段 */ }
+  try { await maybeRunWeeklyReviewCalibration({ cfg: deps.cfg }) } catch { /* 校準故障不可阻斷每日 digest */ }
 
   let text: string
   try {
-    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayLocal(day), offsetHours, subscriptionEngines: subscriptionTags(deps.cfg), perpetualLine, engines: deps.cfg.engines, blockedTasks })
+    text = buildDigest({ db: deps.db, dataDir, isoDayUtc: yesterdayLocal(day), offsetHours, subscriptionEngines: subscriptionTags(deps.cfg), perpetualLine, engines: deps.cfg.engines, blockedTasks, reviewCalibrationDir: reviewCalibrationDir() })
   } catch {
     return
   }
