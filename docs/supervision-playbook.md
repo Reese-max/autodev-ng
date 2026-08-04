@@ -29,6 +29,10 @@ BACKLOG-adng.md 的 adng:blocked 標記；data/<proj>/restart.request 存在且 
 從 GOAL.md 抽 sh fence 指令實跑，exit code 為準
 ```
 
+**熱層架構（2026-08-05）**：巡檢狀態只讀 `data/patrol-state.md`（覆寫式 ≤60 行）；機械合約
+逐條執行 `data/verification-contracts.json`（只報失敗）；patrol-log.md 是 append-only 歷史，
+需要舊案才 rg，永不整讀。每輪結束重寫 state（完結刪、新增入）。
+
 ### 1.1 兩個反覆踩雷的判讀陷阱（2026-08-02 第四、五度實證後固化）
 
 - **時區陷阱（PowerShell）**：比對 heartbeat ts 禁用 `ConvertFrom-Json` 後直接 `Parse`——
