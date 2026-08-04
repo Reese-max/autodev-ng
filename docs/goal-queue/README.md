@@ -29,7 +29,7 @@ session 間(idle),避免打斷進行中工作。
 | GOAL-northstar.md | 北極星節流自我迭代(機器提議、人核准 APPROVED 才併) | 待派 |
 | （場外武裝中）純免費層 v1 | tierMode free-only＋帶資訊重試＋二敗自動拆解 | 🔄 已武裝 data/autodev-self/GOAL.md（2026-08-04），等 backlog 見底接起 |
 | GOAL-herdr-probe.md | Herdr 可行性探針：無頭/全循環/熱重試/生命週期四題 Go-No-Go，一天量級只探不接線 | 待派（排純免費層 v1 之後；與申辯輪並行、互不隸屬） |
-| GOAL-rebuttal-round.md | 審查申辯輪：review-reject 一來一回最小對話，轉化率為存廢裁決 | 待派（排純免費層 v1 之後；使用者 2026-08-04 核定） |
+| ~~GOAL-rebuttal-round.md~~ | 審查申辯輪 | ❌ 撤案（2026-08-04 使用者裁示：走 Herdr 探針路線，不另建對話機制） |
 
 依賴註記:kernel-slim 是 verify-tiered(verifier.ts 接線)、signal-quality(types.ts lens
 一行)、verifyfail-detail、nocommit-nudge、merge-rebase 的前置——kernel 現況 2700/2700
