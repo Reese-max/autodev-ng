@@ -27,6 +27,8 @@ session 間(idle),避免打斷進行中工作。
 | GOAL-merge-rebase.md | merge-conflict 自動 rebase onto main 重試一次再 blocked | 🔄 執行中(2026-08-02 巡檢派工;紅態 exit 1「No test files found」已確認,parseGoal 通過,已放 restart.request 哨兵。選它的實證:本輪 note-filler 1 件、neciken 2 件皆死於 merge-conflict,且 neciken commit 1026514 因此遺失) |
 | GOAL-critic-probe.md | critic 實證探針:候選宣稱機械查證(實跑測試/數事件),矛盾者重降權 | 待派 |
 | GOAL-northstar.md | 北極星節流自我迭代(機器提議、人核准 APPROVED 才併) | 待派 |
+| （場外武裝中）純免費層 v1 | tierMode free-only＋帶資訊重試＋二敗自動拆解 | 🔄 已武裝 data/autodev-self/GOAL.md（2026-08-04），等 backlog 見底接起 |
+| GOAL-rebuttal-round.md | 審查申辯輪：review-reject 一來一回最小對話，轉化率為存廢裁決 | 待派（排純免費層 v1 之後；使用者 2026-08-04 核定） |
 
 依賴註記:kernel-slim 是 verify-tiered(verifier.ts 接線)、signal-quality(types.ts lens
 一行)、verifyfail-detail、nocommit-nudge、merge-rebase 的前置——kernel 現況 2700/2700
