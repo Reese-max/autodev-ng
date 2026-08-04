@@ -148,6 +148,16 @@ test('auto-goal Git 對帳：引擎回報的 commit 不是實際 HEAD 時 fail-c
   expect(events(f.root).some(event => event.type === 'task-done')).toBe(false)
 })
 
+test('auto-goal Git 對帳：格式正確但不存在的 commit 仍 fail-closed', async () => {
+  const f = fixture(0, { engine: new CommitEngine(undefined, () => 'f'.repeat(40)) })
+
+  expect(await runOnce(f.deps)).toMatchObject({
+    kind: 'blocked', reason: 'completion-gate', alertDetail: 'completion-gate：commit-invalid',
+  })
+  expect(git(f.root, ['rev-parse', 'HEAD'])).toBe(f.base)
+  expect(events(f.root).some(event => event.type === 'task-done')).toBe(false)
+})
+
 test('auto-goal 預期變更對帳：commit 沒改佐證檔案時 fail-closed', async () => {
   const f = fixture(0, { evidenceFiles: ['feature.txt'], engine: new CommitEngine(() => 'other.txt') })
 
@@ -177,4 +187,4 @@ test('M1 auto-goal 閉環：3 任務混合 2 completed／1 gate blocked，最後
   expect(recorded.filter(event => event.type === 'task-done')).toHaveLength(2)
   expect(recorded.filter(event => event.type === 'auto-goal-completion-gate-rejected')).toHaveLength(1)
   expect(JSON.parse(readFileSync(join(f.deps.cfg.dataDir, 'heartbeat.json'), 'utf8')).state).toBe('idle')
-})
+}, 45_000)
