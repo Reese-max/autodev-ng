@@ -23,4 +23,8 @@ if not exist "%ADNG_ROOT%\dist\cli.js" (
 )
 
 node "%ADNG_ROOT%\dist\cli.js" supervise --configs-dir "%ADNG_ROOT%\configs" --guardian off
+
+REM patrol-guard piggyback (2026-08-04): watchdog-for-the-watchdog, see adng-patrol-guard.cmd
+call "%ADNG_ROOT%\scripts\adng-patrol-guard.cmd"
+
 exit /b %ERRORLEVEL%
