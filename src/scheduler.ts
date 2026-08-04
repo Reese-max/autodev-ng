@@ -118,8 +118,8 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
   try {
     wt = prepareWorktree(cfg.projectPath, cfg.worktreesDir, task.id, cfg)
   } catch (err) {
-    quiet(() => events.append('worktree-prepare-failed', { task: task.text, error: String(err) }))
     const reason: BlockedReason = worktreeFailureReason(err), detail = reason === 'infra:worktree-timeout' ? `infra:worktree-timeout：逾時 ${cfg.worktreeAddTimeoutMs}ms；可調整 config 欄位 worktreeAddTimeoutMs；${String(err)}` : `worktree 建立失敗：${String(err)}`
+    quiet(() => events.append(reason === 'worktree-invalid' ? 'worktree-invalid' : 'worktree-prepare-failed', { task: task.text, error: String(err) }))
     if (isInfrastructureRetryReason(reason)) return retryInfrastructure(deps, task, retry, reason, detail)
     return blockTask({ store, events }, task, reason, detail)
   }

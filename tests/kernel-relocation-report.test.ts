@@ -25,7 +25,7 @@ const CURRENT_KERNEL_BY_FILE: Readonly<Record<string, number>> = {
   'types.ts': 177,
   'verifier.ts': 99,
   'verify.ts': 93,
-  'worktree.ts': 349,
+  'worktree.ts': 332,
 }
 const AFTER_LINES = Object.values(CURRENT_KERNEL_BY_FILE).reduce((total, lines) => total + lines, 0)
 const RECLAIMED_LINES = BEFORE_LINES - AFTER_LINES
@@ -35,6 +35,7 @@ const RELOCATED_LOGIC = [
   ['engines/daemon-alerts.ts', 'daemon.ts', './engines/daemon-alerts.js'],
   ['engines/notify.ts', 'cli/assemble.ts', '../engines/notify.js'],
   ['engines/proc.ts', 'verify.ts', './engines/proc.js'],
+  ['engines/worktree-checkout.ts', 'worktree.ts', './engines/worktree-checkout.js'],
 ] as const
 
 function lineCount(source: string): number {
@@ -83,7 +84,7 @@ describe('kernel 搬移前後行數報告', () => {
     expect(historicalKernelLines(BEFORE_RELOCATION)).toBe(BEFORE_LINES)
   })
 
-  it('目前 kernel 頂層為 2247 行，低於 2250 行且實際騰回 453 行', () => {
+  it('目前 kernel 頂層為 2230 行，低於 2250 行且實際騰回 470 行', () => {
     const current = currentKernelLines()
     expect(current).toBe(AFTER_LINES)
     expect(current).toBeLessThan(TARGET_CAP)
@@ -109,7 +110,7 @@ describe('kernel 搬移前後行數報告', () => {
 
   it('報告記錄相同的可重現基準、結果與驗證指令', () => {
     const report = readFileSync(REPORT, 'utf8')
-    for (const fact of [BEFORE_RELOCATION, '2700', '2247', '453', '2250', '250']) {
+    for (const fact of [BEFORE_RELOCATION, '2700', '2230', '470', '2250', '250']) {
       expect(report).toContain(fact)
     }
     for (const [file, lines] of Object.entries(CURRENT_KERNEL_BY_FILE)) {

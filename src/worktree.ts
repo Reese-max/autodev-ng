@@ -1,6 +1,9 @@
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { assertWorktreeCheckout } from './engines/worktree-checkout.js'
+
+export { assertWorktreeCheckout } from './engines/worktree-checkout.js'
 
 export interface WorktreeHandle { cwd: string; branch: string; baseBranch: string; baseHead: string }
 export type MergeBackFailReason = 'branch-switched' | 'merge-conflict' | 'dirty-worktree'
@@ -93,6 +96,12 @@ function assertGitRepo(projectPath: string, gitTimeoutMs: number): void {
 /** 殘留自癒：worktree remove --force + prune + rmSync 容忍失敗；branch -D 移到「確認目錄已消失」之後才執行——
  * 2a929ec9 產線事故：目錄被鎖(Windows,前次中斷進程未退)時舊順序先砍分支致成果懸空；仍在就上拋保留分支,待重試/人工介入。 */
 function cleanStaleWorktree(projectPath: string, worktreePath: string, branch: string, timeouts: Required<WorktreeTimeoutOptions>): void {
+  // `git worktree remove` 只能移除已註冊的 worktree；被外部中斷在 .git 落地前的空目錄
+  // 不是 worktree，先由 Node 直接清掉，否則每輪都卡在同一具殘骸。
+  if (existsSync(worktreePath) && !existsSync(join(worktreePath, '.git'))) {
+    try { rmSync(worktreePath, { recursive: true, force: true }) } catch { /* 下面統一判定鎖定 */ }
+    if (existsSync(worktreePath)) throw Object.assign(new Error(`prepareWorktree: 殘留 worktree 目錄無法移除(可能有前次中斷的進程仍佔用):${worktreePath}——成果分支 ${branch} 已保留,待進程退出後下次重試/人工介入`), { code: 'worktree-locked' })
+  }
   gitTolerant(['worktree', 'remove', '--force', worktreePath], projectPath, timeouts.worktreeAddTimeoutMs)
   gitTolerant(['worktree', 'prune'], projectPath, timeouts.gitTimeoutMs)
   try {
@@ -132,32 +141,6 @@ function ensureMarkerIgnored(projectPath: string): void {
     appendFileSync(excludeFile, `${sep}${missing.join('\n')}\n`)
   } catch {
     // 容忍：見上方註解
-  }
-}
-
-/** 2026-07-16 note-filler 產線事故回歸防線：`git worktree add` 之後目錄實際是空的
- * （checkout 未落地），引擎被派進去後 git 從空 cwd 往上解析到外層 repo、照 directive
- * 裡的路徑遊走直接 commit 目標專案 main——完全繞過 verify 閘，帳面卻全記 no-commit。
- * add 完必驗兩件事：(1) HEAD 確實在預期任務分支——空目錄會往上解析到別的 repo 的分支
- * （或 symbolic-ref 直接失敗）；(2) checkout 完整——tracked 檔缺失（porcelain 的 D 狀態）
- * 即半套 checkout。不符掛 code='worktree-invalid' 供 scheduler 分流 blocked，絕不派工。
- * 只檢 D 不檢 M：autocrlf 等行尾差異可讓乾淨 checkout 立即顯示 modified，誤擋會封死整個專案。 */
-export function assertWorktreeCheckout(worktreePath: string, branch: string, options?: WorktreeTimeoutOptions): void {
-  const timeouts = worktreeTimeouts(options)
-  let head: string
-  try {
-    head = git(['symbolic-ref', '--short', 'HEAD'], worktreePath, timeouts.gitTimeoutMs).trim()
-  } catch (err) {
-    if (isWorktreeTimeout(err)) throw err
-    throw Object.assign(new Error(`prepareWorktree: worktree 無效（${worktreePath} 解析不到 HEAD 分支，checkout 未落地？）：${String(err)}`), { code: 'worktree-invalid' })
-  }
-  if (head !== branch) {
-    throw Object.assign(new Error(`prepareWorktree: worktree 無效（${worktreePath} 的 HEAD 在 ${head} 而非 ${branch}——目錄空掉時 git 會往上解析到外層 repo）`), { code: 'worktree-invalid' })
-  }
-  const missing = git(['status', '--porcelain'], worktreePath, timeouts.worktreeAddTimeoutMs)
-    .split('\n').filter(l => l.startsWith(' D') || l.startsWith('D '))
-  if (missing.length > 0) {
-    throw Object.assign(new Error(`prepareWorktree: worktree 無效（checkout 不完整，${missing.length} 個 tracked 檔缺失）：${worktreePath}`), { code: 'worktree-invalid' })
   }
 }
 

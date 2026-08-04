@@ -6,10 +6,9 @@ import { join } from 'node:path'
 export type InfrastructureRetryReason =
   | 'infra:worktree-timeout'
   | 'worktree-locked'
-  | 'worktree-invalid'
   | 'infra:engine-external-termination'
 
-export type WorktreeFailureReason = InfrastructureRetryReason | 'not-a-git-repo'
+export type WorktreeFailureReason = InfrastructureRetryReason | 'not-a-git-repo' | 'worktree-invalid'
 
 export interface InfraRetryState {
   taskId?: string
@@ -25,7 +24,7 @@ export function worktreeFailureReason(error: unknown): WorktreeFailureReason {
 }
 
 export function isInfrastructureRetryReason(reason: WorktreeFailureReason | InfrastructureRetryReason): reason is InfrastructureRetryReason {
-  return reason !== 'not-a-git-repo'
+  return reason !== 'not-a-git-repo' && reason !== 'worktree-invalid'
 }
 
 /** Windows 外部終止在不同宿主層可能以 unsigned、signed、hex 或既有實測 decimal 傳回。 */
