@@ -21,6 +21,14 @@ describe('authorGoal：驗收組裝', () => {
     expect(md).toContain(`\`\`\`sh\n${DEDICATED}\n\`\`\``)
   })
 
+  it('VERIFY 與全域驗收的 Markdown inline-code 包裹會移除', async () => {
+    const dedicatedMd = await authorGoal((async () => llmOutput({ verify: `\`${DEDICATED}\`` })) as never, {} as never, cfg, FP)
+    const globalMd = await authorGoal((async () => llmOutput()) as never, {} as never, { ...cfg, verifyCommand: `\`${GLOBAL_VERIFY}\`` }, FP)
+    expect(parseGoal(dedicatedMd!).verifyCommand).toBe(DEDICATED)
+    expect(parseGoal(globalMd!).verifyCommand).toBe(GLOBAL_VERIFY)
+    expect(dedicatedMd).toContain(`\`\`\`sh\n${DEDICATED}\n\`\`\``)
+  })
+
   it('VERIFY 缺 fingerprint 或未輸出 → 沿用全域驗收，實測由寫檔前品質閘負責', async () => {
     const withoutPrefix = await authorGoal((async () => llmOutput({ verify: 'npx vitest run tests/no-prefix' })) as never, {} as never, cfg, FP)
     const missing = await authorGoal((async () => llmOutput()) as never, {} as never, cfg, FP)

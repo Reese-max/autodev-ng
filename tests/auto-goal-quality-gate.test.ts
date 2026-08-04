@@ -37,6 +37,10 @@ describe('auto-goal 寫檔前品質閘', () => {
     await expect(gate(goal('node -e "process.exit(1)"', 'bash'))).resolves.toEqual({ ok: false, reason: 'verify-sh-fence-missing' })
   })
 
+  test('驗收指令仍含反引號 → 執行前具體拒絕', async () => {
+    await expect(gate(goal('`node -e "process.exit(1)"`'))).resolves.toEqual({ ok: false, reason: 'verify-command-contains-backtick' })
+  })
+
   test('隔離 worktree 中 exit non-0 的紅燈驗收才通過，主工作區未被候選指令寫入', async () => {
     const projectPath = repo()
     const marker = join(projectPath, 'must-stay-absent.txt')

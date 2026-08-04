@@ -51,6 +51,10 @@ function isInProject(projectPath: string, rel: string): boolean {
   return existsSync(abs)
 }
 
+function stripVerifyMarkdown(command: string): string {
+  return command.trim().replace(/^`+|`+$/g, '').trim()
+}
+
 export interface AuthorGateOpts {
   onEvent?: (type: string, data: Record<string, unknown>) => void
   /** 讓 perpetual no-case 帶回首個候選的立案失敗類別。 */
@@ -93,8 +97,8 @@ export async function authorGoal(
   if (!objective) return reject('author-objective-missing', 'objective-missing', { response: raw.slice(0, 200) })
 
   // 專屬驗收指令必須含 fingerprint；實測由 perpetual 寫檔前的隔離品質閘執行。
-  let verifyCommand = cfg.verifyCommand
-  const candidate = raw.match(/^VERIFY:\s*(.+)$/im)?.[1]?.trim()
+  let verifyCommand = stripVerifyMarkdown(cfg.verifyCommand)
+  const candidate = stripVerifyMarkdown(raw.match(/^VERIFY:\s*(.+)$/im)?.[1] ?? '')
   if (candidate && candidate.includes(fingerprint)) {
     verifyCommand = candidate
   }

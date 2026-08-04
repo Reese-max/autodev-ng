@@ -41,6 +41,8 @@ export async function gateAuthoredGoal(
     const command = goal.verifyCommand?.trim()
     if (!command) {
       result = { ok: false, reason: 'verify-command-missing' }
+    } else if (command.includes('`')) {
+      result = { ok: false, reason: 'verify-command-contains-backtick' }
     } else if (!shFenceContains(md, command)) {
       result = { ok: false, reason: 'verify-sh-fence-missing' }
     } else {
