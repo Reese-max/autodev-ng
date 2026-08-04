@@ -27,4 +27,8 @@ node "%ADNG_ROOT%\dist\cli.js" supervise --configs-dir "%ADNG_ROOT%\configs" --g
 REM patrol-guard piggyback (2026-08-04): watchdog-for-the-watchdog, see adng-patrol-guard.cmd
 call "%ADNG_ROOT%\scripts\adng-patrol-guard.cmd"
 
+REM backup-push (2026-08-05): mirror fleet repos to private GitHub.
+REM Paths live in backup-push.mjs (read from configs) - cmd stays pure ASCII.
+node "%ADNG_ROOT%\scripts\backup-push.mjs"
+
 exit /b %ERRORLEVEL%
