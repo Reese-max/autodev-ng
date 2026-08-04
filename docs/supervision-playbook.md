@@ -131,3 +131,21 @@ BACKLOG-adng.md 的 adng:blocked 標記；data/<proj>/restart.request 存在且 
 - 外部世界核帳（供應商餘額/帳單/方案）
 - 診斷結論與使用者描述矛盾
 - 新事故型態不在本檔任一程序內
+
+## 9. 孤兒進程與跨 repo 污染 SOP（2026-08-03 全日事故提煉）
+
+**偵測（每輪巡檢固定查）**：
+- 孤兒 daemon：`cli.js daemon` 進程的 pid 不在任何 `data/*/daemon.lock/pid.json` ＝孤兒
+- 陷阱殼：`data/*/worktrees/<id>/` 目錄存在但無 `.git` 檔＝向上解析地雷
+- 灘頭堡：`git ls-files data/` 必須為 0；>0＝ignore 被鑿洞，立即 `git rm --cached`
+- 污染 commit：main 出現非 worktree 流程的直接 commit（作者時間與 run.db 對不上、路徑含 data/、或訊息掛錯船名）
+
+**處置（依 §0 分級）**：
+1. 孤兒 daemon：葉到根 Stop-Process 樹斬（連同其引擎鏈）。**絕不殺 claude.exe**（可能是使用者 session）、絕不殺 wsl.exe
+2. 陷阱殼：mtime >5 分鐘者直接 rmSync（無 .git 的殼不可能承載合法輪；5 分鐘護欄防誤刪創建中目錄）
+3. 污染 commit：先 rescue 分支保存 → 甄別（build＋測試綠且內容對船＝cherry-pick 留用；否則棄置）→ main reset 回最後好點 → push 錨定遠端
+4. 活輪 worktree **在任何情況下都不得手動刪除**（§4.4 安全窗鐵律——2026-08-03 兩度血訓）
+
+**驗證**：處置後 pid.json 帳目恰好等於 config 數、陷阱殼歸零、`git ls-files data/`=0、main 與 origin 同步。
+
+**根治狀態追蹤**：三層孤兒源——supervise 殺法（da482d0 已修）、看門狗誤殺（3ac9b3e 已修）、daemon 哨兵退出洩漏（autodev-self 隊列，交付前本 SOP 是唯一防線）。
