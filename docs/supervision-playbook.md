@@ -149,3 +149,7 @@ BACKLOG-adng.md 的 adng:blocked 標記；data/<proj>/restart.request 存在且 
 **驗證**：處置後 pid.json 帳目恰好等於 config 數、陷阱殼歸零、`git ls-files data/`=0、main 與 origin 同步。
 
 **根治狀態追蹤**：三層孤兒源——supervise 殺法（da482d0 已修）、看門狗誤殺（3ac9b3e 已修）、daemon 哨兵退出洩漏（autodev-self 隊列，交付前本 SOP 是唯一防線）。
+
+## 10. 月度知識蒸餾儀式（2026-08-05 使用者核定 D）
+
+每月首個巡檢日執行：(1) patrol-log 上月條目歸檔至 data/patrol-log-archive/YYYY-MM.md，主檔只留當月＋未結驗證合約；(2) 重複出現 ≥2 次的教訓合併進本 playbook 對應章節（引用歸檔證據）；(3) PATROL-ALERTS 已結案段落移歸檔；(4) 蒸餾本身記一條含前後行數的日誌。目的：headless 巡檢的每輪讀取量有界，制度記憶越用越薄而非越厚。

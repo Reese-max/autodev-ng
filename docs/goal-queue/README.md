@@ -30,6 +30,7 @@ session 間(idle),避免打斷進行中工作。
 | （場外武裝）純免費層 v1 | tierMode free-only＋帶資訊重試＋二敗自動拆解 | ✅ 2026-08-04 驗收綠（tests/free-tier-v1 7 passed exit=0，巡檢實跑；4bc7265 交付；GOAL.md.bak-20260804-free-tier-green）。試點掛載（note-filler tierMode free-only 24h）待監督者執行 |
 | GOAL-herdr-probe.md | Herdr 可行性探針：無頭/全循環/熱重試/生命週期四題 Go-No-Go，一天量級只探不接線 | 🔄 已派（2026-08-04T17:0xZ 巡檢依 §5.6 換裝 data/autodev-self/GOAL.md；紅態 exit=1 確認、parseGoal 通過；rebuttal 過時句已修） |
 | GOAL-user-evidence.md | 用戶視角證據 v1：真值雙鏡頭＋產量併列防刷分＋門檻趨勢告警（破門檻才吵人），v2 債明文掛帳 | 待派（排 Herdr 探針之後；使用者 2026-08-05 核定） |
+| （待議）巡檢自身 KPI | 重開任務存活率/誤判率——裁判的裁判 | 掛帳（2026-08-05；待金標校準集落地後評估） |
 | ~~GOAL-rebuttal-round.md~~ | 審查申辯輪 | ❌ 撤案（2026-08-04 使用者裁示：走 Herdr 探針路線，不另建對話機制） |
 
 依賴註記:kernel-slim 是 verify-tiered(verifier.ts 接線)、signal-quality(types.ts lens

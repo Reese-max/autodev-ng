@@ -31,4 +31,7 @@ REM backup-push (2026-08-05): mirror fleet repos to private GitHub.
 REM Paths live in backup-push.mjs (read from configs) - cmd stays pure ASCII.
 node "%ADNG_ROOT%\scripts\backup-push.mjs"
 
+REM memory-snapshot (2026-08-05): daily fleet-memory mirror (run.db/BACKLOG/signals).
+node "%ADNG_ROOT%\scripts\memory-snapshot.mjs"
+
 exit /b %ERRORLEVEL%
