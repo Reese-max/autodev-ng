@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { appendFileSync, mkdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import type { Disposition, Task } from './types.js'
+import { writeSplitBacklog, type SplitChild } from './engines/backlog-split.js'
 
 export function taskId(text: string): string {
   return createHash('sha1').update(text.trim()).digest('hex').slice(0, 8)
@@ -11,6 +12,7 @@ const ANNOT_RE = /\s*<!-- adng:[\s\S]*?-->\s*$/
 // report() 寫回 done/blocked 時，若原行帶 adng:autopilot 註記，須原樣保留（鐵律 #1
 // 修訂版 #3：手排/自主永遠可區分）。抓出該註記本體，供寫回時與新註記並存。
 const AUTOPILOT_ANNOT_RE = /<!--\s*adng:autopilot\b[\s\S]*?-->/
+const SPLIT_RE = /<!--\s*adng:split\s+({[\s\S]*?})\s*-->/
 // M5 Task 1：行內引擎 tag，行首或行尾皆可。剝離後不入 taskId 雜湊——無 tag 任務
 // 走不到剝離分支，雜湊與 M4 以前完全一致（既有 done 行 id 不得漂移的硬回歸線）。
 const ENGINE_TAG_HEAD_RE = /^\[engine:([\w-]+)\]\s*/
@@ -24,6 +26,14 @@ function extractEngineTag(raw: string): { text: string; engineTag?: string } {
   return { text: raw }
 }
 
+function splitMeta(raw: string): Task['split'] | undefined {
+  try {
+    const m = SPLIT_RE.exec(raw), value = JSON.parse(m?.[1] ?? '') as Partial<NonNullable<Task['split']>>
+    return /^[0-9a-f]{8}$/.test(value.parentId ?? '') && Number.isInteger(value.part) && value.part! > 0
+      && Number.isInteger(value.depth) && value.depth! > 0 && value.shape === 'sequential' ? value as Task['split'] : undefined
+  } catch { return undefined }
+}
+
 export function parseBacklog(md: string): Task[] {
   const tasks: Task[] = []
   md.split(/\r?\n/).forEach((line, i) => {
@@ -31,11 +41,11 @@ export function parseBacklog(md: string): Task[] {
     if (!m) return
     const raw = m[2]!
     const rawLine = line
-    const blocked = /<!-- adng:blocked\b/.test(raw)
+    const blocked = /<!-- adng:(?:blocked\b|superseded-by-split\b)/.test(raw)
     const source: 'user' | 'autopilot' =
       /<!--\s*adng:autopilot\b/.test(rawLine) ? 'autopilot' : 'user'
     const noAnnot = raw.replace(ANNOT_RE, '')
-    const { text, engineTag } = extractEngineTag(noAnnot)
+    const { text, engineTag } = extractEngineTag(noAnnot), split = splitMeta(rawLine)
     tasks.push({
       id: taskId(text),
       text,
@@ -44,7 +54,8 @@ export function parseBacklog(md: string): Task[] {
       source,
       // rawText 只在有 tag（寫回時 text 不等於原文）時攜帶——report() 寫回必須保留
       // 使用者行上的 tag 原文（鐵律 #1：絕不改寫任務文字）。
-      ...(engineTag !== undefined ? { engineTag, rawText: noAnnot } : {})
+      ...(engineTag !== undefined ? { engineTag, rawText: noAnnot } : {}),
+      ...(split ? { split } : {})
     })
   })
   return tasks
@@ -135,6 +146,8 @@ export class BacklogStore {
     })
   }
 
+  split(id: string, children: SplitChild[]): void { writeSplitBacklog(this.file, id, children) }
+
   /**
    * 只允許改既有任務行的狀態；未知 id = 有人想創造任務 = 鐵律 #1 違規。
    *
@@ -179,9 +192,11 @@ export class BacklogStore {
       // AUTOPILOT_ANNOT_RE 註解、鐵律 #1 修訂版 #3）。非 autopilot 行不受影響。
       const autopilotMatch = AUTOPILOT_ANNOT_RE.exec(lines[t.line] ?? '')
       const autopilotAnnot = autopilotMatch ? ` ${autopilotMatch[0]}` : ''
+      const splitMatch = SPLIT_RE.exec(lines[t.line] ?? '')
+      const splitAnnot = splitMatch ? ` ${splitMatch[0]}` : ''
       lines[t.line] = d.kind === 'done'
-        ? `- [x] ${lineText}${autopilotAnnot} <!-- adng:done ${d.commitHash} -->`
-        : `- [ ] ${lineText}${autopilotAnnot} <!-- adng:blocked reason=${JSON.stringify(d.reason)} -->`
+        ? `- [x] ${lineText}${autopilotAnnot}${splitAnnot} <!-- adng:done ${d.commitHash} -->`
+        : `- [ ] ${lineText}${autopilotAnnot}${splitAnnot} <!-- adng:blocked reason=${JSON.stringify(d.reason)} -->`
       writeFileSync(this.file, lines.join(eol))
     })
   }

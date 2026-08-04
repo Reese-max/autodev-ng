@@ -15,6 +15,8 @@ export interface Task {
    * （鐵律 #1 修訂版唯一破口，行帶 adng:autopilot 註記）；'user' = 其餘所有行（含無註記的
    * 手排任務）。純解讀層標記，不影響既有 taskId/report 行為。 */
   source?: 'user' | 'autopilot'
+  /** free-only judge 拆解的血緣與排程形狀；shape 先保留 sequential。 */
+  split?: { parentId: string; part: number; depth: number; shape: 'sequential' }
 }
 
 export type Disposition =

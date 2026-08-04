@@ -11,18 +11,18 @@ const BEFORE_RELOCATION = '942554a00fdbed0b6666ff6f4a9bac140809fdce'
 const FIRST_RELOCATION = '80825e50fa264a8aa5d35cfe8c2ca1f0b8781adb'
 const BEFORE_LINES = 2700
 const CURRENT_KERNEL_BY_FILE: Readonly<Record<string, number>> = {
-  'backlog.ts': 188,
+  'backlog.ts': 203,
   'cli.ts': 21,
   'daemon.ts': 217,
   'db.ts': 178,
   'digest.ts': 107,
   'events.ts': 126,
   'globalcost.ts': 40,
-  'judge.ts': 41,
+  'judge.ts': 1,
   'lock.ts': 134,
   'preflight.ts': 37,
-  'scheduler.ts': 452,
-  'types.ts': 178,
+  'scheduler.ts': 463,
+  'types.ts': 180,
   'verifier.ts': 99,
   'verify.ts': 94,
   'worktree.ts': 332,
@@ -34,6 +34,7 @@ const REQUIRED_RECLAIMED_LINES = 250
 const RELOCATED_LOGIC = [
   ['engines/auto-goal-completion.ts', 'scheduler.ts', './engines/auto-goal-completion.js'],
   ['engines/daemon-alerts.ts', 'daemon.ts', './engines/daemon-alerts.js'],
+  ['engines/semantic-judge.ts', 'judge.ts', './engines/semantic-judge.js'],
   ['engines/notify.ts', 'cli/assemble.ts', '../engines/notify.js'],
   ['engines/proc.ts', 'verify.ts', './engines/proc.js'],
   ['engines/worktree-checkout.ts', 'worktree.ts', './engines/worktree-checkout.js'],
@@ -85,7 +86,7 @@ describe('kernel 搬移前後行數報告', () => {
     expect(historicalKernelLines(BEFORE_RELOCATION)).toBe(BEFORE_LINES)
   })
 
-  it('目前 kernel 頂層為 2244 行，低於 2250 行且實際騰回 456 行', () => {
+  it('目前 kernel 頂層為 2232 行，低於 2250 行且實際騰回 468 行', () => {
     const current = currentKernelLines()
     expect(current).toBe(AFTER_LINES)
     expect(current).toBeLessThan(TARGET_CAP)
@@ -111,7 +112,7 @@ describe('kernel 搬移前後行數報告', () => {
 
   it('報告記錄相同的可重現基準、結果與驗證指令', () => {
     const report = readFileSync(REPORT, 'utf8')
-    for (const fact of [BEFORE_RELOCATION, '2700', '2244', '456', '2250', '250']) {
+    for (const fact of [BEFORE_RELOCATION, '2700', '2232', '468', '2250', '250']) {
       expect(report).toContain(fact)
     }
     for (const [file, lines] of Object.entries(CURRENT_KERNEL_BY_FILE)) {

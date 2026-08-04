@@ -13,6 +13,7 @@ import { enqueueMerge } from './engines/merge-queue.js'
 import { nudgeNoCommit } from './engines/no-commit-nudge.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
 import { attemptedEngineTags, freeOnlyAttemptLimit, freeOnlyListExhausted, freeOnlyRetryCandidates } from './engines/free-only-retry.js'
+import { sequentialReadyTasks, tryFreeOnlySplit } from './engines/free-only-split.js'
 import { deniedFreeOnlyPin, pickCandidateTags } from './engines/pick-candidates.js'
 import { singleFlightPickRouting } from './engines/pick-ready-single-flight.js'
 import { quiet, type EventLog } from './events.js'
@@ -91,7 +92,7 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
 
   if (cfg.dailySoftUsd > 0 && spent >= cfg.dailySoftUsd) quiet(() => events.appendOnce('cost-soft-warn', { spent }))
 
-  const openTasks = store.read().filter(t => t.status === 'open')
+  const openTasks = sequentialReadyTasks(store.read())
   if (openTasks.length === 0) {
     quiet(() => events.appendOnce('idle', { note: 'backlog 空，等使用者補任務' }))
     writeHeartbeat(events, cfg, { state: 'idle', todayCostUsd: spent })
@@ -408,6 +409,16 @@ async function resolveFailure(
   quotaUsage: Pick<TaskTerminalNotice, 'costUsd' | 'tokensIn' | 'tokensOut' | 'tokensCached'>
 ): Promise<CycleResult> {
   const { cfg, store, db, events } = deps
+  const split = await tryFreeOnlySplit({ cfg, store, task, failures: db.failCount(task.id), failure: lastFailure })
+  if (split.kind === 'split') {
+    quiet(() => events.append('free-only-task-split', { taskId: task.id, pieces: split.pieces }))
+    return base
+  }
+  if (split.kind === 'blocked') {
+    const result = blockTask({ store, events }, task, 'max-attempts', `free-only 拆解失敗，已 blocked（${split.detail}）`)
+    await notifyTaskTerminal(deps, { outcome: 'failed', taskId: task.id, taskText: task.text, resultSummary: lastFailure, attempts: db.failCount(task.id), ...quotaUsage })
+    return result
+  }
   const maxAttempts = freeOnlyAttemptLimit(cfg); const failures = db.failCount(task.id); const exhausted = cfg.tierMode === 'free-only' && freeOnlyListExhausted(cfg, task, subscriptionTags(cfg), attemptedEngineTags(db, task.id)); if (failures < maxAttempts && !exhausted) return base
   const hint = lastFailure.replace(/\s+/g, ' ').trim().slice(0, 80) || '未知'
   const result = blockTask({ store, events }, task, 'max-attempts', `連敗 ${exhausted ? failures : maxAttempts} 次，人工介入（最後失敗：${hint}）`)
