@@ -93,7 +93,7 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
   return { deps, notifier, cfg }
 }
 
-export async function withAssembled(cfgPath: string, fn: (a: ReturnType<typeof assemble>) => Promise<void>): Promise<void> {
+export async function withAssembled<T>(cfgPath: string, fn: (a: ReturnType<typeof assemble>) => Promise<T>): Promise<T> {
   const a = assemble(cfgPath)
-  try { await fn(a) } finally { a.deps.db.close() }
+  try { return await fn(a) } finally { a.deps.db.close() }
 }
