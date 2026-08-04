@@ -123,5 +123,6 @@
   "judgeEffort": "xhigh",
   "judgeTimeoutMs": 180000,
   "reviewEngine": "gpt-5.6-terra",
-  "engineIsolation": false
+  "engineIsolation": false,
+  "tierMode": "free-only"
 }
