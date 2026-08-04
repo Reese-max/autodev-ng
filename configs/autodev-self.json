@@ -57,7 +57,7 @@
   "perpetualValueThreshold": 7,
   "extraDirective": "本專案就是 autodev-ng 自身（TypeScript）。鐵律：嚴禁修改 configs/ 目錄、scripts/ 目錄、data/ 目錄內任何檔案；嚴禁動任何 daemon/node 進程；kernel 行數預算測試（tests/kernel-budget.test.ts，src/*.ts 頂層 ≤2700 行）必須維持綠燈——新邏輯優先放 src/engines/ 等子目錄；所有變更需附單元測試。 【kernel 帳本鐵律】改動 src/ 頂層任何 *.ts 時，必須在同一 commit 同步更新 tests/kernel-relocation-report.test.ts 的 CURRENT_KERNEL_BY_FILE 帳目、it 標題數字、fact 清單，與 docs/kernel-line-relocation-report.md 的表格及總計；總數不得 ≥2250，逼近時先把邏輯外移 src/engines/ 再交付。",
   "judgeApiKey": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h",
-  "worktreesDir": "../data/autodev-self/worktrees",
+  "worktreesDir": "D:/adng-worktrees/autodev-self",
   "perpetualCooldownMs": 3600000,
   "judgeEffort": "xhigh",
   "judgeTimeoutMs": 180000,

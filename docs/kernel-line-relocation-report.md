@@ -45,7 +45,7 @@
 | --- | ---: |
 | `src/backlog.ts` | 188 |
 | `src/cli.ts` | 21 |
-| `src/daemon.ts` | 218 |
+| `src/daemon.ts` | 217 |
 | `src/db.ts` | 173 |
 | `src/digest.ts` | 107 |
 | `src/events.ts` | 126 |
@@ -58,11 +58,11 @@
 | `src/verifier.ts` | 99 |
 | `src/verify.ts` | 93 |
 | `src/worktree.ts` | 349 |
-| **總計** | **2248** |
+| **總計** | **2247** |
 
 2026-08-03 帳目校正：infra-retry／rebase 補救／髒樹守門等連串交付使 `scheduler.ts` +60、
-`worktree.ts` +42，reap 前 run.db 活性雙證閘使 `types.ts` +2，合計 2248、騰回 452 行。
-**距 2250 上限僅餘 2 行**——下一筆 kernel 頂層增長必須先搬移邏輯至 `src/engines/`。
+`worktree.ts` +42，reap 前 run.db 活性雙證閘使 `types.ts` +2，合計 2248、騰回 452 行；2026-08-04 圍籬（fencing）與 todayLocal 外移 src/engines/（daemon-fence.ts／daemon-alerts.ts）後 daemon.ts 218→217，總計 2247、騰回 453 行。
+**距 2250 上限僅餘 3 行**——下一筆 kernel 頂層增長必須先搬移邏輯至 `src/engines/`。
 
 ## 可重現驗證
 

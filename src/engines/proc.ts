@@ -190,7 +190,11 @@ export function pidTreeDeepestFirst(rootPid: number, processes: readonly FlatPid
   return ordered
 }
 
-/** Windows 二段樹斬：taskkill 後等 2 秒驗活；殘存者才以葉到根逐一 process.kill。 */
+/** Windows 收斂樹斬（2026-08-04 改版）：taskkill 後等 2 秒，之後「枚舉→葉到根殺→短待」
+ * 收斂迴圈至多 3 輪，直到零存活；終輪殘存者記 proc-zombie。
+ * 舊版兩個洩漏源一併封死：(1) 根已死即提前返回——孤兒後代（抱住 worktree 的直接來源）
+ * 從此無人管；(2) 單次快照——快照與殺之間新生的孫代漏殺。 */
+const KILL_TREE_MAX_ROUNDS = 3
 export async function killTree(pid: number | undefined, opts: {
   command: string
   events?: ProcEventSink
@@ -209,12 +213,21 @@ export async function killTree(pid: number | undefined, opts: {
 
   await (deps.taskkill ?? taskkill)(pid)
   await (deps.wait ?? wait)(2_000)
-  if (!(deps.isAlive ?? isPidAlive)(pid)) return
 
-  const processes = opts.processTree ?? await (deps.listProcesses ?? listWindowsProcesses)()
-  for (const proc of pidTreeDeepestFirst(pid, processes, opts.command)) {
-    try { (deps.kill ?? process.kill)(proc.pid) } catch { /* 續驗活決定是否留痕 */ }
-    if (!(deps.isAlive ?? isPidAlive)(proc.pid)) continue
+  const aliveTree = async (): Promise<FlatPidProcess[]> => {
+    const processes = opts.processTree ?? await (deps.listProcesses ?? listWindowsProcesses)()
+    return pidTreeDeepestFirst(pid, processes, opts.command).filter(proc => (deps.isAlive ?? isPidAlive)(proc.pid))
+  }
+
+  for (let round = 1; round <= KILL_TREE_MAX_ROUNDS; round++) {
+    const alive = await aliveTree()
+    if (!alive.length) return
+    for (const proc of alive) {
+      try { (deps.kill ?? process.kill)(proc.pid) } catch { /* 已死 */ }
+    }
+    await (deps.wait ?? wait)(500)
+  }
+  for (const proc of await aliveTree()) {
     try { opts.events?.append('proc-zombie', { pid: proc.pid, command: proc.command }) } catch { /* 觀測不可反殺 */ }
   }
 }

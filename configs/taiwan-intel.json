@@ -2,7 +2,7 @@
   "projectPath": "D:/Users/Administrator/Desktop/爬蟲資料/taiwan-intel-dashboard",
   "backlogFile": "D:/Users/Administrator/Desktop/爬蟲資料/taiwan-intel-dashboard/BACKLOG-adng.md",
   "dataDir": "../data/taiwan-intel",
-  "worktreesDir": "../data/taiwan-intel/worktrees",
+  "worktreesDir": "D:/adng-worktrees/taiwan-intel",
   "goalFile": "../data/taiwan-intel/GOAL.md",
   "verifyCommand": "npm test",
   "verifyTimeoutMs": 300000,

@@ -1,13 +1,13 @@
 import { existsSync } from 'node:fs'
+import { fenceUsurped, releaseLockIfOwned } from './engines/daemon-fence.js'
 import { freemem, totalmem } from 'node:os'
 import { acquireLock, releaseLock } from './lock.js'
-import { localDay } from './db.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
 import { runOnce, subscriptionTags, type Deps, type CycleResult } from './scheduler.js'
 import { consumeRestartSentinel } from './autopilot/restart-sentinel.js'
 import { quiet } from './events.js'
 import { maybeRunPerpetual, perpetualDigestLine } from './autopilot/perpetual.js'
-import { baseAlertMessage, cooldownKeyFor, isAlertableResult, loadCooldownTable, safeSend, sendCooldownAlert, yesterdayLocal } from './engines/daemon-alerts.js'
+import { baseAlertMessage, cooldownKeyFor, isAlertableResult, loadCooldownTable, safeSend, sendCooldownAlert, todayLocal, yesterdayLocal } from './engines/daemon-alerts.js'
 import { cleanupRoutingState } from './engines/routing-state-cleanup.js'
 import { recordWorktreeGc } from './engines/worktree-gc.js'
 import { checkRoutingStateConsistency } from './engines/routing-state-consistency.js'
@@ -35,7 +35,7 @@ export interface DaemonOpts {
   unlinkFn?: (path: string) => void
 }
 
-export type DaemonResult = 'lock-busy' | 'stopped' | 'max-cycles' | 'config-gone' | 'restart-requested'
+export type DaemonResult = 'lock-busy' | 'stopped' | 'max-cycles' | 'config-gone' | 'restart-requested' | 'usurped'
 
 const OOM_FREE_RATIO = 0.15
 const MAX_BACKOFF_MS = 10 * 60 * 1000
@@ -44,10 +44,6 @@ const CRASH_PAUSE_MS = 30 * 60 * 1000
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
-}
-/** M4 Task 3：本地日字串（取代舊版純 UTC 切割）。offsetHours=0 時與舊行為完全一致（相容性錨點）。 */
-function todayLocal(offsetHours: number): string {
-  return localDay(new Date().toISOString(), offsetHours)
 }
 
 /** 每輪必檢：每日必達摘要（鐵律 #6）。送達（notifier.send 回 true）才落 stamp；
@@ -141,6 +137,9 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       if (maxCycles !== undefined && cycles >= maxCycles) return 'max-cycles'
       cycles++
 
+      // §9 圍籬：被取代（pid.json 屬他人）＝一輪內自我了斷（詳 engines/daemon-fence.ts）。
+      if (fenceUsurped(lockDir, process.pid, deps.events)) return 'usurped'
+
       // 每輪迴圈開頭檢查每日摘要（鐵律 #6）——stop 當天也必達
       await checkAndSendDigest(deps, notifier)
 
@@ -213,6 +212,6 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       }
     }
   } finally {
-    releaseLock(lockDir)
+    releaseLockIfOwned(lockDir, process.pid, releaseLock)
   }
 }

@@ -2,7 +2,7 @@
   "projectPath": "D:/Users/Administrator/Desktop/南西肯恩/neciken-summer-poem",
   "backlogFile": "D:/Users/Administrator/Desktop/南西肯恩/neciken-summer-poem/BACKLOG-adng.md",
   "dataDir": "../data/neciken",
-  "worktreesDir": "../data/neciken/worktrees",
+  "worktreesDir": "D:/adng-worktrees/neciken",
   "goalFile": "../data/neciken/GOAL.md",
   "verifyCommand": "python -m pytest -q",
   "verifyTimeoutMs": 300000,

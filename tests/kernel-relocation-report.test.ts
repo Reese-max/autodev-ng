@@ -13,7 +13,7 @@ const BEFORE_LINES = 2700
 const CURRENT_KERNEL_BY_FILE: Readonly<Record<string, number>> = {
   'backlog.ts': 188,
   'cli.ts': 21,
-  'daemon.ts': 218,
+  'daemon.ts': 217,
   'db.ts': 173,
   'digest.ts': 107,
   'events.ts': 126,
@@ -83,7 +83,7 @@ describe('kernel 搬移前後行數報告', () => {
     expect(historicalKernelLines(BEFORE_RELOCATION)).toBe(BEFORE_LINES)
   })
 
-  it('目前 kernel 頂層為 2248 行，低於 2250 行且實際騰回 452 行', () => {
+  it('目前 kernel 頂層為 2247 行，低於 2250 行且實際騰回 453 行', () => {
     const current = currentKernelLines()
     expect(current).toBe(AFTER_LINES)
     expect(current).toBeLessThan(TARGET_CAP)
@@ -109,7 +109,7 @@ describe('kernel 搬移前後行數報告', () => {
 
   it('報告記錄相同的可重現基準、結果與驗證指令', () => {
     const report = readFileSync(REPORT, 'utf8')
-    for (const fact of [BEFORE_RELOCATION, '2700', '2248', '452', '2250', '250']) {
+    for (const fact of [BEFORE_RELOCATION, '2700', '2247', '453', '2250', '250']) {
       expect(report).toContain(fact)
     }
     for (const [file, lines] of Object.entries(CURRENT_KERNEL_BY_FILE)) {

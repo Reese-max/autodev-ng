@@ -67,10 +67,12 @@ test('idleTimeoutMs：無輸出進度才斬樹，不能把 wall timeout 偷加�
 
 test('idleTimeoutMs：stdout 持續前進會續租，合法長任務不因總時間被終止', async () => {
   const activity: number[] = []
+  // ponytail: 閒置窗 1500ms——300ms 在多 daemon 滿載機器上連 node 冷啟動都蓋不住，
+  // 偽逾時反覆假紅（2026-08-03/04 兩日實證；同 neciken 1s 逾時血訓）。續租語義不變。
   const r = await runProcess({
     command: process.execPath,
-    args: ['-e', 'let n=0;const t=setInterval(()=>{console.log(++n);if(n===4){clearInterval(t)}},150)'],
-    cwd: process.cwd(), stdinText: '', timeoutMs: 0, idleTimeoutMs: 300,
+    args: ['-e', 'let n=0;const t=setInterval(()=>{console.log(++n);if(n===4){clearInterval(t)}},250)'],
+    cwd: process.cwd(), stdinText: '', timeoutMs: 0, idleTimeoutMs: 1500,
     onActivity: () => activity.push(Date.now()),
   })
   expect(r.timedOut).toBe(false)
@@ -162,7 +164,7 @@ test('env 透傳：opts.env 是「疊加」不是「取代」——父進程既�
   }
 })
 
-test('killTree：taskkill 後等 2 秒驗活，才以注入扁平 PID 樹由深至淺回收並記錄殘存者', async () => {
+test('killTree 收斂：逐輪葉到根補殺，可殺者收斂、頑固者 3 輪後記殭屍', async () => {
   const calls: string[] = []
   const alive = new Set([10, 11, 12])
   const events: Array<{ type: string; data: { pid: number; command: string } }> = []
@@ -179,33 +181,59 @@ test('killTree：taskkill 後等 2 秒驗活，才以注入扁平 PID 樹由深�
       platform: 'win32',
       taskkill: async pid => { calls.push(`taskkill:${pid}`) },
       wait: async ms => { calls.push(`wait:${ms}`) },
-      isAlive: pid => { calls.push(`alive:${pid}`); return alive.has(pid) },
+      isAlive: pid => alive.has(pid),
       kill: pid => {
         calls.push(`kill:${pid}`)
-        if (pid === 11) alive.delete(pid)
+        if (pid === 11) alive.delete(pid) // 11 可殺；12、10 頑固（模擬存取被拒）
       },
     },
   })
 
-  expect(calls.slice(0, 3)).toEqual(['taskkill:10', 'wait:2000', 'alive:10'])
-  expect(calls.filter(call => call.startsWith('kill:'))).toEqual(['kill:12', 'kill:11', 'kill:10'])
+  expect(calls.slice(0, 2)).toEqual(['taskkill:10', 'wait:2000'])
+  // 第 1 輪殺 [12,11,10]，11 死；第 2、3 輪只剩 [12,10]
+  expect(calls.filter(c => c.startsWith('kill:'))).toEqual([
+    'kill:12', 'kill:11', 'kill:10', 'kill:12', 'kill:10', 'kill:12', 'kill:10',
+  ])
   expect(events).toEqual([
     { type: 'proc-zombie', data: { pid: 12, command: 'leaf-command' } },
     { type: 'proc-zombie', data: { pid: 10, command: 'root-command' } },
   ])
 })
 
-test('killTree：taskkill 後根 PID 已死時，不列樹、不做 fallback、不寫殭屍事件', async () => {
+test('killTree 收斂：根已死但孤兒後代仍活——必須枚舉並補殺（舊版提前返回＝洩漏主因）', async () => {
+  const calls: string[] = []
+  const alive = new Set([12])
+  const events: Array<{ type: string; data: { pid: number; command: string } }> = []
+  await killTree(10, {
+    command: 'root-command',
+    processTree: [
+      { pid: 10, command: 'root-command' },
+      { pid: 12, parentPid: 10, command: 'orphan-command' },
+    ],
+    events: { append: (type, data) => events.push({ type, data }) },
+    deps: {
+      platform: 'win32',
+      taskkill: async () => { calls.push('taskkill') },
+      wait: async ms => { calls.push(`wait:${ms}`) },
+      isAlive: pid => alive.has(pid),
+      kill: pid => { calls.push(`kill:${pid}`); alive.delete(pid) },
+    },
+  })
+  expect(calls.filter(c => c.startsWith('kill:'))).toEqual(['kill:12'])
+  expect(events).toEqual([]) // 第 2 輪已零存活，收斂返回，無殭屍
+})
+
+test('killTree 收斂：全樹已死時一輪即返、不 fallback 不寫事件', async () => {
   const calls: string[] = []
   await killTree(10, {
     command: 'root-command',
+    processTree: [{ pid: 10, command: 'root-command' }],
     events: { append: () => { throw new Error('不應寫入') } },
     deps: {
       platform: 'win32',
       taskkill: async () => { calls.push('taskkill') },
       wait: async ms => { calls.push(`wait:${ms}`) },
       isAlive: () => false,
-      listProcesses: async () => { throw new Error('不應列樹') },
       kill: () => { throw new Error('不應 fallback') },
     },
   })

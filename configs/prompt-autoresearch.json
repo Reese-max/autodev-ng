@@ -2,7 +2,7 @@
   "projectPath": "D:/Users/Administrator/Desktop/Prompt AutoResearch",
   "backlogFile": "D:/Users/Administrator/Desktop/Prompt AutoResearch/BACKLOG-adng.md",
   "dataDir": "../data/prompt-autoresearch",
-  "worktreesDir": "../data/prompt-autoresearch/worktrees",
+  "worktreesDir": "D:/adng-worktrees/prompt-autoresearch",
   "goalFile": "../data/prompt-autoresearch/GOAL.md",
   "verifyCommand": "python -m pytest tests/ -q --deselect tests/test_architecture_surface.py::ArchitectureSurfaceTests::test_experiment_report_snapshot_contract",
   "verifyTimeoutMs": 600000,

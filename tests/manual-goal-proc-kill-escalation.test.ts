@@ -109,9 +109,11 @@ test('taskkill 未能終止程序時逐 PID 由葉至根補殺，仍存活者寫
     },
   })
 
-  expect(calls).toEqual([
-    'taskkill:40', 'wait:2000', 'alive:40',
-    'list', 'kill:42', 'alive:42', 'kill:41', 'alive:41', 'kill:40', 'alive:40',
+  // 收斂改版（2026-08-04）：每輪重新枚舉＋葉到根補殺，42 第 1 輪死、41/40 頑固至終輪記殭屍
+  expect(calls.slice(0, 2)).toEqual(['taskkill:40', 'wait:2000'])
+  expect(calls.filter(c => c === 'list').length).toBe(4) // 3 輪 + 終局驗屍
+  expect(calls.filter(c => c.startsWith('kill:'))).toEqual([
+    'kill:42', 'kill:41', 'kill:40', 'kill:41', 'kill:40', 'kill:41', 'kill:40',
   ])
   expect(events).toEqual([
     { type: 'proc-zombie', data: { pid: 41, command: 'child.exe' } },

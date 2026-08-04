@@ -696,3 +696,39 @@ test('baseAlertMessage：dirty-worktree 據實帶出未提交檔案數與前幾�
   expect(msg).toContain('主工作目錄有 2 個未提交變更檔阻擋合併，需先提交或移至分支保存')
   expect(msg).toContain('README.md、src/worktree.ts')
 })
+
+// §9 圍籬（2026-08-04）：pid.json 所有權自驗——雙 daemon 並存時被取代者一輪內自我了斷，
+// 且退出時不得刪繼任者的 lock（舊版 finally 無條件 rmSync 是哨兵洩漏鏈的幫兇）。
+test('圍籬：被取代的 daemon 一輪內 usurped 退出，且不刪繼任者 lock', async () => {
+  const engine = new MockEngine([{ ok: true }])
+  const d = deps(engine)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+  const opts = baseOpts(d, notifier, sleepCalls, { maxCycles: 6 })
+  const pidFile = join(opts.lockDir, 'pid.json')
+  // 用 sleepFn 當時機鉤子：第一輪結束的 sleep 時「繼任者」覆寫 pid.json
+  opts.sleepFn = async (ms: number) => {
+    sleepCalls.push(ms)
+    writeFileSync(pidFile, JSON.stringify({ pid: process.pid + 99999, startedAt: new Date().toISOString() }))
+  }
+  const result = await runDaemon(opts)
+  expect(result).toBe('usurped')
+  // 繼任者的 pid.json 必須完好無損
+  const survived = JSON.parse(readFileSync(pidFile, 'utf8')) as { pid: number }
+  expect(survived.pid).toBe(process.pid + 99999)
+})
+
+test('圍籬 fail-open：pid.json 缺失不自殺，正常跑滿 maxCycles', async () => {
+  const engine = new MockEngine([{ ok: true }])
+  const d = deps(engine)
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+  const opts = baseOpts(d, notifier, sleepCalls, { maxCycles: 3 })
+  const pidFile = join(opts.lockDir, 'pid.json')
+  opts.sleepFn = async (ms: number) => {
+    sleepCalls.push(ms)
+    rmSync(pidFile, { force: true })
+  }
+  const result = await runDaemon(opts)
+  expect(result).toBe('max-cycles')
+})

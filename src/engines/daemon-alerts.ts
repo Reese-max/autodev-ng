@@ -1,10 +1,16 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isSilenced } from '../bot/silence.js'
+import { localDay } from '../db.js'
 import type { BlockedReason, CycleResult } from '../scheduler.js'
 import { quiet, type EventLog } from '../events.js'
 
 /** daemon 告警面的純輔助與冷卻閘；主迴圈只負責決定何時呼叫。 */
+
+/** M4 Task 3：本地日字串（取代舊版純 UTC 切割）。offsetHours=0 時與舊行為完全一致（相容性錨點）。 */
+export function todayLocal(offsetHours: number): string {
+  return localDay(new Date().toISOString(), offsetHours)
+}
 
 /** 本地日字串減一天；day 已是依 offset 算出的本地日曆日。 */
 export function yesterdayLocal(day: string): string {

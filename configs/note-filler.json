@@ -3,7 +3,7 @@
   "backlogFile": "D:/Users/Administrator/Desktop/筆記補齊/BACKLOG-adng.md",
   "dataDir": "../data/note-filler",
   "goalFile": "../data/note-filler/GOAL.md",
-  "worktreesDir": "../data/note-filler/worktrees",
+  "worktreesDir": "D:/adng-worktrees/note-filler",
   "verifyCommand": "\"D:/Users/Administrator/Desktop/筆記補齊/.venv/Scripts/python.exe\" -X utf8 -m pytest -m \"not integration\" -q",
   "verifyTimeoutMs": 600000,
   "judgeUrl": "http://127.0.0.1:8317/v1",
