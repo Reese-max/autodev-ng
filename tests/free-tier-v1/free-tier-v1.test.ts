@@ -2,18 +2,22 @@ import { expect, test } from 'vitest'
 import type { BacklogStore } from '../../src/backlog.js'
 import type { RunDb } from '../../src/db.js'
 import type { EventLog } from '../../src/events.js'
+import { FREE_ONLY_MAX_ATTEMPTS, freeOnlyAttemptLimit, freeOnlyListExhausted, freeOnlyRetryCandidates } from '../../src/engines/free-only-retry.js'
 import { pickCandidateTags } from '../../src/engines/pick-candidates.js'
 import { pickReadyTask, type Deps } from '../../src/scheduler.js'
 import { ConfigSchema, type Disposition, type Engine, type Task } from '../../src/types.js'
 
 const TASK: Task = { id: '00000000', text: 'free-tier-v1', line: 0, status: 'open' }
-const ENGINE_TAGS = ['codex-sol', 'grok', 'devin', 'agy', 'oc-mimo'] as const
+const ENGINE_TAGS = ['codex-sol', 'grok', 'devin', 'agy', 'oc-mimo', 'oc-deepseek', 'kilo-auto'] as const
+const FREE_ROTATION = ['devin', 'agy', 'oc-mimo', 'oc-deepseek', 'kilo-auto']
 
 function fixture(options: {
   tierMode?: 'free-only'
   rotation?: string[]
   engineTag?: string
   failCount?: number
+  attemptedEngineTags?: string[]
+  maxAttempts?: number
 } = {}) {
   const reports: Array<{ taskId: string; disposition: Disposition }> = []
   const events: Array<{ type: string; data: Record<string, unknown> }> = []
@@ -21,6 +25,7 @@ function fixture(options: {
   const cfg = ConfigSchema.parse({
     projectPath: '.', backlogFile: 'BACKLOG.md', dataDir: '.free-tier-v1',
     defaultEngine: 'codex-sol', engineIsolation: false,
+    ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
     engines: Object.fromEntries(ENGINE_TAGS.map(tag => [tag, { adapter: 'mock' as const }])),
     ...(options.rotation ? { engineRotation: options.rotation } : {}),
     ...(options.tierMode ? { tierMode: options.tierMode } : {}),
@@ -31,6 +36,7 @@ function fixture(options: {
     store: { report: (taskId: string, disposition: Disposition) => reports.push({ taskId, disposition }) } as unknown as BacklogStore,
     db: {
       failCount: () => options.failCount ?? 0,
+      attemptedEngineTags: () => options.attemptedEngineTags ?? [],
       engineStatsSince: () => [],
     } as unknown as RunDb,
     events: {
@@ -93,4 +99,35 @@ test('免費釘選：free-only 尊重行內 free-tier 引擎，不受 quota 預�
   expect(await pickReadyTask(f.deps, [f.task])).toMatchObject({ engineTag: 'agy' })
   expect(f.resolved).toEqual(['agy'])
   expect(f.reports).toEqual([])
+})
+
+test('free-only 重試上限提升為 5；預設模式仍採原 maxAttempts', () => {
+  const free = fixture({ tierMode: 'free-only', rotation: FREE_ROTATION, maxAttempts: 2 })
+  expect(freeOnlyAttemptLimit(free.cfg)).toBe(FREE_ONLY_MAX_ATTEMPTS)
+
+  const legacy = fixture({ rotation: FREE_ROTATION, maxAttempts: 3 })
+  expect(freeOnlyAttemptLimit(legacy.cfg)).toBe(3)
+  expect(freeOnlyRetryCandidates(['codex-sol', 'devin'], undefined, new Set(['devin']))).toEqual(['codex-sol', 'devin'])
+})
+
+test('free-only 免費名單窮盡獨立於五次上限，少於五個引擎也不重試舊引擎', () => {
+  const rotation = FREE_ROTATION.slice(0, 3)
+  const f = fixture({ tierMode: 'free-only', rotation, maxAttempts: 2 })
+  const attempted = new Set(rotation)
+  expect(freeOnlyAttemptLimit(f.cfg)).toBe(5)
+  expect(freeOnlyListExhausted(f.cfg, f.task, [], attempted)).toBe(true)
+  expect(freeOnlyRetryCandidates(rotation, 'free-only', attempted)).toEqual([])
+})
+
+test('free-only 五次 attempt 只輪換尚未嘗試的免費引擎，名單窮盡後不再重複', async () => {
+  const selected: string[] = []
+  for (let i = 0; i < FREE_ROTATION.length; i++) {
+    const f = fixture({ tierMode: 'free-only', rotation: FREE_ROTATION, failCount: i, attemptedEngineTags: selected })
+    const picked = await pickReadyTask(f.deps, [f.task])
+    expect(picked).toMatchObject({ engineTag: expect.any(String) })
+    selected.push((picked as { engineTag: string }).engineTag)
+  }
+  expect(selected).toHaveLength(5)
+  expect(new Set(selected).size).toBe(5)
+  expect(freeOnlyRetryCandidates(FREE_ROTATION, 'free-only', new Set(selected))).toEqual([])
 })

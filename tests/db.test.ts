@@ -19,6 +19,17 @@ test('record + failCount 只數失敗', () => {
   db.close()
 })
 
+test('attemptedEngineTags 回傳同一任務已用過的非空引擎且去重', () => {
+  const db = freshDb()
+  db.record({ taskId: 'route', ok: false, costUsd: 0, detail: '', engine: 'devin' })
+  db.record({ taskId: 'route', ok: false, costUsd: 0, detail: '', engine: 'agy' })
+  db.record({ taskId: 'route', ok: true, costUsd: 0, detail: '', engine: 'devin' })
+  db.record({ taskId: 'other', ok: false, costUsd: 0, detail: '', engine: 'grok' })
+  expect(db.attemptedEngineTags('route')).toEqual(expect.arrayContaining(['devin', 'agy']))
+  expect(db.attemptedEngineTags('route')).toHaveLength(2)
+  db.close()
+})
+
 test('costForLocalDay 以 UTC 日界線累計（offset 預設 0，相容舊 costSince 行為）', () => {
   const db = freshDb()
   db.record({ taskId: 'a', ok: true, costUsd: 1.5, detail: '', ts: '2026-07-05T01:00:00Z' })

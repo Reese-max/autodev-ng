@@ -12,6 +12,7 @@ import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetr
 import { enqueueMerge } from './engines/merge-queue.js'
 import { nudgeNoCommit } from './engines/no-commit-nudge.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
+import { attemptedEngineTags, freeOnlyAttemptLimit, freeOnlyListExhausted, freeOnlyRetryCandidates } from './engines/free-only-retry.js'
 import { deniedFreeOnlyPin, pickCandidateTags } from './engines/pick-candidates.js'
 import { singleFlightPickRouting } from './engines/pick-ready-single-flight.js'
 import { quiet, type EventLog } from './events.js'
@@ -374,7 +375,7 @@ export async function pickReadyTask(
   for (const cand of openTasks) {
     const deniedPin = deniedFreeOnlyPin(cand, cfg.tierMode)
     if (deniedPin) { const detail = `engine-not-allowed：tierMode=free-only，行內 [engine:${deniedPin}] 不在影子帳 free-tier 名單；不得降級或改派`; return blockTask({ store, events }, cand, 'engine-not-allowed', detail, detail) }
-    const tags = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs, dailyAttemptCaps, todayAttemptCounts, engineStats, zeroCostTags: zeroCostTags(cfg), tierMode: cfg.tierMode })
+    const tags = freeOnlyRetryCandidates(pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs, dailyAttemptCaps, todayAttemptCounts, engineStats, zeroCostTags: zeroCostTags(cfg), tierMode: cfg.tierMode }), cfg.tierMode, cfg.tierMode === 'free-only' ? attemptedEngineTags(db, cand.id) : undefined)
     for (const engineTag of tags) {
       const engineCfg = cfg.engines[engineTag]
       if (!engineCfg) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`)
@@ -407,12 +408,12 @@ async function resolveFailure(
   quotaUsage: Pick<TaskTerminalNotice, 'costUsd' | 'tokensIn' | 'tokensOut' | 'tokensCached'>
 ): Promise<CycleResult> {
   const { cfg, store, db, events } = deps
-  if (db.failCount(task.id) < cfg.maxAttempts) return base
+  const maxAttempts = freeOnlyAttemptLimit(cfg); const failures = db.failCount(task.id); const exhausted = cfg.tierMode === 'free-only' && freeOnlyListExhausted(cfg, task, subscriptionTags(cfg), attemptedEngineTags(db, task.id)); if (failures < maxAttempts && !exhausted) return base
   const hint = lastFailure.replace(/\s+/g, ' ').trim().slice(0, 80) || '未知'
-  const result = blockTask({ store, events }, task, 'max-attempts', `連敗 ${cfg.maxAttempts} 次，人工介入（最後失敗：${hint}）`)
+  const result = blockTask({ store, events }, task, 'max-attempts', `連敗 ${exhausted ? failures : maxAttempts} 次，人工介入（最後失敗：${hint}）`)
   await notifyTaskTerminal(deps, {
     outcome: 'failed', taskId: task.id, taskText: task.text,
-    resultSummary: lastFailure, attempts: cfg.maxAttempts, ...quotaUsage,
+    resultSummary: lastFailure, attempts: exhausted ? failures : maxAttempts, ...quotaUsage,
   })
   return result
 }

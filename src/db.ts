@@ -121,6 +121,11 @@ export class RunDb {
     return row.n
   }
 
+  attemptedEngineTags(taskId: string): string[] {
+    const rows = this.db.prepare('SELECT DISTINCT engine FROM attempts WHERE task_id=? AND engine != \'\'').all(taskId) as { engine: string }[]
+    return rows.map(row => row.engine)
+  }
+
   /** 本地日累計成本（M4 Task 3：取代舊 costSince 的 substr 字串比較+開放式「since」語意）。
    * offsetHours 預設 0（UTC，等價舊行為）；正式呼叫端（scheduler todayCost）一律帶入
    * cfg.timezoneOffsetHours。SQL 改半開區間範圍查詢（ts >= startIso AND ts < endIso），
