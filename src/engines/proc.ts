@@ -68,9 +68,10 @@ export function runProcess(opts: {
     let timedOut = false
     let timeoutReason: ProcResult['timeoutReason']
     let settled = false
-    let settleTimer: ReturnType<typeof setTimeout> | undefined
     let wallTimer: ReturnType<typeof setTimeout> | undefined
     let idleTimer: ReturnType<typeof setTimeout> | undefined
+    let reaping: Promise<void> | undefined
+    let closeCode: number | null | undefined
 
     const cap = opts.maxOutputChars ?? 2_000_000
     let stdoutTruncated = false
@@ -81,7 +82,6 @@ export function runProcess(opts: {
       settled = true
       if (wallTimer) clearTimeout(wallTimer)
       if (idleTimer) clearTimeout(idleTimer)
-      if (settleTimer) clearTimeout(settleTimer)
       resolve({
         exitCode, stdout, stderr, timedOut,
         ...(timeoutReason ? { timeoutReason } : {}),
@@ -93,10 +93,14 @@ export function runProcess(opts: {
       if (settled) return
       timedOut = true
       timeoutReason = reason
-      void killTree(child.pid, { command: opts.command, events: opts.events })
-      // 樹斬後給 3s 收屍；若 close 仍不來，強制 settle（防 close 永不觸發）
-      settleTimer = setTimeout(() => finish(null), 3000)
-      settleTimer.unref()
+      // 不可 fire-and-forget：根程序先 close 時，後續 worktree 清理會搶在補殺輪前，
+      // 讓剛脫離 taskkill 的孫代繼續持鎖。收斂／驗屍完成才交還 timeout 結果。
+      reaping = killTree(child.pid, { command: opts.command, events: opts.events })
+        .catch(() => { /* 終止失敗仍須交還 timeout 結果；殘存者由 killTree 留事件。 */ })
+      void reaping.finally(() => {
+        reaping = undefined
+        finish(closeCode ?? null)
+      })
     }
     const renewIdleTimer = (): void => {
       if (!opts.idleTimeoutMs || opts.idleTimeoutMs <= 0 || settled) return
@@ -143,12 +147,16 @@ export function runProcess(opts: {
         stderr += d
       }
     })
+    const settleFromChild = (code: number | null): void => {
+      closeCode = code
+      if (!reaping) finish(code)
+    }
     child.on('error', err => {
       // spawn/exec 錯誤（如 win32 bare-name ENOENT）不可靜默吞掉，塞進 stderr 讓呼叫端看見
       stderr += String(err)
-      finish(null)
+      settleFromChild(null)
     })
-    child.on('close', code => finish(code))
+    child.on('close', settleFromChild)
 
     child.stdin.on('error', () => { /* 子進程提早退出時 EPIPE，可忽略 */ })
     child.stdin.write(opts.stdinText)

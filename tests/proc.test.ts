@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { killTree, runProcess } from '../src/engines/proc.js'
 
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-cli.mjs')
@@ -61,7 +62,8 @@ test('idleTimeoutMs：無輸出進度才斬樹，不能把 wall timeout 偷加�
   })
   expect(r.timedOut).toBe(true)
   expect(r.timeoutReason).toBe('idle')
-  expect(Date.now() - t0).toBeLessThan(5000)
+  // 逾時結果須等 Windows 收斂樹斬（taskkill 後 2s＋重枚舉）完成，不能為了快返回而遺留持鎖後代。
+  expect(Date.now() - t0).toBeLessThan(8000)
   expect(activity).toHaveLength(0)
 }, 10_000)
 
@@ -104,6 +106,26 @@ test('hang-tree：雙層樹斬——父子兩層 PID 逾時後皆不存活', asy
   expect(isPidAlive(grandchildPid)).toBe(false)
 }, 15_000)
 
+test('hang-worktree-lock：實機引擎逾時斬樹完成後，worktree 目錄可立即刪除', async () => {
+  if (process.platform !== 'win32') return
+  const worktree = mkdtempSync(join(process.cwd(), '.tmp-proc-timeout-worktree-'))
+  const lockedFile = join(worktree, 'result.txt')
+  writeFileSync(lockedFile, 'locked')
+  process.env.FAKE_MODE = 'hang-worktree-lock'
+  process.env.FAKE_LOCK_FILE = lockedFile
+  try {
+    const r = await runProcess({ ...base, stdinText: 'x', timeoutMs: 3_000 })
+    expect(r.timedOut).toBe(true)
+    expect(r.stderr).toContain('WORKTREE_LOCK_READY')
+    rmSync(worktree, { recursive: true, force: true, maxRetries: 5 })
+    expect(existsSync(worktree)).toBe(false)
+  } finally {
+    delete process.env.FAKE_MODE
+    delete process.env.FAKE_LOCK_FILE
+    if (existsSync(worktree)) rmSync(worktree, { recursive: true, force: true, maxRetries: 5 })
+  }
+}, 20_000)
+
 test('不存在的指令：失敗必須可見，不可全空（win32 經 cmd /c 非零 exit；其他平台 error 進 stderr）', async () => {
   const r = await runProcess({
     command: 'this-command-definitely-does-not-exist-xyz',
@@ -116,14 +138,14 @@ test('不存在的指令：失敗必須可見，不可全空（win32 經 cmd /c 
   expect(failureVisible).toBe(true)
 })
 
-test('timeout 後 resolve 時間 < timeoutMs + 4s（強制 settle timer 不再拖尾事件迴圈）', async () => {
+test('timeout 後 resolve 等候樹斬收斂且仍受 8 秒上限約束', async () => {
   process.env.FAKE_MODE = 'hang'
   const timeoutMs = 1000
   const t0 = Date.now()
   const r = await runProcess({ ...base, stdinText: 'x', timeoutMs })
   const elapsed = Date.now() - t0
   expect(r.timedOut).toBe(true)
-  expect(elapsed).toBeLessThan(timeoutMs + 4000)
+  expect(elapsed).toBeLessThan(timeoutMs + 8000)
 }, 15_000)
 
 test('輸出超過 maxOutputChars 被截斷且有標記', async () => {
@@ -221,6 +243,42 @@ test('killTree 收斂：根已死但孤兒後代仍活——必須枚舉並補�
   })
   expect(calls.filter(c => c.startsWith('kill:'))).toEqual(['kill:12'])
   expect(events).toEqual([]) // 第 2 輪已零存活，收斂返回，無殭屍
+})
+
+test('killTree 收斂：第一輪後才出現的孫代必須由新快照補殺並驗屍', async () => {
+  const calls: string[] = []
+  const alive = new Set([10, 11, 12])
+  const events: Array<{ type: string; data: { pid: number; command: string } }> = []
+  let snapshots = 0
+  await killTree(10, {
+    command: 'root-command',
+    events: { append: (type, data) => events.push({ type, data }) },
+    deps: {
+      platform: 'win32',
+      taskkill: async () => { calls.push('taskkill') },
+      wait: async ms => { calls.push(`wait:${ms}`) },
+      isAlive: pid => alive.has(pid),
+      listProcesses: async () => {
+        calls.push('list')
+        snapshots++
+        return snapshots === 1
+          ? [{ pid: 10, command: 'root-command' }, { pid: 11, parentPid: 10, command: 'first-child' }]
+          : [
+              { pid: 10, command: 'root-command' },
+              { pid: 11, parentPid: 10, command: 'first-child' },
+              { pid: 12, parentPid: 11, command: 'late-grandchild' },
+            ]
+      },
+      kill: pid => { calls.push(`kill:${pid}`) },
+    },
+  })
+  expect(calls.filter(c => c === 'list')).toHaveLength(4) // 3 輪＋終局驗屍，不能沿用首輪快照
+  expect(calls.filter(c => c === 'kill:12')).toHaveLength(2)
+  expect(events).toEqual([
+    { type: 'proc-zombie', data: { pid: 12, command: 'late-grandchild' } },
+    { type: 'proc-zombie', data: { pid: 11, command: 'first-child' } },
+    { type: 'proc-zombie', data: { pid: 10, command: 'root-command' } },
+  ])
 })
 
 test('killTree 收斂：全樹已死時一輪即返、不 fallback 不寫事件', async () => {
