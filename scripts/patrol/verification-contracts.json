@@ -10,9 +10,9 @@
       "expires": "2026-09-05"
     },
     {
-      "id": "zero-orphan-daemon",
-      "desc": "pid.json 外零 daemon 進程（§9）",
-      "cmd": "node -e \"const fs=require('fs');const {execSync}=require('child_process');const reg=new Set();for(const d of fs.readdirSync('D:/Users/Administrator/Desktop/autodev-ng/data')){try{reg.add(JSON.parse(fs.readFileSync('D:/Users/Administrator/Desktop/autodev-ng/data/'+d+'/daemon.lock/pid.json','utf8')).pid)}catch{}};const out=execSync('powershell -NoProfile -Command \\\"Get-CimInstance Win32_Process -Filter \\\\\\\"Name='node.exe'\\\\\\\" | Where-Object { \\$_.CommandLine -match 'cli.js daemon' } | Select-Object -ExpandProperty ProcessId\\\"',{encoding:'utf8'}).trim().split(/\\s+/).filter(Boolean).map(Number);const orph=out.filter(p=>!reg.has(p));if(orph.length){console.log('孤兒:'+orph.join(','));process.exit(1)}console.log('OK')\"",
+      "id": "daemon-lock-valid",
+      "desc": "各艦 lock PID 存活＋node 身分＋起時吻合（§9；孤兒防線在 daemon-fence 自檢，原 zero-orphan 外部偵測因 CommandLine 跨權限不可讀而空洞，2026-08-05 重定義）",
+      "cmd": "node 'D:/Users/Administrator/Desktop/autodev-ng/scripts/patrol/check-orphan-daemon.cjs'",
       "expect": { "type": "exit0" },
       "added": "2026-08-05",
       "expires": "2026-09-05"
@@ -52,8 +52,8 @@
     {
       "id": "kernel-budget",
       "desc": "kernel 行數帳本綠（<2250 且帳實相符）",
-      "cmd": "cd /d/Users/Administrator/Desktop/autodev-ng && npx vitest run tests/kernel-relocation-report.test.ts --reporter=dot 2>&1 | tail -3 | grep -c 'passed'",
-      "expect": { "type": "not-equals", "value": "0" },
+      "cmd": "cd /d/Users/Administrator/Desktop/autodev-ng && npx vitest run tests/kernel-relocation-report.test.ts --reporter=dot 2>&1 | rg -c 'Test Files.*passed'",
+      "expect": { "type": "equals", "value": "1" },
       "added": "2026-08-05",
       "expires": "2026-09-05"
     }
