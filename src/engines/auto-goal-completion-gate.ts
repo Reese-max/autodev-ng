@@ -7,8 +7,19 @@ const RepoPathSchema = z.string().trim().min(1)
 export const AutoGoalAcceptanceSchema = z.object({
   command: z.string().trim().min(1),
   executed: z.boolean(),
-  exitCode: z.number().int(),
+  exitCode: z.number().int().nullable(),
   output: z.string(),
+}).strict()
+
+const ReportedEvidenceSchema = z.object({
+  expectedChanges: z.array(RepoPathSchema),
+  baseCommitHash: CommitHashSchema,
+  commitHash: CommitHashSchema,
+  headCommitHash: CommitHashSchema,
+  acceptance: AutoGoalAcceptanceSchema,
+  changedFiles: z.array(RepoPathSchema),
+  resultSummary: z.string().trim().min(1),
+  timestamp: z.string().datetime({ offset: true }),
 }).strict()
 
 export const AutoGoalCompletionEvidenceSchema = z.object({
@@ -21,13 +32,9 @@ export const AutoGoalCompletionEvidenceSchema = z.object({
   headCommitHash: CommitHashSchema,
   changedFiles: z.array(RepoPathSchema),
   diff: z.string(),
-  evidence: z.object({
-    baseCommitHash: CommitHashSchema,
-    commitHash: CommitHashSchema,
-    headCommitHash: CommitHashSchema,
-    acceptance: AutoGoalAcceptanceSchema,
-    changedFiles: z.array(RepoPathSchema),
-  }).strict(),
+  resultSummary: z.string().trim().min(1),
+  timestamp: z.string().datetime({ offset: true }),
+  evidence: ReportedEvidenceSchema,
 }).strict()
 
 export type AutoGoalCompletionEvidence = z.infer<typeof AutoGoalCompletionEvidenceSchema>
@@ -58,12 +65,17 @@ function schemaReason(input: unknown, error: z.ZodError): string {
   if (first === 'acceptance') return 'acceptance-not-run'
   if (first === 'changedFiles') return 'changed-files-missing'
   if (first === 'diff') return 'diff-missing'
+  if (first === 'resultSummary') return 'result-summary-missing'
+  if (first === 'timestamp') return 'timestamp-invalid'
   if (first === 'evidence') {
+    if (second === 'expectedChanges') return 'evidence-expected-changes-missing'
     if (second === 'baseCommitHash') return 'evidence-base-commit-missing'
     if (second === 'commitHash') return 'evidence-commit-missing'
     if (second === 'headCommitHash') return 'evidence-head-missing'
     if (second === 'acceptance') return 'evidence-test-result-missing'
     if (second === 'changedFiles') return 'evidence-changed-files-missing'
+    if (second === 'resultSummary') return 'evidence-result-summary-missing'
+    if (second === 'timestamp') return 'evidence-timestamp-missing'
   }
   return `evidence-schema-invalid:${(issue?.path ?? []).join('.') || 'root'}`
 }
@@ -113,6 +125,7 @@ export function evaluateAutoGoalCompletionGate(input: unknown): AutoGoalCompleti
   }
 
   if (!value.acceptance.executed) return { ok: false, reason: 'acceptance-not-run' }
+  if (value.acceptance.exitCode === null) return { ok: false, reason: 'acceptance-exit-code-missing' }
   if (value.acceptance.exitCode !== 0) {
     return { ok: false, reason: `acceptance-failed:exit=${value.acceptance.exitCode}` }
   }
@@ -121,12 +134,17 @@ export function evaluateAutoGoalCompletionGate(input: unknown): AutoGoalCompleti
   if (reported.baseCommitHash !== value.baseCommitHash) return { ok: false, reason: 'evidence-base-commit-mismatch' }
   if (reported.commitHash !== value.commitHash) return { ok: false, reason: 'evidence-commit-mismatch' }
   if (reported.headCommitHash !== value.headCommitHash) return { ok: false, reason: 'evidence-head-mismatch' }
+  if (!sameFiles(reported.expectedChanges, value.expectedChanges)) {
+    return { ok: false, reason: 'evidence-expected-changes-mismatch' }
+  }
   if (!sameAcceptance(reported.acceptance, value.acceptance)) {
     return { ok: false, reason: 'evidence-test-result-mismatch' }
   }
   if (!sameFiles(reported.changedFiles, value.changedFiles)) {
     return { ok: false, reason: 'evidence-changed-files-mismatch' }
   }
+  if (reported.resultSummary !== value.resultSummary) return { ok: false, reason: 'evidence-result-summary-mismatch' }
+  if (reported.timestamp !== value.timestamp) return { ok: false, reason: 'evidence-timestamp-mismatch' }
 
   return { ok: true }
 }

@@ -4,7 +4,7 @@ import { runProcess, type ProcResult } from './engines/proc.js'
 import { formatVerifyFailureDetail } from './engines/verify-detail.js'
 
 export type VerifyStatus = 'pass' | 'fail' | 'skip'
-export interface VerifyOutcome { status: VerifyStatus; detail: string }
+export interface VerifyOutcome { status: VerifyStatus; detail: string; executed?: boolean; exitCode?: number | null }
 
 const COMMAND_NOT_FOUND_RE = /not recognized|不是內部或外部命令|command not found/i
 /** 機械層驗證：跑專案自己的測試指令。timeout=skip+detail（慢測試不可誤殺，舊教訓）；infra 故障 fail-open。 */
@@ -13,20 +13,21 @@ export async function runVerify(opts: {
   cwd: string
   timeoutMs: number; env?: Record<string, string>
 }): Promise<VerifyOutcome> {
-  if (!opts.command || opts.command.trim() === '') return { status: 'skip', detail: 'no verifyCommand configured' }
+  if (!opts.command || opts.command.trim() === '') return { status: 'skip', detail: 'no verifyCommand configured', executed: false, exitCode: null }
   const tokens = tokenize(opts.command)
   const [command, ...args] = tokens
-  if (!command) return { status: 'skip', detail: 'unparseable verifyCommand' }
+  if (!command) return { status: 'skip', detail: 'unparseable verifyCommand', executed: false, exitCode: null }
   if (!commandExists(command)) {
-    return { status: 'skip', detail: `verify infra failure（command-not-found: ${command}，探測法）` }
+    return { status: 'skip', detail: `verify infra failure（command-not-found: ${command}，探測法）`, executed: false, exitCode: null }
   }
   const r = await runProcess({ command, args, cwd: opts.cwd, stdinText: '', timeoutMs: opts.timeoutMs, env: opts.env })
-  if (r.timedOut) return { status: 'skip', detail: `verify timeout ${opts.timeoutMs}ms（不算 FAIL，需告警）` }
-  if (r.exitCode === 0) return { status: 'pass', detail: `ok ${r.durationMs}ms` }
+  const execution = { executed: true, exitCode: r.exitCode }
+  if (r.timedOut) return { status: 'skip', detail: `verify timeout ${opts.timeoutMs}ms（不算 FAIL，需告警）`, ...execution }
+  if (r.exitCode === 0) return { status: 'pass', detail: `ok ${r.durationMs}ms`, ...execution }
   const notFoundDetail = commandNotFoundDetail(r)
-  if (notFoundDetail) return { status: 'skip', detail: notFoundDetail }
-  if (r.exitCode === null && r.stdout === '' && r.stderr === '') return { status: 'skip', detail: 'verify infra failure（spawn 全空）' }
-  return { status: 'fail', detail: formatVerifyFailureDetail(r.stderr, r.stdout).slice(0, 1000) }
+  if (notFoundDetail) return { status: 'skip', detail: notFoundDetail, ...execution }
+  if (r.exitCode === null && r.stdout === '' && r.stderr === '') return { status: 'skip', detail: 'verify infra failure（spawn 全空）', ...execution }
+  return { status: 'fail', detail: formatVerifyFailureDetail(r.stderr, r.stdout).slice(0, 1000), ...execution }
 }
 
 /**

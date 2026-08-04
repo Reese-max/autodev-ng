@@ -1,12 +1,11 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { existsSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
-import { parseGoal } from './autopilot/goal.js'
 import { localDay, type RunDb } from './db.js'
 import { loadIsolatedTagsForPick } from './engines/apply-stats-isolation.js'
 import { loadDailyAttemptCapContext } from './engines/daily-attempt-cap-gate.js'
 import { loadEngineStatsForWeighting } from './engines/adaptive-rotation.js'
 import { firstMissingArtifact } from './engines/artifact-contract-git.js'
+import { checkAutoGoalCompletion, goalVerifyCommand, type AutoGoalCompletionCheck } from './engines/auto-goal-completion.js'
 import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetryReason, retriedBlockedReason, worktreeFailureReason, type InfrastructureRetryReason, type InfraRetryState } from './engines/infra-retry.js'
@@ -51,7 +50,7 @@ export interface Deps {
 /** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
  * ——不是每種 blocked 都是「連敗」，含糊文案會誤導人工介入的方向。 */
 // infra codes distinguish retryable worktree／外部終止，其他 reason 維持既有終態。
-export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'dirty-worktree' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
+export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'completion-gate' | 'dirty-worktree' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
@@ -201,7 +200,7 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
   if (res.ok) {
     // engine 成功 + verify 通過（或未設 verifier）→ 嘗試把任務分支 ff-only 合回主 repo。
     // merge queue（併發基建）：合併一次一個；串行下等價直呼，併發池（GOAL B）沿用同一入口。
-    const merge = await enqueueMerge(cfg.projectPath, () => mergeAfterRebaseVerify(cfg, wt))
+    const merge = await enqueueMerge(cfg.projectPath, () => mergeAfterRebaseVerify(cfg, wt, task, res))
     if (merge.rebaseAttempted) quiet(() => events.append('rebase-attempted', {
       task: task.text,
       branch: wt.branch,
@@ -209,6 +208,13 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
       ...(merge.failureStage ? { stage: merge.failureStage } : {}),
     }))
     if (merge.rebased) quiet(() => events.append('merge-rebased', { task: task.text, branch: wt.branch }))
+    const gate = merge.completionGate
+    if (gate?.applies && !gate.ok) {
+      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: `completion-gate:${gate.reason}`, engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached })
+      quiet(() => events.append('auto-goal-completion-gate-rejected', { task: task.text, reason: gate.reason, evidence: gate.evidence }))
+      quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
+      return blockTask({ store, events }, task, 'completion-gate', `completion-gate：${gate.reason}`)
+    }
     if (!merge.merged) {
       if (merge.reason === 'branch-switched') {
         // HIGH 修復：主 repo 已不在 prepareWorktree 當時記下的分支（切走或 detached）——
@@ -250,7 +256,8 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
         task: task.text, kind: 'done', error: String(err), willRepick: true
       }))
     }
-    quiet(() => events.append('task-done', { task: task.text, cost: recordedCostUsd, commit: merge.commitHash }))
+    const completionEvidence = gate?.applies && gate.ok ? gate.evidence : undefined
+    quiet(() => events.append('task-done', { task: task.text, cost: recordedCostUsd, commit: merge.commitHash, ...(completionEvidence ? { evidence: completionEvidence } : {}) }))
 
     try {
       cleanupWorktree(cfg.projectPath, wt.cwd, wt.branch, cfg)
@@ -288,44 +295,41 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
 }
 
 /** rebase 成功後仍在 merge queue 內驗收；只有非紅燈才允許唯一一次 merge 重試。 */
-async function mergeAfterRebaseVerify(cfg: Config, wt: WorktreeHandle): Promise<MergeBackResult> {
+type CompletionMergeResult = MergeBackResult & { completionGate?: AutoGoalCompletionCheck }
+
+async function mergeAfterRebaseVerify(cfg: Config, wt: WorktreeHandle, task: Task, result: RunResult): Promise<CompletionMergeResult> {
   const timeouts = { gitTimeoutMs: cfg.gitTimeoutMs, worktreeAddTimeoutMs: cfg.worktreeAddTimeoutMs }
+  let completionGate = await checkAutoGoalCompletion(cfg, task, result, wt.cwd, wt.baseBranch)
+  if (completionGate.applies && !completionGate.ok) return { merged: false, completionGate }
   const first = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
     ...timeouts,
     deferAfterRebase: true,
   })
-  if (!first.rebased || first.failureStage !== 'verify') return first
-
-  const command = rebasedGoalVerifyCommand(cfg, wt.cwd)
-  let verification
-  try {
-    verification = await runVerify({ command, cwd: wt.cwd, timeoutMs: cfg.verifyTimeoutMs })
-  } catch {
-    return { ...first, failureStage: 'verify' }
+  if (!first.rebased || first.failureStage !== 'verify') {
+    return completionGate.applies ? { ...first, completionGate } : first
   }
-  // runVerify 的 skip 是既有 fail-open 語意（未設指令、逾時或驗證工具故障），只有明確 fail 阻擋合併。
-  if (verification.status === 'fail') return { ...first, failureStage: 'verify' }
 
-  return mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
+  if (completionGate.applies) {
+    const rebasedGate = await checkAutoGoalCompletion(cfg, task, result, wt.cwd, wt.baseBranch, true)
+    completionGate = rebasedGate.applies ? rebasedGate : { applies: true, ok: false, reason: 'auto-goal-context-lost' }
+    if (!completionGate.ok) return { ...first, completionGate }
+  } else {
+    let verification
+    try {
+      verification = await runVerify({ command: goalVerifyCommand(cfg, wt.cwd), cwd: wt.cwd, timeoutMs: cfg.verifyTimeoutMs })
+    } catch {
+      return { ...first, failureStage: 'verify' }
+    }
+    // 非 auto-goal 維持既有語意：只有明確 fail 阻擋 rebase 後合併。
+    if (verification.status === 'fail') return { ...first, failureStage: 'verify' }
+  }
+
+  const merged = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
     ...timeouts,
     allowRebase: false,
     rebaseAttempted: true,
   })
-}
-
-function rebasedGoalVerifyCommand(cfg: Config, worktreePath: string): string | undefined {
-  if (!cfg.goalFile) return cfg.verifyCommand
-  const projectPath = resolve(cfg.projectPath)
-  const configuredGoal = resolve(cfg.goalFile)
-  const rel = relative(projectPath, configuredGoal)
-  if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) return cfg.verifyCommand
-  const goalPath = join(worktreePath, rel)
-  try {
-    const parsed = parseGoal(readFileSync(goalPath, 'utf8').replace(/\r\n/g, '\n'))
-    return parsed.verifyCommand?.trim() || cfg.verifyCommand
-  } catch {
-    return cfg.verifyCommand
-  }
+  return completionGate.applies ? { ...merged, completionGate } : merged
 }
 
 /** 環境級 blocked：不計 maxAttempts；store.report 失敗只記事件。 */
@@ -341,7 +345,7 @@ function blockTask(
     quiet(() => events.append('report-failed', { task: task.text, kind: 'blocked', error: String(err), willRepick: true }))
   }
   quiet(() => events.append('task-blocked', { task: task.text, reason, ...(humanReason.includes('retried=1') ? { retried: 1 } : {}) }))
-  return { kind: 'blocked', taskId: task.id, taskText: task.text, reason, ...(reason === 'dirty-worktree' ? { alertDetail: humanReason } : {}) }
+  return { kind: 'blocked', taskId: task.id, taskText: task.text, reason, ...(['dirty-worktree', 'completion-gate'].includes(reason) ? { alertDetail: humanReason } : {}) }
 }
 
 async function retryInfrastructure(deps: Deps, task: Task, retry: InfraRetryState, reason: InfrastructureRetryReason, detail: string): Promise<CycleResult> {

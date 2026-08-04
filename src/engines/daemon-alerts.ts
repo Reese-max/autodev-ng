@@ -64,6 +64,7 @@ function blockedReasonText(reason: BlockedReason, detail?: string): string {
     case 'max-attempts': return '連敗達上限，需人工介入'
     case 'not-a-git-repo': return 'worktree 建立失敗（非 git 專案或主 repo 狀態異常），需人工介入'
     case 'merge-conflict': return '主分支已前進導致無法自動合併，需人工介入合併'
+    case 'completion-gate': return detail ?? 'auto-goal completion gate 拒絕，成果分支已保留'
     case 'dirty-worktree': return detail ?? '主工作目錄有未提交變更檔阻擋合併，需先提交或移至分支保存'
     case 'branch-switched': return '主 repo 分支已切換或處於 detached HEAD，成果未合回，需人工介入合併'
     case 'engine-not-allowed': return '任務指定引擎不在本專案 engines 白名單（或引擎無法建立），需人工修 tag 或 config'

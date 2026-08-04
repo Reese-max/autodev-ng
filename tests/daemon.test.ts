@@ -440,12 +440,13 @@ test('⑯ 冷卻閘（修 3）：兩個不同 task.id 但任務文字前 40 字�
 })
 
 test('MEDIUM 1 修復：baseAlertMessage 依 blocked reason 各出對應人話文案（不再全部印「連敗達上限」）', () => {
-  const blocked = (reason: 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'branch-switched'): CycleResult =>
+  const blocked = (reason: 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'completion-gate' | 'branch-switched'): CycleResult =>
     ({ kind: 'blocked', taskId: 't1', taskText: '某任務', reason })
 
   expect(baseAlertMessage(blocked('max-attempts'))).toContain('連敗達上限')
   expect(baseAlertMessage(blocked('not-a-git-repo'))).toContain('worktree 建立失敗')
   expect(baseAlertMessage(blocked('merge-conflict'))).toContain('無法自動合併')
+  expect(baseAlertMessage({ kind: 'blocked', taskId: 't1', taskText: '某任務', reason: 'completion-gate', alertDetail: 'completion-gate：head-commit-mismatch' })).toContain('head-commit-mismatch')
   expect(baseAlertMessage(blocked('branch-switched'))).toContain('分支已切換或處於 detached HEAD')
 
   // 三個新原因都不該被誤植成舊版的「連敗達上限」文案

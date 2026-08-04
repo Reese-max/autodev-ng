@@ -18,7 +18,7 @@ function detailOf(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').slice(0, 240)
 }
 
-function verifyEnv(projectPath: string): Record<string, string> | undefined {
+export function goalVerifyEnv(projectPath: string): Record<string, string> | undefined {
   const modules = join(projectPath, 'node_modules')
   if (!existsSync(modules)) return undefined
   const bin = join(modules, '.bin')
@@ -50,7 +50,7 @@ export async function gateAuthoredGoal(
         cwd: opts.projectPath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000, windowsHide: true
       })
       added = true
-      const verification = await runVerify({ command, cwd, timeoutMs: opts.verifyTimeoutMs, env: verifyEnv(opts.projectPath) })
+      const verification = await runVerify({ command, cwd, timeoutMs: opts.verifyTimeoutMs, env: goalVerifyEnv(opts.projectPath) })
       if (verification.status === 'fail') result = { ok: true, verifyCommand: command }
       else if (verification.status === 'pass') result = { ok: false, reason: `verify-green: ${verification.detail}` }
       else result = { ok: true, verifyCommand: command, warning: `verify-unverifiable: ${verification.detail}` }
