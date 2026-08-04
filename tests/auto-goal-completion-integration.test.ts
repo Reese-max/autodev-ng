@@ -148,6 +148,17 @@ test('auto-goal Git 對帳：引擎回報的 commit 不是實際 HEAD 時 fail-c
   expect(events(f.root).some(event => event.type === 'task-done')).toBe(false)
 })
 
+test('auto-goal 預期變更對帳：commit 沒改佐證檔案時 fail-closed', async () => {
+  const f = fixture(0, { evidenceFiles: ['feature.txt'], engine: new CommitEngine(() => 'other.txt') })
+
+  expect(await runOnce(f.deps)).toMatchObject({
+    kind: 'blocked', reason: 'completion-gate',
+    alertDetail: 'completion-gate：missing-expected-change:feature.txt',
+  })
+  expect(git(f.root, ['rev-parse', 'HEAD'])).toBe(f.base)
+  expect(events(f.root).some(event => event.type === 'task-done')).toBe(false)
+})
+
 test('M1 auto-goal 閉環：3 任務混合 2 completed／1 gate blocked，最後回 idle', async () => {
   const tasks = ['任務A', '任務B', '任務C']
   const command = `"${process.execPath}" -e "process.exit(require('node:fs').existsSync('bad.txt') ? 7 : 0)"`

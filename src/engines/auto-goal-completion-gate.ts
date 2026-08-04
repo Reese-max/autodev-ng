@@ -18,6 +18,7 @@ const ReportedEvidenceSchema = z.object({
   headCommitHash: CommitHashSchema,
   acceptance: AutoGoalAcceptanceSchema,
   changedFiles: z.array(RepoPathSchema),
+  diff: z.string(),
   resultSummary: z.string().trim().min(1),
   timestamp: z.string().datetime({ offset: true }),
 }).strict()
@@ -74,6 +75,7 @@ function schemaReason(input: unknown, error: z.ZodError): string {
     if (second === 'headCommitHash') return 'evidence-head-missing'
     if (second === 'acceptance') return 'evidence-test-result-missing'
     if (second === 'changedFiles') return 'evidence-changed-files-missing'
+    if (second === 'diff') return 'evidence-diff-missing'
     if (second === 'resultSummary') return 'evidence-result-summary-missing'
     if (second === 'timestamp') return 'evidence-timestamp-missing'
   }
@@ -143,6 +145,7 @@ export function evaluateAutoGoalCompletionGate(input: unknown): AutoGoalCompleti
   if (!sameFiles(reported.changedFiles, value.changedFiles)) {
     return { ok: false, reason: 'evidence-changed-files-mismatch' }
   }
+  if (reported.diff !== value.diff) return { ok: false, reason: 'evidence-diff-mismatch' }
   if (reported.resultSummary !== value.resultSummary) return { ok: false, reason: 'evidence-result-summary-mismatch' }
   if (reported.timestamp !== value.timestamp) return { ok: false, reason: 'evidence-timestamp-mismatch' }
 

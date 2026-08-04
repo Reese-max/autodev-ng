@@ -33,6 +33,7 @@ function evidence(overrides: Record<string, unknown> = {}): AutoGoalCompletionEv
       headCommitHash: '2222222',
       acceptance,
       changedFiles: ['src/engines/target.ts', 'tests/target.test.ts'],
+      diff: 'diff --git a/src/engines/target.ts b/src/engines/target.ts\n+change',
       resultSummary: '驗收通過：1 passed',
       timestamp,
     },
@@ -66,6 +67,7 @@ test.each([
   ['evidence 預期檔不一致', { evidence: { ...evidence().evidence, expectedChanges: ['src/other.ts'] } }, 'evidence-expected-changes-mismatch'],
   ['evidence 測試結果不一致', { evidence: { ...evidence().evidence, acceptance: { ...acceptance, output: 'different' } } }, 'evidence-test-result-mismatch'],
   ['evidence 變更檔不一致', { evidence: { ...evidence().evidence, changedFiles: ['src/other.ts'] } }, 'evidence-changed-files-mismatch'],
+  ['evidence diff 不一致', { evidence: { ...evidence().evidence, diff: 'different' } }, 'evidence-diff-mismatch'],
   ['evidence 結果摘要不一致', { evidence: { ...evidence().evidence, resultSummary: 'different' } }, 'evidence-result-summary-mismatch'],
   ['evidence 時間不一致', { evidence: { ...evidence().evidence, timestamp: '2026-08-04T10:00:01.000Z' } }, 'evidence-timestamp-mismatch'],
 ] as const)('%s → fail-closed（%s）', (_label, override, reason) => {

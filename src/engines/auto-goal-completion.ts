@@ -85,9 +85,10 @@ export async function checkAutoGoalCompletion(
     const baseCommitHash = git(worktreePath, ['merge-base', 'HEAD', baseBranch]).trim()
     const commitHash = rebased ? headCommitHash : (result.commitHash ?? '')
     const actualChanges = changedFiles(worktreePath, baseCommitHash, headCommitHash)
-    const expectedChanges = result.baseCommitHash && result.commitHash
+    const committedChanges = result.baseCommitHash && result.commitHash
       && validCommit(worktreePath, result.baseCommitHash) && validCommit(worktreePath, result.commitHash)
       ? changedFiles(worktreePath, result.baseCommitHash, result.commitHash) : []
+    const expectedChanges = goal.evidenceFiles?.length ? goal.evidenceFiles : committedChanges
     const acceptance = {
       command,
       executed: verification.executed === true,
@@ -96,6 +97,7 @@ export async function checkAutoGoalCompletion(
     }
     const timestamp = now().toISOString()
     const resultSummary = `${verification.status}: ${verification.detail}`
+    const diff = git(worktreePath, ['diff', `${baseCommitHash}..${headCommitHash}`, '--'])
     const evidence: AutoGoalCompletionEvidence = {
       expectedChanges,
       baseCommitHash,
@@ -105,12 +107,12 @@ export async function checkAutoGoalCompletion(
       acceptance,
       headCommitHash,
       changedFiles: actualChanges,
-      diff: git(worktreePath, ['diff', `${baseCommitHash}..${headCommitHash}`, '--']),
+      diff,
       resultSummary,
       timestamp,
       evidence: {
         expectedChanges, baseCommitHash, commitHash, headCommitHash,
-        acceptance, changedFiles: actualChanges, resultSummary, timestamp,
+        acceptance, changedFiles: actualChanges, diff, resultSummary, timestamp,
       },
     }
     const verdict = evaluateAutoGoalCompletionGate(evidence)
