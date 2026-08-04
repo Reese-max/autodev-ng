@@ -38,15 +38,15 @@ test('adng-daemons.cmd：位元組層純 ASCII（不匹配 [^\\x00-\\x7F]）', (
   expect(buf.toString('latin1')).not.toMatch(/[^\x00-\x7F]/)
 })
 
-test('adng-daemons.cmd：薄殼只委派 node dist\\cli.js supervise --configs-dir', () => {
+test('adng-daemons.cmd：supervisor 只委派一次 node dist\\cli.js supervise --configs-dir', () => {
   const content = readFileSync(CMD_PATH, 'utf8')
   const code = executableBody(content)
 
   expect(code).toMatch(/node\s+"%ADNG_ROOT%\\dist\\cli\.js"\s+supervise\s+--configs-dir/)
   expect(code).toMatch(/%ADNG_ROOT%\\configs/)
   expect(code).toMatch(/--guardian\s+off/)
-  // single node invocation — no per-config spawn loop in the shell
-  expect((code.match(/\bnode\b/gi) ?? []).length).toBe(1)
+  // supervisor single invocation — independent patrol/backup jobs are not per-config daemon spawns
+  expect((code.match(/\bnode\s+"%ADNG_ROOT%\\dist\\cli\.js"\s+supervise\b/gi) ?? []).length).toBe(1)
   // preprocess: refuse to run without a built CLI
   expect(code).toMatch(/if not exist "%ADNG_ROOT%\\dist\\cli\.js"/)
 })

@@ -46,18 +46,21 @@ export function runProcess(opts: {
   /** M5 Task 1：附加環境變數（疊在 process.env 上），供 m3 檔位注入 ANTHROPIC_BASE_URL
    * 等相容端點設定。未設時不帶 env 參數，行為與舊版完全一致（繼承父進程環境）。 */
   env?: Record<string, string>
+  /** 安全邊界用：env 是完整白名單，不可再混入父行程 secrets。 */
+  replaceEnv?: boolean
   /** 無法回收的 Windows 子進程事件；未提供時只做終止，不讓觀測故障影響主流程。 */
   events?: ProcEventSink
 }): Promise<ProcResult> {
   return new Promise(resolve => {
     const t0 = Date.now()
     const { cmd, args } = resolveSpawnTarget(opts.command, opts.args)
+    const childEnv = opts.replaceEnv ? (opts.env ?? {}) : opts.env ? { ...process.env, ...opts.env } : undefined
     const child = spawn(cmd, args, {
       cwd: opts.cwd,
       shell: false,
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
-      ...(opts.env ? { env: { ...process.env, ...opts.env } } : {})
+      ...(childEnv ? { env: childEnv } : {})
     })
     // Node 內建 StringDecoder 跨 chunk 緩衝多位元組字元，防 zh-TW 輸出腰斬亂碼
     child.stdout.setEncoding('utf8')

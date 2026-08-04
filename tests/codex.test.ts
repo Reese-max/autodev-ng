@@ -1,9 +1,10 @@
 import { expect, test } from 'vitest'
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CodexEngine } from '../src/engines/codex.js'
+import { FLEET_CODEX_CONFIG } from '../src/engines/codex-runtime.js'
 import { PreflightCache } from '../src/preflight.js'
 import type { Task } from '../src/types.js'
 
@@ -12,12 +13,13 @@ const T: Task = { id: 'ab12cd34', text: '修好登入頁', line: 0, status: 'ope
 
 function engine(mode: string, hashes: (string | undefined)[], timeoutMs = 10_000): CodexEngine {
   process.env.FAKE_CODEX_MODE = mode
-  const cache = new PreflightCache(join(mkdtempSync(join(tmpdir(), 'adng-cx-')), 'pf.json'))
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cx-'))
+  const cache = new PreflightCache(join(dir, 'pf.json'))
   let i = 0
   return new CodexEngine({
     // baseArgs/pingArgs 覆寫成 node+fixture：測 JSONL 解析與判定邏輯，不打真 codex/真 API
     command: process.execPath, baseArgs: [FAKE], pingArgs: [FAKE], timeoutMs, pingTimeoutMs: 10_000,
-    cache, getCommitHash: () => hashes[Math.min(i++, hashes.length - 1)]
+    cache, homeDir: join(dir, 'codex-home'), getCommitHash: () => hashes[Math.min(i++, hashes.length - 1)]
   })
 }
 
@@ -106,15 +108,54 @@ test('preflight：exit 0 但無 turn.completed（如 silent-fail）判失敗且 
 })
 
 test('effort 設定 → baseArgs 注入 -c model_reasoning_effort，pingArgs 不注入（ping 不燒推理）', () => {
-  const cache = new PreflightCache(join(mkdtempSync(join(tmpdir(), 'adng-cx-')), 'pf.json'))
-  const e = new CodexEngine({ cache, model: 'gpt-5.6-terra', effort: 'xhigh' }) as never as { baseArgs: string[]; pingArgs: string[] }
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cx-'))
+  const cache = new PreflightCache(join(dir, 'pf.json'))
+  const e = new CodexEngine({ cache, homeDir: join(dir, 'codex-home'), model: 'gpt-5.6-terra', effort: 'xhigh' }) as never as { baseArgs: string[]; pingArgs: string[] }
   expect(e.baseArgs).toContain('model_reasoning_effort=xhigh')
   expect(e.baseArgs.join(' ')).toContain('-c model_reasoning_effort=xhigh')
+  expect(e.baseArgs.join(' ')).toContain('-s workspace-write')
+  expect(e.baseArgs).toContain('--ephemeral')
+  expect(e.baseArgs).toContain('--strict-config')
+  expect(e.baseArgs).not.toContain('--dangerously-bypass-approvals-and-sandbox')
   expect(e.pingArgs).not.toContain('model_reasoning_effort=xhigh')
 })
 
 test('effort 未設 → args 與舊版一致（向後相容）', () => {
-  const cache = new PreflightCache(join(mkdtempSync(join(tmpdir(), 'adng-cx-')), 'pf.json'))
-  const e = new CodexEngine({ cache, model: 'gpt-5.6-terra' }) as never as { baseArgs: string[] }
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cx-'))
+  const cache = new PreflightCache(join(dir, 'pf.json'))
+  const e = new CodexEngine({ cache, homeDir: join(dir, 'codex-home'), model: 'gpt-5.6-terra' }) as never as { baseArgs: string[] }
   expect(e.baseArgs.join(' ')).not.toContain('model_reasoning_effort')
+})
+
+test('艦隊 runtime：注入隔離 CODEX_HOME、覆回最小 config、父行程 secrets 不外洩', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cx-runtime-'))
+  const homeDir = join(dir, 'codex-home')
+  mkdirSync(homeDir)
+  writeFileSync(join(homeDir, 'config.toml'), 'notify = ["cua_node"]\n[mcp_servers.cua_node]\ncommand = "node"\n')
+  process.env.FAKE_CODEX_MODE = 'env'
+  process.env.ADNG_TEST_SAFE = 'visible'
+  process.env.ADNG_TEST_SECRET_TOKEN = 'must-not-leak'
+  process.env.CODEX_THREAD_ID = 'parent-thread'
+  const cache = new PreflightCache(join(dir, 'pf.json'))
+  const e = new CodexEngine({
+    command: process.execPath, baseArgs: [FAKE], pingArgs: [FAKE], homeDir, cache,
+    env: { ADNG_TEST_ALLOWED_TOKEN: 'explicitly-allowed' }, getCommitHash: (() => { let n = 0; return () => n++ ? 'bbb' : 'aaa' })(),
+  })
+  try {
+    const r = await e.run({ task: T, projectPath: process.cwd() })
+    expect(r.ok).toBe(true)
+    const snapshot = JSON.parse(r.output.slice(0, r.output.indexOf('\n[tokens'))) as Record<string, string | undefined>
+    expect(snapshot).toEqual({ home: homeDir, safe: 'visible', allowed: 'explicitly-allowed' })
+    const config = readFileSync(join(homeDir, 'config.toml'), 'utf8')
+    expect(config).toBe(FLEET_CODEX_CONFIG)
+    expect(config).not.toMatch(/notify|cua_node|mcp_servers/i)
+    expect(config).toMatch(/cli_auth_credentials_store = "file"/)
+    expect(config).toMatch(/code_mode_host = false/)
+    expect(config).toMatch(/computer_use = false/)
+    expect(config).toMatch(/hooks = false/)
+  } finally {
+    delete process.env.ADNG_TEST_SAFE
+    delete process.env.ADNG_TEST_SECRET_TOKEN
+    delete process.env.CODEX_THREAD_ID
+  }
 })

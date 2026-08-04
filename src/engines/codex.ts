@@ -3,12 +3,15 @@ import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
+import { buildFleetCodexEnv, ensureFleetCodexHome } from './codex-runtime.js'
 
 export interface CodexOpts {
   /** 觀測用引擎識別；registry 以 tag 帶入區分多檔位，未設維持 'codex'。 */
   id?: string
   command?: string
-  /** run 用 args。預設顯式帶 bypass 旗標，不依賴 ~/.codex/config.toml 的全域設定。 */
+  /** 艦隊專屬 CODEX_HOME；config/auth/session 均不讀使用者 ~/.codex。 */
+  homeDir: string
+  /** run 用 args。預設非互動 workspace-write＋ephemeral。 */
   baseArgs?: string[]
   /** preflight 用 args。預設 read-only＋ephemeral：探針唯讀、不落 session（規格卡 ping 形式）。 */
   pingArgs?: string[]
@@ -39,21 +42,23 @@ export class CodexEngine implements Engine {
   private readonly idleTimeoutMs: number
   private readonly cache: PreflightCache
   private readonly getCommitHash: (cwd: string) => string | undefined
-  private readonly env?: Record<string, string>
+  private readonly homeDir: string
+  private readonly env: Record<string, string>
 
   constructor(opts: CodexOpts) {
     this.id = opts.id ?? 'codex'
     this.command = opts.command ?? 'codex'
     const modelArgs = opts.model ? ['--model', opts.model] : []
     const effortArgs = opts.effort ? ['-c', `model_reasoning_effort=${opts.effort}`] : []
-    this.baseArgs = [...(opts.baseArgs ?? ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox']), ...modelArgs, ...effortArgs]
-    this.pingArgs = [...(opts.pingArgs ?? ['exec', '--json', '-s', 'read-only', '--ephemeral', '--skip-git-repo-check']), ...modelArgs]
+    this.baseArgs = [...(opts.baseArgs ?? ['exec', '--json', '-s', 'workspace-write', '--ephemeral', '--strict-config']), ...modelArgs, ...effortArgs]
+    this.pingArgs = [...(opts.pingArgs ?? ['exec', '--json', '-s', 'read-only', '--ephemeral', '--strict-config', '--skip-git-repo-check']), ...modelArgs]
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 180 * 1000 // skills 冷載入＋忙機器實測可超過 90s
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
     this.cache = opts.cache
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
-    this.env = opts.env
+    this.homeDir = opts.homeDir
+    this.env = opts.env ?? {}
   }
 
   /** 真探針（codex 走 ChatGPT 訂閱額度，prompt 保持極小）；好壞結果都 cache，防連環重打。 */
@@ -64,7 +69,8 @@ export class CodexEngine implements Engine {
     try {
       const r = await runProcess({
         command: this.command, args: this.pingArgs, cwd: process.cwd(),
-        stdinText: 'Reply with exactly: PONG', timeoutMs: this.pingTimeoutMs, env: this.env
+        stdinText: 'Reply with exactly: PONG', timeoutMs: this.pingTimeoutMs,
+        env: this.runtimeEnv(), replaceEnv: true
       })
       const p = parseJsonl(r.stdout)
       result = p.turnCompleted && p.message.includes('PONG')
@@ -93,7 +99,8 @@ export class CodexEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const r = await runProcess({
       command: this.command, args: this.baseArgs, cwd: job.projectPath,
-      stdinText: prompt, timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, env: this.env
+      stdinText: prompt, timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs,
+      env: this.runtimeEnv(), replaceEnv: true
     })
 
     if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
@@ -123,6 +130,11 @@ export class CodexEngine implements Engine {
       return { ok: false, output, costUsd: 0, costUnknown: true, failureReason: 'no-commit(phantom completion?)', tokensIn, tokensOut, tokensCached }
     }
     return { ok: true, output, costUsd: 0, costUnknown: true, commitHash: after, baseCommitHash: before, tokensIn, tokensOut, tokensCached }
+  }
+
+  private runtimeEnv(): Record<string, string> {
+    ensureFleetCodexHome(this.homeDir)
+    return buildFleetCodexEnv(this.homeDir, this.env)
   }
 }
 

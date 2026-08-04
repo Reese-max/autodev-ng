@@ -431,6 +431,7 @@ test('M5：registry——白名單外 tag 拋錯；codex/agy/grok/qwen/opencode/
     const codex = deps.engines.resolve('codex')
     expect(codex).toBeInstanceOf(CodexEngine)
     expect(codex.id).toBe('codex')
+    expect((codex as unknown as { homeDir: string }).homeDir).toBe(join(cfg.dataDir, 'codex-home'))
     expect(deps.engines.resolve('agy').id).toBe('agy')
     const grok = deps.engines.resolve('grok')
     expect(grok).toBeInstanceOf(GrokEngine)

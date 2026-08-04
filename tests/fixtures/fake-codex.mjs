@@ -17,6 +17,17 @@ process.stdin.on('end', () => {
     emit({ type: 'turn.completed', usage: { input_tokens: 7, cached_input_tokens: 0, output_tokens: 3 } })
     process.exit(0)
   }
+  if (mode === 'env') {
+    emit({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({
+      home: process.env.CODEX_HOME,
+      safe: process.env.ADNG_TEST_SAFE,
+      dropped: process.env.ADNG_TEST_SECRET_TOKEN,
+      allowed: process.env.ADNG_TEST_ALLOWED_TOKEN,
+      thread: process.env.CODEX_THREAD_ID,
+    }) } })
+    emit({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } })
+    process.exit(0)
+  }
   const isPing = /PONG/.test(input)
   // 回聲前 800 字：足以覆蓋 engine prompt 全文（含 directive 尾段），供測試驗證 prompt 組裝
   emit({ type: 'item.completed', item: { type: 'agent_message', text: isPing ? 'PONG' : 'done: ' + input.slice(0, 800) } })
