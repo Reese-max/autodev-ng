@@ -12,7 +12,7 @@ import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetr
 import { enqueueMerge } from './engines/merge-queue.js'
 import { nudgeNoCommit } from './engines/no-commit-nudge.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
-import { pickCandidateTags } from './engines/pick-candidates.js'
+import { deniedFreeOnlyPin, pickCandidateTags } from './engines/pick-candidates.js'
 import { singleFlightPickRouting } from './engines/pick-ready-single-flight.js'
 import { quiet, type EventLog } from './events.js'
 import { globalBilledToday } from './globalcost.js'
@@ -337,14 +337,14 @@ function blockTask(
   { store, events }: Pick<Deps, 'store' | 'events'>,
   task: Task,
   reason: BlockedReason,
-  humanReason: string
+  humanReason: string, eventDetail?: string
 ): CycleResult {
   try {
     store.report(task.id, { kind: 'blocked', reason: humanReason })
   } catch (err) {
     quiet(() => events.append('report-failed', { task: task.text, kind: 'blocked', error: String(err), willRepick: true }))
   }
-  quiet(() => events.append('task-blocked', { task: task.text, reason, ...(humanReason.includes('retried=1') ? { retried: 1 } : {}) }))
+  quiet(() => events.append('task-blocked', { task: task.text, reason, ...(eventDetail ? { detail: eventDetail } : {}), ...(humanReason.includes('retried=1') ? { retried: 1 } : {}) }))
   return { kind: 'blocked', taskId: task.id, taskText: task.text, reason, ...(['dirty-worktree', 'completion-gate'].includes(reason) ? { alertDetail: humanReason } : {}) }
 }
 
@@ -372,7 +372,9 @@ export async function pickReadyTask(
   const { dailyAttemptCaps, todayAttemptCounts } = loadDailyAttemptCapContext(cfg.engines, cfg.dataDir)
   const engineStats = loadEngineStatsForWeighting(db, events, cfg.dataDir, cfg.engineRotation)
   for (const cand of openTasks) {
-    const tags = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs, dailyAttemptCaps, todayAttemptCounts, engineStats, zeroCostTags: zeroCostTags(cfg) })
+    const deniedPin = deniedFreeOnlyPin(cand, cfg.tierMode)
+    if (deniedPin) { const detail = `engine-not-allowed：tierMode=free-only，行內 [engine:${deniedPin}] 不在影子帳 free-tier 名單；不得降級或改派`; return blockTask({ store, events }, cand, 'engine-not-allowed', detail, detail) }
+    const tags = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs, dailyAttemptCaps, todayAttemptCounts, engineStats, zeroCostTags: zeroCostTags(cfg), tierMode: cfg.tierMode })
     for (const engineTag of tags) {
       const engineCfg = cfg.engines[engineTag]
       if (!engineCfg) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`)

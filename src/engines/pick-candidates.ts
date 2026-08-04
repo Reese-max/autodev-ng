@@ -26,6 +26,7 @@ import {
   loadRoutingState,
   shouldApplyRoutingState,
 } from './routing-state.js'
+import { isShadowFreeTierEngine } from './shadow-price.js'
 
 export type { QuarantineGate } from './quarantine-gate.js'
 export type { CandidateTailEnhancer } from './candidate-tail.js'
@@ -51,6 +52,8 @@ export interface PickCandidateInput {
   engineStats?: readonly EngineStat[]
   /** 零邊際成本引擎 tag（免費起跑用）；未設／空＝起點不限層（向後相容） */
   zeroCostTags?: ReadonlySet<string>
+  /** 未設＝既有候選位元序列不變；free-only＝只保留影子帳 free-tier 名單。 */
+  tierMode?: 'free-only'
 }
 
 export interface PickCandidateHooks {
@@ -74,6 +77,11 @@ export function loadActiveIsolatedTags(dataDir: string, nowIso?: string): string
   }
 }
 
+/** 行內 pin 不得因 free-only 被靜默降級；回傳被拒 tag 交由 scheduler 落 blocked。 */
+export function deniedFreeOnlyPin(task: { engineTag?: string }, tierMode?: 'free-only'): string | undefined {
+  return tierMode === 'free-only' && task.engineTag && !isShadowFreeTierEngine(task.engineTag) ? task.engineTag : undefined
+}
+
 /**
  * pickReadyTask 唯一候選入口。
  * 顯式 engineTag 仍過 quarantine 與日額度閘，但不補 subscription 尾端（尊重人工指定）。
@@ -82,11 +90,14 @@ export function pickCandidateTags(
   input: PickCandidateInput,
   hooks: PickCandidateHooks = {}
 ): string[] {
+  const rotation = input.tierMode === 'free-only'
+    ? input.rotation?.filter(isShadowFreeTierEngine)
+    : input.rotation
   // 成功率加權：有 stats 時把靜態 rotation 展開為有效 rotation（高成功率多槽、保底1）；
   // 無 stats／空一律用原 rotation（fail-open，行為不變）。顯式 engineTag 不受影響（candidateEngines 內短路）。
-  const effectiveRotation = input.engineStats && input.engineStats.length > 0 && input.rotation
-    ? weightedRotation(input.rotation, input.engineStats)
-    : input.rotation
+  const effectiveRotation = input.engineStats && input.engineStats.length > 0 && rotation
+    ? weightedRotation(rotation, input.engineStats)
+    : rotation
   // 免費起跑：對「有效輪替」（加權展開後）算零成本檔位索引——展開多槽也對得上。
   // 無零成本檔位（或未設）→ undefined，candidateEngines 走原公式（fail-open）。
   const entrySlots = input.zeroCostTags && input.zeroCostTags.size > 0 && effectiveRotation
@@ -107,9 +118,10 @@ export function pickCandidateTags(
   const afterTail = input.task.engineTag
     ? afterGate
     : enhance(afterGate, input.subscriptionTags ?? [])
-  return capGate(
+  const selected = capGate(
     afterTail,
     input.dailyAttemptCaps ?? new Map(),
     input.todayAttemptCounts ?? new Map(),
   )
+  return input.tierMode === 'free-only' ? selected.filter(isShadowFreeTierEngine) : selected
 }

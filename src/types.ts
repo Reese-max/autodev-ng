@@ -152,6 +152,7 @@ export const ConfigSchema = z.object({
   engines: z.record(z.string(), EngineConfigSchema).optional(),
   defaultEngine: z.string().default('claude'),
   engineRotation: z.array(z.string()).optional(), // 無 tag 任務的輪替路由清單（src/engines/rotation.ts）；未設＝defaultEngine 舊行為
+  tierMode: z.literal('free-only').optional(), // 未設＝既有路由；free-only＝僅允許影子帳 free-tier 引擎
   // M7：教訓庫檔路徑。learningsFile 未設時 cli.ts assemble 預設 join(dataDir,'learnings.md')
   // （功能零設定開啟）；globalLearningsFile 為跨專案共用教訓檔，未設即不注入全局段。
   learningsFile: z.string().optional(),

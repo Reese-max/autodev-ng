@@ -27,6 +27,11 @@ const RATES: Array<{ re: RegExp; inPerM: number; outPerM: number; cachedPerM: nu
   { re: /^grok/, inPerM: 3, outPerM: 15, cachedPerM: 0.3, tier: 'quota' },
 ]
 
+/** 派工限制沿用影子帳既有名單，避免另維護一份 free-tier 表。 */
+export function isShadowFreeTierEngine(engine: string): boolean {
+  return RATES.some(rate => rate.tier === 'free' && rate.re.test(engine))
+}
+
 export function shadowCostUsd(engine: string, tokensIn: number, tokensOut: number, tokensCached = 0): { usd: number; tier: ShadowTier } | null {
   const r = RATES.find(x => x.re.test(engine))
   if (!r) return null

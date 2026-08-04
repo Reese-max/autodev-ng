@@ -2,13 +2,13 @@
 
 ## 結論
 
-`src/*.ts` 頂層由 **2700 行**降至 **2235 行**，實際騰回 **465 行**。因此確認頂層嚴格低於
+`src/*.ts` 頂層由 **2700 行**降至 **2238 行**，實際騰回 **462 行**。因此確認頂層嚴格低於
 2250 行，且至少騰回 250 行。
 
 | 量測點 | 來源 | 頂層行數 | 與搬移前差異 |
 | --- | --- | ---: | ---: |
 | 搬移前 | `942554a00fdbed0b6666ff6f4a9bac140809fdce` | 2700 | 0 |
-| 搬移後 | 目前工作樹 `src/*.ts` | 2235 | -465 |
+| 搬移後 | 目前工作樹 `src/*.ts` | 2238 | -462 |
 
 搬移前基準是 `refactor(cli): 搬移子指令處理至子目錄`（`80825e5`）的直接前身；因此比較的是
 同一份 kernel 在實際搬移前後的檔案內容，而非 2700 行的匿名常數。
@@ -55,16 +55,16 @@
 | `src/judge.ts` | 41 |
 | `src/lock.ts` | 134 |
 | `src/preflight.ts` | 37 |
-| `src/scheduler.ts` | 449 |
-| `src/types.ts` | 177 |
+| `src/scheduler.ts` | 451 |
+| `src/types.ts` | 178 |
 | `src/verifier.ts` | 99 |
 | `src/verify.ts` | 94 |
 | `src/worktree.ts` | 332 |
-| **總計** | **2235** |
+| **總計** | **2238** |
 
 2026-08-03 帳目校正：infra-retry／rebase 補救／髒樹守門等連串交付使 `scheduler.ts` +60、
-`worktree.ts` +42，reap 前 run.db 活性雙證閘使 `types.ts` +2，合計 2248、騰回 452 行；2026-08-04 圍籬（fencing）與 todayLocal 外移 src/engines/（daemon-fence.ts／daemon-alerts.ts）後 daemon.ts 218→217，總計 2247、騰回 453 行。此次將 worktree checkout 驗證外移 `src/engines/worktree-checkout.ts`，頂層 `worktree.ts` 349→332，總計 2230、騰回 470 行；auto-goal completion gate 的主邏輯外移 `src/engines/auto-goal-completion.ts`，kernel 僅保留完成出口接線與 verify exit code，總計 **2235**、騰回 **465** 行。
-**距 2250 上限仍餘 15 行**——下一筆 kernel 頂層增長必須先搬移邏輯至 `src/engines/`。
+`worktree.ts` +42，reap 前 run.db 活性雙證閘使 `types.ts` +2，合計 2248、騰回 452 行；2026-08-04 圍籬（fencing）與 todayLocal 外移 src/engines/（daemon-fence.ts／daemon-alerts.ts）後 daemon.ts 218→217，總計 2247、騰回 453 行。此次將 worktree checkout 驗證外移 `src/engines/worktree-checkout.ts`，頂層 `worktree.ts` 349→332，總計 2230、騰回 470 行；auto-goal completion gate 的主邏輯外移 `src/engines/auto-goal-completion.ts`，kernel 僅保留完成出口接線與 verify exit code，總計 2235、騰回 465 行；本次 free-only tier mode 的主邏輯留在 `src/engines/`，頂層只增加 schema 與拒派接線 3 行，總計 **2238**、騰回 **462** 行。
+**距 2250 上限仍餘 12 行**——下一筆 kernel 頂層增長必須先搬移邏輯至 `src/engines/`。
 
 ## 可重現驗證
 
@@ -78,5 +78,5 @@ npm run build
 ```
 
 第一個測試直接以 Git 讀取上述基準提交的 `src/*.ts`，並以相同計數函式讀取目前工作樹，斷言
-2700 → 2235、465 行騰回、<2250 與 ≥250，並逐檔比對上表及搬移目的地。第二個測試持續守住 ≤2250 的
+2700 → 2238、462 行騰回、<2250 與 ≥250，並逐檔比對上表及搬移目的地。第二個測試持續守住 ≤2250 的
 kernel 薄殼邊界；`kernel-budget` 仍保留既有 ≤2700 工作上限守門。
