@@ -80,12 +80,6 @@
       "subscription": true,
       "timeoutMs": 4500000
     },
-    "agy": {
-      "adapter": "agy",
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "timeoutMs": 3600000
-    },
     "grok": {
       "adapter": "grok",
       "command": "C:/Users/Administrator/.grok/bin/grok.exe",

@@ -75,12 +75,6 @@
       "timeoutMs": 4500000,
       "dailyAttemptCap": 5
     },
-    "agy": {
-      "adapter": "agy",
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "timeoutMs": 3600000
-    },
     "grok": {
       "adapter": "grok",
       "costPerRunUsd": 0,
