@@ -46,7 +46,7 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
     for (const t of deps.kernelDeps.store.read().slice(-50)) {
       appendedTexts.add(t.text)
       const previous = existingByText.get(t.text)
-      const rank: Record<Task['status'], number> = { blocked: 0, open: 1, done: 2 }
+      const rank: Record<Task['status'], number> = { blocked: 0, superseded: 0, open: 1, done: 2 }
       if (!previous || rank[t.status] >= rank[previous.status]) existingByText.set(t.text, t)
       history.push(`既有任務(${t.status}): ${t.text}`)
     }
@@ -117,6 +117,10 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
     for (;;) {
       if (!deps.isAlive()) return { kind: 'killed', rounds: round }
       const r = await deps.runOnceFn(deps.kernelDeps)
+      if (r === 'deferred') return {
+        kind: 'stuck', rounds: round, retryable: true,
+        reason: 'engine supply deferred：目前可用引擎已耗盡，任務保持 open，待冷卻後續跑',
+      }
       // preflight-failed 不會標記 task done/blocked，task 仍是 open，
       // 若不中止，下一輪 runOnceFn 會重撿同一個 task、重複同一個 preflight
       // 失敗，形成無退避的緊迴圈。中止後交還控制權給外層 round 迴圈，

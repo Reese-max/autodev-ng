@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { FLEET_CODEX_PERMISSION_ARGS } from '../engines/codex-runtime.js'
 
 export const GUARDIAN_MODEL = 'gpt-5.6-luna'
 export const GUARDIAN_EFFORT = 'max'
@@ -38,7 +39,8 @@ export function guardianCodexArgs(schemaPath: string): string[] {
   return [
     'exec', '--json', '--model', GUARDIAN_MODEL,
     '-c', `model_reasoning_effort=${GUARDIAN_EFFORT}`,
-    '-c', 'approval_policy=never', '--sandbox', 'workspace-write',
+    '-c', 'approval_policy=never',
+    ...FLEET_CODEX_PERMISSION_ARGS, '-c', 'windows.sandbox="elevated"',
     '--disable', 'multi_agent', '--disable', 'multi_agent_v2',
     '--ephemeral', '--ignore-user-config', '--skip-git-repo-check', '--output-schema', schemaPath,
   ]

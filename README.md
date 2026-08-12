@@ -110,7 +110,9 @@ node dist/cli.js supervise --configs-dir configs --guardian off          # 只�
 node dist/cli.js supervise --configs-dir configs --guardian only         # 獨立 Guardian 排程；仍先做一次安全探測
 ```
 
-Guardian 不啟動 subagent，也不另設專案任務總時間／成本上限；Codex 完全無輸出進度 30 分鐘才由 idle watchdog 精準終止。相同事故以 supervisor 狀態與位元組事件游標去重，`failed`／`needs_attention`／卡死會送 Discord 告警；LLM 只在 `workspace-write` 內修復，重啟與驗收由宿主白名單執行。每次決策、token、耗時與獨立驗收證據寫入各專案 `<dataDir>/guardian-runs.jsonl`，跨專案租約與輸出 schema 位於 `data/guardian/`。
+Guardian 不啟動 subagent，也不另設專案任務總時間／成本上限；Codex 完全無輸出進度 30 分鐘才由 idle watchdog 精準終止。相同事故以 supervisor 狀態與位元組事件游標去重，`failed`／`needs_attention`／卡死會送 Discord 告警；LLM 使用隔離 `CODEX_HOME` 與 `workspace-only` 權限，只能修改工作區檔案，Git 提交、重啟與驗收由宿主執行。每次決策、token、耗時與獨立驗收證據寫入各專案 `<dataDir>/guardian-runs.jsonl`，跨專案租約與輸出 schema 位於 `data/guardian/`。
+
+建立 `configs/.adng.stop` 會暫停整個 fleet：launcher、直接 `supervise`、Guardian、持續 patrol 與 `/goal run` 都不會啟動工作；Discord bot 控制面仍可在線接受狀態查詢與後續明確恢復指令。
 
 ### 4. Discord bot（可選）
 

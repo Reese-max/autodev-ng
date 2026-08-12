@@ -122,9 +122,10 @@ async function cmdBacklog(d: BotDeps): Promise<CmdResult> {
     const open = tasks.filter(t => t.status === 'open')
     const done = tasks.filter(t => t.status === 'done')
     const blocked = tasks.filter(t => t.status === 'blocked')
+    const superseded = tasks.filter(t => t.status === 'superseded')
     return {
       ok: true, text: [
-        `adng backlog：open ${open.length}｜done ${done.length}｜blocked ${blocked.length}`,
+        `adng backlog：open ${open.length}｜done ${done.length}｜blocked ${blocked.length}｜superseded ${superseded.length}`,
         ...open.slice(0, 5).map(t => `- ${t.text}`)
       ].join('\n')
     }

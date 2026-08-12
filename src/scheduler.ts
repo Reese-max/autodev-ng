@@ -1,18 +1,17 @@
 import { existsSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
-import { localDay, type RunDb } from './db.js'
+import { localDay, type AttemptFailureClass, type RunDb } from './db.js'
 import { loadIsolatedTagsForPick } from './engines/apply-stats-isolation.js'
 import { loadDailyAttemptCapContext } from './engines/daily-attempt-cap-gate.js'
 import { loadEngineStatsForWeighting } from './engines/adaptive-rotation.js'
 import { firstMissingArtifact } from './engines/artifact-contract-git.js'
-import { checkAutoGoalCompletion, goalVerifyCommand, type AutoGoalCompletionCheck } from './engines/auto-goal-completion.js'
 import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetryReason, retriedBlockedReason, worktreeFailureReason, type InfrastructureRetryReason, type InfraRetryState } from './engines/infra-retry.js'
 import { enqueueMerge } from './engines/merge-queue.js'
 import { nudgeNoCommit } from './engines/no-commit-nudge.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
-import { attemptedEngineTags, freeOnlyAttemptLimit, freeOnlyListExhausted, freeOnlyRetryCandidates } from './engines/free-only-retry.js'
+import { freeOnlyAttemptLimit, freeOnlyListExhausted, freeOnlyRetryCandidates } from './engines/free-only-retry.js'
 import { sequentialReadyTasks, tryFreeOnlySplit } from './engines/free-only-split.js'
 import { deniedFreeOnlyPin, pickCandidateTags } from './engines/pick-candidates.js'
 import { singleFlightPickRouting } from './engines/pick-ready-single-flight.js'
@@ -56,7 +55,7 @@ export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
-  | 'failed' | 'preflight-failed' | 'engine-error'
+  | 'failed' | 'preflight-failed' | 'engine-error' | 'deferred'
   // blocked 攜帶任務文字回呼叫端：daemon 的 alertMessageFor 不再讀 heartbeat.currentTask
   // （解隱性耦合——heartbeat 是「目前跑到哪」的觀測面，blocked 的任務文字該由產生
   // blocked 的呼叫鏈直接帶回，不該繞去讀一個為了別的目的而存在的檔案）。
@@ -141,7 +140,7 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
     if (lastFail) directive = `${directive ?? task.text}\n\n上一次嘗試失敗被驗收打回，原因：${lastFail.replace(/\s+/g, ' ').trim().slice(0, 400)}\n請針對打回原因修正；宣稱改動的檔案與範圍必須與實際 diff 一致，不得宣稱未完成的部分。`
   } catch { /* 回饋面故障不擋派工 */ }
   // 幻影完成對策（run.db 四大失敗來源分析 2026-07-27）：自證硬指令恆附派工尾。
-  directive = `${directive ?? task.text}\n\n完成的定義＝已產生新 git commit。結束前執行 git log -1 --oneline 自證；沒有 commit 就如實回報失敗原因，不得宣稱完成。\n完成定義＝存在新 commit，無 commit 視為未完成。`
+  directive = `${directive ?? task.text}\n\n完成的定義＝工作區改動完成，且最終由引擎或可信宿主產生新 git commit。若 sandbox 保護 Git metadata，不得繞過沙箱，保留改動讓宿主提交；否則結束前執行 git log -1 --oneline 自證。\n完成定義＝最終存在新 commit，無 commit 視為未完成。`
 
   // try 只包 engine.run：下游 I/O 故障不該被誤判成引擎錯誤而污染 failCount。
   let res: RunResult
@@ -150,11 +149,11 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
   } catch (err) {
     if (isExternalEngineTermination(err)) return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${String(err)}`)
     // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
-    db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, durationMs: Date.now() - runStartMs })
+    db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, durationMs: Date.now() - runStartMs, failureClass: 'supply' })
     engine.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
     quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-    return resolveFailure(deps, task, 'engine-error', String(err), { costUsd: fixedCost ?? 0 })
+    return resolveFailure(deps, task, 'engine-error', String(err), 'supply', { costUsd: fixedCost ?? 0 })
   }
   if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`)
   res = await nudgeNoCommit(engine, { task, projectPath: wt.cwd, directive }, res, wt.baseHead)
@@ -166,17 +165,18 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
   const recordedCostUsd = fixedCost ?? (costEstimated ? cfg.failureCostEstimateUsd : res.costUsd)
   const baseDetail = res.failureReason ?? res.commitHash ?? ''
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
-  db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached })
+  const failureClass = res.failureReason?.startsWith('no-commit') ? 'task' as const : 'supply' as const
+  db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached, ...(!res.ok ? { failureClass } : {}) })
   const quotaUsage = { costUsd: recordedCostUsd, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached }
   if (!res.ok) engine.invalidatePreflight?.() // timeout/exit≠0/no-commit：引擎健康存疑，下輪重探（verify 拒收不算）
 
   const missingArtifact = res.ok ? firstMissingArtifact(wt.cwd, res.output, res.baseCommitHash, res.commitHash, cfg.artifactContract) : undefined
   if (missingArtifact) {
     const reason = `artifact-missing:${missingArtifact}`
-    db.record({ taskId: task.id, ok: false, costUsd: 0, detail: reason, engine: engineTag, durationMs: Date.now() - runStartMs })
+    db.record({ taskId: task.id, ok: false, costUsd: 0, detail: reason, engine: engineTag, durationMs: Date.now() - runStartMs, failureClass: 'task' })
     quiet(() => events.append('task-failed', { task: task.text, reason, outputTail: res.output.slice(-600) }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-    return resolveFailure(deps, task, 'failed', reason, quotaUsage)
+    return resolveFailure(deps, task, 'failed', reason, 'task', quotaUsage)
   }
 
   if (res.ok && verifier) {
@@ -191,11 +191,11 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
     for (const a of vc.alerts) quiet(() => events.append('verify-alert', { task: task.text, detail: a }))
     if (!vc.pass) {
       // 引擎那筆已記 ok:true+真實 cost（成本不可造假）；這裡多記一筆 ok:false 讓失敗計數靠這筆走。
-      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected', engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached })
+      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected', engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached, failureClass: 'task' })
       quiet(() => events.append('task-verify-failed', { task: task.text, reason: vc.reason }))
       // engine 失敗/verify 拒：rollback 已在 worktree 內安全跑過，保留現場供 debug（不清理）。
       quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-      return resolveFailure(deps, task, 'failed', `verify 拒收：${vc.reason ?? '未附原因'}`, quotaUsage)
+      return resolveFailure(deps, task, 'failed', `verify 拒收：${vc.reason ?? '未附原因'}`, 'task', quotaUsage)
     }
   }
 
@@ -210,13 +210,6 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
       ...(merge.failureStage ? { stage: merge.failureStage } : {}),
     }))
     if (merge.rebased) quiet(() => events.append('merge-rebased', { task: task.text, branch: wt.branch }))
-    const gate = merge.completionGate
-    if (gate?.applies && !gate.ok) {
-      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: `completion-gate:${gate.reason}`, engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached })
-      quiet(() => events.append('auto-goal-completion-gate-rejected', { task: task.text, reason: gate.reason, evidence: gate.evidence }))
-      quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-      return blockTask({ store, events }, task, 'completion-gate', `completion-gate：${gate.reason}`)
-    }
     if (!merge.merged) {
       if (merge.reason === 'branch-switched') {
         // HIGH 修復：主 repo 已不在 prepareWorktree 當時記下的分支（切走或 detached）——
@@ -258,8 +251,7 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
         task: task.text, kind: 'done', error: String(err), willRepick: true
       }))
     }
-    const completionEvidence = gate?.applies && gate.ok ? gate.evidence : undefined
-    quiet(() => events.append('task-done', { task: task.text, cost: recordedCostUsd, commit: merge.commitHash, ...(completionEvidence ? { evidence: completionEvidence } : {}) }))
+    quiet(() => events.append('task-done', { task: task.text, cost: recordedCostUsd, commit: merge.commitHash }))
 
     try {
       cleanupWorktree(cfg.projectPath, wt.cwd, wt.branch, cfg)
@@ -293,45 +285,34 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
   }))
   // engine 失敗（res.ok===false，非例外）：既有流程走 resolveFailure，worktree 保留現場。
   quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-  return resolveFailure(deps, task, 'failed', res.failureReason ?? '未知', quotaUsage)
+  return resolveFailure(deps, task, 'failed', res.failureReason ?? '未知', failureClass, quotaUsage)
 }
 
 /** rebase 成功後仍在 merge queue 內驗收；只有非紅燈才允許唯一一次 merge 重試。 */
-type CompletionMergeResult = MergeBackResult & { completionGate?: AutoGoalCompletionCheck }
-
-async function mergeAfterRebaseVerify(cfg: Config, wt: WorktreeHandle, task: Task, result: RunResult): Promise<CompletionMergeResult> {
+async function mergeAfterRebaseVerify(cfg: Config, wt: WorktreeHandle, _task: Task, _result: RunResult): Promise<MergeBackResult> {
   const timeouts = { gitTimeoutMs: cfg.gitTimeoutMs, worktreeAddTimeoutMs: cfg.worktreeAddTimeoutMs }
-  let completionGate = await checkAutoGoalCompletion(cfg, task, result, wt.cwd, wt.baseBranch)
-  if (completionGate.applies && !completionGate.ok) return { merged: false, completionGate }
   const first = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
     ...timeouts,
     deferAfterRebase: true,
   })
   if (!first.rebased || first.failureStage !== 'verify') {
-    return completionGate.applies ? { ...first, completionGate } : first
+    return first
   }
 
-  if (completionGate.applies) {
-    const rebasedGate = await checkAutoGoalCompletion(cfg, task, result, wt.cwd, wt.baseBranch, true)
-    completionGate = rebasedGate.applies ? rebasedGate : { applies: true, ok: false, reason: 'auto-goal-context-lost' }
-    if (!completionGate.ok) return { ...first, completionGate }
-  } else {
-    let verification
-    try {
-      verification = await runVerify({ command: goalVerifyCommand(cfg, wt.cwd), cwd: wt.cwd, timeoutMs: cfg.verifyTimeoutMs })
-    } catch {
-      return { ...first, failureStage: 'verify' }
-    }
-    // 非 auto-goal 維持既有語意：只有明確 fail 阻擋 rebase 後合併。
-    if (verification.status === 'fail') return { ...first, failureStage: 'verify' }
+  let verification
+  try {
+    verification = await runVerify({ command: cfg.verifyCommand, cwd: wt.cwd, timeoutMs: cfg.verifyTimeoutMs })
+  } catch {
+    return { ...first, failureStage: 'verify' }
   }
+  if (verification.status === 'fail') return { ...first, failureStage: 'verify' }
 
   const merged = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
     ...timeouts,
     allowRebase: false,
     rebaseAttempted: true,
   })
-  return completionGate.applies ? { ...merged, completionGate } : merged
+  return merged
 }
 
 /** 環境級 blocked：不計 maxAttempts；store.report 失敗只記事件。 */
@@ -373,10 +354,19 @@ export async function pickReadyTask(
   // 日額度守門：helper/run.db 失敗 → 空 caps/counts，維持原派工路徑（fail-open）
   const { dailyAttemptCaps, todayAttemptCounts } = loadDailyAttemptCapContext(cfg.engines, cfg.dataDir)
   const engineStats = loadEngineStatsForWeighting(db, events, cfg.dataDir, cfg.engineRotation)
+  let supplyDeferred = false
   for (const cand of openTasks) {
     const deniedPin = deniedFreeOnlyPin(cand, cfg.tierMode)
     if (deniedPin) { const detail = `engine-not-allowed：tierMode=free-only，行內 [engine:${deniedPin}] 不在影子帳 free-tier 名單；不得降級或改派`; return blockTask({ store, events }, cand, 'engine-not-allowed', detail, detail) }
-    const tags = freeOnlyRetryCandidates(pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs, dailyAttemptCaps, todayAttemptCounts, engineStats, zeroCostTags: zeroCostTags(cfg), tierMode: cfg.tierMode }), cfg.tierMode, cfg.tierMode === 'free-only' ? attemptedEngineTags(db, cand.id) : undefined)
+    const attempted = recentAttemptedEngineTags(db, cand.id, cfg.supplyRetryCooldownMs)
+    if (!attempted) { supplyDeferred = true; quiet(() => events.appendOnce('task-deferred', { taskId: cand.id, task: cand.text, reason: 'engine-supply-history-unavailable', retryAfterMs: cfg.supplyRetryCooldownMs })); continue }
+    const candidates = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs, dailyAttemptCaps, todayAttemptCounts, engineStats, zeroCostTags: zeroCostTags(cfg), tierMode: cfg.tierMode })
+    const tags = freeOnlyRetryCandidates(candidates, cfg.tierMode, attempted).filter(tag => !attempted.has(tag))
+    if (candidates.length > 0 && tags.length === 0) {
+      supplyDeferred = true
+      quiet(() => events.appendOnce('task-deferred', { taskId: cand.id, task: cand.text, reason: 'engine-supply-exhausted', retryAfterMs: cfg.supplyRetryCooldownMs }))
+      continue
+    }
     for (const engineTag of tags) {
       const engineCfg = cfg.engines[engineTag]
       if (!engineCfg) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`)
@@ -397,45 +387,53 @@ export async function pickReadyTask(
       return { task: cand, engine, engineTag, fixedCost: engineCfg.costPerRunUsd }
     }
   }
-  return 'preflight-failed'
+  return supplyDeferred ? 'deferred' : 'preflight-failed'
 }
-
-/** 達 maxAttempts → blocked（lastFailure 進註記）；report 拋錯只吞錯。 */
+/** 供應失敗保留 open；只有任務／驗收失敗達 maxAttempts 才 blocked。 */
 async function resolveFailure(
   deps: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'taskTerminalNotify'>,
   task: Task,
   base: 'failed' | 'engine-error',
   lastFailure: string,
+  failureClass: Extract<AttemptFailureClass, 'task' | 'supply'>,
   quotaUsage: Pick<TaskTerminalNotice, 'costUsd' | 'tokensIn' | 'tokensOut' | 'tokensCached'>
 ): Promise<CycleResult> {
   const { cfg, store, db, events } = deps
-  const split = await tryFreeOnlySplit({ cfg, store, task, failures: db.failCount(task.id), failure: lastFailure })
+  if (failureClass === 'supply') {
+    const attempted = recentAttemptedEngineTags(db, task.id, cfg.supplyRetryCooldownMs)
+    if (!attempted) return 'deferred'
+    if (cfg.tierMode === 'free-only' && freeOnlyListExhausted(cfg, task, subscriptionTags(cfg), attempted)) {
+      quiet(() => events.append('task-deferred', { taskId: task.id, task: task.text, reason: 'engine-supply-exhausted', retryAfterMs: cfg.supplyRetryCooldownMs }))
+      return 'deferred'
+    }
+    return base
+  }
+  const failures = db.taskFailCount(task.id)
+  const split = await tryFreeOnlySplit({ cfg, store, task, failures, failure: lastFailure })
   if (split.kind === 'split') {
     quiet(() => events.append('free-only-task-split', { taskId: task.id, pieces: split.pieces }))
     return base
   }
   if (split.kind === 'blocked') {
     const result = blockTask({ store, events }, task, 'max-attempts', `free-only 拆解失敗，已 blocked（${split.detail}）`)
-    await notifyTaskTerminal(deps, { outcome: 'failed', taskId: task.id, taskText: task.text, resultSummary: lastFailure, attempts: db.failCount(task.id), ...quotaUsage })
+    await notifyTaskTerminal(deps, { outcome: 'failed', taskId: task.id, taskText: task.text, resultSummary: lastFailure, attempts: failures, ...quotaUsage })
     return result
   }
-  const maxAttempts = freeOnlyAttemptLimit(cfg); const failures = db.failCount(task.id); const exhausted = cfg.tierMode === 'free-only' && freeOnlyListExhausted(cfg, task, subscriptionTags(cfg), attemptedEngineTags(db, task.id)); if (failures < maxAttempts && !exhausted) return base
+  const maxAttempts = freeOnlyAttemptLimit(cfg); if (failures < maxAttempts) return base
   const hint = lastFailure.replace(/\s+/g, ' ').trim().slice(0, 80) || '未知'
-  const result = blockTask({ store, events }, task, 'max-attempts', `連敗 ${exhausted ? failures : maxAttempts} 次，人工介入（最後失敗：${hint}）`)
+  const result = blockTask({ store, events }, task, 'max-attempts', `任務驗收連敗 ${maxAttempts} 次，人工介入（最後失敗：${hint}）`)
   await notifyTaskTerminal(deps, {
     outcome: 'failed', taskId: task.id, taskText: task.text,
-    resultSummary: lastFailure, attempts: exhausted ? failures : maxAttempts, ...quotaUsage,
+    resultSummary: lastFailure, attempts: maxAttempts, ...quotaUsage,
   })
   return result
 }
-
 async function notifyTaskTerminal(
   { taskTerminalNotify }: Pick<Deps, 'taskTerminalNotify'>,
   notice: TaskTerminalNotice
 ): Promise<void> {
   try { await taskTerminalNotify?.(notice) } catch { /* 通知面故障不得改寫任務終態。 */ }
 }
-
 /** 訂閱制引擎 tag 清單（邊際成本≈0，不踩日頂）。 */
 export function subscriptionTags(cfg: Config): string[] {
   return Object.entries(cfg.engines ?? {}).filter(([, e]) => e.subscription).map(([t]) => t)
@@ -455,9 +453,13 @@ function todayCost(db: RunDb, cfg: Config): number {
 
 /** run-once 任務跑完後補 heartbeat idle（stopped/cost/idle/preflight 已自帶收尾）。 */
 export function finalizeRunOnceHeartbeat(deps: Deps, result: CycleResult, now: Date = new Date()): void {
-  if (!(typeof result === 'object' || result === 'done' || result === 'failed' || result === 'engine-error')) return
+  if (!(typeof result === 'object' || result === 'done' || result === 'failed' || result === 'engine-error' || result === 'deferred')) return
   try {
     const day = localDay(now.toISOString(), deps.cfg.timezoneOffsetHours)
     writeHeartbeat(deps.events, deps.cfg, { state: 'idle', todayCostUsd: deps.db.billedCostForLocalDay(day, deps.cfg.timezoneOffsetHours, subscriptionTags(deps.cfg)) })
   } catch { /* 觀測面故障不可反殺 CLI（鐵律 #4） */ }
+}
+
+function recentAttemptedEngineTags(db: Pick<RunDb, 'attemptedEngineTags'>, taskId: string, cooldownMs: number): Set<string> | undefined {
+  try { return typeof db.attemptedEngineTags === 'function' ? new Set(db.attemptedEngineTags(taskId, new Date(Date.now() - cooldownMs).toISOString())) : new Set() } catch { return undefined }
 }

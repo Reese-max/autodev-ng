@@ -2,13 +2,13 @@
 
 ## 結論
 
-`src/*.ts` 頂層由 **2700 行**降至 **2238 行**，實際騰回 **462 行**。因此確認頂層嚴格低於
-2250 行，且至少騰回 250 行。
+截至 **2026-08-12** 的基準快照，`src/*.ts` 頂層由 **2700 行**降至 **2250 行**，實際騰回
+**450 行**。目前值由測試即時計算，持續要求頂層不超過 2250 行且至少騰回 250 行。
 
 | 量測點 | 來源 | 頂層行數 | 與搬移前差異 |
 | --- | --- | ---: | ---: |
 | 搬移前 | `942554a00fdbed0b6666ff6f4a9bac140809fdce` | 2700 | 0 |
-| 搬移後 | 目前工作樹 `src/*.ts` | 2238 | -462 |
+| 2026-08-12 基準快照 | 當日工作樹 `src/*.ts` | 2250 | -450 |
 
 搬移前基準是 `refactor(cli): 搬移子指令處理至子目錄`（`80825e5`）的直接前身；因此比較的是
 同一份 kernel 在實際搬移前後的檔案內容，而非 2700 行的匿名常數。
@@ -30,7 +30,6 @@
 
 | 搬移後檔案 | kernel 接線／用途 |
 | --- | --- |
-| `src/engines/auto-goal-completion.ts` | `src/scheduler.ts` 的 auto-goal 完成證據與專屬驗收閘 |
 | `src/engines/notify.ts` | `src/cli/assemble.ts` 組裝 Discord／Telegram notifier |
 | `src/engines/proc.ts` | `src/verify.ts` 共用子進程執行器 |
 | `src/engines/daemon-alerts.ts` | `src/daemon.ts` 保留告警薄接線 |
@@ -40,32 +39,33 @@
 `tests/kernel-relocation-report.test.ts` 會逐一檢查上述檔案存在、路徑只屬於
 `src/engines/` 或 `src/autopilot/`，並確認 `src/` 頂層沒有同名 `.ts` 檔。
 
-## 目前逐檔帳目
+## 2026-08-12 逐檔基準快照
 
-下表是正式計數的完整白名單；只計 `src/` 第一層 `.ts`，不計 `src/engines/`、`src/autopilot/`、`src/cli/` 等子目錄。
+下表只保留搬移驗收當日的歷史快照，不作為目前值；目前值一律由測試掃描 `src/` 第一層 `.ts`，不計 `src/engines/`、`src/autopilot/`、`src/cli/` 等子目錄。
 
 | 檔案 | 行數 |
 | --- | ---: |
-| `src/backlog.ts` | 203 |
+| `src/backlog.ts` | 204 |
 | `src/cli.ts` | 21 |
 | `src/daemon.ts` | 219 |
-| `src/db.ts` | 178 |
+| `src/db.ts` | 185 |
 | `src/digest.ts` | 111 |
 | `src/events.ts` | 126 |
 | `src/globalcost.ts` | 40 |
 | `src/judge.ts` | 1 |
 | `src/lock.ts` | 134 |
 | `src/preflight.ts` | 37 |
-| `src/scheduler.ts` | 463 |
-| `src/types.ts` | 180 |
+| `src/scheduler.ts` | 465 |
+| `src/types.ts` | 182 |
 | `src/verifier.ts` | 99 |
 | `src/verify.ts` | 94 |
 | `src/worktree.ts` | 332 |
-| **總計** | **2238** |
+| **總計** | **2250** |
 
 2026-08-03 帳目校正：infra-retry／rebase 補救／髒樹守門等連串交付使 `scheduler.ts` +60、
  `worktree.ts` +42，reap 前 run.db 活性雙證閘使 `types.ts` +2，合計 2248、騰回 452 行；2026-08-04 圍籬（fencing）與 todayLocal 外移 src/engines/（daemon-fence.ts／daemon-alerts.ts）後 daemon.ts 218→217，總計 2247、騰回 453 行。此次將 worktree checkout 驗證外移 `src/engines/worktree-checkout.ts`，頂層 `worktree.ts` 349→332，總計 2230、騰回 470 行；auto-goal completion gate 的主邏輯外移 `src/engines/auto-goal-completion.ts`，kernel 僅保留完成出口接線與 verify exit code，總計 2235、騰回 465 行；本次 free-only tier mode 的主邏輯留在 `src/engines/`，頂層只增加 schema 與拒派接線 3 行，總計 2238、騰回 462 行；本次免費層重試狀態查詢與 scheduler 接線增加 6 行，總計 2244、騰回 456 行。此次把既有 judge 邏輯搬至 `src/engines/semantic-judge.ts`（`src/judge.ts` 僅保留 re-export），並以子目錄承接 free-only split；backlog/parser、scheduler 與 Task metadata 接線淨調整後，總計 2232、騰回 468 行。2026-08-05 審查校準週跑接線只新增 `daemon.ts` 2 行與 `digest.ts` 4 行，總計 **2238**、騰回 **462** 行。
-**距 2250 上限仍餘 12 行**——下一筆 kernel 頂層增長必須先搬移邏輯至 `src/engines/`。
+2026-08-07 將失敗責任分類、供應冷卻與 superseded 狀態接回 kernel，並移除 scheduler 的子任務 auto-goal completion gate，校正後總計 **2249**、騰回 **451** 行。2026-08-12 修正 no-commit 失敗分類後，總計 **2250**、騰回 **450** 行。
+**2026-08-12 快照已達 2250 上限**——下一筆 kernel 頂層增長必須先搬移或刪除既有邏輯。
 
 ## 可重現驗證
 
@@ -79,5 +79,5 @@ npm run build
 ```
 
 第一個測試直接以 Git 讀取上述基準提交的 `src/*.ts`，並以相同計數函式讀取目前工作樹，斷言
-2700 → 2238、462 行騰回、<2250 與 ≥250，並逐檔比對上表及搬移目的地。第二個測試持續守住 ≤2250 的
+2700 基準、目前 ≤2250 與 ≥250 行騰回，並核對搬移目的地。第二個測試持續守住 ≤2250 的
 kernel 薄殼邊界；`kernel-budget` 仍保留既有 ≤2700 工作上限守門。

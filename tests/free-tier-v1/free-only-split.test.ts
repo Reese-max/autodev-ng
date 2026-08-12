@@ -36,7 +36,8 @@ function fixture(backlog = '- [ ] 母任務：修復免費層失敗\n'): Deps {
   })
   return {
     cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')),
-    engines: { resolve: () => new MockEngine([{ ok: false, reason: 'timeout' }, { ok: false, reason: 'timeout' }]) },
+    engines: { resolve: () => new MockEngine([{ ok: true }, { ok: true }]) },
+    verifier: { check: async () => ({ pass: false, reason: '可靠驗收失敗', alerts: [] }) },
     events: new EventLog(cfg.dataDir),
   }
 }
@@ -54,14 +55,14 @@ test('合法 judge 拆解：母片 superseded、血緣／順序與整合驗收�
     { task: '修正共享邏輯', acceptance: 'npx vitest run tests/fix.test.ts' },
     { task: '整合驗收', acceptance: `npx vitest run tests/integration.test.ts && ${ACCEPTANCE}` },
   ])
-  const engine = new MockEngine([{ ok: false, reason: 'timeout' }, { ok: false, reason: 'timeout' }])
+  const engine = new MockEngine([{ ok: true }, { ok: true }])
   d.engines = { resolve: () => engine }
 
   expect(await runOnce(d)).toBe('failed')
   expect(await runOnce(d)).toBe('failed')
 
   const tasks = d.store.read(), parent = tasks[0]!, children = tasks.slice(1)
-  expect(parent.status).toBe('blocked')
+  expect(parent.status).toBe('superseded')
   expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('adng:superseded-by-split')
   expect(children.map(task => task.split)).toEqual([
     { parentId: parent.id, part: 1, depth: 1, shape: 'sequential' },
@@ -78,7 +79,7 @@ test('合法 judge 拆解：母片 superseded、血緣／順序與整合驗收�
 test('非法 judge 輸出：末片漏母驗收時回退一般 blocked，不寫入半套子片', async () => {
   const d = fixture()
   judgeReply([{ task: '先修', acceptance: 'npx vitest run tests/unit.test.ts' }, { task: '整合', acceptance: 'npx vitest run tests/integration.test.ts' }])
-  const engine = new MockEngine([{ ok: false, reason: 'timeout' }, { ok: false, reason: 'timeout' }])
+  const engine = new MockEngine([{ ok: true }, { ok: true }])
   d.engines = { resolve: () => engine }
 
   expect(await runOnce(d)).toBe('failed')
@@ -93,7 +94,7 @@ test('拆解深度達二：再次達兩敗門檻時直接 blocked，judge 不得
   const d = fixture('- [ ] 深度二子片 <!-- adng:split {"parentId":"deadbeef","part":1,"depth":2,"shape":"sequential"} -->\n')
   const fetchSpy = vi.fn(async () => new Response('unexpected'))
   vi.stubGlobal('fetch', fetchSpy)
-  const engine = new MockEngine([{ ok: false, reason: 'timeout' }, { ok: false, reason: 'timeout' }])
+  const engine = new MockEngine([{ ok: true }, { ok: true }])
   d.engines = { resolve: () => engine }
 
   expect(await runOnce(d)).toBe('failed')

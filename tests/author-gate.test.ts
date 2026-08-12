@@ -5,7 +5,7 @@ import { parseGoal } from '../src/autopilot/goal.js'
 const FP = 'fp1234'
 const GLOBAL_VERIFY = 'npm test'
 const DEDICATED = `npx vitest run tests/${FP}-fix --reporter=dot`
-const cfg = { projectPath: process.cwd(), verifyCommand: GLOBAL_VERIFY } as never
+const cfg = { projectPath: process.cwd(), verifyCommand: GLOBAL_VERIFY } as unknown as Parameters<typeof authorGoal>[2]
 
 function llmOutput(opts: { objective?: string; verify?: string } = {}): string {
   const lines = [`OBJECTIVE: ${opts.objective ?? '修好問題 X，完成定義：測試轉綠'}`]

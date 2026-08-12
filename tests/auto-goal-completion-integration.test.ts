@@ -1,13 +1,13 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, test, vi } from 'vitest'
 import { AUTO_GOAL_MARKER } from '../src/autopilot/author.js'
-import { BacklogStore, taskId } from '../src/backlog.js'
+import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
-import { runOnce, type CycleResult, type Deps } from '../src/scheduler.js'
+import { runOnce, type Deps } from '../src/scheduler.js'
 import type { Engine, Job, PreflightResult, RunResult } from '../src/types.js'
 import { ConfigSchema } from '../src/types.js'
 
@@ -94,97 +94,15 @@ function events(root: string): Array<Record<string, unknown>> {
   return readFileSync(join(root, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
 }
 
-test('auto-goal 綠燈：專屬驗收與 Git evidence 先完成，唯一出口才寫 done／task-done／成功通知', async () => {
-  const f = fixture(0)
-  const notices: unknown[] = []
-  const result = await runOnce({ ...f.deps, taskTerminalNotify: vi.fn(async notice => { notices.push(notice); return true }) })
-
-  expect(result).toBe('done')
-  expect(readFileSync(f.deps.cfg.backlogFile, 'utf8')).toContain('- [x]')
-  expect(readFileSync(join(f.root, 'feature.txt'), 'utf8')).toBe('完成\n')
-  expect(notices).toHaveLength(1)
-  const done = events(f.root).find(event => event.type === 'task-done')!
-  const evidence = done.evidence as Record<string, unknown>
-  expect(evidence).toMatchObject({
-    baseCommitHash: f.base,
-    commitHash: git(f.root, ['rev-parse', 'HEAD']),
-    headCommitHash: git(f.root, ['rev-parse', 'HEAD']),
-    expectedChanges: ['feature.txt'],
-    changedFiles: ['feature.txt'],
-    acceptance: { command: f.command, executed: true, exitCode: 0 },
-  })
-  expect(String(evidence.resultSummary)).toMatch(/^pass: ok /)
-  expect(Number.isNaN(Date.parse(String(evidence.timestamp)))).toBe(false)
-})
-
-test('auto-goal 紅燈：不 merge、不寫 done/task-done、不發成功通知，分支與成果帶 gate reason 保留', async () => {
-  const f = fixture(7)
+test('GOAL 整體驗收不在子任務層執行：紅燈命令與缺少 evidence 都不會把子任務 blocked', async () => {
+  const f = fixture(7, { evidenceFiles: ['expected.txt'], engine: new CommitEngine(() => 'other.txt') })
   const notify = vi.fn(async () => true)
-  const result = await runOnce({ ...f.deps, taskTerminalNotify: notify })
 
-  expect(result).toMatchObject({ kind: 'blocked', reason: 'completion-gate', alertDetail: 'completion-gate：acceptance-failed:exit=7' })
-  expect(git(f.root, ['rev-parse', 'HEAD'])).toBe(f.base)
-  expect(existsSync(join(f.root, 'feature.txt'))).toBe(false)
-  expect(readFileSync(f.deps.cfg.backlogFile, 'utf8')).toContain('completion-gate：acceptance-failed:exit=7')
-  const worktree = join(f.deps.cfg.worktreesDir, taskId(TASK))
-  expect(readFileSync(join(worktree, 'feature.txt'), 'utf8')).toBe('完成\n')
-  expect(git(f.root, ['branch', '--list', `adng/${taskId(TASK)}`])).toContain(`adng/${taskId(TASK)}`)
-  expect(events(f.root).some(event => event.type === 'task-done')).toBe(false)
-  expect(events(f.root)).toEqual(expect.arrayContaining([
-    expect.objectContaining({ type: 'auto-goal-completion-gate-rejected', reason: 'acceptance-failed:exit=7' }),
-    expect.objectContaining({ type: 'worktree-kept' }),
-  ]))
-  expect(notify).not.toHaveBeenCalled()
+  expect(await runOnce({ ...f.deps, taskTerminalNotify: notify })).toBe('done')
+  expect(readFileSync(f.deps.cfg.backlogFile, 'utf8')).toContain('- [x]')
+  expect(readFileSync(join(f.root, 'other.txt'), 'utf8')).toBe('完成\n')
+  expect(git(f.root, ['rev-parse', 'HEAD'])).not.toBe(f.base)
+  expect(events(f.root).some(event => event.type === 'auto-goal-completion-gate-rejected')).toBe(false)
+  expect(events(f.root).find(event => event.type === 'task-done')).not.toHaveProperty('evidence')
+  expect(notify).toHaveBeenCalledOnce()
 })
-
-test('auto-goal Git 對帳：引擎回報的 commit 不是實際 HEAD 時 fail-closed', async () => {
-  const engine = new CommitEngine(undefined, (_head, base) => base)
-  const f = fixture(0, { engine })
-
-  expect(await runOnce(f.deps)).toMatchObject({
-    kind: 'blocked', reason: 'completion-gate', alertDetail: 'completion-gate：head-commit-mismatch',
-  })
-  expect(git(f.root, ['rev-parse', 'HEAD'])).toBe(f.base)
-  expect(events(f.root).some(event => event.type === 'task-done')).toBe(false)
-})
-
-test('auto-goal Git 對帳：格式正確但不存在的 commit 仍 fail-closed', async () => {
-  const f = fixture(0, { engine: new CommitEngine(undefined, () => 'f'.repeat(40)) })
-
-  expect(await runOnce(f.deps)).toMatchObject({
-    kind: 'blocked', reason: 'completion-gate', alertDetail: 'completion-gate：commit-invalid',
-  })
-  expect(git(f.root, ['rev-parse', 'HEAD'])).toBe(f.base)
-  expect(events(f.root).some(event => event.type === 'task-done')).toBe(false)
-})
-
-test('auto-goal 預期變更對帳：commit 沒改佐證檔案時 fail-closed', async () => {
-  const f = fixture(0, { evidenceFiles: ['feature.txt'], engine: new CommitEngine(() => 'other.txt') })
-
-  expect(await runOnce(f.deps)).toMatchObject({
-    kind: 'blocked', reason: 'completion-gate',
-    alertDetail: 'completion-gate：missing-expected-change:feature.txt',
-  })
-  expect(git(f.root, ['rev-parse', 'HEAD'])).toBe(f.base)
-  expect(events(f.root).some(event => event.type === 'task-done')).toBe(false)
-})
-
-test('M1 auto-goal 閉環：3 任務混合 2 completed／1 gate blocked，最後回 idle', async () => {
-  const tasks = ['任務A', '任務B', '任務C']
-  const command = `"${process.execPath}" -e "process.exit(require('node:fs').existsSync('bad.txt') ? 7 : 0)"`
-  const engine = new CommitEngine(task => task === '任務B' ? 'bad.txt' : `${task}.txt`)
-  const f = fixture(0, { tasks, command, evidenceFiles: [], engine })
-
-  const results: CycleResult[] = []
-  for (let i = 0; i < 5; i++) results.push(await runOnce(f.deps))
-
-  expect(results).toEqual([
-    'done',
-    { kind: 'blocked', taskId: taskId('任務B'), taskText: '任務B', reason: 'completion-gate', alertDetail: 'completion-gate：acceptance-failed:exit=7' },
-    'done', 'idle', 'idle',
-  ])
-  const recorded = events(f.root)
-  expect(recorded.filter(event => event.type === 'task-done')).toHaveLength(2)
-  expect(recorded.filter(event => event.type === 'auto-goal-completion-gate-rejected')).toHaveLength(1)
-  expect(JSON.parse(readFileSync(join(f.deps.cfg.dataDir, 'heartbeat.json'), 'utf8')).state).toBe('idle')
-}, 45_000)

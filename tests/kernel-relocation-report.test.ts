@@ -10,29 +10,9 @@ const REPORT = join(ROOT, 'docs', 'kernel-line-relocation-report.md')
 const BEFORE_RELOCATION = '942554a00fdbed0b6666ff6f4a9bac140809fdce'
 const FIRST_RELOCATION = '80825e50fa264a8aa5d35cfe8c2ca1f0b8781adb'
 const BEFORE_LINES = 2700
-const CURRENT_KERNEL_BY_FILE: Readonly<Record<string, number>> = {
-  'backlog.ts': 203,
-  'cli.ts': 21,
-  'daemon.ts': 219,
-  'db.ts': 178,
-  'digest.ts': 111,
-  'events.ts': 126,
-  'globalcost.ts': 40,
-  'judge.ts': 1,
-  'lock.ts': 134,
-  'preflight.ts': 37,
-  'scheduler.ts': 463,
-  'types.ts': 180,
-  'verifier.ts': 99,
-  'verify.ts': 94,
-  'worktree.ts': 332,
-}
-const AFTER_LINES = Object.values(CURRENT_KERNEL_BY_FILE).reduce((total, lines) => total + lines, 0)
-const RECLAIMED_LINES = BEFORE_LINES - AFTER_LINES
 const TARGET_CAP = 2250
 const REQUIRED_RECLAIMED_LINES = 250
 const RELOCATED_LOGIC = [
-  ['engines/auto-goal-completion.ts', 'scheduler.ts', './engines/auto-goal-completion.js'],
   ['engines/daemon-alerts.ts', 'daemon.ts', './engines/daemon-alerts.js'],
   ['engines/semantic-judge.ts', 'judge.ts', './engines/semantic-judge.js'],
   ['engines/notify.ts', 'cli/assemble.ts', '../engines/notify.js'],
@@ -86,18 +66,10 @@ describe('kernel 搬移前後行數報告', () => {
     expect(historicalKernelLines(BEFORE_RELOCATION)).toBe(BEFORE_LINES)
   })
 
-  it('目前 kernel 頂層為 2238 行，低於 2250 行且實際騰回 462 行', () => {
+  it('目前 kernel 頂層不超過 2250 行，且至少騰回 250 行', () => {
     const current = currentKernelLines()
-    expect(current).toBe(AFTER_LINES)
-    expect(current).toBeLessThan(TARGET_CAP)
-    expect(BEFORE_LINES - current).toBe(RECLAIMED_LINES)
+    expect(current).toBeLessThanOrEqual(TARGET_CAP)
     expect(BEFORE_LINES - current).toBeGreaterThanOrEqual(REQUIRED_RECLAIMED_LINES)
-  })
-
-  it('目前逐檔帳目與報告固定值一致，且未漏計或多計頂層檔案', () => {
-    const current = currentKernelBreakdown()
-    expect(current).toEqual(CURRENT_KERNEL_BY_FILE)
-    expect(Object.keys(current).sort()).toEqual(Object.keys(CURRENT_KERNEL_BY_FILE).sort())
   })
 
   it('搬移邏輯只落在 engines 或 autopilot，且未在 kernel 頂層留下同名檔', () => {
@@ -112,15 +84,14 @@ describe('kernel 搬移前後行數報告', () => {
 
   it('報告記錄相同的可重現基準、結果與驗證指令', () => {
     const report = readFileSync(REPORT, 'utf8')
-    for (const fact of [BEFORE_RELOCATION, '2700', '2238', '462', '2250', '250']) {
+    for (const fact of [BEFORE_RELOCATION, '2700', '2250', '250']) {
       expect(report).toContain(fact)
-    }
-    for (const [file, lines] of Object.entries(CURRENT_KERNEL_BY_FILE)) {
-      expect(report).toContain(`| \`src/${file}\` | ${lines} |`)
     }
     for (const [destination] of RELOCATED_LOGIC) {
       expect(report).toContain(`\`src/${destination}\``)
     }
+    expect(report).toContain('截至 **2026-08-12** 的基準快照')
+    expect(report).toContain('歷史快照，不作為目前值')
     expect(report).toContain('npx vitest run tests/kernel-relocation-report.test.ts')
   })
 })

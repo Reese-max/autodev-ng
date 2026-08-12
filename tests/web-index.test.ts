@@ -14,6 +14,7 @@ class Element {
   value = ''
   onclick: unknown
   addEventListener() {}
+  querySelector(): Element { return new Element() }
 }
 
 class Document {
@@ -43,16 +44,17 @@ test('首頁艦隊卡片每 30 秒刷新資料，並顯示空狀態', async () =
   const document = new Document()
   const timers: Array<{ callback: () => unknown; ms: number }> = []
   let projects: any[] = [
-    { name: 'alpha', state: 'running', currentTask: '首輪資料', todayOk: 1, todayFail: 0, todayCostUsd: 0, backlogOpen: 1, backlogBlocked: 0, daemonAlive: true, daemonStatus: 'ALIVE' },
+    { name: 'alpha', state: 'running', currentTask: '首輪資料', todayOk: 1, todayFail: 0, todayCostUsd: 0, backlogOpen: 1, backlogBlocked: 0, backlogSuperseded: 2, daemonAlive: true, daemonStatus: 'ALIVE' },
     { name: 'beta', state: 'idle', todayOk: 0, todayFail: 1, todayCostUsd: 0, backlogOpen: 2, backlogBlocked: 1, daemonAlive: false, daemonStatus: 'DEAD' },
     { name: 'gamma', state: 'idle', todayOk: 2, todayFail: 0, todayCostUsd: 0, backlogOpen: 0, backlogBlocked: 0, daemonAlive: true },
   ]
+  let payload: any = { projects }
   const context = {
     document,
     location: { search: '' },
     localStorage: { getItem: () => null, setItem: () => {} },
     URLSearchParams,
-    fetch: async () => ({ ok: true, json: async () => ({ projects }) }),
+    fetch: async () => ({ ok: true, json: async () => payload }),
     setInterval: (callback: () => unknown, ms: number) => { timers.push({ callback, ms }); return timers.length },
     setTimeout: () => 0,
   }
@@ -62,17 +64,28 @@ test('首頁艦隊卡片每 30 秒刷新資料，並顯示空狀態', async () =
   const cards = document.getElementById('projectCards')
   expect(cards.innerHTML).toContain('alpha')
   expect(cards.innerHTML).toContain('DEAD')
+  expect(cards.innerHTML).toContain('superseded <b>2</b>')
   expect(cards.innerHTML).not.toContain('daemon 死')
   expect(cards.innerHTML.match(/data-project=/g)).toHaveLength(3)
 
   const pollTimer = timers.find(timer => timer.ms === 30000)
   if (!pollTimer) throw new Error('首頁 30 秒輪詢未註冊')
   projects = [{ ...projects[0], currentTask: '已刷新資料' }]
+  payload = { projects }
   await pollTimer.callback()
   expect(cards.innerHTML).toContain('已刷新資料')
   expect(cards.innerHTML).not.toContain('首輪資料')
 
   projects = []
+  payload = { projects }
   await pollTimer.callback()
   expect(cards.innerHTML).toContain('目前沒有可顯示的專案')
+
+  payload = {
+    heartbeat: null, backlog: { open: 1, blocked: 0, superseded: 2, done: 3 },
+    cost: { today: 0, soft: 0, hard: 0 }, attempts: [], events: [], dlqCount: 0,
+    botAlive: false, silencedUntil: null, stopFilePresent: false,
+  }
+  await pollTimer.callback()
+  expect(document.getElementById('backlogLine').textContent).toContain('superseded=2')
 })

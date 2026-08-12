@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process'
 import { setSilence, clearSilence } from './silence.js'
 import { callAgent } from '../autopilot/llm.js'
 import { withBacklogLock } from '../backlog.js'
+import { withPauseGate } from '../supervisor/pause-gate.js'
 import type { BotDeps, CmdResult } from './handlers.js'
 
 const TASK_TEXT_NEWLINE_ERR = '任務內容不可含換行'
@@ -47,7 +48,7 @@ export function appendUserTask(backlogFile: string, text: string): void {
 
 export async function doPause(d: BotDeps): Promise<CmdResult> {
   try {
-    writeFileSync(d.cfg.stopFile, 'bot /pause\n')
+    withPauseGate([d.cfg.stopFile], () => writeFileSync(d.cfg.stopFile, 'bot /pause\n'))
     return { ok: true, text: '已寫入 stop 檔，daemon 將優雅停止' }
   } catch {
     return { ok: false, text: '暫停失敗，請檢查 stop 檔權限' }
@@ -57,7 +58,9 @@ export async function doPause(d: BotDeps): Promise<CmdResult> {
 /** 缺 stopFile 也回成功文字——resume 的語意是「確保處於運作狀態」，不是「一定有檔可刪」。 */
 export async function doResume(d: BotDeps): Promise<CmdResult> {
   try {
-    if (existsSync(d.cfg.stopFile)) unlinkSync(d.cfg.stopFile)
+    withPauseGate([d.cfg.stopFile], () => {
+      if (existsSync(d.cfg.stopFile)) unlinkSync(d.cfg.stopFile)
+    })
     return { ok: true, text: '已恢復，daemon 將繼續運作' }
   } catch {
     return { ok: false, text: '恢復失敗，請檢查 stop 檔權限' }
@@ -158,19 +161,22 @@ async function goalSet(d: BotDeps, text: string): Promise<CmdResult> {
 /** spawnFn 可注入（測試絕不真 spawn）；雙跑防護不在此處——鎖在 autopilot/run.ts main()（Item 2），這裡只負責啟動。 */
 async function goalRun(d: BotDeps, spawnFn: typeof spawn): Promise<CmdResult> {
   if (!d.cfg.goalFile || !existsSync(d.cfg.goalFile)) return { ok: false, text: GOAL_NOT_SET }
-  const logFile = join(d.cfg.dataDir, 'autopilot-console.log')
-  const outFd = openSync(logFile, 'a')
-  try {
-    // 改用 process.execPath(與 bot 同一顆 node)，避免 PATH 漂移導致多版本切換的不穩定
-    spawnFn(process.execPath, [autopilotRunScript(), '--config', d.cfgPath], {
-      detached: true,
-      stdio: ['ignore', outFd, outFd],
-      windowsHide: true // 踩雷 §25：detached spawn 不補這個會冒黑窗
-    }).unref()
-  } finally {
-    closeSync(outFd) // spawn 已把 fd dup 進子進程，父行程這份可放心關閉
-  }
-  return { ok: true, text: 'autopilot 已啟動(cost 閘與無進展煞車由 kernel 管),停止:/goal stop' }
+  return withPauseGate([d.cfg.stopFile], () => {
+    if (existsSync(d.cfg.stopFile)) return { ok: false, text: '車隊暫停中；請先用 /resume 明確恢復，再執行 /goal run' }
+    const logFile = join(d.cfg.dataDir, 'autopilot-console.log')
+    const outFd = openSync(logFile, 'a')
+    try {
+      // 改用 process.execPath(與 bot 同一顆 node)，避免 PATH 漂移導致多版本切換的不穩定
+      spawnFn(process.execPath, [autopilotRunScript(), '--config', d.cfgPath], {
+        detached: true,
+        stdio: ['ignore', outFd, outFd],
+        windowsHide: true // 踩雷 §25：detached spawn 不補這個會冒黑窗
+      }).unref()
+    } finally {
+      closeSync(outFd) // spawn 已把 fd dup 進子進程，父行程這份可放心關閉
+    }
+    return { ok: true, text: 'autopilot 已啟動(cost 閘與無進展煞車由 kernel 管),停止:/goal stop' }
+  })
 }
 
 /** 掃 dataDir 找 goal-*.jsonl，取 mtime 最新一份的最後一行；缺檔/掃描失敗一律回「尚無 session 紀錄」。 */

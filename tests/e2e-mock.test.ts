@@ -23,7 +23,7 @@ function initGitRepo(dir: string): void {
   execFileSync('git', ['commit', '-m', 'chore: init'], { cwd: dir, stdio: 'ignore' })
 }
 
-test('M1 閉環：3 任務→2 完成 1 blocked→idle', async () => {
+test('M1 閉環：3 任務→2 完成 1 驗收 blocked→idle', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-e2e-'))
   initGitRepo(dir)
   const backlogFile = join(dir, 'BACKLOG.md')
@@ -33,11 +33,11 @@ test('M1 閉環：3 任務→2 完成 1 blocked→idle', async () => {
     engine: 'mock', stopFile: join(dir, '.adng.stop'),
     worktreesDir: join(dir, 'worktrees') // 絕對路徑，絕不落在真專案目錄（鐵律 #6）
   })
-  // 劇本：A 成功；B 連敗兩次；C 成功
-  const engine = new MockEngine([
-    { ok: true }, { ok: false, reason: 'b1' }, { ok: false, reason: 'b2' }, { ok: true }
-  ])
-  const d: Deps = { cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')), engines: { resolve: () => engine }, events: new EventLog(cfg.dataDir) }
+  const engine = new MockEngine([{ ok: true }, { ok: true }, { ok: true }, { ok: true }])
+  const verifier: NonNullable<Deps['verifier']> = {
+    check: async job => ({ pass: job.task.text !== '任務B', reason: 'B 驗收拒收', alerts: [] }),
+  }
+  const d: Deps = { cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')), engines: { resolve: () => engine }, events: new EventLog(cfg.dataDir), verifier }
 
   const seq: CycleResult[] = []
   for (let i = 0; i < 6; i++) seq.push(await runOnce(d))

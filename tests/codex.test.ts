@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest'
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -81,15 +82,41 @@ test('turn.completed 有、但無新 commit → no-commit phantom completion 失
   expect(r.failureReason).toContain('no-commit')
 })
 
-test('prompt 組裝沿模板：directive 優先＋git add/commit 硬話真的進 prompt', async () => {
+test('prompt 組裝沿模板：directive 優先，並把 Git 提交留給可信宿主', async () => {
   const e = engine('ok', ['aaa', 'bbb'])
   const r = await e.run({
     task: T, projectPath: process.cwd(),
     directive: '修好登入頁\n\nDIRECTIVE-MARKER：port 3210 是使用者的進程，不要殺'
   })
   expect(r.output).toContain('DIRECTIVE-MARKER')
-  expect(r.output).toContain('git add -A')
-  expect(r.output).toContain('整輪作廢')
+  expect(r.output).toContain('不要執行 git add 或 git commit')
+  expect(r.output).toContain('可信宿主')
+})
+
+test('managed worktree：Codex 只留檔案變更，宿主代為提交且不納入 marker', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cx-host-commit-'))
+  execFileSync('git', ['init', '-b', 'main'], { cwd: dir, stdio: 'ignore' })
+  execFileSync('git', ['config', 'user.email', 'adng-test@example.com'], { cwd: dir })
+  execFileSync('git', ['config', 'user.name', 'adng-test'], { cwd: dir })
+  writeFileSync(join(dir, 'tracked.txt'), 'before\n')
+  execFileSync('git', ['add', 'tracked.txt'], { cwd: dir })
+  execFileSync('git', ['commit', '-m', 'chore: seed'], { cwd: dir, stdio: 'ignore' })
+  writeFileSync(join(dir, '.adng-worktree'), '{}')
+  writeFileSync(join(dir, '.git', 'info', 'exclude'), '.adng-worktree\n.serena/\n.devin/config.local.json\n')
+  writeFileSync(join(dir, 'tracked.txt'), 'after\n')
+  process.env.FAKE_CODEX_MODE = 'ok'
+  const homeDir = join(mkdtempSync(join(tmpdir(), 'adng-cx-host-home-')), 'codex-home')
+  const e = new CodexEngine({
+    command: process.execPath, baseArgs: [FAKE], pingArgs: [FAKE], homeDir,
+    cache: new PreflightCache(join(dir, 'pf.json')),
+  })
+
+  const r = await e.run({ task: T, projectPath: dir })
+
+  expect(r.ok).toBe(true)
+  expect(r.baseCommitHash).not.toBe(r.commitHash)
+  expect(execFileSync('git', ['show', '--pretty=', '--name-only', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()).toBe('tracked.txt')
+  expect(execFileSync('git', ['status', '--short'], { cwd: dir, encoding: 'utf8' }).trim()).toBe('')
 })
 
 test('preflight：PONG＋turn.completed 判 ok，第二次走 cache（fake 換 fail 仍 ok）', async () => {
@@ -113,7 +140,9 @@ test('effort 設定 → baseArgs 注入 -c model_reasoning_effort，pingArgs 不
   const e = new CodexEngine({ cache, homeDir: join(dir, 'codex-home'), model: 'gpt-5.6-terra', effort: 'xhigh' }) as never as { baseArgs: string[]; pingArgs: string[] }
   expect(e.baseArgs).toContain('model_reasoning_effort=xhigh')
   expect(e.baseArgs.join(' ')).toContain('-c model_reasoning_effort=xhigh')
-  expect(e.baseArgs.join(' ')).toContain('-s workspace-write')
+  expect(e.baseArgs).not.toContain('-s')
+  expect(e.baseArgs).not.toContain('--sandbox')
+  expect(e.baseArgs.join(' ')).not.toContain('workspace-write')
   expect(e.baseArgs).toContain('--ephemeral')
   expect(e.baseArgs).toContain('--strict-config')
   expect(e.baseArgs).not.toContain('--dangerously-bypass-approvals-and-sandbox')
@@ -148,9 +177,17 @@ test('艦隊 runtime：注入隔離 CODEX_HOME、覆回最小 config、父行程
     expect(snapshot).toEqual({ home: homeDir, safe: 'visible', allowed: 'explicitly-allowed' })
     const config = readFileSync(join(homeDir, 'config.toml'), 'utf8')
     expect(config).toBe(FLEET_CODEX_CONFIG)
+    expect(config).toContain('default_permissions = "workspace-only"')
+    expect(config).toContain('[permissions.workspace-only]')
+    expect(config).toContain('":root" = "deny"')
+    expect(config).toContain('":tmpdir" = "deny"')
+    expect(config).toContain('":slash_tmp" = "deny"')
+    expect(config).toContain('sandbox = "elevated"')
+    expect(config).not.toMatch(/danger-full-access|sandbox_mode/)
     expect(config).not.toMatch(/notify|cua_node|mcp_servers/i)
     expect(config).toMatch(/cli_auth_credentials_store = "file"/)
-    expect(config).toMatch(/code_mode_host = false/)
+    expect(config).toMatch(/code_mode = true/)
+    expect(config).toMatch(/code_mode_host = true/)
     expect(config).toMatch(/computer_use = false/)
     expect(config).toMatch(/hooks = false/)
   } finally {

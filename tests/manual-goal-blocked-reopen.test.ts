@@ -2,10 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { parseBacklog, taskId } from '../src/backlog.js'
-import {
-  BLOCKED_REOPEN_EXHAUSTED_EVENT,
-  classifyDedupReopen,
-} from '../src/autopilot/dedup-reopen-classifier.js'
+import { classifyDedupReopen } from '../src/autopilot/dedup-reopen-classifier.js'
 import { applyDedupReopen } from '../src/autopilot/dedup-reopen.js'
 
 describe('手動 goal：blocked 任務單次重開', () => {
@@ -62,7 +59,7 @@ describe('手動 goal：blocked 任務單次重開', () => {
       const exhausted = applyDedupReopen(backlogFile, oldTask, { goalId: 'manual-reopen', round: 5 })
       expect(exhausted.decision).toMatchObject({
         kind: 'reject',
-        reason: BLOCKED_REOPEN_EXHAUSTED_EVENT,
+        reason: 'superseded',
       })
       expect(readFileSync(backlogFile)).toEqual(after)
     } finally {

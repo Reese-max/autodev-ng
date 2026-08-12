@@ -1,12 +1,34 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+export const FLEET_CODEX_PERMISSION_ARGS = [
+  '-c', 'default_permissions="workspace-only"',
+  '-c', 'permissions.workspace-only.extends=":workspace"',
+  '-c', 'permissions.workspace-only.filesystem.":root"="deny"',
+  '-c', 'permissions.workspace-only.filesystem.":minimal"="read"',
+  '-c', 'permissions.workspace-only.filesystem.":tmpdir"="deny"',
+  '-c', 'permissions.workspace-only.filesystem.":slash_tmp"="deny"',
+  '--enable', 'code_mode', '--enable', 'code_mode_host',
+] as const
+
 /** 艦隊 Codex 唯一設定：不載使用者 ~/.codex/config.toml，也不開互動／硬體工具。 */
 export const FLEET_CODEX_CONFIG = `approval_policy = "never"
-sandbox_mode = "workspace-write"
+default_permissions = "workspace-only"
 allow_login_shell = false
 check_for_update_on_startup = false
 cli_auth_credentials_store = "file"
+
+[permissions.workspace-only]
+extends = ":workspace"
+
+[permissions.workspace-only.filesystem]
+":root" = "deny"
+":minimal" = "read"
+":tmpdir" = "deny"
+":slash_tmp" = "deny"
+
+[windows]
+sandbox = "elevated"
 
 [shell_environment_policy]
 inherit = "core"
@@ -16,9 +38,9 @@ apps = false
 browser_use = false
 browser_use_external = false
 browser_use_full_cdp_access = false
-code_mode = false
+code_mode = true
 code_mode_buffered_exec = false
-code_mode_host = false
+code_mode_host = true
 computer_use = false
 hooks = false
 in_app_browser = false

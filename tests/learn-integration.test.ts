@@ -113,12 +113,13 @@ test('② lessons.reflect 拋錯不可反殺主迴圈（fail-open，鐵律 #4）
 test('③ 端到端閉環（本里程碑核心驗收）：cycle1 失敗長出教訓 L001 → cycle2 job.directive 含該教訓', async () => {
   const backlog = '- [ ] 任務一\n- [ ] 任務二\n'
   const engine = new MockEngine([
-    { ok: false, reason: 'boom' }, // 任務一：maxAttempts=1，唯一一次嘗試即達上限 → blocked，釋出代表名額
-    { ok: false, reason: 'boom' }, // 任務二：cycle2 派工——檢查 job.directive 是否含注入的教訓
+    { ok: true }, // 任務一：可靠驗收失敗達上限 → blocked，釋出代表名額
+    { ok: true }, // 任務二：cycle2 派工——檢查 job.directive 是否含注入的教訓
   ])
   // maxAttempts=1：任務一失敗一次即轉 blocked（非 'failed'），backlog 代表名額才會在 cycle2 釋給任務二
   // （否則預設 maxAttempts=2 時任務一仍是 open，cycle2 會重派同一個任務一，任務二永遠撿不到）。
   const d = deps(engine, backlog, { maxAttempts: 1 })
+  d.verifier = { check: async () => ({ pass: false, reason: 'boom', alerts: [] }) }
 
   const lessonsFile = join(d.cfg.dataDir, 'learnings.md')
   const lessonStore = new LessonStore(lessonsFile)

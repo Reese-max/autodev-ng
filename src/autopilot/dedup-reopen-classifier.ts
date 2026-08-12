@@ -6,7 +6,7 @@ export type ReopenHistory = 'never-reopened' | 'reopened'
 
 export type DedupReopenDecision =
   | { kind: 'reopen'; reason: 'first-blocked' }
-  | { kind: 'reject'; reason: 'done' | 'already-open' | 'reopen-history-missing' }
+  | { kind: 'reject'; reason: 'done' | 'superseded' | 'already-open' | 'reopen-history-missing' }
   | {
       kind: 'reject'
       reason: typeof BLOCKED_REOPEN_EXHAUSTED_EVENT
@@ -28,6 +28,7 @@ export function classifyDedupReopen({
   reopenHistory,
 }: ClassifyDedupReopenInput): DedupReopenDecision {
   if (existingStatus === 'done') return { kind: 'reject', reason: 'done' }
+  if (existingStatus === 'superseded') return { kind: 'reject', reason: 'superseded' }
   if (existingStatus === 'open') return { kind: 'reject', reason: 'already-open' }
   if (reopenHistory === 'never-reopened') return { kind: 'reopen', reason: 'first-blocked' }
   if (reopenHistory !== 'reopened') return { kind: 'reject', reason: 'reopen-history-missing' }

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { assertWorktreeCheckout } from './engines/worktree-checkout.js'
-
+import { withGitSafeDirectory } from './engines/proc.js'
 export { assertWorktreeCheckout } from './engines/worktree-checkout.js'
 
 export interface WorktreeHandle { cwd: string; branch: string; baseBranch: string; baseHead: string }
@@ -58,7 +58,7 @@ function branchNameFor(taskId: string): string {
  * 只是不再無條件洗版。 */
 function git(args: string[], cwd: string, timeoutMs: number): string {
   try {
-    return execFileSync('git', args, { cwd, timeout: timeoutMs, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    return execFileSync('git', args, { cwd, timeout: timeoutMs, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: withGitSafeDirectory(process.env, cwd) })
   } catch (err) {
     if ((err as NodeJS.ErrnoException | undefined)?.code !== 'ETIMEDOUT') throw err
     throw Object.assign(new Error(`git ${args.join(' ')} 逾時（${timeoutMs}ms）：${String(err)}`), { code: 'worktree-timeout' })
@@ -69,7 +69,7 @@ function git(args: string[], cwd: string, timeoutMs: number): string {
  * 這裡可能沒有殘留可清（第一次呼叫、或上次已正常清乾淨）。 */
 function gitTolerant(args: string[], cwd: string, timeoutMs: number): void {
   try {
-    execFileSync('git', args, { cwd, timeout: timeoutMs, encoding: 'utf8', stdio: ['ignore', 'ignore', 'ignore'], windowsHide: true })
+    execFileSync('git', args, { cwd, timeout: timeoutMs, encoding: 'utf8', stdio: ['ignore', 'ignore', 'ignore'], windowsHide: true, env: withGitSafeDirectory(process.env, cwd) })
   } catch {
     // 容忍：見上方註解
   }

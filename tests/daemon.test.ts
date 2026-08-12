@@ -172,10 +172,11 @@ test('③ 一個任務成功、一個任務連敗轉 blocked，其餘輪跑到 i
   const backlog = '- [ ] 任務一：會成功\n- [ ] 任務二：會連敗變 blocked\n'
   const engine = new MockEngine([
     { ok: true, costUsd: 0.1 }, // 任務一 成功
-    { ok: false, reason: 'x' }, // 任務二 第 1 次敗
-    { ok: false, reason: 'x' }, // 任務二 第 2 次敗 → blocked（maxAttempts 預設 2）
+    { ok: true }, // 任務二 第 1 次驗收敗
+    { ok: true }, // 任務二 第 2 次驗收敗 → blocked（maxAttempts 預設 2）
   ])
   const d = deps(engine, backlog)
+  d.verifier = { check: async job => ({ pass: !job.task.text.includes('任務二'), reason: '可靠驗收拒收', alerts: [] }) }
   const notifier = new FakeNotifier()
   const sleepCalls: number[] = []
 
@@ -316,10 +317,11 @@ test('⑩ 冷卻閘：冷卻窗（6h）已過的持久化紀錄 → 再送且文
 test('⑪ 冷卻閘：兩個不同任務各自 blocked → 各送一則告警（key 各自獨立）', async () => {
   const backlog = '- [ ] 任務甲\n- [ ] 任務乙\n'
   const engine = new MockEngine([
-    { ok: false, reason: 'x' }, { ok: false, reason: 'x' }, // 任務甲連敗 2 次 → blocked
-    { ok: false, reason: 'x' }, { ok: false, reason: 'x' }, // 任務乙連敗 2 次 → blocked
+    { ok: true }, { ok: true }, // 任務甲驗收連敗 2 次 → blocked
+    { ok: true }, { ok: true }, // 任務乙驗收連敗 2 次 → blocked
   ])
   const d = deps(engine, backlog)
+  d.verifier = { check: async () => ({ pass: false, reason: '可靠驗收拒收', alerts: [] }) }
   const notifier = new FakeNotifier()
   const sleepCalls: number[] = []
 
@@ -340,10 +342,10 @@ test('⑫ 冷卻閘：同一任務重複轉 blocked（report 未落地）→ 第
     }
   }
   const engine = new MockEngine([
-    { ok: false, reason: 'x' }, { ok: false, reason: 'x' },
-    { ok: false, reason: 'x' }, { ok: false, reason: 'x' },
+    { ok: true }, { ok: true }, { ok: true }, { ok: true },
   ])
   const d = deps(engine)
+  d.verifier = { check: async () => ({ pass: false, reason: '可靠驗收拒收', alerts: [] }) }
   const neverPersistStore = new NeverPersistBlockedStore(d.cfg.backlogFile)
   const notifier = new FakeNotifier()
   const sleepCalls: number[] = []
@@ -421,10 +423,11 @@ test('⑯ 冷卻閘（修 3）：兩個不同 task.id 但任務文字前 40 字�
   const prefix = 'A'.repeat(40)
   const backlog = `- [ ] ${prefix}-第一個任務\n- [ ] ${prefix}-第二個任務\n`
   const engine = new MockEngine([
-    { ok: false, reason: 'x' }, { ok: false, reason: 'x' }, // 第一個任務連敗 2 次 → blocked
-    { ok: false, reason: 'x' }, { ok: false, reason: 'x' }, // 第二個任務連敗 2 次 → blocked
+    { ok: true }, { ok: true }, // 第一個任務驗收連敗 2 次 → blocked
+    { ok: true }, { ok: true }, // 第二個任務驗收連敗 2 次 → blocked
   ])
   const d = deps(engine, backlog)
+  d.verifier = { check: async () => ({ pass: false, reason: '可靠驗收拒收', alerts: [] }) }
   const notifier = new FakeNotifier()
   const sleepCalls: number[] = []
 
@@ -453,6 +456,23 @@ test('MEDIUM 1 修復：baseAlertMessage 依 blocked reason 各出對應人話�
   expect(baseAlertMessage(blocked('not-a-git-repo'))).not.toContain('連敗達上限')
   expect(baseAlertMessage(blocked('merge-conflict'))).not.toContain('連敗達上限')
   expect(baseAlertMessage(blocked('branch-switched'))).not.toContain('連敗達上限')
+})
+
+test('deferred 告警明示任務保持 open 並等待冷卻', () => {
+  const msg = baseAlertMessage('deferred')
+  expect(msg).toContain('任務保持 open')
+  expect(msg).toContain('冷卻')
+})
+
+test('供應清單 deferred 後採 supplyRetryCooldownMs，避免每分鐘空轉', async () => {
+  const d = deps(new MockEngine([{ ok: false, reason: 'provider unavailable' }]))
+  const notifier = new FakeNotifier()
+  const sleepCalls: number[] = []
+
+  const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { maxCycles: 2 }))
+
+  expect(result).toBe('max-cycles')
+  expect(sleepCalls).toEqual([1000, d.cfg.supplyRetryCooldownMs])
 })
 
 // ---------------------------------------------------------------------------

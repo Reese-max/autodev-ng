@@ -249,6 +249,27 @@ describe('runPerpetualCycle auto-goal 殘留', () => {
     expect(existsSync(cfg.goalFile!)).toBe(false) // isAutoGoal → 刪
     expect(eventTypes(dir)).toContain('perpetual-session-done')
   })
+
+  test('供應 deferred 的 retryable session：保留 auto GOAL 與 in-progress 台帳', async () => {
+    const cfg = makeCfg(dir)
+    const fp = problemFingerprint('供應暫停問題')
+    const ledger = new ProblemsLedger(join(dir, 'run.db'))
+    ledger.upsertSeen({ title: '供應暫停問題', lens: 'tests', value: 7 }, NOW.toISOString())
+    ledger.setStatus(fp, 'in-progress', '', 'ldid')
+    ledger.close()
+    writeFileSync(cfg.goalFile!, autoGoalMd(fp, '等待供應恢復'))
+    const hooks = makeHooks({ runSession: vi.fn(async (): Promise<SessionResult> => ({
+      goalId: 'ldid',
+      outcome: { kind: 'stuck', rounds: 1, reason: 'engine supply deferred', retryable: true },
+    })) })
+
+    expect(await runPerpetualCycle(cfg, dir, events, async () => true, hooks)).toBe(false)
+    expect(existsSync(cfg.goalFile!)).toBe(true)
+    const reopened = new ProblemsLedger(join(dir, 'run.db'))
+    expect(reopened.get(fp)?.status).toBe('in-progress')
+    reopened.close()
+    expect(eventTypes(dir)).toContain('perpetual-session-retryable')
+  })
 })
 
 describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {

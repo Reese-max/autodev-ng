@@ -27,7 +27,7 @@ export interface TodayAttemptsSummary {
 export interface TodayAttemptsOptions {
   /** 預設 new Date().toISOString()；測試可注入 */
   nowIso?: string
-  /** 同步查詢逾時毫秒；預設 50，超時 fail-open 空摘要 */
+  /** 同步查詢逾時毫秒；預設 1000，超時 fail-open 空摘要 */
   timeoutMs?: number
 }
 
@@ -47,7 +47,7 @@ export function todayAttemptsSummary(
   opts: TodayAttemptsOptions = {},
 ): TodayAttemptsSummary {
   const nowIso = opts.nowIso ?? new Date().toISOString()
-  const timeoutMs = opts.timeoutMs ?? 50
+  const timeoutMs = opts.timeoutMs ?? 1_000
   const day = localDay(nowIso, UTC_OFFSET)
 
   if (!dbFile || !existsSync(dbFile)) return empty(day)

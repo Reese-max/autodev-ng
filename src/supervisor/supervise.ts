@@ -1,12 +1,13 @@
 import Database from 'better-sqlite3'
 import { execFileSync, spawn } from 'node:child_process'
-import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { pidTreeDeepestFirst, type FlatPidProcess } from '../engines/proc.js'
 import { EventLog } from '../events.js'
 import { releaseLock } from '../lock.js'
 import { ConfigSchema, DEFAULT_REAP_GRACE_MS, DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
 import { classifyDaemon, hasEngineProcess, type DaemonAction } from './health.js'
+import { withPauseGate } from './pause-gate.js'
 
 export { DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
 export const HEARTBEAT_WATCHDOG_MS = 30 * 60_000
@@ -37,6 +38,7 @@ export interface SuperviseResult {
   staleThresholdMs: number
   wedgeHardCapMs: number
   action: DaemonAction
+  paused?: boolean
   launchedPid?: number
   probeErrors: string[]
 }
@@ -59,11 +61,13 @@ function isEnoent(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'ENOENT'
 }
 
-function configDataDir(configPath: string): { dataDir: string; staleThresholdMs: number; wedgeHardCapMs: number; reapGraceMs?: number } {
+function configDataDir(configPath: string): { dataDir: string; stopFiles: string[]; staleThresholdMs: number; wedgeHardCapMs: number; reapGraceMs?: number } {
   const absolutePath = resolve(configPath)
   const cfg = ConfigSchema.parse(JSON.parse(readFileSync(absolutePath, 'utf8')))
+  const baseDir = dirname(absolutePath)
   return {
-    dataDir: resolve(dirname(absolutePath), cfg.dataDir),
+    dataDir: resolve(baseDir, cfg.dataDir),
+    stopFiles: [...new Set([resolve(baseDir, '.adng.stop'), resolve(baseDir, cfg.stopFile)])],
     staleThresholdMs: cfg.staleThresholdMs,
     wedgeHardCapMs: cfg.wedgeHardCapMs,
     reapGraceMs: cfg.reapGraceMs,
@@ -216,7 +220,8 @@ export function openDaemonConsoleLog(dataDir: string): number {
 }
 
 /** Spawn detached daemon with stdout/stderr tied to daemon-console.log. */
-export function launchDaemon(configPath: string, dataDir: string, cliPath: string): number | undefined {
+export function launchDaemon(configPath: string, dataDir: string, cliPath: string, paused: () => boolean = () => false): number | undefined {
+  if (paused()) return undefined
   let logFd: number
   try {
     logFd = openDaemonConsoleLog(dataDir)
@@ -227,6 +232,7 @@ export function launchDaemon(configPath: string, dataDir: string, cliPath: strin
     throw error
   }
   try {
+    if (paused()) return undefined
     const child = spawn(process.execPath, [cliPath, 'daemon', '--config', configPath], {
       detached: true,
       stdio: ['ignore', logFd, logFd],
@@ -239,24 +245,26 @@ export function launchDaemon(configPath: string, dataDir: string, cliPath: strin
   }
 }
 
-export function reapDaemonTree(pid: number, runCommand: CommandRunner = defaultRunCommand): void {
+export function reapDaemonTree(pid: number, runCommand: CommandRunner = defaultRunCommand, paused: () => boolean = () => false): boolean {
   if (!Number.isInteger(pid) || pid <= 0) throw new Error(`無效 daemon PID: ${pid}`)
+  if (paused()) return false
   if (process.platform !== 'win32') {
     try { process.kill(pid, 'SIGKILL') } catch { /* 已死 */ }
-    return
+    return true
   }
   // 快路徑：taskkill /T /F 對健康樹最快；卡死樹會「存取被拒」拋錯（playbook §2.3），
   // 舊版在此直接讓錯誤外拋 → decision=error → 不 relaunch → 孤兒抱住 worktree。改吞錯走後備。
   try { runCommand('taskkill', ['/PID', String(pid), '/T', '/F']) } catch { /* 走後備樹斬 */ }
-  if (!pidAliveSync(pid)) return
+  if (!pidAliveSync(pid)) return true
   sleepSync(2_000)
-  if (!pidAliveSync(pid)) return
+  if (!pidAliveSync(pid)) return true
   // 後備：CIM 枚舉全樹、葉到根逐一 TerminateProcess（等效 Stop-Process -Force，§2.3 唯一可靠殺法）
   for (const proc of pidTreeDeepestFirst(pid, listProcessesSync(runCommand), '')) {
     try { process.kill(proc.pid) } catch { /* 已死 */ }
   }
   sleepSync(500) // TerminateProcess 非同步沉降，防偽「仍存活」
   if (pidAliveSync(pid)) throw new Error(`reapDaemonTree: PID ${pid} 樹斬後仍存活`)
+  return true
 }
 
 function pidAliveSync(pid: number): boolean {
@@ -290,14 +298,20 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
   const absolutePath = resolve(configPath)
   const config = configDataDir(absolutePath)
   const { dataDir } = config
+  const staleThresholdMs = options.staleThresholdMs ?? config.staleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS
+  const wedgeHardCapMs = options.wedgeHardCapMs ?? config.wedgeHardCapMs ?? DEFAULT_WEDGE_HARD_CAP_MS
+  const isPaused = () => config.stopFiles.some(file => existsSync(file))
+  if (isPaused()) return {
+    configPath: absolutePath, dataDir, lockPresent: false, pid: null, pidAlive: false,
+    heartbeatAgeMs: null, childCount: 0, staleThresholdMs, wedgeHardCapMs,
+    action: 'keep', paused: true, probeErrors: [],
+  }
   const lock = readLockProbe(dataDir)
   const heartbeat = readHeartbeatAge(dataDir, options.nowMs ?? Date.now())
   const lockPresent = lock.lockPresent
   const pid = lock.pid
   const heartbeatAgeMs = heartbeat.value
   const runCommand = options.runCommand ?? defaultRunCommand
-  const staleThresholdMs = options.staleThresholdMs ?? config.staleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS
-  const wedgeHardCapMs = options.wedgeHardCapMs ?? config.wedgeHardCapMs ?? DEFAULT_WEDGE_HARD_CAP_MS
   const probeErrors = [lock.error, heartbeat.error].filter((error): error is string => error !== undefined)
   let probeFailed = probeErrors.length > 0
 
@@ -370,22 +384,31 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
     }
   }
 
+  let paused = isPaused()
+  if (paused) action = 'keep'
+
   let launchedPid: number | undefined
+  let daemonReaped = false
   if (action !== 'keep') {
     const launch = options.launch ?? ((cfgPath, dir) => {
       const cliPath = options.cliPath ?? process.argv[1]
       if (!cliPath) throw new Error('無法判定 CLI 路徑')
-      return launchDaemon(cfgPath, dir, cliPath)
+      return launchDaemon(cfgPath, dir, cliPath, isPaused)
     })
     if (action === 'reap') {
       if (pid === null) throw new Error('reap 決策缺少 PID')
-      const reap = options.reap ?? (targetPid => reapDaemonTree(targetPid, runCommand))
-      reap(pid)
+      const reaped = withPauseGate(config.stopFiles, () => {
+        if (isPaused()) return false
+        if (options.reap) { options.reap(pid); return true }
+        return reapDaemonTree(pid, runCommand, isPaused)
+      })
+      daemonReaped = reaped
+      if (!reaped || isPaused()) { paused = true; action = 'keep' }
     }
-    if (pid !== null) {
+    if (pid !== null && (daemonReaped || !paused)) {
       releaseLock(join(dataDir, 'daemon.lock'))
     }
-    if (watchdogExpired && heartbeatAgeMs != null) {
+    if (daemonReaped && watchdogExpired && heartbeatAgeMs != null) {
       try {
         new EventLog(dataDir).append('daemon-wedge-recovered', {
           frozenMinutes: Math.floor(heartbeatAgeMs / 60_000),
@@ -394,9 +417,11 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
         probeErrors.push(`event: ${errorText(error)}`)
       }
     }
-    launchedPid = launch(absolutePath, dataDir)
+    if (!paused && isPaused()) { paused = true; action = 'keep' }
+    if (!paused) launchedPid = withPauseGate(config.stopFiles, () => isPaused() ? undefined : launch(absolutePath, dataDir))
+    if (launchedPid === undefined && isPaused()) { paused = true; action = 'keep' }
     // openSync share-busy → launchDaemon returns undefined (batch-parity silent skip)
-    if (launchedPid === undefined) {
+    if (launchedPid === undefined && !paused) {
       probeErrors.push('daemon-console.log: 檔案共享鎖占用，略過啟動')
     }
   }
@@ -412,6 +437,7 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
     staleThresholdMs,
     wedgeHardCapMs,
     action,
+    ...(paused ? { paused: true } : {}),
     ...(launchedPid === undefined ? {} : { launchedPid }),
     probeErrors,
   }

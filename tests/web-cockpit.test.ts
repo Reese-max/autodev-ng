@@ -51,8 +51,8 @@ async function startServer(c: Ctx): Promise<{ port: number; close: () => void }>
 const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString()
 
 // ---------- (1) 艦隊卡片欄位 ----------
-test('buildProjectSummary：含 currentTask、今日成敗、blocked 數（駕駛艙卡片欄位）', () => {
-  const c = makeCtx('- [ ] 任務一\n- [ ] 卡住 <!-- adng:blocked reason="merge-conflict" -->\n')
+test('buildProjectSummary：含 currentTask、今日成敗與 backlog 終態數（駕駛艙卡片欄位）', () => {
+  const c = makeCtx('- [ ] 任務一\n- [ ] 卡住 <!-- adng:blocked reason="merge-conflict" -->\n- [ ] 舊任務 <!-- adng:superseded by:abcd1234 -->\n')
   writeFileSync(join(c.dir, 'heartbeat.json'), JSON.stringify({ ts: new Date().toISOString(), state: 'running', currentTask: '正在補延伸閱讀', todayCostUsd: 0 }))
   c.db.record({ taskId: 'a', ok: true, costUsd: 0, detail: '' })
   c.db.record({ taskId: 'b', ok: false, costUsd: 0, detail: 'x' })
@@ -63,6 +63,7 @@ test('buildProjectSummary：含 currentTask、今日成敗、blocked 數（駕�
   expect(s.todayOk).toBe(1)
   expect(s.todayFail).toBe(1)
   expect(s.backlogBlocked).toBe(1)
+  expect(s.backlogSuperseded).toBe(1)
 })
 
 test('buildProjectSummary：heartbeat、成本、戰績與 backlog 各自 fail-open', () => {

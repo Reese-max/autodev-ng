@@ -56,7 +56,7 @@ export function cooldownKeyFor(result: CycleResult): string {
 }
 
 export function isAlertableResult(result: CycleResult): boolean {
-  return typeof result === 'object' || result === 'cost-hard-stop' || result === 'preflight-failed'
+  return typeof result === 'object' || result === 'cost-hard-stop' || result === 'preflight-failed' || result === 'deferred'
 }
 
 function blockedReasonText(reason: BlockedReason, detail?: string): string {
@@ -82,6 +82,7 @@ export function baseAlertMessage(result: CycleResult): string {
   switch (result) {
     case 'cost-hard-stop': return 'daemon 告警：cost-hard-stop——今日成本已達硬停上限，暫停派工'
     case 'preflight-failed': return 'daemon 告警：preflight-failed——engine 尚未就緒'
+    case 'deferred': return 'daemon 告警：deferred——目前引擎供應已耗盡，任務保持 open，待冷卻後重試'
     default: return `daemon 告警：${result}`
   }
 }

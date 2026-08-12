@@ -81,30 +81,44 @@ test('task-done 終態通知只送一次且通知失敗不改寫完成結果', a
   expect(notices[0]!.resultSummary).toContain('commit ')
 })
 
-test('重試中失敗不通知；達 maxAttempts 的最終失敗只送一次', async () => {
+test('任務驗收重試中不通知；達 maxAttempts 的最終失敗只送一次', async () => {
   const d = deps(new MockEngine([
-    { ok: false, reason: 'timeout', costUsd: 0.1 },
-    { ok: false, reason: 'verify failed', costUsd: 0.2 },
+    { ok: true, costUsd: 0.1 },
+    { ok: true, costUsd: 0.2 },
   ]))
   const notices: TaskTerminalNotice[] = []
-  const withTelegram = { ...d, taskTerminalNotify: async (notice: TaskTerminalNotice) => { notices.push(notice); return true } }
+  const withTelegram = {
+    ...d,
+    verifier: { check: async () => ({ pass: false, reason: 'verify failed', alerts: [] }) },
+    taskTerminalNotify: async (notice: TaskTerminalNotice) => { notices.push(notice); return true },
+  }
   expect(await runOnce(withTelegram)).toBe('failed')
   expect(notices).toHaveLength(0)
   expect(await runOnce(withTelegram)).toMatchObject({ kind: 'blocked', reason: 'max-attempts' })
   expect(notices).toHaveLength(1)
   expect(notices[0]).toMatchObject({
     outcome: 'failed', taskId: taskId('任務一'), taskText: '任務一',
-    resultSummary: 'verify failed', costUsd: 0.2, attempts: 2,
+    resultSummary: 'verify 拒收：verify failed', costUsd: 0.2, attempts: 2,
   })
 })
 
-test('敗第 1 次留 open；敗第 2 次 blocked（鐵律：不無限重試）', async () => {
+test('供應失敗不消耗任務額度：同一引擎在冷卻窗內只試一次後 deferred', async () => {
   const e = new MockEngine([{ ok: false, reason: 'x' }, { ok: false, reason: 'x' }])
   const d = deps(e)
   expect(await runOnce(d)).toBe('failed')
-  expect(d.store.nextTask()).not.toBeNull() // 還是 open
-  expect(await runOnce(d)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一', reason: 'max-attempts' })
-  expect(d.store.nextTask()).toBeNull() // blocked 不再撿
+  expect(await runOnce(d)).toBe('deferred')
+  expect(e.calls).toHaveLength(1)
+  expect(d.store.nextTask()).not.toBeNull()
+  expect(d.db.taskFailCount(taskId('任務一'))).toBe(0)
+})
+
+test('供應歷史查詢失敗時 fail-closed deferred，不重燒同一引擎', async () => {
+  const e = new MockEngine([{ ok: false, reason: 'x' }, { ok: false, reason: 'x' }])
+  const d = deps(e)
+  expect(await runOnce(d)).toBe('failed')
+  d.db.attemptedEngineTags = () => { throw new Error('database is locked') }
+  expect(await runOnce(d)).toBe('deferred')
+  expect(e.calls).toHaveLength(1)
 })
 
 test('backlog 空 → idle，且 idle 事件 24h 去重', async () => {
@@ -256,11 +270,12 @@ test('run 失敗 → engine.invalidatePreflight 被呼叫（下輪重探，07-18
   expect(e.invalidations).toBe(1)
 })
 
-test('max-attempts blocked 註記帶最後失敗原因（人工分流不用翻 events.jsonl）', async () => {
-  const e = new MockEngine([{ ok: false, reason: 'timeout' }, { ok: false, reason: 'timeout' }])
+test('任務驗收 max-attempts blocked 註記帶最後失敗原因（人工分流不用翻 events.jsonl）', async () => {
+  const e = new MockEngine([{ ok: true }, { ok: true }])
   const d = deps(e)
-  expect(await runOnce(d)).toBe('failed')
-  expect(await runOnce(d)).toMatchObject({ kind: 'blocked', reason: 'max-attempts' })
+  const verifier = { check: async () => ({ pass: false, reason: 'timeout', alerts: [] }) }
+  expect(await runOnce({ ...d, verifier })).toBe('failed')
+  expect(await runOnce({ ...d, verifier })).toMatchObject({ kind: 'blocked', reason: 'max-attempts' })
   const md = readFileSync(d.cfg.backlogFile, 'utf8')
   expect(md).toContain('最後失敗：')
   expect(md).toContain('timeout')
@@ -303,12 +318,12 @@ test('engine 成功但 store.report 拋錯：仍回 done、db 只記一筆 ok（
   expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [ ] 任務一')
 })
 
-test('engine 連 throw 兩次 → 第二次回 blocked（補齊 engine-error → blocked 的 transition）', async () => {
+test('engine throw 後同一引擎在冷卻窗內 deferred，仍保持 open 且不污染任務失敗額度', async () => {
   const d = deps(new MockEngine([{ throw: 'ECONNRESET' }, { throw: 'ECONNRESET' }]))
   expect(await runOnce(d)).toBe('engine-error')
-  expect(d.store.nextTask()).not.toBeNull() // 還是 open
-  expect(await runOnce(d)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一', reason: 'max-attempts' })
-  expect(d.store.nextTask()).toBeNull() // blocked 不再撿
+  expect(await runOnce(d)).toBe('deferred')
+  expect(d.store.nextTask()).not.toBeNull()
+  expect(d.db.taskFailCount(taskId('任務一'))).toBe(0)
 })
 
 test('preflight 失敗時 heartbeat 標成 preflight-failed（不偽裝 idle）', async () => {
@@ -407,7 +422,7 @@ test('no-commit 立即 nudge 同一引擎一次：產生新 commit 後沿用 ver
 
   expect(await runOnce({ ...d, verifier })).toBe('done')
   expect(e.calls).toHaveLength(2)
-  expect(e.calls[0]!.directive).toContain('完成定義＝存在新 commit，無 commit 視為未完成。')
+  expect(e.calls[0]!.directive).toContain('完成定義＝最終存在新 commit，無 commit 視為未完成。')
   expect(e.calls[1]!.directive).toBe('你宣稱完成但 worktree 無新 commit；已完成請執行 git add 與 git commit，未完成請如實回報。')
   expect(verified).toMatchObject({ ok: true, baseCommitHash: base })
   expect(verified!.commitHash).not.toBe(base)
@@ -482,7 +497,7 @@ test('extraDirective 未設定時 job.directive 仍恆附任務文字＋commit �
   await runOnce(d)
   expect(e.calls[0]!.directive).toContain('任務一')
   expect(e.calls[0]!.directive).toContain('git log -1')
-  expect(e.calls[0]!.directive).toContain('完成定義＝存在新 commit，無 commit 視為未完成。')
+  expect(e.calls[0]!.directive).toContain('完成定義＝最終存在新 commit，無 commit 視為未完成。')
 })
 
 test('上一輪失敗時 directive 注入驗收打回原因（判官回饋閉環 2026-07-28）', async () => {

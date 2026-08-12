@@ -274,6 +274,20 @@ describe('goal', () => {
       expect(Array.isArray(call.opts.stdio)).toBe(true)
       expect((call.opts.stdio as unknown[])[0]).toBe('ignore')
     })
+
+    test('全域暫停時拒絕 /goal run，且不 spawn autopilot', async () => {
+      const s = setup()
+      const goalFile = join(s.dir, 'GOAL.md')
+      writeFileSync(goalFile, '# GOAL\n目標\n')
+      writeFileSync(s.cfg.stopFile, 'paused\n')
+      const spy = fakeSpawn()
+
+      const out = await doGoal(toDeps({ ...s, cfg: { ...s.cfg, goalFile } }), 'run', spy.fn)
+
+      expect(out).toEqual(expect.objectContaining({ ok: false }))
+      expect(out.text).toContain('暫停中')
+      expect(spy.calls).toHaveLength(0)
+    })
   })
 
   describe('status', () => {

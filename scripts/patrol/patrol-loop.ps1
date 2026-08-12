@@ -5,9 +5,11 @@
 $ErrorActionPreference = 'Continue'
 $root = 'D:\Users\Administrator\Desktop\autodev-ng'
 $log = Join-Path $root 'data\patrol-supervise.log'
+$stop = Join-Path $root 'configs\.adng.stop'
 Start-Sleep -Seconds 900   # let boot storm settle
 while ($true) {
   for ($i = 0; $i -lt 12; $i++) {
+    if (Test-Path -LiteralPath $stop) { Start-Sleep -Seconds 900; continue }
     try {
       $out = & node (Join-Path $root 'dist\cli.js') supervise --configs-dir (Join-Path $root 'configs') --guardian off 2>&1
       $launched = ($out | Select-String 'launch ').Count
@@ -18,6 +20,7 @@ while ($true) {
     } catch { "$(Get-Date -Format 'yyyy-MM-dd HH:mm') supervise error: $_" | Out-File -Append -Encoding UTF8 $log }
     Start-Sleep -Seconds 900
   }
-  try { & (Join-Path $PSScriptRoot 'memory-sweep.ps1') } catch { }
+  if (Test-Path -LiteralPath $stop) { continue }
+  try { & node (Join-Path $root 'scripts\pause-gated-spawn.mjs') $stop 'powershell.exe' '-NoProfile' '-NonInteractive' '-File' (Join-Path $PSScriptRoot 'memory-sweep.ps1') } catch { }
   try { & (Join-Path $PSScriptRoot 'run-patrol.ps1') } catch { }
 }

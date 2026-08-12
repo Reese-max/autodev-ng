@@ -26,6 +26,16 @@ test('parse：狀態判定正確', () => {
   expect(t[2]!.text).toBe('加申論題匯出 PDF') // 註解已剝除
 })
 
+test('split／重開母任務是 superseded：不算 blocked、不派工也不參與重複判定', () => {
+  const text = '已拆解母任務'
+  const f = join(mkdtempSync(join(tmpdir(), 'adng-')), 'B.md')
+  writeFileSync(f, `- [ ] ${text} <!-- adng:superseded-by-split parts:1 -->\n- [ ] 已重開母任務 <!-- adng:blocked reason="x" --> <!-- adng:superseded by:abcd1234 -->\n- [ ] ${text}\n`)
+  const store = new BacklogStore(f)
+  expect(store.read().map(task => task.status)).toEqual(['superseded', 'superseded', 'open'])
+  expect(store.duplicateIds()).toEqual([])
+  expect(store.nextTask()?.line).toBe(2)
+})
+
 test('nextTask 跳過 done/blocked，取第一個 open', () => {
   const s = new BacklogStore(file)
   expect(s.nextTask()!.text).toBe('修好登入頁 RWD')

@@ -94,6 +94,16 @@ describe('runGoalSession', () => {
     expect(out.kind).toBe('no-progress')
   })
 
+  test('引擎供應 deferred：立即交還外層且保留 open 任務', async () => {
+    const deps = base({ objective: 'o', noProgressLimit: 2 }, {
+      planFn: async () => ({ kind: 'tasks', tasks: ['等待供應的任務'] }),
+      runOnceFn: async () => 'deferred',
+    })
+    const out = await runGoalSession(deps)
+    expect(out).toMatchObject({ kind: 'stuck', retryable: true, rounds: 1 })
+    expect(deps.kernelDeps.store.nextTask()?.text).toBe('等待供應的任務')
+  })
+
   test('tasks 有被 append 進 backlog（帶 autopilot 標記）', async () => {
     const captured: string[] = []
     let done = false

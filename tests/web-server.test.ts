@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { mkdtempSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, existsSync, readFileSync, mkdirSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RunDb, localDay } from '../src/db.js'
@@ -162,7 +162,7 @@ test('buildStatusPayload：組裝正確結構，且絕不含 judgeApiKey/discord
   const payload = buildStatusPayload({ cfg, store, db, dbPath: join(dir, 'run.db'), localDayFn: localDay })
   db.close()
 
-  expect(payload.backlog).toEqual({ open: 1, blocked: 1, done: 1 })
+  expect(payload.backlog).toEqual({ open: 1, blocked: 1, superseded: 0, done: 1 })
   expect(payload.cost).toEqual({ today: 2.5, soft: 40, hard: 100 })
   expect(payload.dlqCount).toBe(0)
   expect(Array.isArray(payload.attempts)).toBe(true)
@@ -184,7 +184,7 @@ test('buildStatusPayload：backlog 檔不存在時 backlogError 有值、其餘�
   const payload = buildStatusPayload({ cfg: { dataDir: dir, timezoneOffsetHours: 0, dailySoftUsd: 1, dailyHardUsd: 2 }, store, db, dbPath: join(dir, 'run.db'), localDayFn: localDay })
   db.close()
   expect(typeof payload.backlogError).toBe('string')
-  expect(payload.backlog).toEqual({ open: 0, blocked: 0, done: 0 })
+  expect(payload.backlog).toEqual({ open: 0, blocked: 0, superseded: 0, done: 0 })
 })
 
 // ---------- 控制端點防重入（mock spawn，絕不真跑 run-once/daemon） ----------
@@ -233,6 +233,30 @@ test('spawnRunOnce：spawn 後 child 快退 exit 0（<waitMs）→ 回 completed
   expect(r.failed).toBeUndefined()
   expect(r.completed).toBe(true)
   expect(r.pid).toBe(321)
+})
+
+test('spawnRunOnce：stopFile 已存在時不 spawn', async () => {
+  const dir = tmp('adng-web-run-paused-')
+  const stopFile = join(dir, '.adng.stop')
+  writeFileSync(stopFile, 'pause\n')
+  const spawnFn = () => { throw new Error('不應 spawn') }
+
+  const r = await spawnRunOnce(createChildState(), spawnFn, 'cfg.json', dir, { ...FAST, stopFile })
+
+  expect(r.paused).toBe(true)
+})
+
+test('stopDaemon：回收逾 60 秒的殘留 pause gate 後仍可寫入 stopFile', () => {
+  const dir = tmp('adng-web-stop-stale-')
+  const stopFile = join(dir, '.adng.stop')
+  const gate = `${stopFile}.lockdir`
+  mkdirSync(gate)
+  const old = new Date(Date.now() - 61_000)
+  utimesSync(gate, old, old)
+
+  expect(stopDaemon(stopFile)).toEqual({ ok: true })
+  expect(existsSync(stopFile)).toBe(true)
+  expect(existsSync(gate)).toBe(false)
 })
 
 test('spawnDaemonStart：無活 daemon 時先清掉既有 stopFile 再 spawn；同存活期間防重入', async () => {
@@ -716,7 +740,7 @@ test('多專案 GET /api/status 無 project：回 { projects: [...] } 陣列，�
     const a = body.projects.find((p: any) => p.name === 'a')
     expect(a).toEqual(expect.objectContaining({
       state: 'unknown', currentTask: null, todayOk: 0, todayFail: 0,
-      todayCostUsd: 0, backlogBlocked: 0,
+      todayCostUsd: 0, backlogBlocked: 0, backlogSuperseded: 0,
     }))
     expect(a.backlogOpen).toBe(1)
     expect(typeof a.ts).toBe('string')

@@ -50,9 +50,12 @@ export function pinGoalEngine(cfg: Config, engine: string | undefined): Config {
 export async function runGoalWithDeps(
   deps: Deps, notifier: { send(text: string): Promise<boolean> }, cfg: Config,
   opts?: { discovered?: DiscoverResult }
-): Promise<SessionResult | 'no-goal' | 'lock-busy'> {
+): Promise<SessionResult | 'no-goal' | 'lock-busy' | 'stopped'> {
   if (!cfg.goalFile || !existsSync(cfg.goalFile)) {
     console.log('no GOAL.md（autopilot 未啟動）'); return 'no-goal'
+  }
+  if (existsSync(cfg.stopFile)) {
+    console.log('全域暫停中（autopilot 未啟動）'); return 'stopped'
   }
   // 單例鎖：防止 /goal run 手滑雙跑同一 GOAL session（鏡像 bot/index.ts 的 bot.lock 慣例）。
   const lockDir = join(cfg.dataDir, 'autopilot.lock')

@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3'
+export type AttemptFailureClass = 'task' | 'supply' | 'infra' | 'goal' | 'legacy'
 
 export interface AttemptRecord {
   taskId: string
@@ -13,6 +14,7 @@ export interface AttemptRecord {
   tokensIn?: number
   tokensOut?: number
   tokensCached?: number
+  failureClass?: AttemptFailureClass
 }
 
 /** M4 Task 3（成本記帳本地日界線）：純函數，把一個 UTC ISO 時戳依 offsetHours 平移後取
@@ -87,31 +89,33 @@ export class RunDb {
         }
       }
     }
+    // 舊列無法可靠分辨 provider、verify 或任務失敗；保留 legacy，讓 taskFailCount fail-safe 計入。
+    if (!cols.some(c => c.name === 'failure_class')) try { this.db.exec(`ALTER TABLE attempts ADD COLUMN failure_class TEXT NOT NULL DEFAULT 'legacy'`) } catch (err) { if (!String(err).includes('duplicate column')) throw err }
   }
 
   record(r: AttemptRecord): void {
     this.db.prepare(
-      'INSERT INTO attempts(task_id, ts, ok, cost_usd, detail, engine, duration_ms, tokens_in, tokens_out, tokens_cached) VALUES (?,?,?,?,?,?,?,?,?,?)'
-    ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail, r.engine ?? '', r.durationMs ?? null, r.tokensIn ?? null, r.tokensOut ?? null, r.tokensCached ?? null)
+      'INSERT INTO attempts(task_id, ts, ok, cost_usd, detail, engine, duration_ms, tokens_in, tokens_out, tokens_cached, failure_class) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+    ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail, r.engine ?? '', r.durationMs ?? null, r.tokensIn ?? null, r.tokensOut ?? null, r.tokensCached ?? null, r.ok ? '' : (r.failureClass ?? 'task'))
   }
 
   /** 取 rowid（seq）最大一筆最近嘗試紀錄；空庫回 null。ok 欄位鏡像既有 record() 寫入慣例
    * （SQLite 存整數 0/1），讀出後轉回 boolean 供呼叫端使用。 */
   lastAttempt(): AttemptRecord | null {
     const row = this.db.prepare(
-      'SELECT task_id, ts, ok, cost_usd, detail, engine FROM attempts ORDER BY seq DESC LIMIT 1'
-    ).get() as { task_id: string; ts: string; ok: number; cost_usd: number; detail: string; engine: string } | undefined
+      'SELECT task_id, ts, ok, cost_usd, detail, engine, failure_class FROM attempts ORDER BY seq DESC LIMIT 1'
+    ).get() as { task_id: string; ts: string; ok: number; cost_usd: number; detail: string; engine: string; failure_class: string } | undefined
     if (!row) return null
-    return { taskId: row.task_id, ts: row.ts, ok: row.ok === 1, costUsd: row.cost_usd, detail: row.detail, engine: row.engine }
+    return { taskId: row.task_id, ts: row.ts, ok: row.ok === 1, costUsd: row.cost_usd, detail: row.detail, engine: row.engine, ...(row.failure_class ? { failureClass: row.failure_class as AttemptFailureClass } : {}) }
   }
 
   /** 驗收回饋注入用：該 task 最近一筆 attempt 若為失敗，回其 detail；最近一筆是成功或無紀錄
    * 回 null——只認最近一筆，上次已成功就不注入舊失敗雜訊。 */
   lastFailureFor(taskId: string): string | null {
     const row = this.db.prepare(
-      'SELECT ok, detail FROM attempts WHERE task_id=? ORDER BY seq DESC LIMIT 1'
-    ).get(taskId) as { ok: number; detail: string } | undefined
-    return row && row.ok === 0 ? row.detail : null
+      'SELECT ok, detail, failure_class FROM attempts WHERE task_id=? ORDER BY seq DESC LIMIT 1'
+    ).get(taskId) as { ok: number; detail: string; failure_class: string } | undefined
+    return row && row.ok === 0 && (row.failure_class === 'task' || row.failure_class === 'legacy') ? row.detail : null
   }
 
   failCount(taskId: string): number {
@@ -121,8 +125,11 @@ export class RunDb {
     return row.n
   }
 
-  attemptedEngineTags(taskId: string): string[] {
-    const rows = this.db.prepare('SELECT DISTINCT engine FROM attempts WHERE task_id=? AND engine != \'\'').all(taskId) as { engine: string }[]
+  taskFailCount(taskId: string): number { return (this.db.prepare("SELECT COUNT(*) AS n FROM attempts WHERE task_id=? AND ok=0 AND failure_class IN ('task','legacy')").get(taskId) as { n: number }).n }
+  attemptedEngineTags(taskId: string, sinceIso?: string): string[] {
+    const rows = sinceIso
+      ? this.db.prepare("SELECT DISTINCT engine FROM attempts WHERE task_id=? AND engine != '' AND ok=0 AND failure_class='supply' AND ts>=?").all(taskId, sinceIso) as { engine: string }[]
+      : this.db.prepare("SELECT DISTINCT engine FROM attempts WHERE task_id=? AND engine != ''").all(taskId) as { engine: string }[]
     return rows.map(row => row.engine)
   }
 

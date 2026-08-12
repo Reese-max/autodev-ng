@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { resolve } from 'node:path'
 
 export interface ProcResult {
   exitCode: number | null
@@ -31,6 +31,25 @@ export interface KillTreeDeps {
 
 export const DEFAULT_ENGINE_IDLE_TIMEOUT_MS = 300_000
 
+/** 只對本次子程序信任 cwd；不寫 global gitconfig，也不覆蓋呼叫端既有的 `-c` 設定。 */
+export function withGitSafeDirectory(env: NodeJS.ProcessEnv, cwd: string): NodeJS.ProcessEnv {
+  const result = { ...env }
+  const rawCount = result.GIT_CONFIG_COUNT ?? '0'
+  const count = Number(rawCount)
+  if (!Number.isSafeInteger(count) || count < 0) throw new Error(`GIT_CONFIG_COUNT 無效：${rawCount}`)
+
+  const safeDirectory = resolve(cwd).replace(/\\/g, '/')
+  for (let i = 0; i < count; i++) {
+    if (result[`GIT_CONFIG_KEY_${i}`]?.toLowerCase() === 'safe.directory' && result[`GIT_CONFIG_VALUE_${i}`] === safeDirectory) {
+      return result
+    }
+  }
+  result.GIT_CONFIG_COUNT = String(count + 1)
+  result[`GIT_CONFIG_KEY_${count}`] = 'safe.directory'
+  result[`GIT_CONFIG_VALUE_${count}`] = safeDirectory
+  return result
+}
+
 /** 引擎呼叫鐵三角唯一執法點：stdin 餵 prompt 後立即 end、wall timeout、逾時雙層樹斬、stderr 全收。 */
 export function runProcess(opts: {
   command: string
@@ -43,8 +62,7 @@ export function runProcess(opts: {
   /** 子進程有輸出時通知呼叫端續租；觀測 callback 失敗不可反殺子進程。 */
   onActivity?: () => void
   maxOutputChars?: number
-  /** M5 Task 1：附加環境變數（疊在 process.env 上），供 m3 檔位注入 ANTHROPIC_BASE_URL
-   * 等相容端點設定。未設時不帶 env 參數，行為與舊版完全一致（繼承父進程環境）。 */
+  /** M5 Task 1：附加環境變數（疊在 process.env 上），供相容端點設定。 */
   env?: Record<string, string>
   /** 安全邊界用：env 是完整白名單，不可再混入父行程 secrets。 */
   replaceEnv?: boolean
@@ -54,13 +72,14 @@ export function runProcess(opts: {
   return new Promise(resolve => {
     const t0 = Date.now()
     const { cmd, args } = resolveSpawnTarget(opts.command, opts.args)
-    const childEnv = opts.replaceEnv ? (opts.env ?? {}) : opts.env ? { ...process.env, ...opts.env } : undefined
+    const baseEnv = opts.replaceEnv ? (opts.env ?? {}) : { ...process.env, ...opts.env }
+    const childEnv = withGitSafeDirectory(baseEnv, opts.cwd)
     const child = spawn(cmd, args, {
       cwd: opts.cwd,
       shell: false,
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
-      ...(childEnv ? { env: childEnv } : {})
+      env: childEnv
     })
     // Node 內建 StringDecoder 跨 chunk 緩衝多位元組字元，防 zh-TW 輸出腰斬亂碼
     child.stdout.setEncoding('utf8')

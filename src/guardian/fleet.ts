@@ -6,10 +6,12 @@ import {
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { EventLog, quiet } from '../events.js'
+import { buildFleetCodexEnv, ensureFleetCodexHome } from '../engines/codex-runtime.js'
 import { runProcess, type ProcResult } from '../engines/proc.js'
 import {
   reapDaemonTree, superviseConfig, type SuperviseDirectoryResult, type SuperviseResult,
 } from '../supervisor/supervise.js'
+import { withPauseGate } from '../supervisor/pause-gate.js'
 import { ConfigSchema } from '../types.js'
 import { runVerify, type VerifyOutcome } from '../verify.js'
 import {
@@ -39,7 +41,7 @@ type NotifyFn = (configPath: string, text: string) => Promise<boolean>
 export type GuardianReport =
   | { configPath: string; kind: 'completed'; decision: GuardianDecision }
   | { configPath: string; kind: 'failed'; error: string }
-  | { configPath: string; kind: 'skipped'; reason: 'healthy' | 'already-handled' | 'cooldown' | 'locked' }
+  | { configPath: string; kind: 'skipped'; reason: 'healthy' | 'already-handled' | 'cooldown' | 'locked' | 'paused' }
 
 interface LockOwner {
   pid: number
@@ -224,6 +226,14 @@ function supervisorHealthy(result: SuperviseResult): boolean {
   return result.pidAlive && result.action === 'keep' && result.probeErrors.length === 0 && result.heartbeatAgeMs !== null
 }
 
+function guardianStopFiles(result: SuperviseDirectoryResult): string[] {
+  const baseDir = dirname(resolve(result.configPath))
+  try {
+    const cfg = ConfigSchema.parse(JSON.parse(readFileSync(result.configPath, 'utf8')))
+    return [...new Set([join(baseDir, '.adng.stop'), resolve(baseDir, cfg.stopFile)])]
+  } catch { return [join(baseDir, '.adng.stop')] }
+}
+
 interface Acceptance {
   status: 'pass' | 'fail'
   verify: VerifyOutcome
@@ -250,7 +260,7 @@ async function waitForHeartbeatProgress(
 
 async function independentlyVerify(
   result: SuperviseDirectoryResult, decision: GuardianDecision, cwd: string, dataDir: string,
-  cliPath: string, options: FleetGuardianOptions,
+  cliPath: string, options: FleetGuardianOptions, stopFiles: readonly string[],
 ): Promise<Acceptance> {
   if (isErrorResult(result)) {
     return { status: 'fail', verify: { status: 'skip', detail: 'config/supervisor error' }, detail: result.error }
@@ -281,7 +291,12 @@ async function independentlyVerify(
     try {
       const heartbeatBefore = heartbeatMtime(dataDir)
       const reapDaemon = options.reapDaemonFn ?? reapDaemonTree
-      reapDaemon(fresh.pid!)
+      const reaped = withPauseGate(stopFiles, () => {
+        if (stopFiles.some(file => existsSync(file))) return false
+        reapDaemon(fresh.pid!)
+        return true
+      })
+      if (!reaped) throw new Error('fleet 已暫停，取消 force restart')
       try { unlinkSync(join(dataDir, 'restart.request')) } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
@@ -342,6 +357,9 @@ function applyAcceptance(decision: GuardianDecision, acceptance: Acceptance): Gu
 
 /** 一次性 fleet 巡檢：健康專案零 LLM；同一事故指紋只在成功處理後去重。 */
 export async function runFleetGuardian(results: SuperviseDirectoryResult[], options: FleetGuardianOptions = {}): Promise<GuardianReport[]> {
+  const isPaused = (result: SuperviseDirectoryResult) =>
+    (!isErrorResult(result) && result.paused === true) || guardianStopFiles(result).some(file => existsSync(file))
+  if (results.length > 0 && results.every(isPaused)) return results.map(result => ({ configPath: result.configPath, kind: 'skipped', reason: 'paused' }))
   const nowMs = options.nowMs ?? Date.now()
   const fleetDataDir = resolve(options.fleetDataDir ?? 'data/guardian')
   const acquired = acquireFleetLock(fleetDataDir, options)
@@ -379,6 +397,10 @@ export async function runFleetGuardian(results: SuperviseDirectoryResult[], opti
   try {
     for (const result of results) {
       lock.touch()
+      if (isPaused(result)) {
+        reports.push({ configPath: result.configPath, kind: 'skipped', reason: 'paused' })
+        continue
+      }
       const dataDir = isErrorResult(result) ? fleetDataDir : result.dataDir
       const statePath = stateFile(result, dataDir)
       const state = readState(statePath)
@@ -405,19 +427,47 @@ export async function runFleetGuardian(results: SuperviseDirectoryResult[], opti
       const cwd = resolveProjectPath(result.configPath)
       const startedAt = new Date().toISOString()
       try {
-        const proc = await runner({
+        const codexHome = join(dataDir, 'codex-home')
+        ensureFleetCodexHome(codexHome)
+        if (isPaused(result)) {
+          reports.push({ configPath: result.configPath, kind: 'skipped', reason: 'paused' })
+          continue
+        }
+        const stopFiles = guardianStopFiles(result)
+        const pending = withPauseGate(stopFiles, () => isPaused(result) ? undefined : runner({
           command: 'codex', args: guardianCodexArgs(schemaPath),
           cwd: existsSync(cwd) ? cwd : dirname(result.configPath),
+          env: buildFleetCodexEnv(codexHome), replaceEnv: true,
           stdinText: guardianPrompt({ result, projectPath: cwd, dataDir, triggers: incident.triggers, failures: incident.failures, cliPath }),
           timeoutMs: 0,
           idleTimeoutMs: GUARDIAN_IDLE_TIMEOUT_MS,
           onActivity: lock.touch,
-        })
+        }))
+        if (!pending) {
+          reports.push({ configPath: result.configPath, kind: 'skipped', reason: 'paused' })
+          continue
+        }
+        const proc = await pending
+        if (isPaused(result)) {
+          reports.push({ configPath: result.configPath, kind: 'skipped', reason: 'paused' })
+          continue
+        }
         if (proc.timedOut) throw new Error(`Codex ${proc.timeoutReason ?? 'unknown'} timeout：${proc.durationMs}ms 無法完成`)
         if (proc.exitCode !== 0) throw new Error(`Codex exit ${proc.exitCode}: ${proc.stderr.slice(-1_000)}`)
         const reported = parseGuardianDecision(proc.stdout)
         const telemetry = parseGuardianTelemetry(proc.stdout)
-        const acceptance = await independentlyVerify(result, reported, cwd, dataDir, cliPath, options)
+        const verification = withPauseGate(stopFiles, () => isPaused(result)
+          ? undefined
+          : independentlyVerify(result, reported, cwd, dataDir, cliPath, options, stopFiles))
+        if (!verification) {
+          reports.push({ configPath: result.configPath, kind: 'skipped', reason: 'paused' })
+          continue
+        }
+        const acceptance = await verification
+        if (isPaused(result)) {
+          reports.push({ configPath: result.configPath, kind: 'skipped', reason: 'paused' })
+          continue
+        }
         const decision = applyAcceptance(reported, acceptance)
         appendAudit(dataDir, {
           ts: new Date().toISOString(), startedAt, model: GUARDIAN_MODEL, effort: GUARDIAN_EFFORT,

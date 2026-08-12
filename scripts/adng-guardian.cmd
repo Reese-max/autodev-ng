@@ -17,6 +17,8 @@ REM ============================================================
 setlocal
 set "ADNG_ROOT=D:\Users\Administrator\Desktop\autodev-ng"
 
+if exist "%ADNG_ROOT%\configs\.adng.stop" exit /b 0
+
 if not exist "%ADNG_ROOT%\dist\cli.js" (
   echo adng-guardian: missing "%ADNG_ROOT%\dist\cli.js" - run npm run build first
   exit /b 1

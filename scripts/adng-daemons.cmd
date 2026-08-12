@@ -16,6 +16,10 @@ REM ============================================================
 
 setlocal
 set "ADNG_ROOT=D:\Users\Administrator\Desktop\autodev-ng"
+set "ADNG_STOP=%ADNG_ROOT%\configs\.adng.stop"
+set "ADNG_GATE=%ADNG_ROOT%\scripts\pause-gated-spawn.mjs"
+
+if exist "%ADNG_STOP%" exit /b 0
 
 if not exist "%ADNG_ROOT%\dist\cli.js" (
   echo adng-daemons: missing "%ADNG_ROOT%\dist\cli.js" - run npm run build first
@@ -29,9 +33,9 @@ call "%ADNG_ROOT%\scripts\adng-patrol-guard.cmd"
 
 REM backup-push (2026-08-05): mirror fleet repos to private GitHub.
 REM Paths live in backup-push.mjs (read from configs) - cmd stays pure ASCII.
-node "%ADNG_ROOT%\scripts\backup-push.mjs"
+node "%ADNG_GATE%" "%ADNG_STOP%" node.exe "%ADNG_ROOT%\scripts\backup-push.mjs"
 
 REM memory-snapshot (2026-08-05): daily fleet-memory mirror (run.db/BACKLOG/signals).
-node "%ADNG_ROOT%\scripts\memory-snapshot.mjs"
+node "%ADNG_GATE%" "%ADNG_STOP%" node.exe "%ADNG_ROOT%\scripts\memory-snapshot.mjs"
 
 exit /b %ERRORLEVEL%

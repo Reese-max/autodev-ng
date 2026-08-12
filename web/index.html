@@ -454,7 +454,7 @@
 
     document.getElementById('backlogLine').textContent = s.backlogError
       ? s.backlogError
-      : `open=${s.backlog.open}|blocked=${s.backlog.blocked}|done=${s.backlog.done}`
+      : `open=${s.backlog.open}|blocked=${s.backlog.blocked}|superseded=${s.backlog.superseded}|done=${s.backlog.done}`
     document.getElementById('dlqLine').textContent = s.dlqCount + ' 筆'
 
     const badgeBot = document.getElementById('badgeBot')
@@ -519,6 +519,7 @@
           <div class="panelErr">讀取失敗:${esc(p.error)}</div></div>`
       }
       const blockedBadge = p.backlogBlocked > 0 ? `<span class="badge badge-yellow num">blocked ${p.backlogBlocked}</span>` : ''
+      const superseded = p.backlogSuperseded > 0 ? `<span>superseded <b>${p.backlogSuperseded}</b></span>` : ''
       const daemonBadge = p.daemonStatus === 'ALIVE' || (!p.daemonStatus && p.daemonAlive)
         ? '<span class="badge badge-green">daemon</span>'
         : p.daemonStatus === 'DEAD' || (!p.daemonStatus && !p.daemonAlive)
@@ -531,7 +532,7 @@
           <span><span class="ok-n">${p.todayOk ?? 0}</span> 成 · <span class="fail-n">${p.todayFail ?? 0}</span> 敗</span>
           <span>$<b>${fmt(p.todayCostUsd)}</b></span>
           <span>未完 <b>${p.backlogOpen ?? 0}</b></span>
-          ${daemonBadge} ${blockedBadge}
+          ${daemonBadge} ${blockedBadge} ${superseded}
         </div>
       </button>`
     }).join('')

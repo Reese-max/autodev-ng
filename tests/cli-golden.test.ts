@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { runCli } from '../src/cli/entry.js'
 import {
@@ -289,9 +290,11 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
   })
 
   test('supervise 單檔失敗：不存在的 config → stderr + exit 1（路徑穩定化）', async () => {
-    const root = mkdtempSync(join(process.cwd(), '.tmp-adng-cli-gold-sup-'))
+    const root = mkdtempSync(join(tmpdir(), 'adng-cli-gold-sup-'))
+    const configsDir = join(root, 'configs')
+    mkdirSync(configsDir)
     try {
-      const missing = join(root, 'ghost.json')
+      const missing = join(configsDir, 'ghost.json')
       const abs = resolve(missing)
       const actual = stabilizeCliCapture(
         await captureCli(['supervise', '--config', missing]),
@@ -329,7 +332,7 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
         'adng status',
         'heartbeat：2026-07-24T00:00:00.000Z｜state=idle',
         '今日成本：$1.5000（軟頂 $40.00 / 硬頂 $100.00）',
-        'backlog：open=0｜blocked=0｜done=0',
+        'backlog：open=0｜blocked=0｜superseded=0｜done=0',
         'DLQ 積壓：0 筆',
         '最後 digest 日期：2026-07-23',
       ].join('\n')

@@ -9,7 +9,7 @@
 import { createServer as httpCreateServer } from 'node:http'
 import { spawn as nodeSpawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync, rmSync, openSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, rmSync, openSync, mkdirSync, renameSync, rmdirSync, statSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL, URL as NodeURL } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import Database from 'better-sqlite3'
@@ -116,13 +116,14 @@ export function buildStatusPayload({ cfg, store, db, dbPath, localDayFn }) {
   const day = localDayFn(new Date().toISOString(), cfg.timezoneOffsetHours)
   const todayCostUsd = db.costForLocalDay(day, cfg.timezoneOffsetHours)
 
-  let backlog = { open: 0, blocked: 0, done: 0 }
+  let backlog = { open: 0, blocked: 0, superseded: 0, done: 0 }
   let backlogError
   try {
     const tasks = store.read()
     backlog = {
       open: tasks.filter(t => t.status === 'open').length,
       blocked: tasks.filter(t => t.status === 'blocked').length,
+      superseded: tasks.filter(t => t.status === 'superseded').length,
       done: tasks.filter(t => t.status === 'done').length,
     }
   } catch (err) {
@@ -164,11 +165,12 @@ export function buildProjectSummary(name, ctx) {
     if (Number.isFinite(stats.fail)) todayFail = stats.fail
   } catch { /* fail-open */ }
 
-  let backlogOpen = 0, backlogBlocked = 0
+  let backlogOpen = 0, backlogBlocked = 0, backlogSuperseded = 0
   try {
     const tasks = ctx.store.read()
     backlogOpen = tasks.filter(t => t.status === 'open').length
     backlogBlocked = tasks.filter(t => t.status === 'blocked').length
+    backlogSuperseded = tasks.filter(t => t.status === 'superseded').length
   } catch { /* fail-open */ }
 
   const daemonStatus = readDaemonLockOwner(ctx.cfg.dataDir)
@@ -177,7 +179,7 @@ export function buildProjectSummary(name, ctx) {
     state: typeof heartbeat?.state === 'string' ? heartbeat.state : 'unknown',
     ts,
     currentTask: heartbeat?.currentTask ?? null,
-    todayCostUsd, todayOk, todayFail, backlogOpen, backlogBlocked,
+    todayCostUsd, todayOk, todayFail, backlogOpen, backlogBlocked, backlogSuperseded,
     daemonStatus,
     daemonAlive: daemonStatus === 'ALIVE',
   }
@@ -188,6 +190,19 @@ export function buildProjectSummary(name, ctx) {
 // 這裡只防「使用者連點兩次按鈕」）。 ----------
 function isAlive(child) {
   return !!child && child.exitCode === null && !child.killed
+}
+
+function withWebPauseGate(stopFile, action) {
+  const gate = `${resolve(stopFile)}.lockdir`
+  // ponytail: web 控制面遇競爭直接失敗供重試；不在事件迴圈內同步等待。
+  try { mkdirSync(gate) } catch (error) {
+    if (error?.code !== 'EEXIST' || Date.now() - statSync(gate).mtimeMs <= 60_000) throw error
+    const reap = `${gate}.reap-${process.pid}-${Date.now()}`
+    renameSync(gate, reap)
+    rmdirSync(reap)
+    mkdirSync(gate)
+  }
+  try { return action() } finally { try { rmdirSync(gate) } catch { /* stop writer 已回收 stale gate */ } }
 }
 
 export function createChildState() {
@@ -437,10 +452,17 @@ export async function spawnRunOnce(state, spawnFn, cfgPath, dataDir, opts = {}) 
   const sleep = opts.sleep ?? defaultSleep
   const waitMs = opts.waitMs ?? DEFAULT_LIVENESS_WAIT_MS
   if (isAlive(state.runOnce)) return { alreadyRunning: true, pid: state.runOnce.pid }
-  const logPath = join(dataDir, 'run-once-console.log')
-  const logFd = openSync(logPath, 'a')
-  const child = spawnFn(process.execPath, [DIST_CLI, 'run-once', '--config', cfgPath], { stdio: ['ignore', logFd, logFd] })
-  state.runOnce = child
+  const start = () => {
+    if (opts.stopFile && existsSync(opts.stopFile)) return { paused: true }
+    const logPath = join(dataDir, 'run-once-console.log')
+    const logFd = openSync(logPath, 'a')
+    const child = spawnFn(process.execPath, [DIST_CLI, 'run-once', '--config', cfgPath], { stdio: ['ignore', logFd, logFd] })
+    state.runOnce = child
+    return { paused: false, child, logPath }
+  }
+  const started = opts.stopFile ? withWebPauseGate(opts.stopFile, start) : start()
+  if (started.paused) return { paused: true }
+  const { child, logPath } = started
   // run-once 三態：treatCleanExitAsSuccess=true——exit 0 快退＝完成，只有 exit≠0 才算失敗。
   const outcome = await verifyChildExit(child, waitMs, sleep, logPath, true)
   if (outcome?.failed) return outcome
@@ -455,19 +477,23 @@ export async function spawnDaemonStart(state, spawnFn, cfgPath, dataDir, stopFil
   // 活性判定改查真 lock（審查修正 HIGH）：不只信本 web 進程的 in-memory child——daemon 可能被 CLI
   // 直接啟動、或 web server 重啟過（state.daemon 歸零）。真 daemon.lock 被活著的進程持有 → 直接回
   // 「已在執行中」，不清 stopFile、不 spawn（否則會誤清使用者的停止令＋新 daemon 撞 lock 瞬退但回假 202）。
-  if (isAlive(state.daemon) || lockOwnerFn(dataDir) === 'ALIVE') {
-    return { alreadyRunning: true, pid: state.daemon?.pid }
-  }
-  // 確認無活 daemon 後才開關語意：start＝「恢復運作」，清掉既有 stopFile，否則新 daemon 第一輪就會
-  // 看到 stopFile 立刻回 stopped（既有機制：scheduler.runOnce 開頭 existsSync(cfg.stopFile)）。
-  try { if (existsSync(stopFile)) rmSync(stopFile, { force: true }) } catch { /* 觀測/控制面不可反殺 */ }
-  const logPath = join(dataDir, 'daemon-console.log')
-  const logFd = openSync(logPath, 'a')
-  const child = spawnFn(process.execPath, [DIST_CLI, 'daemon', '--config', cfgPath], {
-    stdio: ['ignore', logFd, logFd], detached: true,
+  const started = withWebPauseGate(stopFile, () => {
+    if (isAlive(state.daemon) || lockOwnerFn(dataDir) === 'ALIVE') {
+      return { alreadyRunning: true, pid: state.daemon?.pid }
+    }
+    // start＝同一原子閘內恢復並啟動；並行 pause 只能排在 spawn 前或後，不會插入兩者之間。
+    try { if (existsSync(stopFile)) rmSync(stopFile, { force: true }) } catch { /* 觀測/控制面不可反殺 */ }
+    const logPath = join(dataDir, 'daemon-console.log')
+    const logFd = openSync(logPath, 'a')
+    const child = spawnFn(process.execPath, [DIST_CLI, 'daemon', '--config', cfgPath], {
+      stdio: ['ignore', logFd, logFd], detached: true,
+    })
+    if (typeof child.unref === 'function') child.unref()
+    state.daemon = child
+    return { alreadyRunning: false, child, logPath }
   })
-  if (typeof child.unref === 'function') child.unref() // 測試注入的假 child 可能無此方法
-  state.daemon = child
+  if (started.alreadyRunning) return started
+  const { child, logPath } = started
   // daemon 語意：treatCleanExitAsSuccess=false——800ms 內任何退出（含 exit 0）皆算失敗（daemon 本該長命）。
   const outcome = await verifyChildExit(child, waitMs, sleep, logPath, false)
   if (outcome?.failed) return outcome
@@ -477,7 +503,7 @@ export async function spawnDaemonStart(state, spawnFn, cfgPath, dataDir, stopFil
 /** daemon stop：寫既有 stopFile 機制（scheduler.runOnce 每輪開頭 existsSync 檢查），不碰 lock/kill。 */
 export function stopDaemon(stopFile) {
   try {
-    writeFileSync(stopFile, '')
+    withWebPauseGate(stopFile, () => writeFileSync(stopFile, ''))
     return { ok: true }
   } catch (err) {
     return { ok: false, error: String(err) }
@@ -665,7 +691,8 @@ export function createRequestHandler(ctxOrMap) {
       if (!hasValidToken(req, url, token)) { send(403, { error: 'forbidden：CSRF token 缺失或錯誤' }); return }
 
       if (req.method === 'POST' && url.pathname === '/api/run-once') {
-        const r = await spawnRunOnce(childState, spawnFn, cfgPath, cfg.dataDir, spawnOpts)
+        const r = await spawnRunOnce(childState, spawnFn, cfgPath, cfg.dataDir, { ...spawnOpts, stopFile: cfg.stopFile })
+        if (r.paused) { send(409, { status: 'paused' }); return }
         if (r.failed) { send(502, { status: '啟動後隨即退出', exitCode: r.exitCode, log: r.logPath }); return }
         if (r.alreadyRunning) { send(409, { status: '已在執行中', pid: r.pid }); return }
         // run-once 三態：completed＝800ms 內 exit 0 乾淨完成（idle／快 blocked／快 done），仍回 202（成功）。

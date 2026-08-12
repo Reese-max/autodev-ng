@@ -89,7 +89,8 @@ for (const d of daemons) {
     if (lines[0]) goal = lines[0].slice(0, 46)
   } catch {}
   const dot = wedged ? '⚠' : alive ? '●' : '○'
-  console.log(`\n ${dot} ${d.name.padEnd(20)} pid ${String(pid ?? '—').padEnd(7)} ${(alive ? (hb?.state ?? '?') : 'DEAD').padEnd(9)} hb ${ageStr(hbAge).padEnd(7)}`)
+  const state = alive ? (hb?.state ?? '?') : hb?.state === 'stopped' ? 'STOPPED' : 'DEAD'
+  console.log(`\n ${dot} ${d.name.padEnd(20)} pid ${String(pid ?? '—').padEnd(7)} ${state.padEnd(9)} hb ${ageStr(hbAge).padEnd(7)}`)
   console.log(`   GOAL: ${goal}`)
   if (wedged) console.log(`   ⚠ 疑似 wedge：存活但 heartbeat 已 ${ageStr(hbAge)}（>30分）且無 engine 子進程`)
   else if (stale) console.log(`   ⏳ 長任務執行中：heartbeat ${ageStr(hbAge)}，但有 engine 子進程在跑（正常）`)

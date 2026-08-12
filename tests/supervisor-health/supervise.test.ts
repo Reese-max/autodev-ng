@@ -42,6 +42,75 @@ function aliveRunner(pid: number, childCount = 0, calls: string[] = []): Command
   }
 }
 
+test('核心 supervisor 在 stop 存在時不探測、不回收也不啟動', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-paused-'))
+  const { configPath } = writeConfig(root)
+  writeFileSync(join(root, '.adng.stop'), 'pause\n')
+  const effects: string[] = []
+
+  const result = superviseConfig(configPath, {
+    runCommand: () => { effects.push('probe'); return '' },
+    launch: () => { effects.push('launch'); return 1 },
+    reap: () => { effects.push('reap') },
+  })
+
+  expect(result).toMatchObject({ action: 'keep', paused: true })
+  expect(effects).toEqual([])
+})
+
+test('核心 supervisor 在探測期間才出現 stop 時仍取消副作用', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-pause-race-'))
+  const { configPath, dataDir } = writeConfig(root)
+  const pid = 4322
+  const nowMs = Date.now()
+  writePid(dataDir, pid)
+  const heartbeat = join(dataDir, 'heartbeat.json')
+  writeFileSync(heartbeat, '{}')
+  utimesSync(heartbeat, new Date(nowMs - 120_000), new Date(nowMs - 120_000))
+  const effects: string[] = []
+
+  const result = superviseConfig(configPath, {
+    nowMs,
+    staleThresholdMs: 60_000,
+    runCommand: (command) => {
+      if (command === 'tasklist') {
+        writeFileSync(join(root, '.adng.stop'), 'pause\n')
+        return `"node.exe","${pid}","Console","1","1,000 K"\r\n`
+      }
+      if (command === 'powershell.exe') return '0\r\n'
+      throw new Error(`unexpected command: ${command}`)
+    },
+    launch: () => { effects.push('launch'); return 1 },
+    reap: () => { effects.push('reap') },
+  })
+
+  expect(result).toMatchObject({ action: 'keep', paused: true })
+  expect(effects).toEqual([])
+})
+
+test('核心 supervisor 回收後才出現 stop 時不重新啟動', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-pause-after-reap-'))
+  const { configPath, dataDir } = writeConfig(root)
+  const pid = 4323
+  const nowMs = Date.now()
+  writePid(dataDir, pid)
+  const heartbeat = join(dataDir, 'heartbeat.json')
+  writeFileSync(heartbeat, '{}')
+  utimesSync(heartbeat, new Date(nowMs - 120_000), new Date(nowMs - 120_000))
+  const effects: string[] = []
+
+  const result = superviseConfig(configPath, {
+    nowMs,
+    staleThresholdMs: 60_000,
+    runCommand: aliveRunner(pid, 0),
+    reap: () => { effects.push('reap'); writeFileSync(join(root, '.adng.stop'), 'pause\n') },
+    launch: () => { effects.push('launch'); return 1 },
+  })
+
+  expect(result).toMatchObject({ action: 'keep', paused: true })
+  expect(effects).toEqual(['reap'])
+})
+
 test('讀 lock PID、以 tasklist 驗 node、用 heartbeat mtime 與 CIM 子進程數分類', () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-supervise-'))
   const { configPath, dataDir } = writeConfig(root)

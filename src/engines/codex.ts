@@ -1,5 +1,8 @@
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
-import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
+import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess, withGitSafeDirectory } from './proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -11,7 +14,7 @@ export interface CodexOpts {
   command?: string
   /** 艦隊專屬 CODEX_HOME；config/auth/session 均不讀使用者 ~/.codex。 */
   homeDir: string
-  /** run 用 args。預設非互動 workspace-write＋ephemeral。 */
+  /** run 用 args。沙箱由艦隊隔離 CODEX_HOME 的 config 決定。 */
   baseArgs?: string[]
   /** preflight 用 args。預設 read-only＋ephemeral：探針唯讀、不落 session（規格卡 ping 形式）。 */
   pingArgs?: string[]
@@ -20,6 +23,7 @@ export interface CodexOpts {
   idleTimeoutMs?: number
   cache: PreflightCache
   getCommitHash?: (cwd: string) => string | undefined
+  commitChanges?: (cwd: string, message: string) => string | undefined
   env?: Record<string, string>
   /** 指定 --model 旗標（未設用 CLI 預設 gpt-5.5）。 */
   model?: string
@@ -42,6 +46,7 @@ export class CodexEngine implements Engine {
   private readonly idleTimeoutMs: number
   private readonly cache: PreflightCache
   private readonly getCommitHash: (cwd: string) => string | undefined
+  private readonly commitChanges: (cwd: string, message: string) => string | undefined
   private readonly homeDir: string
   private readonly env: Record<string, string>
 
@@ -50,13 +55,14 @@ export class CodexEngine implements Engine {
     this.command = opts.command ?? 'codex'
     const modelArgs = opts.model ? ['--model', opts.model] : []
     const effortArgs = opts.effort ? ['-c', `model_reasoning_effort=${opts.effort}`] : []
-    this.baseArgs = [...(opts.baseArgs ?? ['exec', '--json', '-s', 'workspace-write', '--ephemeral', '--strict-config']), ...modelArgs, ...effortArgs]
+    this.baseArgs = [...(opts.baseArgs ?? ['exec', '--json', '--ephemeral', '--strict-config']), ...modelArgs, ...effortArgs]
     this.pingArgs = [...(opts.pingArgs ?? ['exec', '--json', '-s', 'read-only', '--ephemeral', '--strict-config', '--skip-git-repo-check']), ...modelArgs]
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 180 * 1000 // skills 冷載入＋忙機器實測可超過 90s
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
     this.cache = opts.cache
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
+    this.commitChanges = opts.commitChanges ?? commitCodexWorktree
     this.homeDir = opts.homeDir
     this.env = opts.env ?? {}
   }
@@ -86,17 +92,17 @@ export class CodexEngine implements Engine {
   invalidatePreflight(): void { this.cache.set(this.command, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
 
   async run(job: Job): Promise<RunResult> {
-    // prompt 組裝沿 claude-cli 模板：directive 優先（Fix 1）、commit 要求是硬話（Fix 3）。
+    // Codex sandbox 保護 .git；代理只改檔，可信宿主在回傳後提交既有 managed worktree。
     const prompt = [
       `你是自動開發工人。完成以下這一項任務。`,
       WORKER_GUARDS,
-      `改動完成後必須自己執行 git add -A 與 git commit（conventional commit，zh-TW）；`,
-      `沒有 commit 的工作會被整輪作廢、視為失敗。`,
+      `只修改工作區內容，不要執行 git add 或 git commit；可信宿主會在你回傳後提交。`,
       `嚴禁超出任務範圍、嚴禁動 BACKLOG.md、嚴禁自行新增任務。`,
       `任務：${job.directive ?? job.task.text}`
     ].join('\n')
 
     const before = this.getCommitHash(job.projectPath)
+    const managedWorktree = existsSync(join(job.projectPath, '.adng-worktree'))
     const r = await runProcess({
       command: this.command, args: this.baseArgs, cwd: job.projectPath,
       stdinText: prompt, timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs,
@@ -125,9 +131,17 @@ export class CodexEngine implements Engine {
     const tokensOut = p.usage?.output_tokens
     const tokensCached = p.usage?.cached_input_tokens
 
-    const after = this.getCommitHash(job.projectPath)
+    let after = this.getCommitHash(job.projectPath)
+    let hostCommitError = ''
+    if (managedWorktree && after === before) {
+      try {
+        after = this.commitChanges(job.projectPath, `chore(autodev): 完成 ${job.task.text.replace(/\s+/g, ' ').trim().slice(0, 60) || job.task.id}`)
+      } catch (err) {
+        hostCommitError = `；宿主提交失敗：${String(err).replace(/\s+/g, ' ').slice(0, 200)}`
+      }
+    }
     if (after === undefined || after === before) {
-      return { ok: false, output, costUsd: 0, costUnknown: true, failureReason: 'no-commit(phantom completion?)', tokensIn, tokensOut, tokensCached }
+      return { ok: false, output, costUsd: 0, costUnknown: true, failureReason: `no-commit(phantom completion?)${hostCommitError}`, tokensIn, tokensOut, tokensCached }
     }
     return { ok: true, output, costUsd: 0, costUnknown: true, commitHash: after, baseCommitHash: before, tokensIn, tokensOut, tokensCached }
   }
@@ -136,6 +150,18 @@ export class CodexEngine implements Engine {
     ensureFleetCodexHome(this.homeDir)
     return buildFleetCodexEnv(this.homeDir, this.env)
   }
+}
+
+/** 只替 prepareWorktree 已建立的目錄提交；marker 必須在代理啟動前存在，不能由代理自我授權。 */
+export function commitCodexWorktree(cwd: string, message: string): string | undefined {
+  if (!existsSync(join(cwd, '.adng-worktree')) || defaultCommitHash(cwd) === undefined) return undefined
+  const runGit = (args: string[]): string => execFileSync('git', args, { encoding: 'utf8', timeout: 30_000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: withGitSafeDirectory(process.env, cwd) })
+  for (const path of ['.adng-worktree', '.serena/probe', '.devin/config.local.json']) runGit(['-C', cwd, 'check-ignore', '--quiet', '--no-index', path])
+  runGit(['-C', cwd, 'add', '-A', '--', '.'])
+  const staged = runGit(['-C', cwd, 'diff', '--cached', '--name-only', '--']).trim()
+  if (!staged) return undefined
+  runGit(['-C', cwd, '-c', 'commit.gpgSign=false', 'commit', '--no-verify', '-m', message])
+  return defaultCommitHash(cwd)
 }
 
 interface CodexUsage { input_tokens?: number; cached_input_tokens?: number; output_tokens?: number }

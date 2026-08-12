@@ -15,6 +15,11 @@ import {
 } from '../../src/supervisor/supervise.js'
 
 const CMD_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'adng-daemons.cmd')
+const GUARDIAN_CMD_PATH = join(dirname(CMD_PATH), 'adng-guardian.cmd')
+const PATROL_GUARD_PATH = join(dirname(CMD_PATH), 'adng-patrol-guard.cmd')
+const BACKUP_PUSH_PATH = join(dirname(CMD_PATH), 'backup-push.mjs')
+const MEMORY_SNAPSHOT_PATH = join(dirname(CMD_PATH), 'memory-snapshot.mjs')
+const MEMORY_SWEEP_PATH = join(dirname(CMD_PATH), 'patrol', 'memory-sweep.ps1')
 
 /** Strip REM comments and blank lines; keep only executable body. */
 function executableBody(content: string): string {
@@ -49,6 +54,43 @@ test('adng-daemons.cmd：supervisor 只委派一次 node dist\\cli.js supervise 
   expect((code.match(/\bnode\s+"%ADNG_ROOT%\\dist\\cli\.js"\s+supervise\b/gi) ?? []).length).toBe(1)
   // preprocess: refuse to run without a built CLI
   expect(code).toMatch(/if not exist "%ADNG_ROOT%\\dist\\cli\.js"/)
+})
+
+test('fleet 停止哨兵在 daemon、Guardian 與 patrol guard 啟動工作前 fail-closed', () => {
+  for (const path of [CMD_PATH, GUARDIAN_CMD_PATH, PATROL_GUARD_PATH]) {
+    const code = executableBody(readFileSync(path, 'utf8'))
+    const guard = code.indexOf('if exist ')
+    const launch = path === GUARDIAN_CMD_PATH
+      ? code.indexOf('node "%ADNG_ROOT%\\dist\\cli.js" supervise')
+      : path === CMD_PATH
+        ? code.indexOf('node "%ADNG_ROOT%\\dist\\cli.js" supervise')
+        : code.indexOf('node "%ADNG_ROOT%\\scripts\\pause-gated-spawn.mjs"')
+
+    expect(guard).toBeGreaterThanOrEqual(0)
+    expect(launch).toBeGreaterThan(guard)
+  }
+})
+
+test('daemon launcher 後段 patrol、backup 與 snapshot 都經 pause gate', () => {
+  const daemon = executableBody(readFileSync(CMD_PATH, 'utf8'))
+  const guard = executableBody(readFileSync(PATROL_GUARD_PATH, 'utf8'))
+
+  expect(daemon).toContain('set "ADNG_GATE=%ADNG_ROOT%\\scripts\\pause-gated-spawn.mjs"')
+  expect(daemon).toMatch(/node "%ADNG_GATE%" "%ADNG_STOP%" node\.exe "%ADNG_ROOT%\\scripts\\backup-push\.mjs"/)
+  expect(daemon).toMatch(/node "%ADNG_GATE%" "%ADNG_STOP%" node\.exe "%ADNG_ROOT%\\scripts\\memory-snapshot\.mjs"/)
+  expect(guard).toMatch(/pause-gated-spawn\.mjs" "%ADNG_STOP%" wscript\.exe/)
+})
+
+test('延遲 worker 的實際副作用逐次過 gate，不能信任可偽造環境旗標', () => {
+  const backup = readFileSync(BACKUP_PUSH_PATH, 'utf8')
+  const snapshot = readFileSync(MEMORY_SNAPSHOT_PATH, 'utf8')
+  const sweep = readFileSync(MEMORY_SWEEP_PATH, 'utf8')
+
+  expect(backup).toContain('spawnPauseGated(STOP')
+  expect(snapshot).toContain('spawnPauseGated(STOP')
+  expect(snapshot).toContain('withPauseGate(STOP')
+  expect(sweep).toContain('Invoke-PauseGated')
+  for (const code of [backup, snapshot, sweep]) expect(code).not.toContain('ADNG_PAUSE_GATE_ACTIVE')
 })
 
 test('adng-daemons.cmd：執行體無 inline 判活／legacy 批次啟動邏輯', () => {

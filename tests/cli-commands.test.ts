@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as cli from '../src/cli.js'
@@ -103,4 +103,63 @@ test('printSuperviseResults：錯誤維持 stderr 並設定 exit code 1', () => 
   printSuperviseResults([{ configPath: 'C:/configs/demo.json', error: 'boom' }])
   expect(error).toHaveBeenCalledExactlyOnceWith('supervise demo: error=boom')
   expect(process.exitCode).toBe(1)
+})
+
+test('supervise：fleet 暫停哨兵阻止直接 CLI 呼叫繞過 launcher guard', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-cli-paused-'))
+  const configsDir = join(root, 'configs')
+  mkdirSync(configsDir)
+  writeFileSync(join(configsDir, '.adng.stop'), 'user pause\n')
+  writeFileSync(join(configsDir, 'invalid.json'), '{}')
+
+  try {
+    for (const argv of [
+      ['supervise', '--configs-dir', configsDir],
+      ['supervise', '--config', join(configsDir, 'invalid.json')],
+    ]) {
+      expect(await captureCli(argv)).toEqual({
+        stdout: ['supervise：fleet 已暫停（configs/.adng.stop），本輪未執行任何動作'],
+        stderr: [],
+        exitCode: 0,
+      })
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('patrol loop：暫停期間略過 supervise 與 headless patrol', () => {
+  const code = readFileSync(join(process.cwd(), 'scripts', 'patrol', 'patrol-loop.ps1'), 'utf8')
+  const checks = [...code.matchAll(/Test-Path -LiteralPath \$stop/g)].map(match => match.index!)
+
+  expect(checks).toHaveLength(2)
+  expect(checks[0]).toBeLessThan(code.indexOf('supervise --configs-dir'))
+  expect(checks[1]).toBeLessThan(code.indexOf("'run-patrol.ps1'"))
+  expect(code).toMatch(/pause-gated-spawn\.mjs[^\n]+memory-sweep\.ps1/)
+})
+
+test('fleet 暫停仍保留 Discord bot 控制面，排程入口不得被全域哨兵擋掉', () => {
+  const code = readFileSync(join(process.cwd(), 'scripts', 'adng-bot.cmd'), 'utf8')
+
+  expect(code).not.toContain('configs\\.adng.stop')
+  expect(code).toContain('dist\\bot\\index.js')
+})
+
+test('legacy patrol runner：使用既有 GPT Guardian 路由，不再呼叫 Claude CLI', () => {
+  const code = readFileSync(join(process.cwd(), 'scripts', 'patrol', 'run-patrol.ps1'), 'utf8')
+
+  expect(code).toMatch(/\$prompt \| & node \$gateRunner \$stop[^\n]+\$codexJs exec --model gpt-5\.6-luna/)
+  expect(code).toContain("model_reasoning_effort=max")
+  expect(code).toContain('default_permissions="workspace-only"')
+  expect(code).toContain('permissions.workspace-only.filesystem.":tmpdir"="deny"')
+  expect(code).toContain('--enable code_mode --enable code_mode_host')
+  expect(code).toContain('--strict-config')
+  expect(code).toContain("$env:CODEX_HOME = Join-Path $root 'data\\autodev-self\\codex-home'")
+  expect(code).toContain("Remove-Item -LiteralPath 'Env:CODEX_THREAD_ID'")
+  expect(code).toContain('Get-ChildItem Env:')
+  expect(code).toContain("$gateRunner = Join-Path $root 'scripts\\pause-gated-spawn.mjs'")
+  expect(code).toContain("$codexJs = Join-Path $env:APPDATA 'npm\\node_modules\\@openai\\codex\\bin\\codex.js'")
+  expect(code).toMatch(/\$gateRunner \$stop '--output' \$log/)
+  expect(code).not.toMatch(/New-Item[^\n]+\$logDir|\*> \$log|Out-File[^\n]+\$log/)
+  expect(code).not.toMatch(/\bclaude\b|dangerously-skip-permissions|dangerously-bypass-approvals-and-sandbox/i)
 })

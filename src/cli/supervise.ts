@@ -1,4 +1,5 @@
-import { basename, resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { basename, dirname, resolve } from 'node:path'
 import { runOutputZeroPatrol } from '../engines/output-zero-alert.js'
 import { patrolAlertFile } from '../engines/patrol-alerts.js'
 import { runFleetGuardian, type GuardianReport } from '../guardian/fleet.js'
@@ -15,6 +16,10 @@ export function printSuperviseResults(results: SuperviseDirectoryResult[]): void
     if ('error' in result) {
       console.error(`supervise ${name}: error=${result.error}`)
       process.exitCode = 1
+      continue
+    }
+    if (result.paused) {
+      console.log(`supervise ${name}: paused（.adng.stop），本輪未執行任何動作`)
       continue
     }
     const launched = result.launchedPid === undefined ? '' : ` launchedPid=${result.launchedPid}`
@@ -48,6 +53,11 @@ async function sendGuardianNotification(configPath: string, text: string): Promi
 export async function cmdSupervise(
   cliPath: string, configPath?: string, configsDir?: string, guardianMode: GuardianMode = 'inline',
 ): Promise<void> {
+  const fleetStopDir = configsDir ?? (configPath ? dirname(resolve(configPath)) : undefined)
+  if (fleetStopDir && existsSync(resolve(fleetStopDir, '.adng.stop'))) {
+    console.log('supervise：fleet 已暫停（configs/.adng.stop），本輪未執行任何動作')
+    return
+  }
   const startedAtMs = Date.now()
   const logPath = superviseRunLogPath(configPath, configsDir)
   let results: SuperviseDirectoryResult[] = []
@@ -56,17 +66,19 @@ export async function cmdSupervise(
     if (configsDir) {
       results = superviseDirectory(configsDir, options)
       printSuperviseResults(results)
-      const alerts = await runOutputZeroPatrol(results.map(result => result.configPath), {
-        alertFile: patrolAlertFile(configsDir),
-        notify: sendGuardianNotification,
-      })
-      for (const alert of alerts) console.warn(`patrol ${alert.fleet}: ${alert.message}`)
-      if (guardianMode !== 'off') {
-        printGuardianReports(await runFleetGuardian(results, {
-          cliPath,
-          fleetDataDir: resolve(configsDir, '..', 'data', 'guardian'),
-          notifyFn: sendGuardianNotification,
-        }))
+      if (!existsSync(resolve(configsDir, '.adng.stop'))) {
+        const alerts = await runOutputZeroPatrol(results.map(result => result.configPath), {
+          alertFile: patrolAlertFile(configsDir),
+          notify: sendGuardianNotification,
+        })
+        for (const alert of alerts) console.warn(`patrol ${alert.fleet}: ${alert.message}`)
+        if (guardianMode !== 'off') {
+          printGuardianReports(await runFleetGuardian(results, {
+            cliPath,
+            fleetDataDir: resolve(configsDir, '..', 'data', 'guardian'),
+            notifyFn: sendGuardianNotification,
+          }))
+        }
       }
     } else {
       try {

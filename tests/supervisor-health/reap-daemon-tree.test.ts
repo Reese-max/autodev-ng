@@ -12,6 +12,12 @@ const throwingTaskkill = (command: string): string => {
 }
 
 describe('reapDaemonTree', () => {
+  it('副作用前發現暫停時不呼叫 taskkill', () => {
+    const calls: string[] = []
+    expect(reapDaemonTree(123, command => { calls.push(command); return '' }, () => true)).toBe(false)
+    expect(calls).toEqual([])
+  })
+
   it('taskkill 拋錯且目標已死：不外拋（舊版在此 decision=error）', () => {
     // 先造一個真實死掉的 PID
     const child = spawn(process.execPath, ['-e', 'process.exit(0)'])

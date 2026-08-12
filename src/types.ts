@@ -4,7 +4,7 @@ export interface Task {
   id: string
   text: string
   line: number
-  status: 'open' | 'done' | 'blocked'
+  status: 'open' | 'done' | 'blocked' | 'superseded'
   /** M5 Task 1：行內 `[engine:xxx]` tag（行首或行尾）。解析時從 text 剝離、不入 taskId 雜湊
    * ——無 tag 任務的雜湊因此完全不變（硬回歸線：既有 done 行 id 不得漂移）。 */
   engineTag?: string
@@ -104,6 +104,8 @@ export const ConfigSchema = z.object({
   // M10.5 全域日頂：跨專案真金總帳防線。未設＝無全域防線（現狀）。
   globalDailyHardUsd: z.number().positive().optional(),
   cooldownMs: z.number().int().nonnegative().default(60_000),
+  // 引擎／provider 供應失敗不封鎖任務；此窗內已試過的免費引擎先略過，逾窗才重新探針。
+  supplyRetryCooldownMs: z.number().int().min(60_000).default(30 * 60_000),
   // supervisor：heartbeat 過期門檻；未設時保守維持 30 分鐘，覆寫不得低於 15 分鐘。
   staleThresholdMs: z.number().int().min(900_000).default(DEFAULT_STALE_THRESHOLD_MS),
   reapGraceMs: z.number().int().min(1_800_000).optional(), // §1.1 長輪寬限雙證閘；下限 30 分（更低必誤殺）

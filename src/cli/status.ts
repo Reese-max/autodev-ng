@@ -10,7 +10,7 @@ export interface HeartbeatSnapshot {
   todayCostUsd: number
 }
 
-export interface BacklogCounts { open: number; blocked: number; done: number }
+export interface BacklogCounts { open: number; blocked: number; superseded: number; done: number }
 
 export interface StatusInput {
   heartbeat: HeartbeatSnapshot | null
@@ -33,7 +33,7 @@ export function formatStatus(input: StatusInput): string {
   const taskLine = hb.currentTask ? `｜currentTask=${hb.currentTask}` : ''
   const backlogLine = input.backlogError
     ? `backlog：${input.backlogError}`
-    : `backlog：open=${input.backlog.open}｜blocked=${input.backlog.blocked}｜done=${input.backlog.done}`
+    : `backlog：open=${input.backlog.open}｜blocked=${input.backlog.blocked}｜superseded=${input.backlog.superseded}｜done=${input.backlog.done}`
   return [
     'adng status',
     `heartbeat：${hb.ts}｜state=${hb.state}${taskLine}`,
@@ -93,11 +93,12 @@ function backlogCounts(store: BacklogStore): BacklogCounts {
   return {
     open: tasks.filter(task => task.status === 'open').length,
     blocked: tasks.filter(task => task.status === 'blocked').length,
+    superseded: tasks.filter(task => task.status === 'superseded').length,
     done: tasks.filter(task => task.status === 'done').length,
   }
 }
 
-const EMPTY_BACKLOG_COUNTS: BacklogCounts = { open: 0, blocked: 0, done: 0 }
+const EMPTY_BACKLOG_COUNTS: BacklogCounts = { open: 0, blocked: 0, superseded: 0, done: 0 }
 
 function safeBacklogCounts(store: BacklogStore, backlogFile: string): { counts: BacklogCounts; error?: string } {
   try {

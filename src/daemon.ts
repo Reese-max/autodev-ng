@@ -210,7 +210,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
         }
         await sleep(idleSleepMs)
       } else {
-        await sleep(cooldownMs)
+        await sleep(result === 'deferred' ? deps.cfg.supplyRetryCooldownMs : cooldownMs)
       }
     }
   } finally {

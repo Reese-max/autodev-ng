@@ -3,7 +3,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync } from '
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { stopAlertMessage, main } from '../src/autopilot/run.js'
-import { sessionAlive } from '../src/autopilot/session.js'
+import { runGoalWithDeps, sessionAlive } from '../src/autopilot/session.js'
+import type { Config } from '../src/types.js'
 import { acquireLock, releaseLock } from '../src/lock.js'
 
 describe('sessionAlive（M10.5 補洞：config 移除須在任務間煞停 session）', () => {
@@ -57,6 +58,22 @@ describe('stopAlertMessage', () => {
   test('killed → 含 kind', () => {
     expect(stopAlertMessage('a1b2', { kind: 'killed', rounds: 0 })!).toContain('killed')
   })
+})
+
+test('runGoalWithDeps：全域暫停在取鎖、discovery 與任何 LLM 前返回 stopped', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-autopilot-stopped-'))
+  const goalFile = join(dir, 'GOAL.md')
+  const stopFile = join(dir, '.adng.stop')
+  const dataDir = join(dir, 'data')
+  writeFileSync(goalFile, '# GOAL\n測試目標\n')
+  writeFileSync(stopFile, 'paused\n')
+  const cfg = { goalFile, stopFile, dataDir } as Config
+
+  const result = await runGoalWithDeps({} as never, { send: vi.fn(async () => true) }, cfg)
+
+  expect(result).toBe('stopped')
+  expect(existsSync(join(dataDir, 'autopilot.lock'))).toBe(false)
+  expect(existsSync(dataDir)).toBe(false)
 })
 
 describe('main：single-instance lock', () => {

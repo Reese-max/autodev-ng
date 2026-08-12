@@ -3,7 +3,7 @@ import { writeFileSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, test } from 'vitest'
-import { BacklogStore } from '../src/backlog.js'
+import { BacklogStore, taskId } from '../src/backlog.js'
 import { RunDb, type AttemptRecord } from '../src/db.js'
 import { EventLog } from '../src/events.js'
 import { MockEngine } from '../src/engines/mock.js'
@@ -132,6 +132,18 @@ test('nudge 後仍無 commit 時只記帶 nudged 的 no-commit', async () => {
   expect(db.records[0]!.detail).toContain('nudged')
 })
 
+test('no-commit 是任務未交付：連續兩輪後達任務上限，不得偽裝成供應失敗無限重跑', async () => {
+  const engine = new MockEngine(Array.from({ length: 4 }, () => ({
+    ok: false as const,
+    reason: 'no-commit(phantom completion?)',
+  })))
+  const { deps } = makeDeps(engine)
+
+  await expect(runOnce(deps)).resolves.toBe('failed')
+  await expect(runOnce(deps)).resolves.toMatchObject({ kind: 'blocked', reason: 'max-attempts' })
+  expect(deps.db.taskFailCount(taskId('nocommit nudge 任務'))).toBe(2)
+})
+
 test.each([
   ['引擎錯誤', () => new MockEngine([
     { ok: false, reason: 'no-commit(phantom completion?)' },
@@ -164,6 +176,7 @@ test('組裝的首輪 prompt 含完成定義', async () => {
   const { deps } = makeDeps(engine)
 
   await expect(runOnce(deps)).resolves.toBe('failed')
-  expect(engine.calls[0]!.directive).toContain('完成的定義＝已產生新 git commit')
-  expect(engine.calls[0]!.directive).toContain('完成定義＝存在新 commit，無 commit 視為未完成。')
+  expect(engine.calls[0]!.directive).toContain('最終由引擎或可信宿主產生新 git commit')
+  expect(engine.calls[0]!.directive).toContain('不得繞過沙箱')
+  expect(engine.calls[0]!.directive).toContain('完成定義＝最終存在新 commit，無 commit 視為未完成。')
 })

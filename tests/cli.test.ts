@@ -105,7 +105,7 @@ test('assemble：dataDir 與 run.db 確實被建立在展開後的路徑下', ()
 test('formatStatus：heartbeat 不存在 → 「daemon 未跑過」', () => {
   const text = formatStatus({
     heartbeat: null, dailySoftUsd: 40, dailyHardUsd: 100,
-    backlog: { open: 0, blocked: 0, done: 0 }, dlqCount: 0,
+    backlog: { open: 0, blocked: 0, superseded: 0, done: 0 }, dlqCount: 0,
   })
   expect(text).toContain('daemon 未跑過')
 })
@@ -114,7 +114,7 @@ test('formatStatus：完整資料 → 內容含 heartbeat 狀態、成本軟硬�
   const text = formatStatus({
     heartbeat: { ts: '2026-07-06T00:00:00.000Z', state: 'running', currentTask: '修 bug', todayCostUsd: 1.2345 },
     dailySoftUsd: 40, dailyHardUsd: 100,
-    backlog: { open: 2, blocked: 1, done: 5 },
+    backlog: { open: 2, blocked: 1, superseded: 3, done: 5 },
     dlqCount: 3,
     lastDigestDay: '2026-07-05',
   })
@@ -125,6 +125,7 @@ test('formatStatus：完整資料 → 內容含 heartbeat 狀態、成本軟硬�
   expect(text).toContain('硬頂 $100.00')
   expect(text).toContain('open=2')
   expect(text).toContain('blocked=1')
+  expect(text).toContain('superseded=3')
   expect(text).toContain('done=5')
   expect(text).toContain('DLQ 積壓：3 筆')
   expect(text).toContain('最後 digest 日期：2026-07-05')
@@ -134,7 +135,7 @@ test('formatStatus：成本軟硬頂為 0 時顯示無上限', () => {
   const text = formatStatus({
     heartbeat: { ts: 't', state: 'idle', todayCostUsd: 123 },
     dailySoftUsd: 0, dailyHardUsd: 0,
-    backlog: { open: 0, blocked: 0, done: 0 }, dlqCount: 0,
+    backlog: { open: 0, blocked: 0, superseded: 0, done: 0 }, dlqCount: 0,
   })
   expect(text).toContain('軟頂 無上限 / 硬頂 無上限')
 })
@@ -143,7 +144,7 @@ test('formatStatus：無 currentTask 時不印該欄位；lastDigestDay 缺省�
   const text = formatStatus({
     heartbeat: { ts: 't', state: 'idle', todayCostUsd: 0 },
     dailySoftUsd: 40, dailyHardUsd: 100,
-    backlog: { open: 0, blocked: 0, done: 0 }, dlqCount: 0,
+    backlog: { open: 0, blocked: 0, superseded: 0, done: 0 }, dlqCount: 0,
   })
   expect(text).not.toContain('currentTask=')
   expect(text).toContain('尚未發送過')
@@ -314,8 +315,8 @@ function readHeartbeatFile(dataDir: string): { state: string; todayCostUsd: numb
   return JSON.parse(readFileSync(join(dataDir, 'heartbeat.json'), 'utf8')) as { state: string; todayCostUsd: number }
 }
 
-test('finalizeRunOnceHeartbeat：done/failed/engine-error/blocked 跑完任務 → heartbeat 收尾為 idle、todayCostUsd 為當日 billed 真金值（排除訂閱引擎名義帳）', () => {
-  const results: CycleResult[] = ['done', 'failed', 'engine-error', { kind: 'blocked', taskId: 't1', taskText: '任務', reason: 'merge-conflict' }]
+test('finalizeRunOnceHeartbeat：done/failed/engine-error/deferred/blocked 跑完任務 → heartbeat 收尾為 idle、todayCostUsd 為當日 billed 真金值（排除訂閱引擎名義帳）', () => {
+  const results: CycleResult[] = ['done', 'failed', 'engine-error', 'deferred', { kind: 'blocked', taskId: 't1', taskText: '任務', reason: 'merge-conflict' }]
   for (const result of results) {
     const dir = mkdtempSync(join(tmpdir(), 'adng-hb-'))
     const { deps, db } = heartbeatDeps(dir, 1.23)

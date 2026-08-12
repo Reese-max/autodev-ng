@@ -89,8 +89,8 @@ function fixture(goalCommand: string, globalCommand: string, conflict = false): 
   }
 }
 
-test('rebase 成功後讀 rebased GOAL 的專屬驗收，綠燈才合併；不誤用全域指令', async () => {
-  const { deps, root } = fixture(verifyCommand(0), verifyCommand(1))
+test('rebase 後只跑專案 verifyCommand；GOAL 整體紅燈不在子任務層阻擋合併', async () => {
+  const { deps, root } = fixture(verifyCommand(1), verifyCommand(0))
 
   const result = await runOnce(deps)
   expect(result).toBe('done')
@@ -101,8 +101,8 @@ test('rebase 成功後讀 rebased GOAL 的專屬驗收，綠燈才合併；不�
   expect(events).toContain('"type":"merge-rebased"')
 })
 
-test('rebase 後專屬驗收紅燈 → blocked，main 不前進且 rebased 分支完整保留', async () => {
-  const { deps, root } = fixture(verifyCommand(1), verifyCommand(0))
+test('rebase 後專案 verifyCommand 紅燈 → blocked，main 不前進且 rebased 分支完整保留', async () => {
+  const { deps, root } = fixture(verifyCommand(0), verifyCommand(1))
 
   const result = await runOnce(deps)
   expect(result).toEqual({

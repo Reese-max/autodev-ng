@@ -41,7 +41,8 @@ export function parseBacklog(md: string): Task[] {
     if (!m) return
     const raw = m[2]!
     const rawLine = line
-    const blocked = /<!-- adng:(?:blocked\b|superseded-by-split\b)/.test(raw)
+    const blocked = /<!-- adng:blocked\b/.test(raw)
+    const superseded = /<!-- adng:superseded(?:-by-split)?\b/.test(raw)
     const source: 'user' | 'autopilot' =
       /<!--\s*adng:autopilot\b/.test(rawLine) ? 'autopilot' : 'user'
     const noAnnot = raw.replace(ANNOT_RE, '')
@@ -50,7 +51,7 @@ export function parseBacklog(md: string): Task[] {
       id: taskId(text),
       text,
       line: i,
-      status: m[1] === 'x' ? 'done' : blocked ? 'blocked' : 'open',
+      status: m[1] === 'x' ? 'done' : superseded ? 'superseded' : blocked ? 'blocked' : 'open',
       source,
       // rawText 只在有 tag（寫回時 text 不等於原文）時攜帶——report() 寫回必須保留
       // 使用者行上的 tag 原文（鐵律 #1：絕不改寫任務文字）。
@@ -92,7 +93,7 @@ function dedupeDuplicateIds(tasks: Task[]): Task[] {
 /** stale 鎖判定門檻：殘留鎖 mtime 超過此值視為過期可強拆。waitMs 預設須 > 此值，否則正常等待者會在鎖尚未被判 stale 前逾時。 */
 const BACKLOG_STALE_MS = 10_000
 /** backlog 檔級跨進程互斥鎖（mkdirSync 原子性）：等待上限 waitMs，殘留鎖(mtime>BACKLOG_STALE_MS)以 rename 原子搶拆權後強拆，協議全文見 task-3-report.md。 */
-export function withBacklogLock<T>(file: string, fn: () => T, waitMs = BACKLOG_STALE_MS + 5_000): T {
+export function withBacklogLock<T>(file: string, fn: () => T, waitMs = BACKLOG_STALE_MS + 5_000, staleMs = BACKLOG_STALE_MS): T {
   const dir = `${file}.lockdir`
   const deadline = Date.now() + waitMs
   const buf = new Int32Array(new SharedArrayBuffer(4))
@@ -101,7 +102,7 @@ export function withBacklogLock<T>(file: string, fn: () => T, waitMs = BACKLOG_S
     try { mkdirSync(dir); break } catch { /* 鎖被持有，往下走 stale 檢查與退避 */ }
     try {
       const reap = `${dir}.reap-${process.pid}-${Date.now()}` // rename 原子搶拆權：同 stale 只一人成功
-      if (Date.now() - statSync(dir).mtimeMs > BACKLOG_STALE_MS) { renameSync(dir, reap); rmSync(reap, { recursive: true }); continue }
+      if (Date.now() - statSync(dir).mtimeMs > staleMs) { renameSync(dir, reap); rmSync(reap, { recursive: true }); continue }
     } catch { /* 別人搶先拆/鎖已消失，回退避 */ }
     Atomics.wait(buf, 0, 0, 10)
   }
@@ -121,7 +122,7 @@ export class BacklogStore {
     const seen = new Map<string, number>()
     for (const t of parseBacklog(readFileSync(this.file, 'utf8'))) {
       // done 行不參與重複計數
-      if (t.status === 'done') continue
+      if (t.status === 'done' || t.status === 'superseded') continue
       seen.set(t.id, (seen.get(t.id) ?? 0) + 1)
     }
     return [...seen.entries()].filter(([, n]) => n > 1).map(([id]) => id)
@@ -182,7 +183,7 @@ export class BacklogStore {
       const content = readFileSync(this.file, 'utf8')
       const eol = content.includes('\r\n') ? '\r\n' : '\n'
       const lines = content.split(/\r?\n/)
-      const matches = parseBacklog(content).filter(t => t.id === id && t.status !== 'done')
+      const matches = parseBacklog(content).filter(t => t.id === id && t.status !== 'done' && t.status !== 'superseded')
       const t = matches.find(t => t.status === 'open') ?? matches[0]
       if (!t) throw new Error(`unknown task id ${id}：系統禁止創造任務（鐵律 #1）`)
       // rawText ?? text：有 engine tag 的行寫回時保留 tag 原文（含原位置），鐵律 #1。

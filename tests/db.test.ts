@@ -19,6 +19,34 @@ test('record + failCount 只數失敗', () => {
   db.close()
 })
 
+test('taskFailCount 只計新分類的任務失敗，供應與基建失敗不消耗 blocked 額度', () => {
+  const db = freshDb()
+  db.record({ taskId: 't', ok: false, costUsd: 0, detail: 'timeout', failureClass: 'supply' })
+  db.record({ taskId: 't', ok: false, costUsd: 0, detail: 'worktree timeout', failureClass: 'infra' })
+  db.record({ taskId: 't', ok: false, costUsd: 0, detail: 'review reject', failureClass: 'task' })
+  db.record({ taskId: 't', ok: false, costUsd: 0, detail: 'legacy defaults to task' })
+  expect(db.failCount('t')).toBe(4)
+  expect(db.taskFailCount('t')).toBe(2)
+  db.close()
+})
+
+test('舊庫未分類失敗在 migration 時保留 legacy，fail-safe 計入 blocked 額度', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'adng-db-legacy-')), 'run.db')
+  const legacy = new Database(file)
+  legacy.exec('CREATE TABLE attempts(seq INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, ts TEXT NOT NULL, ok INTEGER NOT NULL, cost_usd REAL NOT NULL, detail TEXT NOT NULL)')
+  legacy.prepare('INSERT INTO attempts(task_id,ts,ok,cost_usd,detail) VALUES (?,?,?,?,?)').run('old', new Date().toISOString(), 0, 0, 'unknown historical failure')
+  legacy.prepare('INSERT INTO attempts(task_id,ts,ok,cost_usd,detail) VALUES (?,?,?,?,?)').run('old-no-commit', new Date().toISOString(), 0, 0, 'no-commit(phantom completion?)')
+  legacy.close()
+
+  const db = new RunDb(file)
+  expect(db.failCount('old')).toBe(1)
+  expect(db.taskFailCount('old')).toBe(1)
+  expect(db.lastFailureFor('old')).toContain('unknown historical failure')
+  expect(db.taskFailCount('old-no-commit')).toBe(1)
+  expect(db.lastFailureFor('old-no-commit')).toContain('no-commit')
+  db.close()
+})
+
 test('attemptedEngineTags 回傳同一任務已用過的非空引擎且去重', () => {
   const db = freshDb()
   db.record({ taskId: 'route', ok: false, costUsd: 0, detail: '', engine: 'devin' })
@@ -27,6 +55,16 @@ test('attemptedEngineTags 回傳同一任務已用過的非空引擎且去重', 
   db.record({ taskId: 'other', ok: false, costUsd: 0, detail: '', engine: 'grok' })
   expect(db.attemptedEngineTags('route')).toEqual(expect.arrayContaining(['devin', 'agy']))
   expect(db.attemptedEngineTags('route')).toHaveLength(2)
+  db.close()
+})
+
+test('attemptedEngineTags 的 sinceIso 只回冷卻窗內供應失敗，不把成功或任務失敗算成供應耗盡', () => {
+  const db = freshDb()
+  db.record({ taskId: 'route', ok: false, costUsd: 0, detail: 'old', engine: 'devin', ts: '2026-08-07T00:00:00.000Z', failureClass: 'supply' })
+  db.record({ taskId: 'route', ok: true, costUsd: 0, detail: 'done', engine: 'devin', ts: '2026-08-07T01:00:00.000Z' })
+  db.record({ taskId: 'route', ok: false, costUsd: 0, detail: 'verify reject', engine: 'agy', ts: '2026-08-07T01:10:00.000Z', failureClass: 'task' })
+  db.record({ taskId: 'route', ok: false, costUsd: 0, detail: 'provider down', engine: 'grok', ts: '2026-08-07T01:20:00.000Z', failureClass: 'supply' })
+  expect(db.attemptedEngineTags('route', '2026-08-07T00:30:00.000Z')).toEqual(['grok'])
   db.close()
 })
 

@@ -49,6 +49,12 @@ test('launchDaemon：openSync 共享鎖占用時回傳 undefined 且不 spawn', 
   expect(isDaemonConsoleLogBusyError(errorWithCode('EBUSY'))).toBe(true)
 })
 
+test('launchDaemon：副作用前發現暫停時不開 log、不 spawn', () => {
+  expect(launchDaemon('config.json', 'data-dir', 'cli.js', () => true)).toBeUndefined()
+  expect(openSync).not.toHaveBeenCalled()
+  expect(spawn).not.toHaveBeenCalled()
+})
+
 test('launchDaemon：成功開啟 log 後 spawn detached daemon 並關閉父 fd', () => {
   openSync.mockReturnValue(42)
   spawn.mockReturnValue({ pid: 9001, unref: vi.fn() })

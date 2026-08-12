@@ -2,10 +2,30 @@ import { expect, test } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { killTree, runProcess } from '../src/engines/proc.js'
+import { killTree, runProcess, withGitSafeDirectory } from '../src/engines/proc.js'
 
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-cli.mjs')
 const base = { command: process.execPath, args: [FAKE], cwd: process.cwd(), timeoutMs: 10_000 }
+
+test('Git 子程序只信任自身 cwd，保留既有 -c 設定且冪等', () => {
+  const cwd = join(process.cwd(), 'bounded-worktree')
+  const original = {
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'user.name',
+    GIT_CONFIG_VALUE_0: 'adng-test',
+  }
+
+  const once = withGitSafeDirectory(original, cwd)
+  expect(once).toMatchObject({
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'user.name',
+    GIT_CONFIG_VALUE_0: 'adng-test',
+    GIT_CONFIG_KEY_1: 'safe.directory',
+    GIT_CONFIG_VALUE_1: cwd.replace(/\\/g, '/'),
+  })
+  expect(withGitSafeDirectory(once, cwd)).toEqual(once)
+  expect(original.GIT_CONFIG_COUNT).toBe('1')
+})
 
 test('ok：stdin 進、stdout 出、exit 0', async () => {
   process.env.FAKE_MODE = 'ok'

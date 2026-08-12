@@ -4,8 +4,8 @@ import { isShadowFreeTierEngine } from './shadow-price.js'
 
 export const FREE_ONLY_MAX_ATTEMPTS = 5
 
-export function attemptedEngineTags(db: Pick<RunDb, 'attemptedEngineTags'>, taskId: string): Set<string> {
-  try { return new Set(db.attemptedEngineTags(taskId)) } catch { return new Set() }
+export function attemptedEngineTags(db: Pick<RunDb, 'attemptedEngineTags'>, taskId: string, sinceIso?: string): Set<string> {
+  try { return new Set(db.attemptedEngineTags(taskId, sinceIso)) } catch { return new Set() }
 }
 
 export function freeOnlyRetryCandidates(

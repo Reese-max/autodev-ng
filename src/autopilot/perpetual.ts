@@ -38,7 +38,7 @@ export interface PerpetualHooks {
   discover(): Promise<DiscoverResult | undefined>
   author(problem: RankedProblem, fingerprint: string, qualityFeedback?: string, onFailure?: (failure: string) => void): Promise<string | null>
   gateAuthoredGoal(md: string): Promise<GoalQualityGateResult>
-  runSession(opts: { discovered?: DiscoverResult }): Promise<SessionResult | 'no-goal' | 'lock-busy'>
+  runSession(opts: { discovered?: DiscoverResult }): Promise<SessionResult | 'no-goal' | 'lock-busy' | 'stopped'>
   billedToday(): number
 }
 
@@ -278,12 +278,19 @@ async function closeout(
   cfg: PerpetualConfig, dataDir: string, events: EventLog,
   notify: (t: string) => Promise<boolean>, ledger: ProblemsLedger,
   state: ReturnType<typeof loadPerpetualState>, now: Date,
-  fp: string, title: string, goalId: string, result: SessionResult | 'no-goal' | 'lock-busy',
+  fp: string, title: string, goalId: string, result: SessionResult | 'no-goal' | 'lock-busy' | 'stopped',
   startedAt: string, endedAt: string
 ): Promise<boolean> {
-  if (typeof result !== 'object') return false // 沒真的跑（lock-busy/no-goal）：不回寫、不刪、留待下輪
+  if (typeof result !== 'object') return false // 沒真的跑（lock-busy/no-goal/stopped）：不回寫、不刪、留待下輪
 
   const { outcome } = result
+  if (outcome.kind === 'stuck' && outcome.retryable === true) {
+    quiet(() => events.append('perpetual-session-retryable', {
+      fingerprint: fp, goalId, reason: outcome.reason, rounds: outcome.rounds,
+    }))
+    await notify(`自主工程師：${title} → retryable（${outcome.reason}）；GOAL 與 open 任務已保留`)
+    return false
+  }
   if (outcome.kind === 'blocked') {
     ledger.setStatus(fp, 'deferred', `blocked ${outcome.reason}: ${outcome.detail}`, goalId)
     state.lastSessionTs = now.toISOString()
