@@ -21,6 +21,11 @@ process.stdin.on('end', () => {
     emit({ type: 'step_finish', part: { type: 'step-finish', tokens: { total: 100 }, cost: 0 } })
     process.exit(0)
   }
+  if (mode === 'argv-echo') {
+    emit({ type: 'text', part: { type: 'text', text: `ARGS=${process.argv.slice(2).join('|')}` } })
+    emit({ type: 'step_finish', part: { type: 'step-finish', tokens: { total: 100 }, cost: 0 } })
+    process.exit(0)
+  }
   const isPing = /PONG/.test(input)
   emit({ type: 'step_start', part: {} })
   process.stdout.write('not-json poison line {{{\n') // 毒行容錯：非 JSON 行須被靜默跳過

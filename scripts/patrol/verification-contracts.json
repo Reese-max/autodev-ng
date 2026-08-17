@@ -42,6 +42,14 @@
       "expires": "2026-08-07"
     },
     {
+      "id": "no-engine-black-hole",
+      "desc": "無引擎黑洞：近 6h 內任一引擎 phantom completion >=5 且零成功即紅（2026-08-05 codex 沙箱 P0 立，行為判定不綁成因）",
+      "cmd": "node 'D:/Users/Administrator/Desktop/autodev-ng/scripts/patrol/check-phantom-completion.cjs'",
+      "expect": { "type": "exit0" },
+      "added": "2026-08-05",
+      "expires": "2026-09-05"
+    },
+    {
       "id": "site-alive",
       "desc": "taiwan-intel 網站在線",
       "cmd": "curl -s -o /dev/null -w '%{http_code}' -m 10 https://taiwan-intel-dashboard.pages.dev/",

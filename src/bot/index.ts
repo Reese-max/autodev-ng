@@ -79,6 +79,8 @@ export async function main(cfgPath: string): Promise<void> {
   }
 
   const client = new Client({ intents: [GatewayIntentBits.Guilds] })
+  client.on(Events.ShardError, (error, shardId) => console.error(`Discord shard ${shardId} 連線錯誤：`, error.message))
+  process.once('uncaughtExceptionMonitor', () => releaseLock(lockDir)) // 不吞例外；只讓 guardian 能立即接手
 
   client.once(Events.ClientReady, async (c) => {
     try {
@@ -179,6 +181,8 @@ export async function mainMulti(configsDir: string): Promise<void> {
   }
 
   const client = new Client({ intents: [GatewayIntentBits.Guilds] })
+  client.on(Events.ShardError, (error, shardId) => console.error(`Discord shard ${shardId} 連線錯誤：`, error.message))
+  process.once('uncaughtExceptionMonitor', () => releaseLock(lockDir)) // 不吞例外；只讓 guardian 能立即接手
 
   client.once(Events.ClientReady, async (c) => {
     try {

@@ -50,6 +50,13 @@
       "costPerRunUsd": 2.43,
       "subscription": true,
       "timeoutMs": 5400000
+    },
+    "herdr-pi": {
+      "adapter": "herdr",
+      "command": "D:/Users/Administrator/Desktop/HERDR 文檔/.orchestrator/Start-Herdr-Autopilot.ps1",
+      "provider": "Pi",
+      "costPerRunUsd": 1,
+      "timeoutMs": 5400000
     }
   },
   "discordChannelId": "1492793288514863164",

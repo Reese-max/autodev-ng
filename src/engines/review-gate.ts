@@ -1,6 +1,7 @@
 /** review gate（第三層驗證）：對 diff 做對抗式審查。放子目錄不計 kernel 帳。
  * 契約：review 回覆**首行** `REVIEW: PASS` 或 `REVIEW: REJECT <理由>`。
- * 只有明確 REJECT 才拒收；未接／逾時／崩潰／首行非契約一律 skip（pass-with-alert，鐵律 #4）。 */
+ * 本層只把未接／逾時／崩潰／首行非契約正規化為 skip；風險政策由 KernelVerifier 決定，
+ * medium／high 的 skip 必須轉為 BLOCKED(review-unavailable)，只有 low 可保留告警後通過。 */
 export type ReviewOutcome =
   | { kind: 'pass' }
   | { kind: 'reject'; reason: string }

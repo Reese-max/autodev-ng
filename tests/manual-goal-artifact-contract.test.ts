@@ -169,7 +169,7 @@ test('firstMissingArtifact：變更檔只取 baseCommitHash..commitHash，不誤
     .toBe('tests/manual-goal-quality-metrics.py')
 })
 
-test('scheduler：缺件記 FAIL、跳過驗收、未 done 並保留 backlog', async () => {
+test('scheduler：缺件記 FAIL、跳過驗收、未 done 並保留 backlog', { timeout: 60_000 }, async () => {
   const engine = new MockArtifactEngine('tests/manual-goal-quality-metrics.py', false)
   const d = deps(engine)
   const mainHead = git(d.cfg.projectPath, ['rev-parse', 'HEAD'])

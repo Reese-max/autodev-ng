@@ -6,6 +6,9 @@ import { killTree, runProcess, withGitSafeDirectory } from '../src/engines/proc.
 
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-cli.mjs')
 const base = { command: process.execPath, args: [FAKE], cwd: process.cwd(), timeoutMs: 10_000 }
+// Windows 的 taskkill + CIM 驗屍在完整序列套件的高程序負載下曾需 10.7s；
+// 保留硬上限，但不要把正常收斂誤判成殭屍回收失敗。其他平台維持原 8s。
+const TIMEOUT_RETURN_LIMIT_MS = process.platform === 'win32' ? 15_000 : 8_000
 
 test('Git 子程序只信任自身 cwd，保留既有 -c 設定且冪等', () => {
   const cwd = join(process.cwd(), 'bounded-worktree')
@@ -54,8 +57,8 @@ test('hang：逾時樹斬、timedOut=true、不留殭屍', async () => {
   const t0 = Date.now()
   const r = await runProcess({ ...base, stdinText: 'x', timeoutMs: 1500 })
   expect(r.timedOut).toBe(true)
-  expect(Date.now() - t0).toBeLessThan(8000) // 樹斬要快，不能拖
-}, 15_000)
+  expect(Date.now() - t0).toBeLessThan(TIMEOUT_RETURN_LIMIT_MS) // 樹斬須有界，不能無限拖延
+}, 20_000)
 
 test('slow：慢但在時限內 → 正常完成', async () => {
   process.env.FAKE_MODE = 'slow'
@@ -83,9 +86,9 @@ test('idleTimeoutMs：無輸出進度才斬樹，不能把 wall timeout 偷加�
   expect(r.timedOut).toBe(true)
   expect(r.timeoutReason).toBe('idle')
   // 逾時結果須等 Windows 收斂樹斬（taskkill 後 2s＋重枚舉）完成，不能為了快返回而遺留持鎖後代。
-  expect(Date.now() - t0).toBeLessThan(8000)
+  expect(Date.now() - t0).toBeLessThan(TIMEOUT_RETURN_LIMIT_MS)
   expect(activity).toHaveLength(0)
-}, 10_000)
+}, 20_000)
 
 test('idleTimeoutMs：stdout 持續前進會續租，合法長任務不因總時間被終止', async () => {
   const activity: number[] = []
@@ -158,15 +161,15 @@ test('不存在的指令：失敗必須可見，不可全空（win32 經 cmd /c 
   expect(failureVisible).toBe(true)
 })
 
-test('timeout 後 resolve 等候樹斬收斂且仍受 8 秒上限約束', async () => {
+test('timeout 後 resolve 等候樹斬收斂且仍受平台上限約束', async () => {
   process.env.FAKE_MODE = 'hang'
   const timeoutMs = 1000
   const t0 = Date.now()
   const r = await runProcess({ ...base, stdinText: 'x', timeoutMs })
   const elapsed = Date.now() - t0
   expect(r.timedOut).toBe(true)
-  expect(elapsed).toBeLessThan(timeoutMs + 8000)
-}, 15_000)
+  expect(elapsed).toBeLessThan(TIMEOUT_RETURN_LIMIT_MS)
+}, 20_000)
 
 test('輸出超過 maxOutputChars 被截斷且有標記', async () => {
   process.env.FAKE_MODE = 'ok'

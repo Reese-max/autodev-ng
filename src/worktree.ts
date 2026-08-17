@@ -6,7 +6,7 @@ import { withGitSafeDirectory } from './engines/proc.js'
 export { assertWorktreeCheckout } from './engines/worktree-checkout.js'
 
 export interface WorktreeHandle { cwd: string; branch: string; baseBranch: string; baseHead: string }
-export type MergeBackFailReason = 'branch-switched' | 'merge-conflict' | 'dirty-worktree'
+export type MergeBackFailReason = 'branch-switched' | 'merge-conflict' | 'dirty-worktree' | 'verification-infra' | 'review-unavailable' | 'release-approval' | 'merge-queue-recovery' | 'paused'
 export type MergeBackFailureStage = 'rebase' | 'verify' | 'merge'
 export interface MergeBackResult {
   merged: boolean

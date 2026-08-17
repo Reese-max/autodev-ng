@@ -10,6 +10,7 @@ export interface OpencodeOpts {
   id?: string
   command?: string // 預設 PATH 裸名 opencode.exe；npm 全域常只有 .cmd shim 在 PATH（真 exe 在 node_modules 深處）→ 解析失敗時 preflight detail 會指引以 config engines.<tag>.command 指定完整路徑
   model?: string // provider/model（預設 zen/big-pickle）。免費陣容輪替快，preflight 必驗三元組
+  variant?: string // provider-specific reasoning effort（opencode run --variant；例如 GLM-5.2 max）
   baseArgs?: string[]; timeoutMs?: number; pingTimeoutMs?: number; idleTimeoutMs?: number
   cache: PreflightCache; getCommitHash?: (cwd: string) => string | undefined
   /** 透傳 runProcess；zen apiKey 以 OPENCODE_ZEN_KEY 傳入（profile 內寫 {env:...} 引用，key 不落地）。 */
@@ -35,7 +36,7 @@ export class OpencodeEngine implements Engine {
     this.id = opts.id ?? 'opencode'
     this.command = opts.command ?? 'opencode.exe'
     this.model = opts.model ?? 'zen/big-pickle'
-    this.args = [...(opts.baseArgs ?? ['run', '--format', 'json', '--pure', '--dangerously-skip-permissions']), '-m', this.model]
+    this.args = [...(opts.baseArgs ?? ['run', '--format', 'json', '--pure', '--dangerously-skip-permissions']), ...(opts.variant ? ['--variant', opts.variant] : []), '-m', this.model]
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000; this.pingTimeoutMs = opts.pingTimeoutMs ?? 90 * 1000
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
     this.cache = opts.cache; this.env = opts.env; this.profileDir = opts.profileDir

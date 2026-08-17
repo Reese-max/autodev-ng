@@ -4,7 +4,8 @@
 
 ## 核心特點
 
-- **微核心 + 插件**：kernel（`src/*.ts`，帳 ≤2500 行）只管任務庫/排程/引擎轉接/驗證閘/心跳；教訓記憶、GOAL 自主、Discord bot 全是掛在旁邊的插件目錄，不吃 kernel 帳。
+- **微核心 + 插件**：kernel（`src/*.ts`，帳 ≤2250 行）只管任務庫/排程/引擎轉接/驗證閘/心跳；教訓記憶、GOAL 自主、Discord bot 全是掛在旁邊的插件目錄，不吃 kernel 帳。
+- **本機工程團隊模式**：明示 ownership 的 low-risk 任務可依 `concurrency` 真正重疊執行；Git common-dir SQLite 負責原子 claim、成本保留與單一 Merge Captain，最終 CI／Reviewer／Release receipt 綁定精確 commit。
 - **失敗學習迴圈**：任務失敗或 blocked 時，reflect 用 LLM 從證據提煉一條教訓寫進 `learnings.md`，下一輪派工 prompt 自動附上——不會重蹈覆轍。
 - **三操作面**：CLI（`node dist/cli.js`）、Discord bot（雙向指令）、Web 控制台（唯讀監看+一鍵控制），三者共用同一份 handler 邏輯，零重複實作。
 - **Fleet Guardian**：多專案 supervisor 每輪只把新失敗、探測降級、重啟／回收或超過 wedge hard-cap 的事故交給單一 `gpt-5.6-sol`（reasoning `max`）診斷、修復與實證驗證；健康專案不呼叫 LLM。
@@ -22,8 +23,8 @@
                 │                       │                          │
                 │        全部走同一份 src/bot/handlers.ts::handleCommand（web 是另一張皮）
                 ▼                       ▼                          ▼
-┌─────────────────────────────── kernel（src/*.ts，≤2500 行）───────────────────────┐
-│ backlog.ts 任務庫  scheduler.ts 排程  engines/registry.ts 引擎轉接（9 adapter）    │
+┌─────────────────────────────── kernel（src/*.ts，≤2250 行）───────────────────────┐
+│ backlog.ts 任務庫  scheduler.ts 排程  engines/registry.ts 引擎轉接（10 adapter）   │
 │ verifier.ts/verify.ts 驗證閘  daemon.ts 24/7 主迴圈+OOM/idle 閘  events.ts 心跳    │
 │ db.ts 成本帳(sqlite)  worktree.ts 隔離工作區  notify.ts Discord 單向告警  lock.ts  │
 └───────────────┬────────────────────────────────────────────────┬──────────────────┘
@@ -42,7 +43,7 @@
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-引擎矩陣（`src/engines/`，9 個 adapter，per-task `[engine:xxx]` 行內 tag 或 config `defaultEngine` 選擇）：claude-cli（真值計費）、m3（MiniMax，走 claude-cli 換後端 env）、codex、agy（WSL Antigravity，免費）、copilot、qwen、grok、opencode/zen（免費）、devin（swe-1.6，免費）。生產專案 voice-actress 白名單目前只開 claude + m3。
+引擎矩陣（`src/engines/`，10 個 adapter，per-task `[engine:xxx]` 行內 tag 或 config `defaultEngine` 選擇）：claude-cli（真值計費）、m3（MiniMax，走 claude-cli 換後端 env）、codex、agy（WSL Antigravity，免費）、copilot、qwen、grok、opencode/zen（免費）、devin（swe-1.6，免費）、herdr（受控單次 Agent 工作）。生產專案 voice-actress 白名單目前只開 claude + m3。
 
 ## 功能矩陣（里程碑 → 能力）
 
@@ -76,6 +77,9 @@
   "defaultEngine": "claude",
   "engines": { "claude": { "adapter": "claude-cli" } },
   "verifyCommand": "npm test",
+  "defaultRisk": "medium",
+  "concurrency": 1,
+  "reviewEngine": "gpt-5.6-terra",
   "judgeUrl": "http://127.0.0.1:8317/v1",
   "judgeApiKey": "<你的-proxy-key>",
   "dailySoftUsd": 40,
@@ -91,6 +95,17 @@
 - `goalFile`：未設就沒有 GOAL autopilot 能力（`/goal set` 會回「config 未設 goalFile」）。
 - `learningsFile` / `globalLearningsFile`：`learningsFile` 未設時預設 `<dataDir>/learnings.md`（零設定自動開啟）；`globalLearningsFile` 為跨專案人工策展的全局教訓，未設即不注入。
 - `botAllowedUserIds` / `botGuildId` / `botTokenFile`：不設 bot 相關欄位就是 fail-closed（allowlist 空陣列＝全員鎖死），Discord bot 需要這三者才能安全上線。
+- `concurrency`：預設 `1`。大於 `1` 時只讓明示 `risk:"low"` 且 ownership 不重疊的任務進平行 lane；未宣告或不合法的 ownership 會安全降級為全 repo 獨佔。
+- `reviewEngine`：中高風險必須有 Reviewer；未設時可沿用既有 `auditModel`，兩者皆缺或 Reviewer 無法完成時為 `BLOCKED`。
+- `releaseApprovalFile`：發布型任務的人工作業核可 JSON；`candidateCommit` 必須精確等於待合併 commit，否則為 `BLOCKED`。系統不會自行 push 或部署。
+
+任務 ownership 使用行尾 JSON，不支援 glob：
+
+```markdown
+- [ ] 修正排程 <!-- adng:ownership {"write":["src/scheduler.ts","tests/scheduler.test.ts"],"resources":[],"risk":"low"} -->
+```
+
+每次正式 CLI 執行會把 gate bundle 與 merge receipt 寫入 `<dataDir>/evidence/`；repo 級 claim／merge queue 則位於 `<git-common-dir>/autodev-ng/team.db`。
 
 ### 2. build
 
@@ -113,6 +128,14 @@ node dist/cli.js supervise --configs-dir configs --guardian only         # 獨�
 Guardian 不啟動 subagent，也不另設專案任務總時間／成本上限；Codex 完全無輸出進度 30 分鐘才由 idle watchdog 精準終止。相同事故以 supervisor 狀態與位元組事件游標去重，`failed`／`needs_attention`／卡死會送 Discord 告警；LLM 使用隔離 `CODEX_HOME` 與 `workspace-only` 權限，只能修改工作區檔案，Git 提交、重啟與驗收由宿主執行。每次決策、token、耗時與獨立驗收證據寫入各專案 `<dataDir>/guardian-runs.jsonl`，跨專案租約與輸出 schema 位於 `data/guardian/`。
 
 建立 `configs/.adng.stop` 會暫停整個 fleet：launcher、直接 `supervise`、Guardian、持續 patrol 與 `/goal run` 都不會啟動工作；Discord bot 控制面仍可在線接受狀態查詢與後續明確恢復指令。
+
+只讀 Herdr fleet 控制台（要求既有 `herdr-autopilot` session 為 compatible；不會啟動 Herdr、恢復 fleet 或派工）：
+
+```powershell
+pwsh -NoProfile -File scripts/herdr-fleet-console.ps1
+```
+
+Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.herdr.command` 必須指向 `Start-Herdr-Autopilot.ps1`，並設定 `costPerRunUsd`。可選的 `engines.herdr.provider` 為 `Codex` 或 `Pi`，未設仍走 Codex；Pi 必須先有可用模型／provider。AutoDev 仍擁有 worktree、提交與最終驗收。
 
 ### 4. Discord bot（可選）
 
@@ -148,14 +171,15 @@ node web/server.mjs --config <path>
 ## 鐵律摘要
 
 1. **永不自生任務**：任務只能來自使用者手排的 backlog 檔；GOAL autopilot 是唯一受控例外（帶 `<!-- adng:autopilot -->` 標記的行才算系統自產，且需使用者先 `/goal set` 授權，唯一煞車=連續無進展，另有 kill-switch）。
-2. **fail-open**：教訓庫/bot/web/通知等觀測與智慧面任何故障絕不反殺 24/7 主迴圈（唯一硬擋留在 preflight 與成本閘）。
+2. **分層失敗語意**：教訓庫/bot/web/通知等觀測面 fail-open；必要 CI、Reviewer、ownership、release evidence 與 merge coordination 一律 fail-closed 為 `BLOCKED`。
 3. **告警送達確認**：不信 healthz/PID 活著，`notify-test` 端到端驗證送達；digest 每日必達不受 silence 影響。
-4. **kernel 帳紀律**：`wc -l src/*.ts | tail -1` ≤2500 行；新功能一律進 `src/learn/`、`src/autopilot/`、`src/bot/`、`src/engines/`、`web/` 子目錄，不進 kernel 帳，各檔另有自己的行數上限（插件 ≤200、adapter ≤150）。
+4. **kernel 帳紀律**：`wc -l src/*.ts | tail -1` ≤2250 行；新功能一律進 `src/learn/`、`src/autopilot/`、`src/bot/`、`src/engines/`、`web/` 子目錄，不進 kernel 帳，各檔另有自己的行數上限（插件 ≤200、adapter ≤150）。
 
 ## 開發規範
 
 - **SDD 流程**：spec → plan（`docs/plans/`）→ subagent 逐 task TDD 實作 → 雙判定審查（Spec 合規 + 程式碼品質）→ opus 全分支最終審查 → `merge --no-ff` 回 main（本地，預設不 push）。進度與裁決記在 `.superpowers/sdd/progress.md`（ledger，最權威）。
-- **kernel 帳**：每次改動前後跑 `wc -l src/*.ts | tail -1` 核對 ≤2500；implementer 自報行數不可信，一律由審查者/主控獨立 `wc` 核實。
+- **kernel 帳**：每次改動前後跑 `wc -l src/*.ts | tail -1` 核對 ≤2250；implementer 自報行數不可信，一律由審查者/主控獨立 `wc` 核實。
+- **Graphify 範圍**：`.graphifyignore` 只排除 repo 內的 recovery／integration 快照，避免本機 AST 導覽重複掃描；它不會隱藏 Git 變更或刪除保全成果。
 - **測試**：`npm test`（即 `vitest run`）。本機（768 進程負載環境）並行跑測試會有假逾時，`vitest.config.ts` 已固定 `maxWorkers: 1` + `testTimeout: 20000`，serial 模式才可信。
 - **build**：`npm run build`（`tsc -p tsconfig.build.json`，只含 `src/`）；`npm run typecheck` 走含 `tests/` 的原始 `tsconfig.json`。
 - **換行**：全 repo LF-only（`.gitattributes` 已設）；改共用非 git 版控檔案前先備份 `.bak-YYYYMMDD`。

@@ -1,9 +1,25 @@
 import { randomBytes } from 'node:crypto'
+import { readFileSync, statSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
+import { inspectGitWorkspace } from '../autopilot/git-workspace.js'
+
+function linkedWorktreeCommonDir(projectPath: string): string | undefined {
+  try {
+    if (!statSync(join(projectPath, '.git')).isFile()) return undefined
+  } catch {
+    return undefined
+  }
+  const workspace = inspectGitWorkspace(projectPath)
+  if (!workspace.ok) throw new Error(`agy worktree 無法解析：${workspace.detail}`)
+  const commonDir = readFileSync(join(workspace.gitDir, 'commondir'), 'utf8').trim()
+  if (!commonDir) throw new Error(`agy worktree 缺少 commondir：${workspace.gitDir}`)
+  return resolve(workspace.gitDir, commonDir)
+}
 
 /** Windows 路徑 → WSL /mnt 路徑：`D:\a b\c` → `/mnt/d/a b/c`。小寫碟符、反斜線轉正斜線、空格
  * 原樣保留（argv 直傳不經 shell 毋須跳脫）、尾斜線剝除；非「碟符:」開頭視為已是 POSIX。導出供測試。 */
@@ -77,6 +93,23 @@ export class AgyEngine implements Engine {
     return flags
   }
 
+  private async repairForWsl(projectPath: string, commonDir: string): Promise<void> {
+    const r = await runProcess({
+      command: this.command,
+      args: [...this.argvPrefix, '-d', this.distro, '-u', 'root', '--', 'git', '--git-dir', toWslPath(commonDir), 'worktree', 'repair', toWslPath(projectPath)],
+      cwd: projectPath, stdinText: '', timeoutMs: 30_000,
+    })
+    if (r.timedOut || r.exitCode !== 0) throw new Error(`agy WSL worktree repair 失敗：${tail(r.stderr || r.stdout)}`)
+  }
+
+  private async repairForWindows(projectPath: string, commonDir: string): Promise<void> {
+    const r = await runProcess({
+      command: 'git', args: ['--git-dir', commonDir, 'worktree', 'repair', projectPath],
+      cwd: projectPath, stdinText: '', timeoutMs: 30_000,
+    })
+    if (r.timedOut || r.exitCode !== 0) throw new Error(`agy Windows worktree repair 失敗：${tail(r.stderr || r.stdout)}`)
+  }
+
   async preflight(): Promise<PreflightResult> {
     const key = `${this.distro}:${this.agyBin}`
     const cached = this.cache.get(key)
@@ -119,12 +152,20 @@ export class AgyEngine implements Engine {
       return { ok: false, output: '', costUsd: 0, costUnknown: true, failureReason: `prompt ${prompt.length} 字超過 agy argv 上限（1.1.4 不讀 stdin）` }
     }
     const before = this.getCommitHash(job.projectPath)
+    const commonDir = linkedWorktreeCommonDir(job.projectPath)
     // --add-dir 必帶（真探針實證）：agy print 模式不把 cwd 當 workspace，缺它會跑去自家 scratch 自嗨。
-    const r = await runProcess({
-      command: this.command,
-      args: this.wslArgs(job.projectPath, ['--add-dir', toWslPath(job.projectPath), ...this.agyFlags(this.timeoutMs - 30_000, prompt)]),
-      cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs
-    })
+    const r = await (async () => {
+      try {
+        if (commonDir) await this.repairForWsl(job.projectPath, commonDir)
+        return await runProcess({
+          command: this.command,
+          args: this.wslArgs(job.projectPath, ['--add-dir', toWslPath(job.projectPath), ...this.agyFlags(this.timeoutMs - 30_000, prompt)]),
+          cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs
+        })
+      } finally {
+        if (commonDir) await this.repairForWindows(job.projectPath, commonDir)
+      }
+    })()
 
     if (r.timedOut) {
       await this.killByMarker(marker) // 跨界補刀：Linux 側孤兒以 run-id 精準收屍

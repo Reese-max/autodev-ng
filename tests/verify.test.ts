@@ -129,23 +129,23 @@ test('verify fail detail：非 Vitest 無法辨識失敗行時，回退合併輸
   expect(detail.endsWith('stderr tail\nstdout tail')).toBe(true)
 })
 
-test('timeout → skip 不算 fail（附 detail）', async () => {
+test('timeout → blocked（附 detail）', async () => {
   const r = await runVerify({ command: `"${NODE}" -e "setInterval(()=>{},1e3)"`, cwd: process.cwd(), timeoutMs: 1200 })
-  expect(r.status).toBe('skip')
+  expect(r.status).toBe('blocked')
   expect(r.detail).toContain('timeout')
 }, 15_000)
 
-test('exit 9009/127（command not found）→ skip 不算 fail', async () => {
+test('exit 9009/127（command not found）→ blocked', async () => {
   const r9009 = await runVerify({ command: `"${NODE}" -e "process.exit(9009)"`, cwd: process.cwd(), timeoutMs: 10_000 })
-  expect(r9009.status).toBe('skip')
+  expect(r9009.status).toBe('blocked')
   expect(r9009.detail).toContain('command-not-found')
   const r127 = await runVerify({ command: `"${NODE}" -e "process.exit(127)"`, cwd: process.cwd(), timeoutMs: 10_000 })
-  expect(r127.status).toBe('skip')
+  expect(r127.status).toBe('blocked')
 })
 
-test('指令不存在（bare name 亂打）→ skip 不算 fail', async () => {
+test('指令不存在（bare name 亂打）→ blocked', async () => {
   const r = await runVerify({ command: 'adng-no-such-tool-xyz --version', cwd: process.cwd(), timeoutMs: 15_000 })
-  expect(r.status).toBe('skip')
+  expect(r.status).toBe('blocked')
 }, 20_000)
 
 test('對抗性反例：真測試失敗，stderr 引號開頭斷言 + 混入亂碼(U+FFFD) → 仍必須是 fail（不可誤放行成 skip）', async () => {
@@ -157,14 +157,14 @@ test('對抗性反例：真測試失敗，stderr 引號開頭斷言 + 混入亂�
   expect(r.status).toBe('fail')
 })
 
-test('bare name 不存在（探測法）→ skip 且 detail 含 command-not-found', async () => {
+test('bare name 不存在（探測法）→ blocked 且 detail 含 command-not-found', async () => {
   const r = await runVerify({ command: 'adng-no-such-tool-xyz --version', cwd: process.cwd(), timeoutMs: 15_000 })
-  expect(r.status).toBe('skip')
+  expect(r.status).toBe('blocked')
   expect(r.detail).toContain('command-not-found')
 }, 20_000)
 
-test('含路徑分隔符但檔案不存在 → skip（探測法，existsSync 直接判斷）', async () => {
+test('含路徑分隔符但檔案不存在 → blocked（探測法，existsSync 直接判斷）', async () => {
   const r = await runVerify({ command: 'C:/no/such/dir/tool.exe --x', cwd: process.cwd(), timeoutMs: 10_000 })
-  expect(r.status).toBe('skip')
+  expect(r.status).toBe('blocked')
   expect(r.detail).toContain('command-not-found')
 })
