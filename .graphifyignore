@@ -1,0 +1,5 @@
+# Local recovery and integration snapshots are not active project sources.
+.context/
+.tmp-crossgit-probe-20260811/
+autodev-ng-integrate-v3/
+autodev-ng-patches/
