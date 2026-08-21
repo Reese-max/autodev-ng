@@ -1,0 +1,2 @@
+# Pi Provider Canary V2
+PI_CONFIG_WORKTREE_FULL_GATE_OK

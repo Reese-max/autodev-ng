@@ -20,7 +20,8 @@ function engine(mode: string, hashes: (string | undefined)[], timeoutMs = 10_000
   return new CodexEngine({
     // baseArgs/pingArgs 覆寫成 node+fixture：測 JSONL 解析與判定邏輯，不打真 codex/真 API
     command: process.execPath, baseArgs: [FAKE], pingArgs: [FAKE], timeoutMs, pingTimeoutMs: 10_000,
-    cache, homeDir: join(dir, 'codex-home'), getCommitHash: () => hashes[Math.min(i++, hashes.length - 1)]
+    cache, homeDir: join(dir, 'codex-home'), getCommitHash: () => hashes[Math.min(i++, hashes.length - 1)],
+    commitChanges: () => undefined
   })
 }
 
