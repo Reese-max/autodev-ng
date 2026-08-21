@@ -20,6 +20,13 @@ function seed(records: Array<{ taskId: string; ok: boolean; engine: string; ts: 
   return f
 }
 
+function boundaryStats(f: string, nowIso: string, offsetHours: number) {
+  const nowMs = Date.parse(nowIso)
+  return recentRunStats(f, {
+    nowIso, nowMs: () => nowMs, offsetHours, windowDays: 3, timeoutMs: 5_000,
+  })
+}
+
 afterEach(() => {
   clearRunStatsCache()
   vi.restoreAllMocks()
@@ -158,11 +165,7 @@ describe('run.db 近三日統計時間窗邊界', () => {
       { taskId: 'end', ok: true, engine: 'qwen', ts: '2026-07-19T16:00:00.000Z' },
     ])
 
-    const result = recentRunStats(f, {
-      nowIso: '2026-07-19T12:00:00.000Z',
-      offsetHours: 8,
-      windowDays: 3,
-    })
+    const result = boundaryStats(f, '2026-07-19T12:00:00.000Z', 8)
     expect(result.kind).toBe('stats')
     if (result.kind !== 'stats') throw new Error('expected stats')
     expect(result.days).toEqual(['2026-07-19', '2026-07-18', '2026-07-17'])
@@ -185,11 +188,7 @@ describe('run.db 近三日統計時間窗邊界', () => {
       { taskId: 'd17-out', ok: true, engine: 'qwen', ts: '2026-07-17T23:00:00.000Z' },
     ])
 
-    const result = recentRunStats(f, {
-      nowIso: '2026-07-20T12:00:00.000Z',
-      offsetHours: 0,
-      windowDays: 3,
-    })
+    const result = boundaryStats(f, '2026-07-20T12:00:00.000Z', 0)
     expect(result.kind).toBe('stats')
     if (result.kind !== 'stats') throw new Error('expected stats')
     expect(result.days).toEqual(['2026-07-20', '2026-07-19', '2026-07-18'])
@@ -212,11 +211,7 @@ describe('run.db 近三日統計時間窗邊界', () => {
       { taskId: 't72', ok: true, engine: 'qwen', ts: '2026-07-21T00:00:00.000Z' }, // 終點不含
     ])
 
-    const result = recentRunStats(f, {
-      nowIso: '2026-07-20T12:00:00.000Z',
-      offsetHours: 0,
-      windowDays: 3,
-    })
+    const result = boundaryStats(f, '2026-07-20T12:00:00.000Z', 0)
     expect(result.kind).toBe('stats')
     if (result.kind !== 'stats') throw new Error('expected stats')
     expect(result.days).toEqual(['2026-07-20', '2026-07-19', '2026-07-18'])
@@ -233,11 +228,7 @@ describe('run.db 近三日統計時間窗邊界', () => {
       { taskId: 'at-start', ok: true, engine: 'qwen', ts: '2026-07-18T00:00:00.000Z' },
       { taskId: 'at-end', ok: false, engine: 'qwen', ts: '2026-07-21T00:00:00.000Z' },
     ])
-    const result = recentRunStats(f, {
-      nowIso: '2026-07-20T12:00:00.000Z',
-      offsetHours: 0,
-      windowDays: 3,
-    })
+    const result = boundaryStats(f, '2026-07-20T12:00:00.000Z', 0)
     expect(result.kind).toBe('stats')
     if (result.kind !== 'stats') throw new Error('expected stats')
     expect(result.sampleCount).toBe(1)
@@ -254,11 +245,7 @@ describe('run.db 近三日統計時間窗邊界', () => {
       { taskId: 'in-day19-fail', ok: false, engine: 'qwen', ts: '2026-07-19T15:00:00.000Z' },
       { taskId: 'out-end-ok', ok: true, engine: 'qwen', ts: '2026-07-19T16:00:00.000Z' },
     ])
-    const result = recentRunStats(f, {
-      nowIso: '2026-07-19T12:00:00.000Z',
-      offsetHours: 8,
-      windowDays: 3,
-    })
+    const result = boundaryStats(f, '2026-07-19T12:00:00.000Z', 8)
     expect(result.kind).toBe('stats')
     if (result.kind !== 'stats') throw new Error('expected stats')
     expect(result.days).toEqual(['2026-07-19', '2026-07-18', '2026-07-17'])
