@@ -26,6 +26,25 @@ test('parse：狀態判定正確', () => {
   expect(t[2]!.text).toBe('加申論題匯出 PDF') // 註解已剝除
 })
 
+test('ownership metadata：解析風險／write／resource，且不污染任務文字與 id', () => {
+  const annot = '<!-- adng:ownership {"write":["src/a.ts","tests/"],"resources":["package-lock"],"risk":"high"} -->'
+  const t = parseBacklog(`- [ ] 修正排程 ${annot}\n`)[0]!
+  expect(t.text).toBe('修正排程')
+  expect(t.id).toBe(taskId('修正排程'))
+  expect(t.ownership).toEqual({ write: ['src/a.ts', 'tests/'], resources: ['package-lock'], risk: 'high' })
+})
+
+test('ownership metadata：不合法 JSON 安全降級為未宣告；report 仍逐字保留原註記', () => {
+  const valid = '<!-- adng:ownership {"write":["src/a.ts"],"resources":[],"risk":"medium"} -->'
+  const invalid = '<!-- adng:ownership {"write":[],"resources":[],"risk":"medium"} -->'
+  const f = join(mkdtempSync(join(tmpdir(), 'adng-')), 'ownership.md')
+  writeFileSync(f, `- [ ] 正常 ${valid}\n- [ ] 降級 ${invalid}\n`)
+  const store = new BacklogStore(f), tasks = store.read()
+  expect(tasks[1]!.ownership).toBeUndefined()
+  store.report(tasks[0]!.id, { kind: 'done', commitHash: 'abc123' })
+  expect(readFileSync(f, 'utf8')).toContain(`- [x] 正常 ${valid} <!-- adng:done abc123 -->`)
+})
+
 test('split／重開母任務是 superseded：不算 blocked、不派工也不參與重複判定', () => {
   const text = '已拆解母任務'
   const f = join(mkdtempSync(join(tmpdir(), 'adng-')), 'B.md')

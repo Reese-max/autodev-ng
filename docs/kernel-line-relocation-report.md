@@ -31,7 +31,7 @@
 | 搬移後檔案 | kernel 接線／用途 |
 | --- | --- |
 | `src/engines/notify.ts` | `src/cli/assemble.ts` 組裝 Discord／Telegram notifier |
-| `src/engines/proc.ts` | `src/verify.ts` 共用子進程執行器 |
+| `src/engines/proc.ts` | `src/engines/run-verify.ts` 共用子進程執行器 |
 | `src/engines/daemon-alerts.ts` | `src/daemon.ts` 保留告警薄接線 |
 | `src/engines/semantic-judge.ts` | `src/judge.ts` 保留相容 re-export |
 | `src/engines/worktree-checkout.ts` | `src/worktree.ts` 派工前 checkout 與 Git 根目錄驗證 |
@@ -66,6 +66,9 @@
  `worktree.ts` +42，reap 前 run.db 活性雙證閘使 `types.ts` +2，合計 2248、騰回 452 行；2026-08-04 圍籬（fencing）與 todayLocal 外移 src/engines/（daemon-fence.ts／daemon-alerts.ts）後 daemon.ts 218→217，總計 2247、騰回 453 行。此次將 worktree checkout 驗證外移 `src/engines/worktree-checkout.ts`，頂層 `worktree.ts` 349→332，總計 2230、騰回 470 行；auto-goal completion gate 的主邏輯外移 `src/engines/auto-goal-completion.ts`，kernel 僅保留完成出口接線與 verify exit code，總計 2235、騰回 465 行；本次 free-only tier mode 的主邏輯留在 `src/engines/`，頂層只增加 schema 與拒派接線 3 行，總計 2238、騰回 462 行；本次免費層重試狀態查詢與 scheduler 接線增加 6 行，總計 2244、騰回 456 行。此次把既有 judge 邏輯搬至 `src/engines/semantic-judge.ts`（`src/judge.ts` 僅保留 re-export），並以子目錄承接 free-only split；backlog/parser、scheduler 與 Task metadata 接線淨調整後，總計 2232、騰回 468 行。2026-08-05 審查校準週跑接線只新增 `daemon.ts` 2 行與 `digest.ts` 4 行，總計 **2238**、騰回 **462** 行。
 2026-08-07 將失敗責任分類、供應冷卻與 superseded 狀態接回 kernel，並移除 scheduler 的子任務 auto-goal completion gate，校正後總計 **2249**、騰回 **451** 行。2026-08-12 修正 no-commit 失敗分類後，總計 **2250**、騰回 **450** 行。
 **2026-08-12 快照已達 2250 上限**——下一筆 kernel 頂層增長必須先搬移或刪除既有邏輯。
+
+2026-08-14 團隊化改造將 verifier 與 verify 實作分別外移至 `src/engines/kernel-verifier.ts`、
+`src/engines/run-verify.ts`；頂層保留 re-export 相容面，讓 ownership、證據鏈、並行與 mid-flight pause 接線後為 **2214 行**，仍低於 2250 硬閘。
 
 ## 可重現驗證
 

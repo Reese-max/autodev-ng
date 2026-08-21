@@ -8,7 +8,7 @@ import { firstMissingArtifact } from './engines/artifact-contract-git.js'
 import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetryReason, retriedBlockedReason, worktreeFailureReason, type InfrastructureRetryReason, type InfraRetryState } from './engines/infra-retry.js'
-import { enqueueMerge } from './engines/merge-queue.js'
+import { enqueueMerge, enqueueTeamMerge } from './engines/merge-queue.js'
 import { nudgeNoCommit } from './engines/no-commit-nudge.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
 import { freeOnlyAttemptLimit, freeOnlyListExhausted, freeOnlyRetryCandidates } from './engines/free-only-retry.js'
@@ -21,6 +21,13 @@ import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './typ
 import type { VerifierCheck } from './verifier.js'
 import { cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError, type MergeBackResult, type WorktreeHandle } from './worktree.js'
 import { runVerify } from './verify.js'
+import { classifyTaskRisk, verifyRequired } from './engines/risk-policy.js'
+import { defaultCommitHash } from './engines/commit-hash.js'
+import { runCandidateGate } from './engines/candidate-gate.js'
+import { newExecutionId, type EvidenceStore } from './engines/evidence-chain.js'
+import { checkOwnership, compatibleTasks } from './engines/ownership.js'
+import type { TeamState } from './engines/team-state.js'
+import { trackedDirtyFiles } from './engines/main-admission.js'
 
 /** M7：教訓注入/反思 port（Task 2 makeLessonsPort 的輸出型別）。inject() 供 scheduler
  * 附進 job.directive；reflect() 留給 Task 4/5 接線（本 task 只注入 inject）。 */
@@ -42,6 +49,10 @@ export interface Deps {
   taskTerminalNotify?: (notice: TaskTerminalNotice) => Promise<boolean>
   events: EventLog
   verifier?: { check(job: Job, res: RunResult): Promise<VerifierCheck> }
+  /** CLI 正式接線必帶；測試或嵌入式呼叫未接時維持舊行為。 */
+  evidence?: EvidenceStore
+  /** Git common-dir 共用 ownership／merge queue；正式 CLI 必接，嵌入式測試可省略。 */
+  team?: TeamState
   /** M7：未接線時 undefined，行為與現狀完全一致（fail-open 硬線）。 */
   lessons?: LessonsPort
   /** M10.5：config 檔絕對路徑（assemble 填入）——globalBilledToday 掃兄弟專案用。測試可不設。 */
@@ -51,7 +62,7 @@ export interface Deps {
 /** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
  * ——不是每種 blocked 都是「連敗」，含糊文案會誤導人工介入的方向。 */
 // infra codes distinguish retryable worktree／外部終止，其他 reason 維持既有終態。
-export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'completion-gate' | 'dirty-worktree' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
+export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'completion-gate' | 'verification-infra' | 'review-unavailable' | 'release-approval' | 'ownership-drift' | 'merge-queue-recovery' | 'team-state-quarantined' | 'dirty-worktree' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
@@ -64,8 +75,18 @@ export type CycleResult =
   | { kind: 'blocked'; taskId: string; taskText: string; reason: BlockedReason; alertDetail?: string }
 
 export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: false }): Promise<CycleResult> {
+  if (deps.cfg.concurrency <= 1 || retry.taskId || existsSync(deps.cfg.stopFile)) return runSingleOnce(deps, retry)
+  if (!deps.team) { noteSerialConcurrency(deps); return runSingleOnce(deps, retry) }
+  const open = sequentialReadyTasks(deps.store.read())
+  if (open[0] && classifyTaskRisk(deps.cfg, open[0]) !== 'low') return runSingleOnce(deps, { retried: false, taskId: open[0].id })
+  const selected = compatibleTasks(open.filter(task => classifyTaskRisk(deps.cfg, task) === 'low'), deps.cfg.concurrency)
+  if (selected.length <= 1) return runSingleOnce(deps, selected[0] ? { retried: false, taskId: selected[0].id } : retry)
+  const results = await Promise.all(selected.map(task => runSingleOnce(deps, { retried: false, taskId: task.id })))
+  return results.find((r): r is Extract<CycleResult, object> => typeof r === 'object') ?? (results.includes('done') ? 'done' : results[0] ?? 'idle')
+}
+
+async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleResult> {
   const { cfg, store, db, engines, events, verifier, notify } = deps
-  noteSerialConcurrency(deps)
   if (existsSync(cfg.stopFile)) {
     writeHeartbeat(events, cfg, { state: 'stopped', todayCostUsd: todayCost(db, cfg) })
     return 'stopped'
@@ -108,6 +129,43 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
     return picked
   }
   const { task, engine, engineTag, fixedCost } = picked
+  const executionId = newExecutionId()
+  const mainDirty = trackedDirtyFiles(cfg.projectPath, cfg.gitTimeoutMs)
+  if (mainDirty?.length) {
+    const detail = `主工作目錄有 ${mainDirty.length} 個 tracked dirty 檔，admission 在 Engine 執行前拒絕；檔案：${mainDirty.slice(0, 5).join('、')}`
+    quiet(() => events.append('dirty-worktree', { task: task.text, fileCount: mainDirty.length, files: mainDirty.slice(0, 5), stage: 'admission' }))
+    return blockTask({ store, events }, task, 'dirty-worktree', detail)
+  }
+  const leaseMs = Math.max(60_000, cfg.staleThresholdMs)
+  let teamClaim: { token: string } | undefined
+  if (deps.team) {
+    try {
+      const claimed = deps.team.claim({
+        executionId, task, workerId: engineTag,
+        reservedCostUsd: cfg.engines[engineTag]?.subscription ? 0 : (fixedCost ?? cfg.failureCostEstimateUsd),
+        spentUsd: spent, dailyHardUsd: cfg.dailyHardUsd, leaseMs,
+      })
+      if (!claimed.ok) {
+        quiet(() => events.append('team-admission-deferred', { task: task.text, reason: claimed.reason, detail: claimed.detail }))
+        return claimed.reason === 'quarantined'
+          ? blockTask({ store, events }, task, 'team-state-quarantined', `team-state-quarantined：${claimed.detail}`)
+          : 'deferred'
+      }
+      teamClaim = claimed
+    } catch (err) {
+      return blockTask({ store, events }, task, 'team-state-quarantined', `team coordination unavailable：${String(err)}`)
+    }
+  }
+  let claimReleased = false
+  const releaseClaim = (): void => {
+    if (!teamClaim || claimReleased) return
+    claimReleased = true
+    try { deps.team?.release(executionId, teamClaim.token) } catch { /* DB 狀態保留，逾期後 quarantine */ }
+  }
+  const claimHeartbeat = teamClaim ? setInterval(() => { try { deps.team?.heartbeat(executionId, teamClaim!.token, leaseMs) } catch { /* merge admission 仍會 fail-closed */ } }, Math.max(10_000, Math.floor(leaseMs / 3))) : undefined
+  claimHeartbeat?.unref?.()
+
+  try {
 
   writeHeartbeat(events, cfg, { state: 'running', currentTask: task.text, todayCostUsd: spent })
 
@@ -120,7 +178,7 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
   } catch (err) {
     const reason: BlockedReason = worktreeFailureReason(err), detail = reason === 'infra:worktree-timeout' ? `infra:worktree-timeout：逾時 ${cfg.worktreeAddTimeoutMs}ms；可調整 config 欄位 worktreeAddTimeoutMs；${String(err)}` : `worktree 建立失敗：${String(err)}`
     quiet(() => events.append(reason === 'worktree-invalid' ? 'worktree-invalid' : 'worktree-prepare-failed', { task: task.text, error: String(err) }))
-    if (isInfrastructureRetryReason(reason)) return retryInfrastructure(deps, task, retry, reason, detail)
+    if (isInfrastructureRetryReason(reason)) { releaseClaim(); return retryInfrastructure(deps, task, retry, reason, detail) }
     return blockTask({ store, events }, task, reason, detail)
   }
 
@@ -145,9 +203,9 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
   // try 只包 engine.run：下游 I/O 故障不該被誤判成引擎錯誤而污染 failCount。
   let res: RunResult
   try {
-    res = await engine.run({ task, projectPath: wt.cwd, directive })
+    res = await engine.run({ task, projectPath: wt.cwd, directive, executionId, writerIdentity: engineTag })
   } catch (err) {
-    if (isExternalEngineTermination(err)) return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${String(err)}`)
+    if (isExternalEngineTermination(err)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${String(err)}`) }
     // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
     db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, durationMs: Date.now() - runStartMs, failureClass: 'supply' })
     engine.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
@@ -155,7 +213,7 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
     return resolveFailure(deps, task, 'engine-error', String(err), 'supply', { costUsd: fixedCost ?? 0 })
   }
-  if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`)
+  if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`) }
   res = await nudgeNoCommit(engine, { task, projectPath: wt.cwd, directive }, res, wt.baseHead)
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默。失敗成本估計（M4 Task 3）：costUnknown===true
   // （timeout/exit≠0/輸出不可解析）改記 cfg.failureCostEstimateUsd，detail 帶 cost-estimated 標記；
@@ -170,6 +228,24 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
   const quotaUsage = { costUsd: recordedCostUsd, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached }
   if (!res.ok) engine.invalidatePreflight?.() // timeout/exit≠0/no-commit：引擎健康存疑，下輪重探（verify 拒收不算）
 
+  const pauseReady = (): void => {
+    const candidateHead = defaultCommitHash(wt.cwd) ?? res.commitHash ?? 'unknown'
+    if (teamClaim && deps.team) try { deps.team.pauseCandidate({ executionId, token: teamClaim.token, taskId: task.id, candidateHead, branch: wt.branch, worktreePath: wt.cwd }) } catch (err) { quiet(() => events.append('pause-state-write-failed', { task: task.text, error: String(err) })) }
+    quiet(() => events.append('task-paused-ready', { task: task.text, branch: wt.branch, candidateHead }))
+    quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
+  }
+  if (res.ok && existsSync(cfg.stopFile)) { pauseReady(); return 'stopped' }
+
+  if (res.ok) {
+    const ownership = checkOwnership(wt.cwd, task, res.baseCommitHash ?? wt.baseHead, defaultCommitHash(wt.cwd) ?? res.commitHash)
+    if (!ownership.ok) {
+      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: ownership.detail, engine: engineTag, durationMs: Date.now() - runStartMs, failureClass: 'task' })
+      quiet(() => events.append('ownership-drift', { task: task.text, detail: ownership.detail, branch: wt.branch }))
+      quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
+      return blockTask({ store, events }, task, 'ownership-drift', `ownership-drift：${ownership.detail}`)
+    }
+  }
+
   const missingArtifact = res.ok ? firstMissingArtifact(wt.cwd, res.output, res.baseCommitHash, res.commitHash, cfg.artifactContract) : undefined
   if (missingArtifact) {
     const reason = `artifact-missing:${missingArtifact}`
@@ -179,30 +255,37 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
     return resolveFailure(deps, task, 'failed', reason, 'task', quotaUsage)
   }
 
-  if (res.ok && verifier) {
-    // verifier 本身故障（非 verify-fail / judge-mismatch 的明確拒絕）一律 pass-with-alert（鐵律 #4）：
-    // infra 層的驗證閘壞掉不該反殺已經成功的任務。
-    let vc: VerifierCheck
-    try {
-      vc = await verifier.check({ task, projectPath: wt.cwd }, res)
-    } catch (err) {
-      vc = { pass: true, alerts: [`verifier-exception: ${String(err)}`] }
-    }
+  if (res.ok && (verifier || deps.evidence)) {
+    const vc = await runCandidateGate({ cfg, task, cwd: wt.cwd, result: res, verifier, evidence: deps.evidence, executionId, writerIdentity: engineTag })
     for (const a of vc.alerts) quiet(() => events.append('verify-alert', { task: task.text, detail: a }))
+    const receipt = vc.receipt
+    if (receipt) quiet(() => events.append('evidence-bundle', { task: task.text, commit: res.commitHash, path: receipt.path, hash: receipt.bundleHash }))
+    if (vc.paused) { pauseReady(); return 'stopped' }
     if (!vc.pass) {
       // 引擎那筆已記 ok:true+真實 cost（成本不可造假）；這裡多記一筆 ok:false 讓失敗計數靠這筆走。
-      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected', engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached, failureClass: 'task' })
+      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected', engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached, failureClass: vc.blockedReason ? 'infra' : 'task' })
       quiet(() => events.append('task-verify-failed', { task: task.text, reason: vc.reason }))
       // engine 失敗/verify 拒：rollback 已在 worktree 內安全跑過，保留現場供 debug（不清理）。
       quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
+      if (vc.blockedReason) {
+        return blockTask({ store, events }, task, vc.blockedReason, `${vc.blockedReason}：${vc.reason ?? '必要驗收無可用證據'}`)
+      }
       return resolveFailure(deps, task, 'failed', `verify 拒收：${vc.reason ?? '未附原因'}`, 'task', quotaUsage)
     }
   }
 
+  if (res.ok && existsSync(cfg.stopFile)) { pauseReady(); return 'stopped' }
+
   if (res.ok) {
     // engine 成功 + verify 通過（或未設 verifier）→ 嘗試把任務分支 ff-only 合回主 repo。
     // merge queue（併發基建）：合併一次一個；串行下等價直呼，併發池（GOAL B）沿用同一入口。
-    const merge = await enqueueMerge(cfg.projectPath, () => mergeAfterRebaseVerify(cfg, wt, task, res))
+    const mergeFn = () => existsSync(cfg.stopFile)
+      ? ({ merged: false, reason: 'paused' } as const)
+      : mergeAfterRebaseVerify(cfg, wt, task, res, verifier, deps.evidence, executionId, engineTag)
+    const candidateHead = defaultCommitHash(wt.cwd) ?? res.commitHash ?? 'unknown'
+    const merge = teamClaim && deps.team
+      ? await enqueueTeamMerge(cfg.projectPath, deps.team, { executionId, token: teamClaim.token, taskId: task.id, candidateHead, branch: wt.branch, worktreePath: wt.cwd }, Math.max(cfg.wedgeHardCapMs, cfg.verifyTimeoutMs), mergeFn)
+      : await enqueueMerge(cfg.projectPath, mergeFn)
     if (merge.rebaseAttempted) quiet(() => events.append('rebase-attempted', {
       task: task.text,
       branch: wt.branch,
@@ -211,6 +294,7 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
     }))
     if (merge.rebased) quiet(() => events.append('merge-rebased', { task: task.text, branch: wt.branch }))
     if (!merge.merged) {
+      if (merge.reason === 'paused') { pauseReady(); return 'stopped' }
       if (merge.reason === 'branch-switched') {
         // HIGH 修復：主 repo 已不在 prepareWorktree 當時記下的分支（切走或 detached）——
         // 不硬 merge，成果不會悄悄落到使用者當下所在分支；worktree/分支保留給人工介入。
@@ -225,6 +309,18 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
         const detail = `主工作目錄有 ${merge.dirtyFileCount ?? files.length} 個未提交變更檔阻擋合併，需先提交或移至分支保存${files.length > 0 ? `；檔案：${files.join('、')}` : ''}`
         quiet(() => events.append('dirty-worktree', { task: task.text, branch: wt.branch, fileCount: merge.dirtyFileCount, files }))
         return blockTask({ store, events }, task, 'dirty-worktree', detail)
+      }
+      if (merge.reason === 'verification-infra') {
+        return blockTask({ store, events }, task, 'verification-infra', 'verification-infra：rebase 後必要 CI 驗收無法執行，成果未合回')
+      }
+      if (merge.reason === 'review-unavailable') {
+        return blockTask({ store, events }, task, 'review-unavailable', 'review-unavailable：rebase 後必要 Reviewer 無法完成，成果未合回')
+      }
+      if (merge.reason === 'release-approval') {
+        return blockTask({ store, events }, task, 'release-approval', 'release-approval：發布核可缺失或與 rebase 後候選 commit 不符，成果未合回')
+      }
+      if (merge.reason === 'merge-queue-recovery') {
+        return blockTask({ store, events }, task, 'merge-queue-recovery', 'merge-queue-recovery：持久化 merge queue 無法安全取得或復原，成果分支已保留')
       }
       // mergeBack 已做過唯一一次 rebase 補救；失敗時不可清理 worktree／分支，保留未合併成果。
       quiet(() => events.append('merge-conflict', {
@@ -241,6 +337,16 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
             ? 'merge-conflict：rebase 後重試合併失敗，成果未合回，需人工介入合併'
             : 'merge-conflict：rebase 補救失敗，成果未合回，需人工介入合併'
       return blockTask({ store, events }, task, 'merge-conflict', detail)
+    }
+
+    if (deps.evidence && merge.commitHash) {
+      try {
+        const receipt = deps.evidence.recordMerge({ executionId, taskId: task.id, mergedCommit: merge.commitHash })
+        quiet(() => events.append('merge-evidence', { task: task.text, commit: merge.commitHash, path: receipt.path, hash: receipt.bundleHash }))
+      } catch (err) {
+        quiet(() => events.append('merge-evidence-failed', { task: task.text, commit: merge.commitHash, error: String(err) }))
+        return blockTask({ store, events }, task, 'verification-infra', `evidence-chain：main 已快轉至 ${merge.commitHash}，但 merge receipt 寫入失敗；不得標記 DONE（${String(err)}）`)
+      }
     }
 
     try {
@@ -286,10 +392,17 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
   // engine 失敗（res.ok===false，非例外）：既有流程走 resolveFailure，worktree 保留現場。
   quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
   return resolveFailure(deps, task, 'failed', res.failureReason ?? '未知', failureClass, quotaUsage)
+  } finally {
+    if (claimHeartbeat) clearInterval(claimHeartbeat)
+    releaseClaim()
+  }
 }
 
 /** rebase 成功後仍在 merge queue 內驗收；只有非紅燈才允許唯一一次 merge 重試。 */
-async function mergeAfterRebaseVerify(cfg: Config, wt: WorktreeHandle, _task: Task, _result: RunResult): Promise<MergeBackResult> {
+async function mergeAfterRebaseVerify(
+  cfg: Config, wt: WorktreeHandle, task: Task, result: RunResult,
+  verifier: Deps['verifier'], evidence: EvidenceStore | undefined, executionId: string, writerIdentity: string,
+): Promise<MergeBackResult> {
   const timeouts = { gitTimeoutMs: cfg.gitTimeoutMs, worktreeAddTimeoutMs: cfg.worktreeAddTimeoutMs }
   const first = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
     ...timeouts,
@@ -299,13 +412,23 @@ async function mergeAfterRebaseVerify(cfg: Config, wt: WorktreeHandle, _task: Ta
     return first
   }
 
-  let verification
-  try {
-    verification = await runVerify({ command: cfg.verifyCommand, cwd: wt.cwd, timeoutMs: cfg.verifyTimeoutMs })
-  } catch {
-    return { ...first, failureStage: 'verify' }
+  const risk = classifyTaskRisk(cfg, task)
+  if (verifier || evidence) {
+    const baseCommitHash = defaultCommitHash(cfg.projectPath)
+    const commitHash = defaultCommitHash(wt.cwd)
+    if (!baseCommitHash || !commitHash) return { ...first, reason: 'verification-infra', failureStage: 'verify' }
+    const gate = await runCandidateGate({
+      cfg, task, cwd: wt.cwd, verifier, evidence, executionId, writerIdentity,
+      result: { ...result, baseCommitHash, commitHash }, preserveOnReject: true,
+    })
+    if (!gate.pass) return { ...first, reason: gate.paused ? 'paused' : (gate.blockedReason ?? 'merge-conflict'), failureStage: 'verify' }
+  } else {
+    const verification = await runVerify({ command: cfg.verifyCommand, cwd: wt.cwd, timeoutMs: cfg.verifyTimeoutMs })
+    if (verification.status === 'blocked' || (verification.status === 'skip' && verifyRequired(risk))) {
+      return { ...first, reason: 'verification-infra', failureStage: 'verify' }
+    }
+    if (verification.status === 'fail') return { ...first, failureStage: 'verify' }
   }
-  if (verification.status === 'fail') return { ...first, failureStage: 'verify' }
 
   const merged = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
     ...timeouts,
@@ -328,7 +451,7 @@ function blockTask(
     quiet(() => events.append('report-failed', { task: task.text, kind: 'blocked', error: String(err), willRepick: true }))
   }
   quiet(() => events.append('task-blocked', { task: task.text, reason, ...(eventDetail ? { detail: eventDetail } : {}), ...(humanReason.includes('retried=1') ? { retried: 1 } : {}) }))
-  return { kind: 'blocked', taskId: task.id, taskText: task.text, reason, ...(['dirty-worktree', 'completion-gate'].includes(reason) ? { alertDetail: humanReason } : {}) }
+  return { kind: 'blocked', taskId: task.id, taskText: task.text, reason, ...(['dirty-worktree', 'completion-gate', 'verification-infra', 'review-unavailable', 'release-approval', 'ownership-drift', 'merge-queue-recovery', 'team-state-quarantined'].includes(reason) ? { alertDetail: humanReason } : {}) }
 }
 
 async function retryInfrastructure(deps: Deps, task: Task, retry: InfraRetryState, reason: InfrastructureRetryReason, detail: string): Promise<CycleResult> {

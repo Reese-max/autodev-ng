@@ -28,18 +28,25 @@ test('verify fail → pass:false + rollback 被呼叫到 base', async () => {
   expect(calls).toEqual([`${process.cwd()}=>aaa`])
 })
 
-test('verify pass + judge 未設 → pass:true 且 judge SKIP 進 alerts', async () => {
-  const v = new KernelVerifier({ cfg: cfg({ verifyCommand: `"${NODE}" -e "process.exit(0)"` }) })
+test('low risk：verify pass + judge 未設 → pass:true 且 judge SKIP 進 alerts', async () => {
+  const v = new KernelVerifier({ cfg: cfg({ defaultRisk: 'low', verifyCommand: `"${NODE}" -e "process.exit(0)"` }) })
   const r = await v.check(JOB, RES)
   expect(r.pass).toBe(true)
   expect(r.alerts.some(a => a.includes('judge'))).toBe(true)
 })
 
-test('verify skip（無指令）→ pass 並 alert', async () => {
-  const v = new KernelVerifier({ cfg: cfg() })
+test('low risk：verify skip（無指令）→ pass 並 alert', async () => {
+  const v = new KernelVerifier({ cfg: cfg({ defaultRisk: 'low' }) })
   const r = await v.check(JOB, RES)
   expect(r.pass).toBe(true)
   expect(r.alerts.some(a => a.includes('verify-skip'))).toBe(true)
+})
+
+test('medium risk：verify skip（無指令）→ BLOCKED', async () => {
+  const v = new KernelVerifier({ cfg: cfg() })
+  const r = await v.check(JOB, RES)
+  expect(r).toMatchObject({ pass: false, risk: 'medium', blockedReason: 'verification-infra' })
+  expect(r.reason).toContain('requires verifyCommand')
 })
 
 test('rollback 回傳 false → check 結果 alerts 含 rollback-failed', async () => {
@@ -62,18 +69,40 @@ test('rollback 拋例外 → alerts 含 rollback-exception 且 check 不 throw',
   expect(r.alerts.some(a => a.includes('rollback-exception'))).toBe(true)
 })
 
-test('無 baseCommitHash 且 judgeUrl 有設 → judge 不被呼叫、alerts 含 judge-skipped', async () => {
+test('low risk：無 baseCommitHash 且 judgeUrl 有設 → judge 不被呼叫、alerts 含 judge-skipped', async () => {
   const resNoBase: RunResult = { ok: true, output: 'done', costUsd: 0.1, commitHash: 'bbb' }
   const bombFetch = (async () => {
     throw new Error('judge fetchFn should not be called')
   }) as unknown as typeof fetch
   const v = new KernelVerifier({
-    cfg: cfg({ verifyCommand: `"${NODE}" -e "process.exit(0)"`, judgeUrl: 'http://fake-judge.invalid' }),
+    cfg: cfg({ defaultRisk: 'low', verifyCommand: `"${NODE}" -e "process.exit(0)"`, judgeUrl: 'http://fake-judge.invalid' }),
     judgeFetchFn: bombFetch
   })
   const r = await v.check(JOB, resNoBase)
   expect(r.pass).toBe(true)
   expect(r.alerts.some(a => a.includes('judge-skipped'))).toBe(true)
+})
+
+test('medium risk：無 baseCommitHash → BLOCKED reviewer evidence', async () => {
+  const v = new KernelVerifier({ cfg: cfg({ verifyCommand: `"${NODE}" -e "process.exit(0)"` }) })
+  const r = await v.check(JOB, { ...RES, baseCommitHash: undefined })
+  expect(r).toMatchObject({ pass: false, risk: 'medium', blockedReason: 'review-unavailable' })
+})
+
+test('CI 執行期間出現 stop sentinel → paused，且不啟動 judge／Reviewer', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-vf-pause-')), stopFile = join(dir, '.adng.stop')
+  let reviewed = false
+  const script = `require('node:fs').writeFileSync(${JSON.stringify(stopFile)},'pause')`
+  const payload = Buffer.from(script).toString('base64')
+  const v = new KernelVerifier({
+    cfg: cfg({ stopFile, verifyCommand: `"${NODE}" -e "eval(Buffer.from('${payload}','base64').toString())"`, reviewEngine: 'reviewer' }),
+    getDiff: () => 'diff --git a/a b/a\n+x', getNameStatus: () => 'M\ta',
+    judgeFetchFn: async () => { throw new Error('judge must not run') },
+    reviewRun: async () => { reviewed = true; return 'REVIEW: PASS' },
+  })
+  const r = await v.check(JOB, RES)
+  expect(r).toMatchObject({ pass: false, paused: true, reason: 'paused after CI' })
+  expect(reviewed).toBe(false)
 })
 
 test('defaultRollback 在無 .adng-worktree marker 的目錄拒絕執行且 alerts 可見', async () => {

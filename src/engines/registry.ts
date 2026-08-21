@@ -9,6 +9,7 @@ import { GrokEngine } from './grok.js'
 import { QwenEngine } from './qwen.js'
 import { OpencodeEngine } from './opencode.js'
 import { DevinEngine } from './devin.js'
+import { HerdrEngine } from './herdr.js'
 import type { Config, Engine, EngineConfig, EngineResolver } from '../types.js'
 
 /** M5 Task 1：`{env:VAR}` 展開（assemble 層）——config 只寫變數引用，真值從進程環境取，
@@ -102,7 +103,16 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           command: ec.command, env: expandEnvMap(ec.env), profileDir: join(cfg.dataDir, 'opencode-profile'),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model), timeoutMs: ec.timeoutMs,
-          pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs
+          variant: ec.effort, pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs
+        })
+      case 'herdr':
+        if (!ec.command) throw new Error(`engines.${tag}.command 必須指向 Start-Herdr-Autopilot.ps1`)
+        return new HerdrEngine({
+          id: tag === 'herdr' ? 'herdr' : `herdr:${tag}`,
+          cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
+          command: ec.command, verifyCommand: cfg.verifyCommand,
+          provider: ec.provider,
+          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs,
         })
       case 'devin':
         // M5 Task 9：Devin CLI（原生 .exe 直呼；prompt/export 走 tmp 檔；固定鎖 swe-1.6 免費模型）。

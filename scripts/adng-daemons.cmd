@@ -21,6 +21,8 @@ set "ADNG_GATE=%ADNG_ROOT%\scripts\pause-gated-spawn.mjs"
 
 if exist "%ADNG_STOP%" exit /b 0
 
+if exist "%ADNG_ROOT%\configs\.adng.stop" exit /b 0
+
 if not exist "%ADNG_ROOT%\dist\cli.js" (
   echo adng-daemons: missing "%ADNG_ROOT%\dist\cli.js" - run npm run build first
   exit /b 1
@@ -34,8 +36,11 @@ call "%ADNG_ROOT%\scripts\adng-patrol-guard.cmd"
 REM backup-push (2026-08-05): mirror fleet repos to private GitHub.
 REM Paths live in backup-push.mjs (read from configs) - cmd stays pure ASCII.
 node "%ADNG_GATE%" "%ADNG_STOP%" node.exe "%ADNG_ROOT%\scripts\backup-push.mjs"
+set "ADNG_BACKUP_PUSH_EXIT=%ERRORLEVEL%"
 
 REM memory-snapshot (2026-08-05): daily fleet-memory mirror (run.db/BACKLOG/signals).
 node "%ADNG_GATE%" "%ADNG_STOP%" node.exe "%ADNG_ROOT%\scripts\memory-snapshot.mjs"
+set "ADNG_MEMORY_SNAPSHOT_EXIT=%ERRORLEVEL%"
 
-exit /b %ERRORLEVEL%
+if not "%ADNG_BACKUP_PUSH_EXIT%"=="0" exit /b %ADNG_BACKUP_PUSH_EXIT%
+exit /b %ADNG_MEMORY_SNAPSHOT_EXIT%

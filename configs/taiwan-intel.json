@@ -72,8 +72,7 @@
       "model": "kilo/kilo-auto/free",
       "costPerRunUsd": 0,
       "subscription": true,
-      "timeoutMs": 4500000,
-      "dailyAttemptCap": 5
+      "timeoutMs": 4500000
     },
     "grok": {
       "adapter": "grok",

@@ -1,5 +1,12 @@
 import { z } from 'zod'
 
+export type TaskRisk = 'low' | 'medium' | 'high'
+export interface TaskOwnership {
+  write: string[]
+  resources: string[]
+  risk?: TaskRisk
+}
+
 export interface Task {
   id: string
   text: string
@@ -15,6 +22,8 @@ export interface Task {
    * （鐵律 #1 修訂版唯一破口，行帶 adng:autopilot 註記）；'user' = 其餘所有行（含無註記的
    * 手排任務）。純解讀層標記，不影響既有 taskId/report 行為。 */
   source?: 'user' | 'autopilot'
+  /** 行尾 adng:ownership JSON；P0/P1 作風險與並行寫入權契約。解析失敗時不填，排程安全降級為全 repo 獨佔。 */
+  ownership?: TaskOwnership
   /** free-only judge 拆解的血緣與排程形狀；shape 先保留 sequential。 */
   split?: { parentId: string; part: number; depth: number; shape: 'sequential' }
 }
@@ -26,6 +35,11 @@ export type Disposition =
 export interface Job {
   task: Task
   projectPath: string
+  /** 同一次 Engineer attempt 與唯讀 Reviewer receipt 的關聯鍵。 */
+  executionId?: string
+  writerIdentity?: string
+  /** rebase 後終審拒收時保留候選分支，不 reset 掉可人工處理的成果。 */
+  preserveOnReject?: boolean
   /** M4 Task 6（worktree 接線）：cfg.extraDirective 附加在任務文字尾的專案特規指示
    * （如 voice-actress 的 port 3210 警告）。未設定 extraDirective 時維持 undefined；
    * claude-cli engine 的 prompt 任務行以 directive ?? task.text 消費（Fix 1 已接線）。 */
@@ -74,12 +88,13 @@ export interface EngineResolver {
  * 可不設（opencode 的 zen NDJSON cost 為可信真值，設 0 會令 scheduler 的 fixedCost ?? 真值恆取 0 變死碼——
  * spec 矩陣定為不設），其餘 adapter 由 ConfigSchema 的 superRefine 強制必設（免費引擎明確寫 0）。 */
 export const EngineConfigSchema = z.object({
-  adapter: z.enum(['mock', 'claude-cli', 'codex', 'agy', 'copilot', 'qwen', 'grok', 'opencode', 'devin']),
+  adapter: z.enum(['mock', 'claude-cli', 'codex', 'agy', 'copilot', 'qwen', 'grok', 'opencode', 'herdr', 'devin']),
   command: z.string().optional(), // CLI 執行檔覆寫（如 opencode.exe 不在 PATH 時指完整路徑）；Task 8 起 opencode 接線，其餘 adapter 按需跟進
   costPerRunUsd: z.number().nonnegative().optional(),
   subscription: z.boolean().optional(), // M9.9：訂閱制引擎（邊際成本≈0）——估值照記帳但不踩日頂
   env: z.record(z.string(), z.string()).optional(),
   model: z.string().optional(),
+  provider: z.enum(['Codex', 'Pi']).optional(), // herdr adapter；未設維持 Codex
   effort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional(), // codex CLI 接受 max；judgeEffort 走本機 proxy 且不接受 max，勿共用枚舉
   timeoutMs: z.number().int().nonnegative().optional(), pingTimeoutMs: z.number().int().positive().optional(), idleTimeoutMs: z.number().int().nonnegative().optional(), // 未設＝adapter 預設；timeoutMs/idleTimeoutMs 另允許 0 停用
   /** 單引擎每日 attempts 上限（可選）；未設＝不限。正整數，與 today-attempts 聚合對齊。 */
@@ -127,6 +142,7 @@ export const ConfigSchema = z.object({
   stopFile: z.string().default('.adng.stop'),
   verifyCommand: z.string().optional(),
   verifyTimeoutMs: z.number().int().positive().default(600_000),
+  defaultRisk: z.enum(['low', 'medium', 'high']).default('medium'),
   // 併發基建骨架（GOAL A 2026-07-28）：>1 的併發池屬 GOAL B，骨架僅收設定並防呆。
   concurrency: z.number().int().positive().default(1),
   judgeUrl: z.string().optional(),
@@ -140,6 +156,8 @@ export const ConfigSchema = z.object({
   // review gate：對 diff 對抗式審查的 review 模型名 + 端點（未設 reviewEngine＝關閉；未設 reviewUrl 沿用 judgeUrl，apiKey 沿用 judgeApiKey）
   reviewEngine: z.string().optional(),
   reviewUrl: z.string().optional(),
+  // 發布型任務的人工核可 JSON；candidateCommit 必須精確相符，未設／不符即 BLOCKED。
+  releaseApprovalFile: z.string().optional(),
   supplementLimit: z.number().int().positive().default(2),
   // M9.7 informed problem-finding：surveyCommand 未設＝discovery 不啟動（planner 維持 "round N"）。
   surveyCommand: z.string().optional(),

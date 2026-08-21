@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const worktreeMock = vi.hoisted(() => ({ prepareWorktree: vi.fn() }))
@@ -26,7 +27,9 @@ afterEach(() => {
 })
 
 function testDeps(): { deps: Deps; backlogFile: string } {
-  const root = mkdtempSync(join(process.cwd(), '.tmp-scheduler-worktree-timeout-'))
+  // 必須離開目前 repository：否則 Git 會沿父目錄找到真實專案，
+  // dirty-main admission 會在 worktree mock 前正確阻擋，污染本測試目的。
+  const root = mkdtempSync(join(tmpdir(), 'adng-scheduler-worktree-timeout-'))
   tempDirs.push(root)
   const backlogFile = join(root, 'BACKLOG.md')
   const dataDir = join(root, 'data')

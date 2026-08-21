@@ -26,7 +26,7 @@
     "oc-deepseek",
     "oc-mimo",
     "kilo",
-    "oc-deepseek",
+    "oc-nvidia-glm52",
     "oc-mimo",
     "kilo",
     "oc-deepseek",
@@ -35,7 +35,7 @@
     "oc-deepseek",
     "oc-mimo",
     "kilo",
-    "oc-deepseek",
+    "oc-laguna",
     "oc-mimo",
     "kilo",
     "codex-luna",
@@ -89,6 +89,24 @@
       "subscription": true,
       "timeoutMs": 4500000
     },
+    "oc-laguna": {
+      "adapter": "opencode",
+      "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe",
+      "model": "opencode/laguna-s-2.1-free",
+      "costPerRunUsd": 0,
+      "subscription": true,
+      "timeoutMs": 4500000
+    },
+    "oc-nvidia-glm52": {
+      "adapter": "opencode",
+      "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe",
+      "model": "nvidia/z-ai/glm-5.2",
+      "effort": "max",
+      "costPerRunUsd": 0,
+      "subscription": true,
+      "pingTimeoutMs": 120000,
+      "timeoutMs": 4500000
+    },
     "grok": {
       "adapter": "grok",
       "command": "C:/Users/Administrator/.grok/bin/grok.exe",
@@ -102,8 +120,7 @@
       "model": "kilo/kilo-auto/free",
       "subscription": true,
       "costPerRunUsd": 0,
-      "timeoutMs": 4500000,
-      "dailyAttemptCap": 10
+      "timeoutMs": 4500000
     }
   },
   "extraDirective": "本任務可平行化：若你的工具支援子 agent／平行工具呼叫，請把彼此獨立的部分（例如各檔案的調查、多筆資料的處理、測試撰寫與實作）拆給子 agent 同時進行，最後由你彙整成單一一致的改動並自行 commit。若拆解會讓改動失去一致性（例如同一檔案的相依修改），就不要拆。",

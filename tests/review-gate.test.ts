@@ -22,15 +22,31 @@ const DIFF = 'diff --git a/x b/x\n+bad'
 const judgeMatch: typeof fetch = async () =>
   new Response(JSON.stringify({ choices: [{ message: { content: 'MATCH' } }] }), { status: 200 }) as unknown as Response
 
-test('reviewEngine 未設 → 完全跳過 review，行為不變（pass）', async () => {
+test('low risk：reviewEngine 未設 → 完全跳過 review（pass）', async () => {
   let called = false
   const v = new KernelVerifier({
-    cfg: cfg(), getDiff: () => DIFF, judgeFetchFn: judgeMatch,
+    cfg: cfg({ defaultRisk: 'low' }), getDiff: () => DIFF, judgeFetchFn: judgeMatch,
     reviewRun: async () => { called = true; return 'REVIEW: REJECT 不該被呼叫' },
   })
   const r = await v.check(JOB, RES)
   expect(r.pass).toBe(true)
   expect(called).toBe(false) // 未設 reviewEngine 不得呼叫 review
+})
+
+test('medium risk：reviewEngine 未設 → BLOCKED', async () => {
+  const v = new KernelVerifier({ cfg: cfg(), getDiff: () => DIFF, judgeFetchFn: judgeMatch })
+  const r = await v.check(JOB, RES)
+  expect(r).toMatchObject({ pass: false, risk: 'medium', blockedReason: 'review-unavailable' })
+  expect(r.reason).toContain('requires reviewEngine or auditModel')
+})
+
+test('medium risk：reviewEngine 未設時沿用 auditModel 作獨立 Reviewer', async () => {
+  const v = new KernelVerifier({
+    cfg: cfg({ auditModel: 'audit-reviewer' }), getDiff: () => DIFF, judgeFetchFn: judgeMatch,
+    reviewRun: async () => 'REVIEW: PASS',
+  })
+  const r = await v.check(JOB, RES)
+  expect(r).toMatchObject({ pass: true, evidence: { reviewer: { status: 'pass', identity: 'review:audit-reviewer' } } })
 })
 
 test('REVIEW: REJECT → pass:false + rollback 到 base', async () => {
@@ -55,33 +71,33 @@ test('REVIEW: PASS → 通過', async () => {
   expect(r.pass).toBe(true)
 })
 
-test('review 輸出無法解析契約 → pass-with-alert（不確定不擋）', async () => {
+test('medium risk：review 輸出無法解析契約 → BLOCKED', async () => {
   const v = new KernelVerifier({
     cfg: cfg({ reviewEngine: 'swe-check' }), getDiff: () => DIFF, judgeFetchFn: judgeMatch,
     reviewRun: async () => '（一堆沒有 REVIEW: 契約字樣的雜訊）',
   })
   const r = await v.check(JOB, RES)
-  expect(r.pass).toBe(true)
-  expect(r.alerts.some(a => a.includes('review-gate-skipped'))).toBe(true)
+  expect(r).toMatchObject({ pass: false, blockedReason: 'review-unavailable' })
+  expect(r.reason).toContain('review-gate-skipped')
 })
 
-test('review 拋例外/逾時 → pass-with-alert，絕不擋產出', async () => {
+test('medium risk：review 拋例外/逾時 → BLOCKED', async () => {
   const v = new KernelVerifier({
     cfg: cfg({ reviewEngine: 'swe-check' }), getDiff: () => DIFF, judgeFetchFn: judgeMatch,
     reviewRun: async () => { throw new Error('模擬逾時') },
   })
   const r = await v.check(JOB, RES)
-  expect(r.pass).toBe(true)
-  expect(r.alerts.some(a => a.includes('review-gate-skipped'))).toBe(true)
+  expect(r).toMatchObject({ pass: false, blockedReason: 'review-unavailable' })
+  expect(r.reason).toContain('模擬逾時')
 })
 
-test('reviewEngine 設了但沒接 reviewRun → pass-with-alert（生產接線缺失也不擋）', async () => {
+test('medium risk：reviewEngine 設了但沒接 reviewRun → BLOCKED', async () => {
   const v = new KernelVerifier({
     cfg: cfg({ reviewEngine: 'swe-check' }), getDiff: () => DIFF, judgeFetchFn: judgeMatch,
   })
   const r = await v.check(JOB, RES)
-  expect(r.pass).toBe(true)
-  expect(r.alerts.some(a => a.includes('review-gate-skipped'))).toBe(true)
+  expect(r).toMatchObject({ pass: false, blockedReason: 'review-unavailable' })
+  expect(r.reason).toContain('未接 reviewRun')
 })
 
 // #3 抗注入：只認首行契約，後段內容含 REVIEW: PASS 不得繞過真正的 REJECT

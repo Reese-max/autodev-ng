@@ -13,6 +13,7 @@ const ANNOT_RE = /\s*<!-- adng:[\s\S]*?-->\s*$/
 // 修訂版 #3：手排/自主永遠可區分）。抓出該註記本體，供寫回時與新註記並存。
 const AUTOPILOT_ANNOT_RE = /<!--\s*adng:autopilot\b[\s\S]*?-->/
 const SPLIT_RE = /<!--\s*adng:split\s+({[\s\S]*?})\s*-->/
+const OWNERSHIP_RE = /<!--\s*adng:ownership\s+({[\s\S]*?})\s*-->/
 // M5 Task 1：行內引擎 tag，行首或行尾皆可。剝離後不入 taskId 雜湊——無 tag 任務
 // 走不到剝離分支，雜湊與 M4 以前完全一致（既有 done 行 id 不得漂移的硬回歸線）。
 const ENGINE_TAG_HEAD_RE = /^\[engine:([\w-]+)\]\s*/
@@ -34,6 +35,17 @@ function splitMeta(raw: string): Task['split'] | undefined {
   } catch { return undefined }
 }
 
+function ownershipMeta(raw: string): Task['ownership'] | undefined {
+  try {
+    const value = JSON.parse(OWNERSHIP_RE.exec(raw)?.[1] ?? '') as Partial<NonNullable<Task['ownership']>>
+    if (!Array.isArray(value.write) || !value.write.every(v => typeof v === 'string')) return undefined
+    if (!Array.isArray(value.resources) || !value.resources.every(v => typeof v === 'string')) return undefined
+    if (value.write.length + value.resources.length === 0) return undefined
+    if (value.risk !== undefined && !['low', 'medium', 'high'].includes(value.risk)) return undefined
+    return { write: value.write, resources: value.resources, ...(value.risk ? { risk: value.risk } : {}) }
+  } catch { return undefined }
+}
+
 export function parseBacklog(md: string): Task[] {
   const tasks: Task[] = []
   md.split(/\r?\n/).forEach((line, i) => {
@@ -46,7 +58,7 @@ export function parseBacklog(md: string): Task[] {
     const source: 'user' | 'autopilot' =
       /<!--\s*adng:autopilot\b/.test(rawLine) ? 'autopilot' : 'user'
     const noAnnot = raw.replace(ANNOT_RE, '')
-    const { text, engineTag } = extractEngineTag(noAnnot), split = splitMeta(rawLine)
+    const { text, engineTag } = extractEngineTag(noAnnot), split = splitMeta(rawLine), ownership = ownershipMeta(rawLine)
     tasks.push({
       id: taskId(text),
       text,
@@ -56,7 +68,8 @@ export function parseBacklog(md: string): Task[] {
       // rawText 只在有 tag（寫回時 text 不等於原文）時攜帶——report() 寫回必須保留
       // 使用者行上的 tag 原文（鐵律 #1：絕不改寫任務文字）。
       ...(engineTag !== undefined ? { engineTag, rawText: noAnnot } : {}),
-      ...(split ? { split } : {})
+      ...(split ? { split } : {}),
+      ...(ownership ? { ownership } : {})
     })
   })
   return tasks
@@ -195,9 +208,11 @@ export class BacklogStore {
       const autopilotAnnot = autopilotMatch ? ` ${autopilotMatch[0]}` : ''
       const splitMatch = SPLIT_RE.exec(lines[t.line] ?? '')
       const splitAnnot = splitMatch ? ` ${splitMatch[0]}` : ''
+      const ownershipMatch = OWNERSHIP_RE.exec(lines[t.line] ?? '')
+      const ownershipAnnot = ownershipMatch ? ` ${ownershipMatch[0]}` : ''
       lines[t.line] = d.kind === 'done'
-        ? `- [x] ${lineText}${autopilotAnnot}${splitAnnot} <!-- adng:done ${d.commitHash} -->`
-        : `- [ ] ${lineText}${autopilotAnnot}${splitAnnot} <!-- adng:blocked reason=${JSON.stringify(d.reason)} -->`
+        ? `- [x] ${lineText}${autopilotAnnot}${splitAnnot}${ownershipAnnot} <!-- adng:done ${d.commitHash} -->`
+        : `- [ ] ${lineText}${autopilotAnnot}${splitAnnot}${ownershipAnnot} <!-- adng:blocked reason=${JSON.stringify(d.reason)} -->`
       writeFileSync(this.file, lines.join(eol))
     })
   }

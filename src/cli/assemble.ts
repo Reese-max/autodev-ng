@@ -12,6 +12,8 @@ import { ConfigSchema, type Config } from '../types.js'
 import type { Deps } from '../scheduler.js'
 import { LessonStore } from '../learn/store.js'
 import { makeLessonsPort } from '../learn/reflect.js'
+import { EvidenceStore } from '../engines/evidence-chain.js'
+import { TeamState } from '../engines/team-state.js'
 
 export function isEnoent(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as NodeJS.ErrnoException).code === 'ENOENT'
@@ -58,6 +60,7 @@ function expandConfigPaths(baseDir: string, cfg: Config): Config {
     worktreesDir: resolve(baseDir, cfg.worktreesDir),
     learningsFile: cfg.learningsFile ? resolve(baseDir, cfg.learningsFile) : undefined,
     globalLearningsFile: cfg.globalLearningsFile ? resolve(baseDir, cfg.globalLearningsFile) : undefined,
+    releaseApprovalFile: cfg.releaseApprovalFile ? resolve(baseDir, cfg.releaseApprovalFile) : undefined,
   }
 }
 
@@ -70,7 +73,8 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
   const db = new RunDb(join(cfg.dataDir, 'run.db'))
   const engines = makeEngineRegistry(cfg)
   // review 的 effort/timeout 沿用 judge 檔次（驗收鏈同升降；要分開時再開獨立欄位）
-  const reviewRun = cfg.reviewEngine ? (a: { diff: string; taskText: string }) => reviewDiff({ url: cfg.reviewUrl ?? cfg.judgeUrl, model: cfg.reviewEngine!, apiKey: cfg.judgeApiKey, effort: cfg.judgeEffort, timeoutMs: cfg.judgeTimeoutMs }, a.diff, a.taskText) : undefined
+  const reviewerModel = cfg.reviewEngine ?? cfg.auditModel
+  const reviewRun = reviewerModel ? (a: { diff: string; taskText: string }) => reviewDiff({ url: cfg.reviewUrl ?? cfg.judgeUrl, model: reviewerModel, apiKey: cfg.judgeApiKey, effort: cfg.judgeEffort, timeoutMs: cfg.judgeTimeoutMs }, a.diff, a.taskText) : undefined
   const verifier = new KernelVerifier({ cfg, reviewRun })
   const notifier = new DiscordNotifier({
     channelId: cfg.discordChannelId,
@@ -84,9 +88,11 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
     lessons: lessonStore, db, backlog: store,
     llm: { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs }, events
   })
+  let team: TeamState | undefined
+  try { team = new TeamState(cfg.projectPath) } catch { /* 非 Git fixture；真正派工仍由 worktree gate 阻擋 */ }
 
   const deps: Deps = {
-    cfg, store, db, engines, events, verifier, lessons, cfgPath: absCfgPath,
+    cfg, store, db, engines, events, verifier, evidence: new EvidenceStore(cfg.dataDir), team, lessons, cfgPath: absCfgPath,
     notify: text => notifier.send(text),
     ...(telegramConfigured ? { taskTerminalNotify: notice => telegramNotifier.send(formatTelegramTaskMessage(notice)) } : {}),
   }
@@ -95,5 +101,5 @@ export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifi
 
 export async function withAssembled<T>(cfgPath: string, fn: (a: ReturnType<typeof assemble>) => Promise<T>): Promise<T> {
   const a = assemble(cfgPath)
-  try { return await fn(a) } finally { a.deps.db.close() }
+  try { return await fn(a) } finally { a.deps.db.close(); a.deps.team?.close() }
 }

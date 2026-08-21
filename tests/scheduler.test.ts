@@ -363,12 +363,12 @@ test('verifier 拒絕 → failed 計數、不打勾；達 maxAttempts 轉 blocke
   expect(await runOnce(dd)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一', reason: 'max-attempts' })
 })
 
-test('verifier throw → pass-with-alert（鐵律#4），任務照 done', async () => {
+test('medium risk：verifier throw → BLOCKED，不可再 fail-open', async () => {
   const d = deps(new MockEngine([{ ok: true }]))
   const bomber = { check: async () => { throw new Error('verifier exploded') } }
-  expect(await runOnce({ ...d, verifier: bomber })).toBe('done')
+  expect(await runOnce({ ...d, verifier: bomber })).toMatchObject({ kind: 'blocked', reason: 'verification-infra' })
   const ev = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
-  expect(ev).toContain('verify-alert')
+  expect(ev).toContain('task-verify-failed')
 })
 
 test('失敗成本估計（M4 Task 3）：engine 回報 costUnknown（如 timeout）→ db 記 cfg.failureCostEstimateUsd 且 detail 帶 cost-estimated 標記', async () => {
@@ -653,7 +653,7 @@ test('M4 Task 6 e2e：全鏈路——backlog 撿起→worktree→engine commit�
   const worktreesDir = join(repo, 'worktrees')
   const cfg = ConfigSchema.parse({
     projectPath: repo, backlogFile, dataDir: join(repo, 'data'),
-    engine: 'mock', stopFile: join(repo, '.adng.stop'), worktreesDir
+    engine: 'mock', stopFile: join(repo, '.adng.stop'), worktreesDir, defaultRisk: 'low'
   })
   const beforeHash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim()
 
@@ -900,6 +900,7 @@ test('mergeBack 假衝突（主分支前進但檔案不相干）→ rebase 救�
     }
   }])
   const d = deps(e)
+  d.cfg = { ...d.cfg, defaultRisk: 'low' }
   projectPath = d.cfg.projectPath
 
   expect(await runOnce(d)).toBe('done')

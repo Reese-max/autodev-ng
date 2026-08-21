@@ -10,7 +10,7 @@ import type { Task } from '../src/types.js'
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-opencode.mjs')
 const T: Task = { id: 'ab12cd34', text: '修好登入頁', line: 0, status: 'open' }
 
-function engine(mode: string, hashes: (string | undefined)[], opts: { timeoutMs?: number; model?: string; env?: Record<string, string>; profileDir?: string } = {}): { e: OpencodeEngine; profileDir: string } {
+function engine(mode: string, hashes: (string | undefined)[], opts: { timeoutMs?: number; model?: string; variant?: string; env?: Record<string, string>; profileDir?: string } = {}): { e: OpencodeEngine; profileDir: string } {
   process.env.FAKE_OPENCODE_MODE = mode
   const dir = mkdtempSync(join(tmpdir(), 'adng-oc-'))
   const profileDir = opts.profileDir ?? join(dir, 'opencode-profile')
@@ -18,11 +18,18 @@ function engine(mode: string, hashes: (string | undefined)[], opts: { timeoutMs?
   const e = new OpencodeEngine({
     // command/baseArgs 覆寫成 node+fixture：測 NDJSON 解析與判定邏輯，不打真 opencode/真 API
     command: process.execPath, baseArgs: [FAKE], timeoutMs: opts.timeoutMs ?? 10_000, pingTimeoutMs: 10_000,
-    cache: new PreflightCache(join(dir, 'pf.json')), profileDir, model: opts.model, env: opts.env,
+    cache: new PreflightCache(join(dir, 'pf.json')), profileDir, model: opts.model, variant: opts.variant, env: opts.env,
     getCommitHash: () => hashes[Math.min(i++, hashes.length - 1)]
   })
   return { e, profileDir }
 }
+
+test('provider reasoning effort 透傳為 opencode --variant', async () => {
+  const { e } = engine('argv-echo', ['aaa', 'bbb'], { model: 'nvidia/z-ai/glm-5.2', variant: 'max' })
+  const r = await e.run({ task: T, projectPath: process.cwd() })
+  expect(r.ok).toBe(true)
+  expect(r.output).toContain('ARGS=--variant|max|-m|nvidia/z-ai/glm-5.2')
+})
 
 test('NDJSON 正常流（含毒行）＋新 commit → ok、commitHash、cost 真值且 costUnknown 不設', async () => {
   const { e } = engine('ok', ['aaa', 'bbb'])

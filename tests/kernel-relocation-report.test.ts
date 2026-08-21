@@ -16,7 +16,9 @@ const RELOCATED_LOGIC = [
   ['engines/daemon-alerts.ts', 'daemon.ts', './engines/daemon-alerts.js'],
   ['engines/semantic-judge.ts', 'judge.ts', './engines/semantic-judge.js'],
   ['engines/notify.ts', 'cli/assemble.ts', '../engines/notify.js'],
-  ['engines/proc.ts', 'verify.ts', './engines/proc.js'],
+  ['engines/proc.ts', 'engines/run-verify.ts', './proc.js'],
+  ['engines/kernel-verifier.ts', 'verifier.ts', './engines/kernel-verifier.js'],
+  ['engines/run-verify.ts', 'verify.ts', './engines/run-verify.js'],
   ['engines/worktree-checkout.ts', 'worktree.ts', './engines/worktree-checkout.js'],
 ] as const
 
