@@ -43,7 +43,26 @@
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-引擎矩陣（`src/engines/`，10 個 adapter，per-task `[engine:xxx]` 行內 tag 或 config `defaultEngine` 選擇）：claude-cli（真值計費）、m3（MiniMax，走 claude-cli 換後端 env）、codex、agy（WSL Antigravity，免費）、copilot、qwen、grok、opencode/zen（免費）、devin（swe-1.6，免費）、herdr（受控單次 Agent 工作）。生產專案 voice-actress 白名單目前只開 claude + m3。
+引擎矩陣（`src/engines/`，per-task `[engine:xxx]` 行內 tag 或 config `defaultEngine` 選擇）：
+
+本機可用引擎（已有 adapter，10 個）：
+- claude-cli（真值計費）
+- m3（MiniMax，走 claude-cli 換後端 env）
+- codex（OpenAI Codex CLI，支援 sol/luna/terra 多模型檔位）
+- agy（WSL Antigravity，免費）
+- copilot（GitHub Copilot CLI）
+- qwen（阿里 Qwen，走 OpenAI 相容 proxy）
+- grok（xAI Grok CLI）
+- opencode/zen（免費）
+- devin（Cognition Devin CLI，swe-1.6，免費）
+- herdr（Hermes Agent，受控單次 Agent 工作）
+
+本機可用但尚無 adapter（3 個，待建）：
+- gemini（Google Gemini CLI）
+- cline（Cline CLI）
+- kiro（Kiro CLI）
+
+生產專案白名單目前只開 claude + codex 系列。
 
 ## 功能矩陣（里程碑 → 能力）
 
