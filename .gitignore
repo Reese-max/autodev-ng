@@ -4,3 +4,19 @@ test_output.txt
 .serena/
 data/
 *.bak-*
+
+# Runtime / tool artifacts
+.context/
+.superpowers/
+.tmp-crossgit-probe-*
+graphify-out/
+.graphifyignore
+probe.txt
+PI_PROVIDER_CANARY*.md
+
+# Dev scratch
+autodev-ng-integrate-v3/
+autodev-ng-patches/
+
+# Runtime flags
+configs/.adng.stop
