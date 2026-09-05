@@ -10,9 +10,10 @@
 
 - Repo discovery：**39 / 39 完成**。
 - 已建立 actionable GitHub Issues：**18**。
-- 其中 P1：**7**（跨 4 個 repo：`project-doctor-web` 2、`lplrs-judicial-sync` 1、`clinical-scribe-worker` 1、`voice-actress` 2；另 `openab` 有 1 個 P1 finding 但 Issues 被停用，尚未能建立）。
-- P2：**10**。
-- P3：**1**。
+- 已建立 P1 Issues：**6**（`project-doctor-web` 2、`lplrs-judicial-sync` 1、`clinical-scribe-worker` 1、`voice-actress` 2）。
+- 另有 P1 finding：**1**（`openab`；Issues 被停用，尚未能建立）。
+- 已建立 P2 Issues：**11**。
+- 已建立 P3 Issues：**1**。
 - `openab`：Issue 建立被 GitHub 以 `410 Issues has been disabled in this repository` 阻擋。
 - 其餘沒有建立 Issue 的 repo 並不等於 CLEAN；多數狀態是 **STATIC-PASS / RUNTIME-PENDING**。
 - CLEAN 條件仍採主協定：最新版本完成必要 runtime 驗證，且 **連續兩輪**沒有新增 P0/P1/P2。
