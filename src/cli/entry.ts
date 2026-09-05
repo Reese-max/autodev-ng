@@ -27,6 +27,11 @@ export function parseArgv(argv: string[]): ParsedArgv {
 }
 
 export async function runCli(argv: string[], cliPath: string): Promise<void> {
+  if (argv[0] === 'github') {
+    const { githubCli } = await import('../github/cli.js')
+    await githubCli(argv.slice(1))
+    return
+  }
   const { command, configPath, configsDir, guardianMode } = parseArgv(argv)
 
   if (command === 'supervise') {
