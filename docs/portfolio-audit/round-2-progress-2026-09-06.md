@@ -7,7 +7,7 @@ Protocol: `docs/portfolio-audit/2026-09-06-50-persona-audit.md`
 
 ## Scope completed in this continuation
 
-Deepened Round 2 review for 8 repositories that were previously `RUNTIME-PENDING` / `STATIC-PASS`:
+Deepened Round 2 review for **12 repositories** that were previously `RUNTIME-PENDING` / `STATIC-PASS` or equivalent:
 
 - `cf-ai-router`
 - `cyber-prep-coach`
@@ -17,6 +17,10 @@ Deepened Round 2 review for 8 repositories that were previously `RUNTIME-PENDING
 - `soundbox-offline`
 - `MaterialYouNewTab`
 - `claude-mem`
+- `ai-novel-workstation`
+- `skill-foundry`
+- `obsidian-vault`
+- `police-exam-practice`
 
 Repositories newly marked CLEAN in this continuation: **0**.
 
@@ -54,6 +58,22 @@ No distinct new P0/P1/P2 passed the static quality gate. Retained legacy D1 APIs
 ### `MaterialYouNewTab`
 
 No distinct new P0/P1/P2 passed the static quality gate. Chromium MV3 uses optional `bookmarks`/`favicon` permissions and optional Google-only host access rather than broad host permissions. Still NOT CLEAN because actual Chromium/Firefox loading, accessibility/zoom and corrupt/partial backup restore runtime evidence remain pending.
+
+### `ai-novel-workstation`
+
+No distinct new static P0/P1/P2 passed the quality gate. No product-code change landed after the Round 1 audit snapshot; source-of-truth, reset backup, checkpoint, explicit visual-generation opt-in and no-auto-deploy boundaries remain intact. Still NOT CLEAN because provider failure, interruption/resume, long-run budget/resource, visual generation and browser/accessibility paths require execution evidence.
+
+### `skill-foundry`
+
+No distinct new static P0/P1/P2 passed. Certification payloads are schema/field constrained, hidden-case/answer fields are rejected, HMAC is verified with `compare_digest`, and signed candidate ID/hash is bound before Promotion. Still NOT CLEAN because forged/stale/mismatch fixtures, external evaluators, recovery and no-Docker execution remain pending.
+
+### `obsidian-vault`
+
+No new vault-specific P0/P1/P2 passed. The repository remains private; credential-bearing plugin data, personal-email content and session sediment remain excluded by Git. Still NOT CLEAN because clean-clone restore, historical secret exclusion and sync/conflict recovery are not runtime-verified.
+
+### `police-exam-practice`
+
+No P0/P1/P2 passed. The JavaScript compatibility redirect preserves query/hash and points to the canonical `police-exam-archive` quiz. The `meta refresh` fallback drops query/hash if JavaScript does not run; this is recorded as a low-frequency compatibility limitation rather than promoted without supported-client impact evidence. Still NOT CLEAN until deployed redirect behavior is exercised.
 
 ## CLEAN accounting
 
