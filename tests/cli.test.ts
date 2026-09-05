@@ -75,7 +75,8 @@ test('assemble：路徑展開——config 內相對路徑相對「config 檔所�
   const dir = mkdtempSync(join(tmpdir(), 'adng-cli-'))
   const sub = join(dir, 'sub')
   mkdirSync(sub, { recursive: true })
-  const cfgPath = writeConfig(sub, { stopFile: './stop-flag' })
+  const tokenFile = join(dir, '.env.tokens')
+  const cfgPath = writeConfig(sub, { stopFile: './stop-flag', discordTokenFile: tokenFile })
 
   const { deps, cfg } = assemble(cfgPath)
   try {
@@ -83,8 +84,8 @@ test('assemble：路徑展開——config 內相對路徑相對「config 檔所�
     expect(cfg.backlogFile).toBe(join(sub, 'project', 'BACKLOG.md'))
     expect(cfg.dataDir).toBe(join(sub, 'data'))
     expect(cfg.stopFile).toBe(join(sub, 'stop-flag'))
-    // discordTokenFile 預設值本身已是絕對路徑，展開後應原樣保留（不被 baseDir 併入）。
-    expect(cfg.discordTokenFile).toBe(resolve('C:/Users/Administrator/openab/.env.tokens'))
+    // 原生絕對路徑應原樣保留，不被 baseDir 併入。
+    expect(cfg.discordTokenFile).toBe(tokenFile)
   } finally {
     deps.db.close()
   }

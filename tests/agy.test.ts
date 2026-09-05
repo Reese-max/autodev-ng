@@ -95,13 +95,14 @@ test('prompt 超過 argv 上限 → fail-fast 給明確原因，不 spawn', asyn
   expect(() => loggedCalls(logFile)).toThrow() // 無任何 spawn 紀錄（log 檔不存在）
 })
 
-test('--cd 路徑轉換：含空格的 projectPath 完整轉為 /mnt 形（單一 argv 元素）', async () => {
+test('--cd 路徑轉換：含空格的 projectPath 保持單一 argv，Windows 轉為 /mnt 形', async () => {
   const { e, logFile } = makeEngine('ok', ['aaa', 'bbb'])
   const spacedDir = mkdtempSync(join(tmpdir(), 'adng probe dir ')) // 真建含空格目錄
   await e.run({ task: T, projectPath: spacedDir })
   const call = loggedCalls(logFile)[0]!
   expect(call[1]).toBe(toWslPath(spacedDir))
-  expect(call[1]).toMatch(/^\/mnt\/[a-z]\//)
+  if (process.platform === 'win32') expect(call[1]).toMatch(/^\/mnt\/[a-z]\//)
+  else expect(call[1]).toBe(spacedDir)
   expect(call[1]).toContain(' ') // 空格保留在同一個 argv 元素內
 })
 

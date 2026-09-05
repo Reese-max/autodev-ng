@@ -48,7 +48,7 @@ function parseConfig(absCfgPath: string, raw: unknown): Config {
   }
 }
 
-function expandConfigPaths(baseDir: string, cfg: Config): Config {
+export function expandConfigPaths(baseDir: string, cfg: Config): Config {
   return {
     ...cfg,
     projectPath: resolve(baseDir, cfg.projectPath),
@@ -67,7 +67,10 @@ function expandConfigPaths(baseDir: string, cfg: Config): Config {
 export function assemble(cfgPath: string): { deps: Deps; notifier: DiscordNotifier; cfg: Config } {
   const absCfgPath = resolve(cfgPath)
   const cfg = expandConfigPaths(dirname(absCfgPath), parseConfig(absCfgPath, loadConfig(absCfgPath)))
+  return assembleConfig(cfg, absCfgPath)
+}
 
+export function assembleConfig(cfg: Config, absCfgPath?: string): { deps: Deps; notifier: DiscordNotifier; cfg: Config } {
   const events = new EventLog(cfg.dataDir)
   const store = new BacklogStore(cfg.backlogFile)
   const db = new RunDb(join(cfg.dataDir, 'run.db'))

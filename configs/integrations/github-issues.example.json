@@ -1,0 +1,15 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "base": "main",
+  "label": "autodev",
+  "authors": [
+    "Reese-max"
+  ],
+  "sourceConfig": "../autodev-self.json",
+  "dataDir": "../../data/github-issues-autodev-ng",
+  "engine": "codex-sol",
+  "enabled": false,
+  "publish": false,
+  "maxRuns": 3,
+  "retryMs": 300000
+}

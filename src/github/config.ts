@@ -1,0 +1,42 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { z } from 'zod'
+
+export const GithubConfigSchema = z.object({
+  repo: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9_.-]+$/).refine(v => !['.', '..'].includes(v.split('/')[1]!)),
+  base: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_./-]*$/).default('main'),
+  label: z.string().min(1).max(50).nullable().default('autodev'),
+  authors: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/)).min(1),
+  sourceConfig: z.string().min(1),
+  dataDir: z.string().min(1),
+  engine: z.string().min(1),
+  verifyCommand: z.string().trim().min(1).optional(),
+  template: z.boolean().optional(),
+  stopFile: z.string().optional(),
+  enabled: z.boolean().default(false),
+  publish: z.boolean().default(false),
+  maxRuns: z.number().int().min(1).max(5).default(3),
+  retryMs: z.number().int().min(60_000).default(300_000),
+}).strict()
+export type GithubConfig = z.infer<typeof GithubConfigSchema>
+export const githubStopFile = (cfg: GithubConfig): string => cfg.stopFile ?? join(cfg.dataDir, '.adng.stop')
+export function loadGithubConfig(path: string): GithubConfig {
+  const cfg = GithubConfigSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+  return { ...cfg, sourceConfig: resolve(dirname(path), cfg.sourceConfig), dataDir: resolve(dirname(path), cfg.dataDir),
+    stopFile: cfg.stopFile ? resolve(dirname(path), cfg.stopFile) : undefined }
+}
+
+export const IssueSchema = z.object({
+  number: z.number().int().positive(), title: z.string().min(1).max(500),
+  body: z.string().max(20_000).nullable(), state: z.enum(['open', 'closed']),
+  user: z.object({ login: z.string() }),
+  labels: z.array(z.object({ name: z.string() })),
+  pull_request: z.unknown().optional(),
+})
+export type Issue = z.infer<typeof IssueSchema>
+export function eligible(issue: Issue, cfg: GithubConfig): boolean {
+  return !issue.pull_request && issue.state === 'open'
+    && cfg.authors.some(author => author.toLowerCase() === issue.user.login.toLowerCase())
+    && !issue.labels.some(label => label.name.toLowerCase() === 'no-autofix')
+    && (cfg.label === null || issue.labels.some(label => label.name === cfg.label))
+}

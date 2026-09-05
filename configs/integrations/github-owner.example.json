@@ -1,0 +1,20 @@
+{
+  "owner": "Reese-max",
+  "label": null,
+  "authors": [
+    "Reese-max"
+  ],
+  "sourceConfig": "../autodev-self.json",
+  "dataDir": "../../data/github-owner",
+  "engine": "codex-sol",
+  "enabled": false,
+  "publish": false,
+  "maxRuns": 3,
+  "retryMs": 300000,
+  "verifyCommands": {
+    "Reese-max/video-timeline-pipeline": "python -X utf8 -m unittest discover -s tests -v",
+    "Reese-max/taichung-police-intel": "npm --prefix apps/web ci --no-audit --no-fund && npm run check",
+    "Reese-max/flux-image-gen": "npm --prefix cloudflare ci --no-audit --no-fund && node scripts/verify.mjs",
+    "Reese-max/police-exam-archive": "python -X utf8 -m pytest tests/ -q --tb=short && python -X utf8 scripts/apply_layout_refinements.py --check && python -X utf8 scripts/build_home_stats.py --check && node --check 考古題網站/sw.js && node --check 考古題網站/js/app.js && node --check 考古題網站/analytics-chart.js && node --check 考古題網站/analytics-chart-data.js && node --check 考古題網站/_gen_data.js"
+  }
+}

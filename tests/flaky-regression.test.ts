@@ -81,6 +81,7 @@ test('首輪候選失敗仍完成第二輪，診斷含 spec／輪次／fixture �
   await expect(flakyRegressionMain('repo', run)).resolves.toBe(1)
   expect(run).toHaveBeenCalledTimes(2)
   expect(error).toHaveBeenCalledOnce()
+  expect(error).toHaveBeenCalledWith(regressionDiagnostic(1, failed), failed.stdout, failed.stderr)
   const line = error.mock.calls[0]![0] as string
   expect(line).toBe(regressionDiagnostic(1, failed))
   expect(line).toContain('round=1/2')

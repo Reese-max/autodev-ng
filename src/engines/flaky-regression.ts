@@ -119,7 +119,7 @@ export async function flakyRegressionMain(
       console.log(`[flaky-regression] round=${round}/${ROUNDS} ok durationMs=${result.durationMs}`)
     } else {
       failed = true
-      console.error(regressionDiagnostic(round, result))
+      console.error(regressionDiagnostic(round, result), result.stdout, result.stderr)
     }
   }
   return failed ? 1 : 0
