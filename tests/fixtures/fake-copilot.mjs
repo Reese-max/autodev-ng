@@ -7,13 +7,13 @@ const prompt = pi >= 0 ? (process.argv[pi + 1] ?? '') : ''
 if (mode === 'hang') { setInterval(() => {}, 1000) } else { main() }
 
 function main() {
-  if (mode === 'fail') { process.stderr.write('error: copilot quota exhausted (simulated)\n'); process.exit(1) }
-  if (mode === 'empty') { process.exit(0) } // silent-fail 形貌 1：exit 0 零輸出
+  if (mode === 'fail') { process.stderr.write('error: copilot quota exhausted (simulated)\n'); process.exitCode = 1; return }
+  if (mode === 'empty') { return } // silent-fail 形貌 1：exit 0 零輸出
   const emit = obj => process.stdout.write(JSON.stringify(obj) + '\n')
   emit({ type: 'session.started', sessionId: 's-fake' })
   if (mode === 'no-result') { // silent-fail 形貌 2：有事件但無 result 尾事件
     emit({ type: 'assistant.message', text: 'working...' })
-    process.exit(0)
+    return
   }
   if (mode === 'poison') { // JSONL 毒行：非 JSON、截斷殘行、空白行混雜（Task 3 審查 LOW-1 教訓）
     process.stdout.write('this line is not json at all\n')
@@ -35,5 +35,5 @@ function main() {
       codeChanges: { linesAdded: 3, linesRemoved: 1, filesModified: ['a.ts'] }
     }
   })
-  process.exit(0)
+  // 自然結束，讓 POSIX 非同步 stdout 管線完整送出大型 blob 與 result。
 }
