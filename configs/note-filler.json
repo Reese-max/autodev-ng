@@ -8,7 +8,7 @@
   "verifyTimeoutMs": 600000,
   "judgeUrl": "http://127.0.0.1:8317/v1",
   "judgeModel": "gpt-5.6-terra",
-  "judgeApiKey": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h",
+  "judgeApiKey": "{env:JUDGE_API_KEY}",
   "auditModel": "gpt-5.6-sol",
   "surveyCommand": "\"D:/Users/Administrator/Desktop/筆記補齊/.venv/Scripts/python.exe\" -X utf8 scripts/discovery_survey.py",
   "surveyTimeoutMs": 300000,

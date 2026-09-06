@@ -8,7 +8,7 @@
   "verifyTimeoutMs": 300000,
   "judgeUrl": "http://127.0.0.1:8317/v1",
   "judgeModel": "gpt-5.6-terra",
-  "judgeApiKey": "sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h",
+  "judgeApiKey": "{env:JUDGE_API_KEY}",
   "judgeEffort": "xhigh",
   "judgeTimeoutMs": 180000,
   "reviewEngine": "gpt-5.6-terra",
