@@ -7,7 +7,7 @@ Protocol: `docs/portfolio-audit/2026-09-06-50-persona-audit.md`
 
 ## Scope completed in this continuation
 
-Deepened Round 2 review for **12 repositories** that were previously `RUNTIME-PENDING` / `STATIC-PASS` or equivalent:
+Deepened Round 2 review for **13 repositories** that were previously `RUNTIME-PENDING` / `STATIC-PASS` or equivalent:
 
 - `cf-ai-router`
 - `cyber-prep-coach`
@@ -21,6 +21,7 @@ Deepened Round 2 review for **12 repositories** that were previously `RUNTIME-PE
 - `skill-foundry`
 - `obsidian-vault`
 - `police-exam-practice`
+- `92-duty-scheduler`
 
 Repositories newly marked CLEAN in this continuation: **0**.
 
@@ -33,6 +34,7 @@ Repositories newly marked CLEAN in this continuation: **0**.
 | `ppt-studio` | P1 | Manual mode is loopback-only, but documented Docker Compose publishes the unauthenticated full FastAPI API on host interfaces while injecting server-side AI provider keys | #1 |
 | `soundbox-offline` | P2 | IndexedDB is the only product-side copy of the local music library state, but there is no whole-library versioned backup/restore path | #1 |
 | `claude-mem` | P2 | One-command install can auto-install Bun/uv by piping mutable remote installer scripts directly into PowerShell/bash without pin/checksum/explicit trust confirmation | **ISSUE_WRITE_BLOCKED** — Issues disabled (HTTP 410) |
+| `92-duty-scheduler` | P0 | Shared `verifyAuth()` returns authorized when `ADMIN_TOKEN` is missing, so privileged reset/backup/config/roster/semester/week-write routes fail open under secret/config loss | #15 |
 
 ## Successfully created Issues
 
@@ -40,6 +42,7 @@ Repositories newly marked CLEAN in this continuation: **0**.
 2. `Reese-max/video-timeline-pipeline#8` — `[P2][50-persona audit] Bound Bright Data Instagram discovery cost instead of defaulting to an unlimited result set`
 3. `Reese-max/ppt-studio#1` — `[P1][50-persona audit] Keep Docker Compose local-only or require authentication before exposing the full API`
 4. `Reese-max/soundbox-offline#1` — `[P2][50-persona audit] Add whole-library backup and restore for IndexedDB-only music state`
+5. `Reese-max/92-duty-scheduler#15` — `[P0][50-persona] Fail closed when ADMIN_TOKEN is missing`
 
 ## Issue write blocked
 
@@ -74,6 +77,10 @@ No new vault-specific P0/P1/P2 passed. The repository remains private; credentia
 ### `police-exam-practice`
 
 No P0/P1/P2 passed. The JavaScript compatibility redirect preserves query/hash and points to the canonical `police-exam-archive` quiz. The `meta refresh` fallback drops query/hash if JavaScript does not run; this is recorded as a low-frequency compatibility limitation rather than promoted without supported-client impact evidence. Still NOT CLEAN until deployed redirect behavior is exercised.
+
+### `92-duty-scheduler`
+
+Round 2 audited `main` at `459640fbc7872479cddee9e45f0acf90b04eb4d5` with the same fixed 50 personas. A new P0 was found: `cf-deploy/functions/api/_auth.js::verifyAuth()` explicitly returns `true` when `ADMIN_TOKEN` is absent/empty. Destructive and sensitive routes such as `/api/reset` and `/api/backup` rely on this helper. Static reproduction is deterministic with a missing env secret, but there is no evidence that the current Cloudflare production environment actually lacks the secret, so no production exploit/runtime claim is made. GitHub Actions run `33987965026` succeeded for the audited SHA, but the current workflow has no post-deploy HTTP/API smoke probe and a `main` push does not execute the production deploy job; that success is CI evidence only. Detailed repo report: `Reese-max/92-duty-scheduler/docs/audits/50-persona-round-2-2026-09-06.md`. Still NOT CLEAN with P0 #14/#15 open and required runtime gates unresolved.
 
 ## CLEAN accounting
 
