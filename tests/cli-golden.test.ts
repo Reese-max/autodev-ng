@@ -148,12 +148,23 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
     '用法：adng <status|run-once|daemon|notify-test> --config <path>，或 adng supervise --configs-dir <dir>'
   const SUPERVISE_USAGE = '用法：adng supervise (--config <path> | --configs-dir <dir>)'
 
-  test('全域：空 argv、--help、--version 與各子指令缺 --config 的用法錯誤（逐位元）', async () => {
+  test('全域 help 顯示任務建立、執行及恢復指引並成功退出（逐位元）', async () => {
+    const expected: CliGoldenCapture = {
+      stdout: 'Usage: adng <task|status|run-once|daemon|supervise|github>\n' +
+        'Create: adng task add --config <path> --text "task and acceptance"\n' +
+        'Inspect: adng task list --config <path>\nRun: adng run-once --config <path>\n' +
+        'GitHub: adng github --help\nRecovery: adng github repair-doctor --config <path> --live\n',
+      stderr: '', exitCode: 0,
+    }
+    for (const command of ['--help', '-h', 'help']) {
+      assertCliCapturesEqual(await captureCli([command]), expected)
+    }
+  })
+
+  test('全域：空 argv、--version 與各子指令缺 --config 的用法錯誤（逐位元）', async () => {
     const cases: Array<{ name: string; argv: string[] }> = [
       { name: 'empty', argv: [] },
-      { name: '--help', argv: ['--help'] },
       { name: '--version', argv: ['--version'] },
-      { name: 'help', argv: ['help'] },
       { name: 'version', argv: ['version'] },
       { name: 'status', argv: ['status'] },
       { name: 'run-once', argv: ['run-once'] },
