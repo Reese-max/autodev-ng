@@ -118,7 +118,8 @@ const ReviewSchema = z.object({ approved: z.boolean(), rationale: z.string().min
 async function judge<T>(cfg: ReportConfig, schema: z.ZodType<T>, prompt: string): Promise<T> {
   const dir = join(cfg.dataDir, 'research', randomUUID()); mkdirSync(dir, { recursive: true })
   const schemaFile = join(dir, 'schema.json'), answerFile = join(dir, 'answer.json')
-  writeFileSync(schemaFile, JSON.stringify(z.toJSONSchema(schema)))
+  // Codex Structured Outputs rejects format=uri; Zod still validates the returned URLs locally.
+  writeFileSync(schemaFile, JSON.stringify(z.toJSONSchema(schema), (key, value) => key === 'format' ? undefined : value))
   const env = buildFleetCodexEnv(join(homedir(), '.codex'))
   for (const key of Object.keys(env)) if (key.toUpperCase() === 'OPENAI_API_KEY') delete env[key]
   const result = await runProcess({ command: 'codex', cwd: dir, stdinText: prompt, timeoutMs: cfg.research.timeoutMs, maxOutputChars: 16_000,
@@ -127,9 +128,9 @@ async function judge<T>(cfg: ReportConfig, schema: z.ZodType<T>, prompt: string)
       '-c', 'approval_policy="never"', '--sandbox', 'read-only', '--ignore-user-config', '--ignore-rules', '--ephemeral', '--skip-git-repo-check',
       ...['multi_agent', 'multi_agent_v2', 'shell_tool', 'unified_exec', 'code_mode', 'code_mode_host', 'apps', 'plugins', 'browser_use', 'computer_use', 'hooks'].flatMap(f => ['--disable', f]),
       '--output-schema', schemaFile, '--output-last-message', answerFile, '-'] })
-  const events = result.stdout.split(/\r?\n/).flatMap(line => { try { return [JSON.parse(line)] } catch { return [] } }) as { type?: string; usage?: unknown }[]
+  const events = result.stdout.split(/\r?\n/).flatMap(line => { try { return [JSON.parse(line)] } catch { return [] } }) as { type?: string; usage?: unknown; message?: string }[]
   writeFileSync(join(dir, 'telemetry.json'), JSON.stringify({ at: new Date().toISOString(), exitCode: result.exitCode, timedOut: result.timedOut, durationMs: result.durationMs,
-    usage: events.find(e => e.type === 'turn.completed')?.usage, diagnostics: result.stderr.slice(-4000) }))
+    usage: events.find(e => e.type === 'turn.completed')?.usage, diagnostics: result.stderr.slice(-4000), errors: events.filter(e => e.type === 'error').map(e => e.message?.slice(0, 2000)) }))
   if (result.exitCode !== 0 || result.timedOut || !events.some(e => e.type === 'turn.completed')) throw new Error('Research model failed; no fallback approval (see local research telemetry)')
   return schema.parse(JSON.parse(readFileSync(answerFile, 'utf8')))
 }
