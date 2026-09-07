@@ -4,10 +4,11 @@ import { join } from 'node:path'
 export const FLEET_CODEX_PERMISSION_ARGS = [
   '-c', 'default_permissions="workspace-only"',
   '-c', 'permissions.workspace-only.extends=":workspace"',
-  '-c', 'permissions.workspace-only.filesystem.":root"="deny"',
-  '-c', 'permissions.workspace-only.filesystem.":minimal"="read"',
-  '-c', 'permissions.workspace-only.filesystem.":tmpdir"="deny"',
-  '-c', 'permissions.workspace-only.filesystem.":slash_tmp"="deny"',
+  // CLI override paths are split on dots, not parsed as TOML keys: quotes become literal path characters.
+  '-c', 'permissions.workspace-only.filesystem.:root="deny"',
+  '-c', 'permissions.workspace-only.filesystem.:minimal="read"',
+  '-c', 'permissions.workspace-only.filesystem.:tmpdir="deny"',
+  '-c', 'permissions.workspace-only.filesystem.:slash_tmp="deny"',
   '--enable', 'code_mode', '--enable', 'code_mode_host',
 ] as const
 

@@ -151,3 +151,12 @@ test('corrupt or cross-repo state fails closed', () => {
   writeFileSync(join(dir, 'issue-7', 'state.json'), '{')
   expect(() => readState(cfg, 7)).toThrow()
 })
+
+test('configuration withdrawal during the last Issue read prevents PR creation', async () => {
+  const { cfg, client, state, issue } = fixture(); cfg.publish = true
+  let active = true, reads = 0
+  client.issue = async () => { if (++reads === 3) active = false; return issue }
+  const push = vi.fn()
+  await publishIssue(cfg, state, client, vi.fn(), push, () => active)
+  expect(push).toHaveBeenCalledTimes(1); expect(client.createPr).not.toHaveBeenCalled()
+})

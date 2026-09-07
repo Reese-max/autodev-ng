@@ -85,7 +85,7 @@ export async function repairFromReports(file: string): Promise<void> {
     if (!cfg.repair || resolve(cfg.repair.reportConfig) !== resolve(file)) throw new Error('Repair configuration references a different reporter')
     const result = await runGithub(cfg, { configPath: path })
     console.log(`github-repair ${cfg.repo}: ${result}`)
-    if (/blocked$/.test(result)) process.exitCode = 1
+    if (/(?:blocked|: queued)$/.test(result)) process.exitCode = 1
     if (!['idle', 'paused', 'locked'].includes(result)) break
   }
 }

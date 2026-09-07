@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { acquireLock, releaseLock } from '../lock.js'
-import { githubStopFile, type GithubConfig, type Issue } from './config.js'
+import { githubStopFile, loadGithubConfig, type GithubConfig, type Issue } from './config.js'
 import { eligibleForRun } from './repair.js'
 import { githubClient, type GithubClient } from './client.js'
 import { assertPublishable, checkoutDir, executeIssue, git } from './job.js'
@@ -35,6 +35,7 @@ export async function publishIssue(cfg: GithubConfig, state: IssueState, client:
     if (existsSync(githubStopFile(cfg)) || !active()) return
     if (await client.findLinkedPr(state.issue.number)) throw new Error('Issue acquired a linked PR before PR creation')
     if (!currentIssue(cfg, state, await client.issue(state.issue.number))) throw new Error('Issue changed before PR creation')
+    if (existsSync(githubStopFile(cfg)) || !active()) return
     const pr = await client.createPr(branch, `Fix #${state.issue.number}: ${state.issue.title}`.slice(0, 250),
       `Closes #${state.issue.number}\n\nImplements the imported Issue snapshot. CI and reviewer gates passed for commit \`${state.commit}\`.\n\nIssue snapshot SHA-256: \`${state.fingerprint}\`\n\nHuman review and merge required.`)
     if (pr.head.sha !== state.commit || pr.base.ref !== cfg.base) throw new Error('Created PR head/base mismatch')
@@ -48,6 +49,7 @@ export async function runGithub(cfg: GithubConfig, options: {
 } = {}): Promise<string> {
   if (!cfg.enabled || existsSync(githubStopFile(cfg))) return 'paused'
   const original = options.configPath ? readFileSync(options.configPath, 'utf8') : undefined
+  if (options.configPath && JSON.stringify(loadGithubConfig(options.configPath)) !== JSON.stringify(cfg)) return 'paused'
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'runner.lock')
   if (!acquireLock(lock)) return 'locked'

@@ -14,6 +14,7 @@ import { observeProject, reportFingerprint } from '../src/autopilot/report-resea
 import * as proc from '../src/engines/proc.js'
 import { githubCli } from '../src/github/cli.js'
 import * as github from '../src/github/client.js'
+import * as runner from '../src/github/runner.js'
 
 const dirs: string[] = []
 afterEach(() => { vi.restoreAllMocks(); process.exitCode = undefined; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
@@ -129,6 +130,17 @@ test('configuration withdrawn during repair cancels candidate instead of publish
   expect(f.client.createPr).not.toHaveBeenCalled()
 })
 
+test('CLI sandbox failure blocks the repair before preparation or repeated worker attempts', async () => {
+  const f = await setup()
+  const run = vi.spyOn(proc, 'runProcess').mockResolvedValue({ stdout: '', stderr: 'sandbox setup required', exitCode: 1, timedOut: false, durationMs: 1 })
+  expect(await runGithub(f.cfg, { client: f.client, configPath: f.configPath })).toBe('4: blocked')
+  expect(readState(f.cfg, 4)?.detail).toContain('Repair CLI preflight failed')
+  expect(run).toHaveBeenCalledTimes(1)
+  expect(run.mock.calls[0]![0].command).toBe('codex')
+  expect(await runGithub(f.cfg, { client: f.client, configPath: f.configPath })).toBe('idle')
+  expect(run).toHaveBeenCalledTimes(1)
+})
+
 test('CLI review failure cannot approve and CLI repair requires explicit local policy', async () => {
   const f = await setup()
   vi.spyOn(proc, 'runProcess').mockResolvedValue({ stdout: '', stderr: 'unavailable', timedOut: false, exitCode: 1, durationMs: 1 })
@@ -146,4 +158,19 @@ test('repair --dry-run reads eligibility without changing state, invoking models
   await githubCli(['repair', '--config', f.configPath, '--dry-run'])
   expect(JSON.parse(output.mock.calls[0]![0])).toEqual([{ number: 4, title: f.issue.title }])
   expect(run).not.toHaveBeenCalled(); expect(readFileSync(join(f.dir, 'issue-4', 'state.json'), 'utf8')).toBe(before)
+})
+
+test('CLI failed attempt is nonzero while retaining its bounded retry queue', async () => {
+  const f = await setup()
+  vi.spyOn(runner, 'runGithub').mockResolvedValue('4: queued')
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+  await githubCli(['repair', '--config', f.configPath])
+  expect(process.exitCode).toBe(1)
+})
+
+test('a configuration changed between load and dispatch cannot start an old authorization', async () => {
+  const f = await setup(), list = vi.spyOn(f.client, 'list')
+  writeFileSync(f.configPath, JSON.stringify({ ...f.cfg, enabled: false }))
+  expect(await runGithub(f.cfg, { client: f.client, configPath: f.configPath })).toBe('paused')
+  expect(list).not.toHaveBeenCalled()
 })

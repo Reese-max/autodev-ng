@@ -135,6 +135,19 @@ test('preflight：exit 0 但無 turn.completed（如 silent-fail）判失敗且 
   expect((await e.preflight()).ok).toBe(false) // 仍是 cache 的壞結果
 })
 
+test('repair preflight checks its real permission profile and cannot reuse a legacy read-only success', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cx-pf-policy-')), cache = new PreflightCache(join(dir, 'pf.json'))
+  cache.set(process.execPath, { ok: true, detail: 'legacy read-only PONG' })
+  process.env.FAKE_CODEX_MODE = 'pong-fail'
+  const e = new CodexEngine({ command: process.execPath, pingArgs: [FAKE], useUserLogin: true, homeDir: dir, cache })
+  const args = (e as unknown as { pingArgs: string[] }).pingArgs
+  expect(args).toContain('permissions.workspace-only.filesystem.:root="deny"')
+  expect(args).toContain('windows.sandbox="elevated"')
+  expect(args).not.toContain('read-only')
+  expect(args.join(' ')).toContain('--disable shell_tool')
+  expect(await e.preflight()).toMatchObject({ ok: false, detail: expect.stringContaining('exit 7') })
+})
+
 test('effort 設定 → baseArgs 注入 -c model_reasoning_effort，pingArgs 不注入（ping 不燒推理）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-cx-'))
   const cache = new PreflightCache(join(dir, 'pf.json'))

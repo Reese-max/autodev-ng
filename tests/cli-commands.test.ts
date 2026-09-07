@@ -151,7 +151,7 @@ test('legacy patrol runner：使用既有 GPT Guardian 路由，不再呼叫 Cla
   expect(code).toMatch(/\$prompt \| & node \$gateRunner \$stop[^\n]+\$codexJs exec --model gpt-5\.6-luna/)
   expect(code).toContain("model_reasoning_effort=max")
   expect(code).toContain('default_permissions="workspace-only"')
-  expect(code).toContain('permissions.workspace-only.filesystem.":tmpdir"="deny"')
+  expect(code).toContain('permissions.workspace-only.filesystem.:tmpdir="deny"')
   expect(code).toContain('--enable code_mode --enable code_mode_host')
   expect(code).toContain('--strict-config')
   expect(code).toContain("$env:CODEX_HOME = Join-Path $root 'data\\autodev-self\\codex-home'")

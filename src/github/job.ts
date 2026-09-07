@@ -63,16 +63,19 @@ export function prepareCheckout(cfg: GithubConfig, state: IssueState): void {
 export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string }> {
   prepareCheckout(cfg, state)
   const runtime = runtimeConfig(cfg, state)
-  if (cfg.repair) await prepareRepair(cfg, state, runtime.projectPath, runtime.verifyTimeoutMs)
+  const worker = cfg.repair ? new CodexEngine({ ...runtime.engines[cfg.engine]!, useUserLogin: true,
+    homeDir: join(runtime.dataDir, 'codex-home'), cache: new PreflightCache(join(runtime.dataDir, 'preflight-cli.json')) }) : undefined
+  if (worker) {
+    const preflight = await worker.preflight()
+    if (!preflight.ok) throw new Error(`Repair CLI preflight failed: ${preflight.detail}; repair CLI login/sandbox before retry`)
+    await prepareRepair(cfg, state, runtime.projectPath, runtime.verifyTimeoutMs)
+  }
   if (!existsSync(runtime.backlogFile)) {
     writeFileSync(runtime.backlogFile, '')
     new BacklogStore(runtime.backlogFile).append(issueTask(state), { goalId: `github-${state.issue.number}`, round: 1 })
   }
   const app = assemble(runtime)
-  if (cfg.repair) {
-    const engine = runtime.engines[cfg.engine]!
-    const worker = new CodexEngine({ ...engine, useUserLogin: true, homeDir: join(runtime.dataDir, 'codex-home'),
-      cache: new PreflightCache(join(runtime.dataDir, 'preflight-cli.json')) })
+  if (worker) {
     app.deps.engines = { resolve: () => worker }
     const verifier = new KernelVerifier({ cfg: runtime, reviewRun: args => reviewRepair({ dataDir: runtime.dataDir,
       model: runtime.reviewEngine ?? runtime.auditModel!, effort: runtime.judgeEffort, timeoutMs: runtime.judgeTimeoutMs }, args) })

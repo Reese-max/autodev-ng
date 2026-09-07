@@ -48,6 +48,7 @@ export class CodexEngine implements Engine {
   private readonly pingTimeoutMs: number
   private readonly idleTimeoutMs: number
   private readonly cache: PreflightCache
+  private readonly preflightKey: string
   private readonly getCommitHash: (cwd: string) => string | undefined
   private readonly commitChanges: (cwd: string, message: string) => string | undefined
   private readonly homeDir: string
@@ -65,7 +66,10 @@ export class CodexEngine implements Engine {
       ...['multi_agent', 'multi_agent_v2', 'apps', 'plugins', 'remote_plugin', 'browser_use', 'computer_use', 'hooks'].flatMap(f => ['--disable', f])] : []
     this.baseArgs = [...(opts.baseArgs ?? ['exec', '--json', '--ephemeral', '--strict-config']), ...modelArgs, ...effortArgs,
       ...loginArgs, ...(this.useUserLogin ? FLEET_CODEX_PERMISSION_ARGS : [])]
-    this.pingArgs = [...(opts.pingArgs ?? ['exec', '--json', '-s', 'read-only', '--ephemeral', '--strict-config', '--skip-git-repo-check']), ...modelArgs, ...loginArgs]
+    // A read-only legacy policy can pass while the actual repair sandbox cannot start.
+    this.pingArgs = [...(opts.pingArgs ?? ['exec', '--json', ...(this.useUserLogin ? [] : ['-s', 'read-only']), '--ephemeral', '--strict-config', '--skip-git-repo-check']), ...modelArgs, ...loginArgs,
+      ...(this.useUserLogin ? [...FLEET_CODEX_PERMISSION_ARGS, ...['shell_tool', 'unified_exec', 'code_mode', 'code_mode_host'].flatMap(f => ['--disable', f])] : [])]
+    this.preflightKey = this.useUserLogin ? `${this.command}:${JSON.stringify(this.pingArgs)}` : this.command
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 180 * 1000 // skills 冷載入＋忙機器實測可超過 90s
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
@@ -78,7 +82,7 @@ export class CodexEngine implements Engine {
 
   /** 真探針（codex 走 ChatGPT 訂閱額度，prompt 保持極小）；好壞結果都 cache，防連環重打。 */
   async preflight(): Promise<PreflightResult> {
-    const cached = this.cache.get(this.command)
+    const cached = this.cache.get(this.preflightKey)
     if (cached) return cached
     let result: PreflightResult
     try {
@@ -88,17 +92,17 @@ export class CodexEngine implements Engine {
         env: this.runtimeEnv(), replaceEnv: true
       })
       const p = parseJsonl(r.stdout)
-      result = p.turnCompleted && p.message.includes('PONG')
+      result = r.exitCode === 0 && !r.timedOut && p.turnCompleted && p.message.trim() === 'PONG'
         ? { ok: true, detail: `PONG ${r.durationMs}ms` }
         : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG/turn.completed (exit ${r.exitCode}) ${r.stderr.slice(0, 120)}` }
     } catch (err) {
       result = { ok: false, detail: String(err).slice(0, 200) }
     }
-    this.cache.set(this.command, result)
+    this.cache.set(this.preflightKey, result)
     return result
   }
 
-  invalidatePreflight(): void { this.cache.set(this.command, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+  invalidatePreflight(): void { this.cache.set(this.preflightKey, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
 
   async run(job: Job): Promise<RunResult> {
     // Codex sandbox 保護 .git；代理只改檔，可信宿主在回傳後提交既有 managed worktree。

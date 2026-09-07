@@ -32,5 +32,5 @@ process.stdin.on('end', () => {
   // 回聲前 800 字：足以覆蓋 engine prompt 全文（含 directive 尾段），供測試驗證 prompt 組裝
   emit({ type: 'item.completed', item: { type: 'agent_message', text: isPing ? 'PONG' : 'done: ' + input.slice(0, 800) } })
   emit({ type: 'turn.completed', usage: { input_tokens: 20804, cached_input_tokens: 0, output_tokens: 39 } })
-  process.exit(0)
+  process.exit(mode === 'pong-fail' ? 7 : 0)
 })

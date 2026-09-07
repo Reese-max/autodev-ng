@@ -30,6 +30,6 @@ export async function githubCli(argv: string[]): Promise<void> {
   } else {
     const result = await runGithub(cfg, { syncOnly: mode === 'sync', configPath: file })
     console.log(result)
-    if (/blocked$/.test(result)) process.exitCode = 1
+    if (/blocked$/.test(result) || (cfg.repair && /: queued$/.test(result))) process.exitCode = 1
   }
 }
