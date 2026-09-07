@@ -6,6 +6,33 @@ import { cmdSupervise, type GuardianMode } from './supervise.js'
 
 export interface ParsedArgv { command: string; configPath?: string; configsDir?: string; guardianMode?: string }
 
+export const CLI_HELP = [
+  'adng：本機優先的代理協調 CLI',
+  '',
+  '用法：',
+  '  adng --help',
+  '  adng status --config <path>       唯讀狀態、成本、backlog 與 DLQ',
+  '  adng run-once --config <path>     執行一輪後退出',
+  '  adng daemon --config <path>       前景常駐主迴圈',
+  '  adng notify-test --config <path>  測試 Discord 告警通道',
+  '  adng supervise --configs-dir <dir>  管理多專案 daemon',
+  '',
+  '安全起步（使用 synthetic/mock 專案，不會呼叫 provider）：',
+  '  config.json：',
+  '  { "projectPath": "./project", "backlogFile": "./project/BACKLOG.md",',
+  '    "dataDir": "./data", "engine": "mock" }',
+  '  node dist/cli.js status --config config.json       # 預期 exit 0',
+  '  node dist/cli.js run-once --config config.json     # 預期輸出 CycleResult',
+  '',
+  '憑證：judgeApiKey、telegramBotToken 請使用 {env:VAR} 或 {file:PATH}，不要把值寫入 JSON。',
+  '限額／復原：dailyHardUsd 預設 100；建立 stopFile（預設 .adng.stop）可暫停，移除後恢復。',
+  'daemon、supervise 與 notify-test 會讀取 config；--help 不讀取 config、不啟動 daemon、不發送通知。',
+].join('\n')
+
+export function printCliHelp(): void {
+  console.log(CLI_HELP)
+}
+
 export function parseArgv(argv: string[]): ParsedArgv {
   const command = argv[0] ?? ''
   let configPath: string | undefined
@@ -30,6 +57,11 @@ export async function runCli(argv: string[], cliPath: string): Promise<void> {
   if (argv[0] === 'github') {
     const { githubCli } = await import('../github/cli.js')
     await githubCli(argv.slice(1))
+    return
+  }
+  if (argv.includes('--help')) {
+    process.exitCode = 0
+    printCliHelp()
     return
   }
   const { command, configPath, configsDir, guardianMode } = parseArgv(argv)

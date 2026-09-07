@@ -80,6 +80,8 @@
 
 ## 快速開始
 
+先執行 `node dist/cli.js --help` 查看不需 config 的安全起步、憑證與暫停／復原說明。
+
 ### 1. 準備 config（JSON，範例見 `configs/voice-actress.json`）
 
 必填欄位：`projectPath`（目標專案路徑）、`backlogFile`（使用者手排任務檔）、`dataDir`（本專案的觀測/成本/鎖檔目錄）。
@@ -100,7 +102,8 @@
   "concurrency": 1,
   "reviewEngine": "gpt-5.6-terra",
   "judgeUrl": "http://127.0.0.1:8317/v1",
-  "judgeApiKey": "<你的-proxy-key>",
+  "judgeApiKey": "{env:JUDGE_API_KEY}",
+  "telegramBotToken": "{env:TELEGRAM_BOT_TOKEN}",
   "dailySoftUsd": 40,
   "dailyHardUsd": 100,
   "learningsFile": "../data/your-project/learnings.md",
@@ -113,6 +116,7 @@
 選配欄位說明：
 - `goalFile`：未設就沒有 GOAL autopilot 能力（`/goal set` 會回「config 未設 goalFile」）。
 - `learningsFile` / `globalLearningsFile`：`learningsFile` 未設時預設 `<dataDir>/learnings.md`（零設定自動開啟）；`globalLearningsFile` 為跨專案人工策展的全局教訓，未設即不注入。
+- `judgeApiKey` / `telegramBotToken`：請只寫 `{env:VAR}`、`${env:VAR}`、`${VAR}` 或 `{file:PATH}` 引用；值不應寫入版本控制的 JSON。缺少選配通知 token 時不會接入該通知通道。
 - `botAllowedUserIds` / `botGuildId` / `botTokenFile`：不設 bot 相關欄位就是 fail-closed（allowlist 空陣列＝全員鎖死），Discord bot 需要這三者才能安全上線。
 - `concurrency`：預設 `1`。大於 `1` 時只讓明示 `risk:"low"` 且 ownership 不重疊的任務進平行 lane；未宣告或不合法的 ownership 會安全降級為全 repo 獨佔。
 - `reviewEngine`：中高風險必須有 Reviewer；未設時可沿用既有 `auditModel`，兩者皆缺或 Reviewer 無法完成時為 `BLOCKED`。
@@ -135,6 +139,7 @@ npm run build
 ### 3. CLI
 
 ```
+node dist/cli.js --help                         # 不讀 config 的安全起步說明
 node dist/cli.js status --config <path>       # 唯讀狀態（heartbeat/成本/backlog/DLQ）
 node dist/cli.js run-once --config <path>      # 跑一輪就退出
 node dist/cli.js daemon --config <path>        # 24/7 常駐主迴圈

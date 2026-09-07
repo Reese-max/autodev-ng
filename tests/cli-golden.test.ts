@@ -9,7 +9,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { runCli } from '../src/cli/entry.js'
+import { CLI_HELP, runCli } from '../src/cli/entry.js'
 import {
   PUBLIC_CLI_COMMANDS,
   assertCliCapturesEqual,
@@ -148,10 +148,9 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
     '用法：adng <status|run-once|daemon|notify-test> --config <path>，或 adng supervise --configs-dir <dir>'
   const SUPERVISE_USAGE = '用法：adng supervise (--config <path> | --configs-dir <dir>)'
 
-  test('全域：空 argv、--help、--version 與各子指令缺 --config 的用法錯誤（逐位元）', async () => {
+  test('全域：空 argv、--version 與各子指令缺 --config 的用法錯誤（逐位元）', async () => {
     const cases: Array<{ name: string; argv: string[] }> = [
       { name: 'empty', argv: [] },
-      { name: '--help', argv: ['--help'] },
       { name: '--version', argv: ['--version'] },
       { name: 'help', argv: ['help'] },
       { name: 'version', argv: ['version'] },
@@ -159,9 +158,7 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
       { name: 'run-once', argv: ['run-once'] },
       { name: 'daemon', argv: ['daemon'] },
       { name: 'notify-test', argv: ['notify-test'] },
-      { name: 'status --help', argv: ['status', '--help'] },
       { name: 'status --version', argv: ['status', '--version'] },
-      { name: 'run-once --help', argv: ['run-once', '--help'] },
       { name: 'daemon --version', argv: ['daemon', '--version'] },
     ]
 
@@ -177,11 +174,23 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
     }
   })
 
+  test('--help：全域與子指令 help 都不讀 config，成功輸出起步契約', async () => {
+    const expected: CliGoldenCapture = { stdout: `${CLI_HELP}\n`, stderr: '', exitCode: 0 }
+    for (const argv of [
+      ['--help'],
+      ['status', '--help'],
+      ['run-once', '--help'],
+      ['supervise', '--help'],
+      ['unknown', '--help', '--config', 'missing.json'],
+    ]) {
+      assertCliCapturesEqual(await captureCli(argv), expected)
+    }
+  })
+
   test('supervise：缺參數與雙參數互斥用法錯誤（逐位元）', async () => {
     const expected: CliGoldenCapture = { stdout: '', stderr: `${SUPERVISE_USAGE}\n`, exitCode: 1 }
     for (const argv of [
       ['supervise'],
-      ['supervise', '--help'],
       ['supervise', '--version'],
       ['supervise', '--config', 'a.json', '--configs-dir', 'configs'],
     ]) {
@@ -198,7 +207,7 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
         stderr: `未知子命令：${cmd}（可用：status | run-once | daemon | notify-test | supervise）\n`,
         exitCode: 1,
       })
-      for (const cmd of ['unknown', '--help', '--version', 'help', 'version', 'foo']) {
+      for (const cmd of ['unknown', '--version', 'help', 'version', 'foo']) {
         assertCliCapturesEqual(
           await captureCli([cmd, '--config', config]),
           expected(cmd),
