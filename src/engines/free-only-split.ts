@@ -1,9 +1,10 @@
+import { callAgent, llmFromConfig } from '../autopilot/llm.js'
 import type { BacklogStore } from '../backlog.js'
 import type { Config, Task } from '../types.js'
 import type { SplitChild } from './backlog-split.js'
 
 export const FREE_ONLY_SPLIT_FAILURES = 2
-type JudgeOpts = Pick<Config, 'judgeUrl' | 'judgeModel' | 'judgeApiKey' | 'judgeEffort' | 'judgeTimeoutMs'>
+type JudgeOpts = Pick<Config, 'llmTransport' | 'dataDir' | 'judgeUrl' | 'judgeModel' | 'judgeApiKey' | 'judgeEffort' | 'judgeTimeoutMs'>
 interface JudgePiece { task: string; acceptance: string }
 export interface FreeOnlySplitPlan { pieces: JudgePiece[] }
 export type FreeOnlySplitAttempt = { kind: 'not-eligible' | 'blocked'; detail?: string } | { kind: 'split'; pieces: number }
@@ -24,18 +25,11 @@ function validPlan(input: unknown, parentAcceptance: string): FreeOnlySplitPlan 
 async function requestSplit(
   opts: JudgeOpts, task: Task, failure: string, parentAcceptance: string, fetchFn: typeof fetch,
 ): Promise<FreeOnlySplitPlan | undefined> {
-  if (!opts.judgeUrl || !parentAcceptance) return undefined
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), opts.judgeTimeoutMs)
+  if (!parentAcceptance) return undefined
   try {
-    const res = await fetchFn(`${opts.judgeUrl.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${opts.judgeApiKey}` }, signal: controller.signal,
-      body: JSON.stringify({ model: opts.judgeModel, reasoning_effort: opts.judgeEffort, messages: [{ role: 'user', content:
-        `將以下 free-only 失敗任務拆成循序工作片。只回傳 JSON：{"pieces":[{"task":"單行子任務","acceptance":"可獨立執行的驗收指令"}]}。先產生 2–4 個子任務，最後一片是整合片；總片數限 2–5，最後 acceptance 必須逐字包含母任務原始驗收指令。\n\n母任務：${task.text}\n最後失敗：${failure}\n母任務原始驗收：${parentAcceptance}` }] }),
-    })
-    if (!res.ok) return undefined
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> }
-    return validPlan(JSON.parse(data.choices?.[0]?.message?.content ?? ''), parentAcceptance)
-  } catch { return undefined } finally { clearTimeout(timer) }
+    const result = await callAgent({ ...llmFromConfig(opts), fetchFn }, `將以下 free-only 失敗任務拆成循序工作片。只回傳 JSON：{"pieces":[{"task":"單行子任務","acceptance":"可獨立執行的驗收指令"}]}。先產生 2–4 個子任務，最後一片是整合片；總片數限 2–5，最後 acceptance 必須逐字包含母任務原始驗收指令。\n\n母任務：${task.text}\n最後失敗：${failure}\n母任務原始驗收：${parentAcceptance}`)
+    return validPlan(JSON.parse(result.text), parentAcceptance)
+  } catch { return undefined }
 }
 
 /** 只有 free-only 累積兩敗才拆；二層子片到門檻直接封鎖，永不遞迴展開。 */

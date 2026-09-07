@@ -1,5 +1,5 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
-param([Parameter(Mandatory = $true)][string]$Config, [ValidateSet('issues', 'reports')][string]$Mode = 'issues')
+param([Parameter(Mandatory = $true)][string]$Config, [ValidateSet('issues', 'reports', 'repairs')][string]$Mode = 'issues')
 $ErrorActionPreference = 'Stop'
 $adngRoot = Split-Path -Parent $PSScriptRoot
 $adngConfig = (Resolve-Path -LiteralPath $Config).Path
@@ -12,12 +12,16 @@ $adngScope = if ($adngSettings.owner) { $adngSettings.owner } else { $adngSettin
 $adngMode = if ($adngSettings.owner) { 'owner-run' } else { 'run' }
 $adngTaskName = 'adng-github-' + ($adngScope -replace '[^A-Za-z0-9_-]', '-')
 if ($Mode -eq 'reports') { $adngMode = 'report'; $adngTaskName = 'adng-github-reports-' + ($adngScope -replace '[^A-Za-z0-9_-]', '-') }
+if ($Mode -eq 'repairs') {
+  if (-not $adngSettings.owner) { throw 'Repair batch requires an owner report configuration' }
+  $adngMode = 'repair-batch'; $adngTaskName = 'adng-github-repairs-' + ($adngScope -replace '[^A-Za-z0-9_-]', '-')
+}
 if (Get-ScheduledTask -TaskName $adngTaskName -ErrorAction SilentlyContinue) { throw "Task already exists: $adngTaskName. Inspect it before replacing." }
 # Encode only local trusted paths; no shell interpolation of Issue content.
 $adngScript = '& ' + "'" + $adngNode.Replace("'", "''") + "' '" + $adngCli.Replace("'", "''") + "' github " + $adngMode + " --config '" + $adngConfig.Replace("'", "''") + "'; exit `$LASTEXITCODE"
 $adngEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($adngScript))
 $adngAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand $adngEncoded" -WorkingDirectory $adngRoot
-$adngMinutes = if ($Mode -eq 'reports') { 15 } else { 5 }
+$adngMinutes = if ($Mode -ne 'issues') { 15 } else { 5 }
 $adngTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $adngMinutes)
 $adngTaskSettings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 4) -StartWhenAvailable
 $adngTaskSettings.Priority = 5

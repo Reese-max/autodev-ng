@@ -1,3 +1,4 @@
+import { llmFromConfig } from './llm.js'
 import { existsSync, appendFileSync, readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -89,7 +90,7 @@ export async function runGoalWithDeps(
     const kernelDeps = goal.engine
       ? { ...deps, cfg: pinGoalEngine(cfg, goal.engine) }
       : deps
-    const llm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs }
+    const llm = llmFromConfig(cfg, cfg.judgeModel, cfg.judgeUrl)
     // M7 Task 5：session 開始時讀一次教訓（不逐輪重讀），fail-open——教訓面故障不擋 GOAL 啟動
     let lessonsText = ''
     try { lessonsText = deps.lessons?.inject() ?? '' } catch { /* fail-open */ }
@@ -106,7 +107,7 @@ export async function runGoalWithDeps(
       try {
         discovered = await discoverProblems({
           finderLlm: llm,
-          criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs },
+          criticLlm: llmFromConfig(cfg, cfg.auditModel ?? cfg.judgeModel, cfg.judgeUrl),
           runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd, (type, data) => quiet(() => deps.events.append(type, data))) }),
           onEvent: (type, data) => quiet(() => deps.events.append(type, data)),
           readRoiSummary: () => readRecentGoalRoiSummary(join(cfg.dataDir, 'run.db')),
@@ -137,7 +138,7 @@ export async function runGoalWithDeps(
     if (outcome.kind === 'achieved' && cfg.auditModel) {
       try {
         const sup = await verifyAndSupplement({
-          auditLlm: { url: cfg.judgeUrl, model: cfg.auditModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs },
+          auditLlm: llmFromConfig(cfg, cfg.auditModel, cfg.judgeUrl),
           runVerify: (cmd, wd) => {
             try { return { exitCode: 0, passed: 1, output: execSync(cmd, { cwd: wd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }).slice(-2000) } }
             catch (e) { const er = e as { status?: number; stdout?: string }; return { exitCode: er.status ?? 1, passed: 0, output: (er.stdout ?? '').slice(-2000) } }

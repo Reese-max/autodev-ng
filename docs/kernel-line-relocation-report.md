@@ -84,3 +84,10 @@ npm run build
 第一個測試直接以 Git 讀取上述基準提交的 `src/*.ts`，並以相同計數函式讀取目前工作樹，斷言
 2700 基準、目前 ≤2250 與 ≥250 行騰回，並核對搬移目的地。第二個測試持續守住 ≤2250 的
 kernel 薄殼邊界；`kernel-budget` 仍保留既有 ≤2700 工作上限守門。
+
+## 2026-09-08 CLI 自主開發接線
+
+`src/types.ts` 增加一行 CLI transport 設定；`src/backlog.ts` 增加一行既有 ID 去重，並保留 CLI 明示任務的 user 來源。
+主要實作在既有子目錄，頂層目前 **2217 行**，仍低於 2250 行；上限未調整。
+
+驗證：`npx vitest run tests/kernel-relocation-report.test.ts tests/cli-llm.test.ts tests/github-reports.test.ts`。

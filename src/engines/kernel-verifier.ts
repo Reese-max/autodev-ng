@@ -1,3 +1,4 @@
+import { llmFromConfig } from '../autopilot/llm.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import type { Config, Job, RunResult, TaskRisk } from '../types.js'
@@ -79,7 +80,7 @@ export class KernelVerifier {
     }
 
     const jOut = await judgeCommit(
-      { url: this.cfg.judgeUrl, model: this.cfg.judgeModel, apiKey: this.cfg.judgeApiKey, effort: this.cfg.judgeEffort, timeoutMs: this.cfg.judgeTimeoutMs, fetchFn: this.judgeFetchFn },
+      { ...llmFromConfig(this.cfg, this.cfg.judgeModel, this.cfg.judgeUrl), fetchFn: this.judgeFetchFn },
       tail(res.output, 2000), composeJudgeDiff(nameStatus, diff),
     )
     if (jOut.verdict === 'MISMATCH') {

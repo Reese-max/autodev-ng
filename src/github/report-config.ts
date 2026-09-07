@@ -31,6 +31,7 @@ export const ReportConfigSchema = z.object({
   dataDir: z.string().min(1), stopFile: z.string().min(1), personaFile: z.string().min(1),
   projects: z.array(ReportProjectSchema).min(1).max(50),
   repairConfigs: z.array(z.string().min(1)).max(50).default([]),
+  proposalRepos: z.array(GithubConfigSchema.shape.repo).max(50).default([]),
   intervalMs: z.number().int().min(60_000).default(900_000),
   dailyRepoLimit: z.number().int().min(1).max(3).default(3), dailyAccountLimit: z.number().int().min(1).max(10).default(10),
   research: z.object({ enabled: z.boolean().default(false), model: z.string().min(1),
@@ -41,6 +42,7 @@ export const ReportConfigSchema = z.object({
   }).strict(),
 }).strict().superRefine((cfg, ctx) => {
   const names = cfg.projects.map(p => p.repo.toLowerCase())
+  if (cfg.proposalRepos.some(repo => !names.includes(repo.toLowerCase()))) ctx.addIssue({ code: 'custom', message: 'Proposal adoption must be scoped to a configured project' })
   if (new Set(names).size !== names.length || names.some(n => n.split('/')[0] !== cfg.owner.toLowerCase()))
     ctx.addIssue({ code: 'custom', message: 'Only unique repositories owned by the configured account are allowed' })
 })

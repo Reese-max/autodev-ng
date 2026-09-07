@@ -8,6 +8,7 @@ const StateSchema = z.object({
   repo: z.string(), base: z.string(), issue: IssueSchema, fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   status: z.enum(['queued', 'running', 'ready', 'published', 'blocked', 'cancelled']),
   runs: z.number().int().nonnegative(), nextRunAt: z.number(),
+  history: z.array(z.object({ at: z.string().datetime(), status: z.string(), runs: z.number().int().nonnegative(), detail: z.string().optional() })).optional(),
   baseSha: z.string().regex(/^[a-f0-9]{40,64}$/).optional(), commit: z.string().regex(/^[a-f0-9]{40,64}$/).optional(), pr: z.string().url().optional(), detail: z.string().optional(),
 })
 export type IssueState = z.infer<typeof StateSchema>
@@ -26,6 +27,9 @@ export function readState(cfg: GithubConfig, number: number): IssueState | undef
 export function saveState(cfg: GithubConfig, state: IssueState): void {
   const dir = issueDir(cfg, state.issue.number)
   mkdirSync(dir, { recursive: true })
+  const previous = readState(cfg, state.issue.number)
+  if (!previous || previous.status !== state.status || previous.runs !== state.runs || previous.detail !== state.detail)
+    state.history = [...(previous?.history ?? []), { at: new Date().toISOString(), status: state.status, runs: state.runs, detail: state.detail }]
   const tmp = join(dir, `state-${randomUUID()}.tmp`)
   writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n')
   renameSync(tmp, join(dir, 'state.json'))

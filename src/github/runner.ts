@@ -50,11 +50,13 @@ export async function runGithub(cfg: GithubConfig, options: {
   if (!cfg.enabled || existsSync(githubStopFile(cfg))) return 'paused'
   const original = options.configPath ? readFileSync(options.configPath, 'utf8') : undefined
   if (options.configPath && JSON.stringify(loadGithubConfig(options.configPath)) !== JSON.stringify(cfg)) return 'paused'
+  const inputs = [cfg.sourceConfig, ...(cfg.repair ? [cfg.repair.reportConfig] : [])].map(file => [file, readFileSync(file, 'utf8')] as const)
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'runner.lock')
   if (!acquireLock(lock)) return 'locked'
   const client = options.client ?? githubClient(cfg)
   const active = () => !existsSync(githubStopFile(cfg)) && (!options.configPath || readFileSync(options.configPath, 'utf8') === original)
+    && inputs.every(([file, snapshot]) => readFileSync(file, 'utf8') === snapshot)
   try {
     await syncIssues(cfg, client)
     if (options.syncOnly) return 'synced'

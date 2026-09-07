@@ -41,7 +41,7 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
     maxAttempts: cfg.maxRuns, concurrency: 1, defaultRisk: 'medium', perpetual: false, goalFile: undefined,
     discordChannelId: undefined, telegramBotToken: undefined, telegramChatId: undefined,
     learningsFile: join(dir, 'learnings.md'), globalLearningsFile: undefined, releaseApprovalFile: undefined,
-    ...(cfg.repair ? { judgeUrl: undefined, reviewUrl: undefined, judgeApiKey: '' } : {}),
+    ...(cfg.repair ? { llmTransport: 'cli', judgeUrl: undefined, reviewUrl: undefined, judgeApiKey: '' } : {}),
     extraDirective: [source.extraDirective, 'Only implement the Issue in this checkout. Do not push, create PRs, send messages, deploy, change credentials, or operate other repositories. The host handles publication after verified completion.'].filter(Boolean).join('\n'),
   })
 }
@@ -89,13 +89,14 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
   // No notifications or perpetual discovery: one imported Issue, one bounded scheduler cycle.
   app.deps.notify = undefined
   app.deps.taskTerminalNotify = undefined
-  app.deps.lessons = undefined
+  if (!cfg.repair) app.deps.lessons = undefined
   try {
     const tasks = app.deps.store.read()
     if (tasks.length !== 1 || tasks[0]!.text !== issueTask(state)) throw new Error('Issue backlog contract changed')
     if (tasks[0]!.status === 'done') throw new Error('Interrupted completed cycle; manual evidence recovery required')
     const result = await runOnce(app.deps)
     finalizeRunOnceHeartbeat(app.deps, result)
+    try { await app.deps.lessons?.reflect(result) } catch { /* Ancillary learning cannot invalidate completed work. */ }
     const done = result === 'done'
     const commit = done ? git(runtime.projectPath, ['rev-parse', 'HEAD']) : undefined
     if (done) assertPublishable(cfg, { ...state, commit })
@@ -113,6 +114,7 @@ export function detectVerification(cwd: string): string {
   throw new Error('No supported verification contract: requires package-lock.json and a real npm test script; configure this repository before retry')
 }
 export function assertPublishable(cfg: GithubConfig, state: IssueState): void {
+  if (!state.baseSha || !state.commit || !existsSync(checkoutDir(cfg, state))) throw new Error('Unverified or missing candidate checkout')
   prepareCheckout(cfg, state)
   const cwd = checkoutDir(cfg, state)
   if (!state.commit || git(cwd, ['rev-parse', 'HEAD']) !== state.commit || state.commit === state.baseSha) throw new Error('Unverified or changed candidate commit')

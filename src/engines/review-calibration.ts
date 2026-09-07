@@ -1,3 +1,4 @@
+import { llmFromConfig } from '../autopilot/llm.js'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -221,10 +222,10 @@ export async function maybeRunWeeklyReviewCalibration(opts: { cfg: Config; now?:
   const outputDir = opts.outputDir ?? reviewCalibrationDir()
   if (existsSync(join(outputDir, `${week}.md`))) return 'already-run'
   const url = opts.cfg.reviewUrl ?? opts.cfg.judgeUrl
-  if (!url) return 'not-configured'
+  if (!url && opts.cfg.llmTransport !== 'cli') return 'not-configured'
   const model = opts.cfg.reviewEngine ?? opts.cfg.judgeModel
   const result = await runReviewCalibration(loadReviewCalibrationSamples(), async sample =>
-    parseReviewVerdict(await reviewDiff({ url, model, apiKey: opts.cfg.judgeApiKey, effort: opts.cfg.judgeEffort, timeoutMs: opts.cfg.judgeTimeoutMs }, sample.diff, sample.taskText)),
+    parseReviewVerdict(await reviewDiff(llmFromConfig(opts.cfg, model, url), sample.diff, sample.taskText)),
   { week, model })
   writeReviewCalibrationReport(result, outputDir)
   return 'written'

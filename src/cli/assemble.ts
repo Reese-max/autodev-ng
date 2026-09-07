@@ -1,3 +1,4 @@
+import { llmFromConfig } from '../autopilot/llm.js'
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { ZodError } from 'zod'
@@ -97,7 +98,7 @@ export function assembleConfig(cfg: Config, absCfgPath?: string): { deps: Deps; 
   const engines = makeEngineRegistry(cfg)
   // review 的 effort/timeout 沿用 judge 檔次（驗收鏈同升降；要分開時再開獨立欄位）
   const reviewerModel = cfg.reviewEngine ?? cfg.auditModel
-  const reviewRun = reviewerModel ? (a: { diff: string; taskText: string }) => reviewDiff({ url: cfg.reviewUrl ?? cfg.judgeUrl, model: reviewerModel, apiKey: cfg.judgeApiKey, effort: cfg.judgeEffort, timeoutMs: cfg.judgeTimeoutMs }, a.diff, a.taskText) : undefined
+  const reviewRun = reviewerModel ? (a: { diff: string; taskText: string }) => reviewDiff(llmFromConfig(cfg, reviewerModel, cfg.reviewUrl ?? cfg.judgeUrl), a.diff, a.taskText) : undefined
   const verifier = new KernelVerifier({ cfg, reviewRun })
   const notifier = new DiscordNotifier({
     channelId: cfg.discordChannelId,
@@ -109,7 +110,7 @@ export function assembleConfig(cfg: Config, absCfgPath?: string): { deps: Deps; 
   const lessonStore = new LessonStore(cfg.learningsFile ?? join(cfg.dataDir, 'learnings.md'), cfg.globalLearningsFile)
   const lessons = makeLessonsPort({
     lessons: lessonStore, db, backlog: store,
-    llm: { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs }, events
+    llm: llmFromConfig(cfg, cfg.judgeModel, cfg.judgeUrl), reviewLlm: cfg.auditModel ? llmFromConfig(cfg, cfg.auditModel) : undefined, events
   })
   let team: TeamState | undefined
   try { team = new TeamState(cfg.projectPath) } catch { /* 非 Git fixture；真正派工仍由 worktree gate 阻擋 */ }

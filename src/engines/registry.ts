@@ -48,7 +48,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new CodexEngine({
           id: tag === 'codex' ? 'codex' : `codex:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
-          homeDir: join(cfg.dataDir, 'codex-home'),
+          homeDir: join(cfg.dataDir, 'codex-home'), useUserLogin: cfg.llmTransport === 'cli',
           command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
           effort: ec.effort, timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs

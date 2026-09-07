@@ -15,6 +15,7 @@ afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: tru
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'adng-github-')); dirs.push(dir)
   const cfg = GithubConfigSchema.parse({ repo: 'owner/project', authors: ['owner'], sourceConfig: join(dir, 'source.json'), dataDir: dir, engine: 'writer', enabled: true, retryMs: 60_000 })
+  writeFileSync(cfg.sourceConfig, '{}')
   const issue: Issue = { number: 7, title: 'Fix addition', body: '2 + 3 should be 5', state: 'open', user: { login: 'owner' }, labels: [{ name: 'autodev' }] }
   const client: GithubClient = { list: vi.fn(async () => [issue]), issue: vi.fn(async () => issue), findPr: vi.fn(async () => undefined), findLinkedPr: vi.fn(async () => undefined), createPr: vi.fn(async () => { throw new Error('unexpected publish') }) }
   const state: IssueState = { repo: cfg.repo, base: cfg.base, issue, fingerprint: fingerprint(issue), status: 'queued', runs: 0, nextRunAt: 0 }

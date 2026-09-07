@@ -145,6 +145,7 @@ export const ConfigSchema = z.object({
   defaultRisk: z.enum(['low', 'medium', 'high']).default('medium'),
   // 併發基建骨架（GOAL A 2026-07-28）：>1 的併發池屬 GOAL B，骨架僅收設定並防呆。
   concurrency: z.number().int().positive().default(1),
+  llmTransport: z.enum(['http', 'cli']).default('http'),
   judgeUrl: z.string().optional(),
   judgeModel: z.string().default('gpt-5.4-mini'),
   judgeApiKey: z.string().default('sk-any'),

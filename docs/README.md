@@ -13,6 +13,7 @@ AutoDev NG 將使用者授權的 backlog／GOAL 交給引擎，在隔離工作�
 | GitHub Issue 自動接單 | [github-issues.md](github-issues.md) |
 | 巡檢自動立案、外部靈感與使用者情境 | [github-reports.md](github-reports.md) |
 | 有證據的缺陷交由 CLI 自動修復 | [github-repair.md](github-repair.md) |
+| 六項 GOAL：CLI 規劃、提案決策、恢復與成效 | [cli-autonomy.md](cli-autonomy.md)、[驗收](verification/cli-autonomy-2026-09-08.md) |
 | 多任務 ownership、合併佇列與證據 | [團隊設計](plans/2026-08-14-team-parallel-ownership-merge-queue-design.md)、[歷史差距與複核](plans/2026-08-14-team-gap-acceptance-status.md) |
 | Kernel 行數規範與搬移沿革 | [kernel-line-relocation-report.md](kernel-line-relocation-report.md) |
 | 引擎路由與不穩定測試調查 | [路由入口](engine-routing-insertion-points.md)、[隔離修正](flaky-isolation-fix.md) |

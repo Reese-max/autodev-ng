@@ -147,14 +147,15 @@ export class BacklogStore {
 
   /**
    * 鐵律 #1 修訂版：這是唯一允許系統自主新增任務行的方法（受控例外）。寫入的行
-   * 一律帶 adng:autopilot 註記（含 goalId/round，可稽核來源與觸發輪次），parseBacklog
+   * 預設帶 adng:autopilot 註記；CLI 明示使用者要求時保留 user 來源。自主新增帶此註記（含 goalId/round，可稽核來源與觸發輪次），parseBacklog
    * 讀回時標 source:'autopilot'，與人類手排任務（source:'user'）永遠可區分。
    * report() 對未知 id 的拒絕邏輯不受影響——append 只新增行，不繞過既有行的狀態機。
    */
-  append(text: string, opts: { goalId: string; round: number }): void {
+  append(text: string, opts: { goalId: string; round: number; unique?: boolean; source?: 'user' }): void {
     return withBacklogLock(this.file, () => {
-      const line = `- [ ] ${text} <!-- adng:autopilot goal:${opts.goalId} round:${opts.round} -->`
+      const line = `- [ ] ${text}` + (opts.source === 'user' ? '' : ` <!-- adng:autopilot goal:${opts.goalId} round:${opts.round} -->`)
       const cur = readFileSync(this.file, 'utf8')
+      if (opts.unique && parseBacklog(cur).some(t => t.id === taskId(text))) return
       const sep = cur.length === 0 || cur.endsWith('\n') ? '' : '\n'
       appendFileSync(this.file, `${sep}${line}\n`)
     })

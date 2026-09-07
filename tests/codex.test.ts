@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +11,26 @@ import type { Task } from '../src/types.js'
 
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-codex.mjs')
 const T: Task = { id: 'ab12cd34', text: '修好登入頁', line: 0, status: 'open' }
+
+test('CLI receipts preserve failure outcomes and a receipt write error cannot erase a successful result', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-codex-receipt-')), receiptHome = join(dir, 'runtime')
+  const create = (homeDir: string, after: string) => {
+    let calls = 0
+    return new CodexEngine({ command: process.execPath, baseArgs: [FAKE], useUserLogin: true, homeDir,
+      cache: new PreflightCache(join(dir, 'cache.json')), getCommitHash: () => calls++ ? after : 'aaa' })
+  }
+  process.env.FAKE_CODEX_MODE = 'empty'
+  const failed = await create(receiptHome, 'aaa').run({ task: T, projectPath: dir })
+  expect(failed.ok).toBe(false)
+  const receipts = join(receiptHome, 'receipts'), file = readdirSync(receipts)[0]!
+  expect(JSON.parse(readFileSync(join(receipts, file), 'utf8'))).toMatchObject({ ok: false, exitCode: 0, turnCompleted: false, hostCommit: false })
+  const unwritable = join(dir, 'not-a-directory'); writeFileSync(unwritable, 'preserve this file')
+  process.env.FAKE_CODEX_MODE = 'ok'
+  const successful = await create(unwritable, 'bbb').run({ task: T, projectPath: dir })
+  expect(successful).toMatchObject({ ok: true, commitHash: 'bbb' })
+  expect(successful.output).toContain('CLI receipt unavailable')
+  expect(readFileSync(unwritable, 'utf8')).toBe('preserve this file')
+})
 
 function engine(mode: string, hashes: (string | undefined)[], timeoutMs = 10_000): CodexEngine {
   process.env.FAKE_CODEX_MODE = mode

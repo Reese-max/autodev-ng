@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
@@ -116,27 +117,40 @@ export class CodexEngine implements Engine {
 
     const before = this.getCommitHash(job.projectPath)
     const managedWorktree = existsSync(join(job.projectPath, '.adng-worktree'))
+    let committedByHost = false
     const r = await runProcess({
       command: this.command, args: this.baseArgs, cwd: job.projectPath,
       stdinText: prompt, timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs,
       env: this.runtimeEnv(), replaceEnv: true
     })
-
-    if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
-    if (r.exitCode !== 0) {
-      return {
-        ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true,
-        failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}`
+    const p = parseJsonl(r.stdout)
+    const finish = (result: RunResult): RunResult => {
+      if (this.useUserLogin) {
+        try {
+          const dir = join(this.homeDir, 'receipts'); mkdirSync(dir, { recursive: true })
+          writeFileSync(join(dir, `${randomUUID()}.json`), JSON.stringify({ at: new Date().toISOString(), command: this.command, args: this.baseArgs,
+            executionId: job.executionId, taskId: job.task.id, cwd: job.projectPath, commit: result.commitHash, base: before,
+            hostCommit: committedByHost, ok: result.ok, failureReason: result.failureReason,
+            exitCode: r.exitCode, timedOut: r.timedOut, turnCompleted: p.turnCompleted, durationMs: r.durationMs, usage: p.usage }, null, 2))
+        } catch (error) { result.output += `\nCLI receipt unavailable: ${String(error).slice(0, 200)}` }
       }
+      return result
     }
 
-    const p = parseJsonl(r.stdout)
+    if (r.timedOut) return finish({ ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' })
+    if (r.exitCode !== 0) {
+      return finish({
+        ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true,
+        failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}`
+      })
+    }
+
     // silent-fail 防呆（規格卡：codex exit 0 不可信）：無 turn.completed 或無最終訊息＝失敗。
     if (!p.turnCompleted || p.message.trim() === '') {
-      return {
+      return finish({
         ok: false, output: tail(r.stdout), costUsd: 0, costUnknown: true,
         failureReason: 'silent-fail：exit 0 但無 turn.completed 或零輸出（≠ 成功）'
-      }
+      })
     }
     // tokens 僅記錄於 output/detail（不換算 USD——價目表變動快，估計值走 config costPerRunUsd）。
     const output = tail(`${p.message}\n${usageLine(p.usage)}`)
@@ -149,14 +163,15 @@ export class CodexEngine implements Engine {
     if (managedWorktree && after === before) {
       try {
         after = this.commitChanges(job.projectPath, `chore(autodev): 完成 ${job.task.text.replace(/\s+/g, ' ').trim().slice(0, 60) || job.task.id}`)
+        committedByHost = after !== undefined && after !== before
       } catch (err) {
         hostCommitError = `；宿主提交失敗：${String(err).replace(/\s+/g, ' ').slice(0, 200)}`
       }
     }
     if (after === undefined || after === before) {
-      return { ok: false, output, costUsd: 0, costUnknown: true, failureReason: `no-commit(phantom completion?)${hostCommitError}`, tokensIn, tokensOut, tokensCached }
+      return finish({ ok: false, output, costUsd: 0, costUnknown: true, failureReason: `no-commit(phantom completion?)${hostCommitError}`, tokensIn, tokensOut, tokensCached })
     }
-    return { ok: true, output, costUsd: 0, costUnknown: true, commitHash: after, baseCommitHash: before, tokensIn, tokensOut, tokensCached }
+    return finish({ ok: true, output, costUsd: 0, costUnknown: true, commitHash: after, baseCommitHash: before, tokensIn, tokensOut, tokensCached })
   }
 
   private runtimeEnv(): Record<string, string> {

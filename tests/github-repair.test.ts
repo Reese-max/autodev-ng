@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GithubConfigSchema, type Issue } from '../src/github/config.js'
@@ -15,6 +15,8 @@ import * as proc from '../src/engines/proc.js'
 import { githubCli } from '../src/github/cli.js'
 import * as github from '../src/github/client.js'
 import * as runner from '../src/github/runner.js'
+import { delivery, recoverIssue } from '../src/github/operations.js'
+import * as incident from '../src/guardian/incident.js'
 
 const dirs: string[] = []
 afterEach(() => { vi.restoreAllMocks(); process.exitCode = undefined; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
@@ -98,10 +100,11 @@ test('real Git/scheduler/CLI adapter repairs red to green with independent CLI r
   vi.spyOn(proc, 'runProcess').mockImplementation(async opts => {
     if (opts.command !== 'codex') return realRun(opts)
     const review = opts.args.includes('--output-schema'), ping = opts.stdinText.includes('exactly: PONG')
-    cliCalls.push(review ? 'review' : ping ? 'ping' : 'worker')
+    const judge = review && Boolean(JSON.parse(readFileSync(opts.args[opts.args.indexOf('--output-schema') + 1]!, 'utf8')).properties?.text)
+    cliCalls.push(judge ? 'judge' : review ? 'review' : ping ? 'ping' : 'worker')
     expect(opts.args).toContain('--ignore-user-config'); expect(opts.args).toContain('--ignore-rules')
     expect(opts.env?.OPENAI_API_KEY).toBeUndefined()
-    if (review) writeFileSync(opts.args[opts.args.indexOf('--output-last-message') + 1]!, JSON.stringify({ approved: true, rationale: 'The complete diff fixes the addition without weakening tests.' }))
+    if (review) writeFileSync(opts.args[opts.args.indexOf('--output-last-message') + 1]!, JSON.stringify(judge ? { text: 'MATCH' } : { approved: true, rationale: 'The complete diff fixes the addition without weakening tests.' }))
     else if (!ping) {
       expect(opts.stdinText).toContain('Preserve the existing public API.')
       writeFileSync(join(opts.cwd, 'add.cjs'), 'module.exports = (a, b) => a + b\n')
@@ -114,20 +117,89 @@ test('real Git/scheduler/CLI adapter repairs red to green with independent CLI r
   const state = readState(f.cfg, 4)!
   expect(state.commit).not.toBe(state.baseSha); assertPublishable(f.cfg, state)
   expect(command(process.execPath, ['check.cjs'], f.cwd)).toBe('')
-  expect(cliCalls).toEqual(['ping', 'worker', 'review']); expect(fetch).not.toHaveBeenCalled()
+  expect(cliCalls).toEqual(['ping', 'worker', 'judge', 'review']); expect(fetch).not.toHaveBeenCalled()
   expect(f.client.createPr).not.toHaveBeenCalled()
-  expect(await runGithub(f.cfg, { client: f.client })).toBe('idle'); expect(cliCalls).toHaveLength(3)
+  expect(await runGithub(f.cfg, { client: f.client })).toBe('idle'); expect(cliCalls).toHaveLength(4)
+  // A crash after merge but before the state transition recovers exact evidence without another worker run.
+  saveState(f.cfg, { ...state, status: 'running', commit: undefined })
+  const doctor = vi.fn().mockRejectedValue(new Error('Completed recovery must not need a model'))
+  const recovered = await recoverIssue(f.configPath, 4, 'Recover the completed verified merge', false, { client: f.client, doctor })
+  expect(recovered.status).toBe('ready'); expect(recovered.runs).toBe(state.runs); expect(recovered.commit).toBe(state.commit)
+  expect(doctor).not.toHaveBeenCalled(); expect(cliCalls).toHaveLength(4)
   const receipt = join(f.dir, 'issue-4', `repair-probe-${state.commit}.json`)
   const changed = JSON.parse(readFileSync(receipt, 'utf8')); changed.probe = {}
   writeFileSync(receipt, JSON.stringify(changed))
   expect(() => assertPublishable(f.cfg, state)).toThrow('Missing original probe pass')
 }, 30_000)
 
+test('recovery retains attempt counts and pause until a fresh same-policy doctor passes; dirty and changed contracts stay blocked', async () => {
+  const f = await setup(), pause = join(f.dir, 'repair.pause')
+  f.cfg.stopFile = pause; writeFileSync(f.configPath, JSON.stringify(f.cfg))
+  saveState(f.cfg, { ...f.state, status: 'blocked', runs: 1 })
+  writeFileSync(pause, 'Sandbox setup required')
+  const doctor = vi.fn().mockResolvedValue({ ready: false, sandbox: { detail: 'setup required' } })
+  const opts = { client: f.client, doctor }
+  const before = readFileSync(join(f.dir, 'issue-4', 'state.json'), 'utf8')
+  await expect(recoverIssue(f.configPath, 4, 'Retry after fixing sandbox setup', true, opts)).rejects.toThrow('environment unavailable')
+  expect(readFileSync(pause, 'utf8')).toBe('Sandbox setup required')
+  expect(readFileSync(join(f.dir, 'issue-4', 'state.json'), 'utf8')).toBe(before)
+  doctor.mockResolvedValue({ ready: true })
+  const resumed = await recoverIssue(f.configPath, 4, 'Same-policy sandbox setup now passes', true, opts)
+  expect(resumed.status).toBe('queued'); expect(resumed.runs).toBe(1); expect(resumed.history?.at(-1)?.detail).toContain('Recovery:')
+  const receipt = readdirSync(join(f.dir, 'issue-4')).find(name => name.startsWith('recovery-'))!
+  expect(JSON.parse(readFileSync(join(f.dir, 'issue-4', receipt), 'utf8'))).toMatchObject({ phase: 'completed', after: readState(f.cfg, 4), paused: false })
+  writeFileSync(join(f.cwd, 'add.cjs'), 'Uncommitted user changes')
+  const calls = doctor.mock.calls.length
+  await expect(recoverIssue(f.configPath, 4, 'Retry must preserve my existing edits', false, opts)).rejects.toThrow('dirty')
+  expect(doctor).toHaveBeenCalledTimes(calls)
+  expect(readFileSync(join(f.cwd, 'add.cjs'), 'utf8')).toBe('Uncommitted user changes')
+})
+
+test('an interrupted recovery receipt remains prepared instead of claiming completion', async () => {
+  const f = await setup(), write = incident.writeJsonAtomic
+  vi.spyOn(incident, 'writeJsonAtomic').mockImplementation((file, value) => {
+    if ((value as { phase?: string }).phase === 'completed') throw new Error('Receipt storage unavailable')
+    write(file, value)
+  })
+  await expect(recoverIssue(f.configPath, 4, 'Recover while preserving evidence truth', false, { client: f.client, doctor: vi.fn().mockResolvedValue({ ready: true }) })).rejects.toThrow('Receipt storage unavailable')
+  const receipt = readdirSync(join(f.dir, 'issue-4')).find(name => name.startsWith('recovery-'))!
+  const recorded = JSON.parse(readFileSync(join(f.dir, 'issue-4', receipt), 'utf8'))
+  expect(recorded.phase).toBe('prepared'); expect(recorded.after).toBeUndefined()
+  expect(readState(f.cfg, 4)?.runs).toBe(0)
+})
+
 test('configuration withdrawn during repair cancels candidate instead of publishing', async () => {
   const f = await setup()
   const execute = vi.fn(async () => { writeFileSync(f.configPath, JSON.stringify({ ...f.cfg, enabled: false })); return { done: true, detail: 'done', commit: 'a'.repeat(40) } })
   expect(await runGithub(f.cfg, { client: f.client, execute, configPath: f.configPath })).toBe('cancelled')
   expect(f.client.createPr).not.toHaveBeenCalled()
+})
+
+test('source policy changes during execution cancel a candidate and pending delivery is read-only', async () => {
+  const f = await setup()
+  expect(() => delivery(f.cfg, f.state)).toThrow('No completed candidate')
+  const execute = vi.fn(async () => {
+    const source = JSON.parse(readFileSync(f.cfg.sourceConfig, 'utf8')); source.extraDirective = 'New constraints require fresh review.'
+    writeFileSync(f.cfg.sourceConfig, JSON.stringify(source))
+    return { done: true, detail: 'done', commit: 'a'.repeat(40) }
+  })
+  expect(await runGithub(f.cfg, { client: f.client, execute, configPath: f.configPath })).toBe('cancelled')
+  expect(f.client.createPr).not.toHaveBeenCalled()
+})
+
+test('recovery checks changed policy after doctor and refuses exhausted attempts', async () => {
+  const f = await setup()
+  saveState(f.cfg, { ...f.state, status: 'blocked', runs: 1 })
+  const before = readFileSync(join(f.dir, 'issue-4', 'state.json'), 'utf8')
+  const doctor = vi.fn(async () => {
+    const source = JSON.parse(readFileSync(f.cfg.sourceConfig, 'utf8')); source.extraDirective = 'Changed while diagnosing.'
+    writeFileSync(f.cfg.sourceConfig, JSON.stringify(source))
+    return { ready: true }
+  }) as unknown as NonNullable<Parameters<typeof recoverIssue>[4]>['doctor']
+  await expect(recoverIssue(f.configPath, 4, 'Environment repaired but policy changed', false, { client: f.client, doctor })).rejects.toThrow('changed during recovery')
+  expect(readFileSync(join(f.dir, 'issue-4', 'state.json'), 'utf8')).toBe(before)
+  saveState(f.cfg, { ...f.state, status: 'blocked', runs: f.cfg.maxRuns })
+  await expect(recoverIssue(f.configPath, 4, 'Do not reset exhausted attempts', false, { client: f.client, doctor })).rejects.toThrow('Attempt limit')
 })
 
 test('CLI sandbox failure blocks the repair before preparation or repeated worker attempts', async () => {

@@ -1,0 +1,133 @@
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { parseArgs } from 'node:util'
+import { BacklogStore } from '../backlog.js'
+import { ConfigSchema } from '../types.js'
+import { expandConfigPaths } from '../cli/assemble.js'
+import { acquireLock, releaseLock } from '../lock.js'
+import { CodexEngine } from '../engines/codex.js'
+import { PreflightCache } from '../preflight.js'
+import { runProcess } from '../engines/proc.js'
+import { writeJsonAtomic } from '../guardian/incident.js'
+import { githubStopFile, loadGithubConfig, type GithubConfig } from './config.js'
+import { githubClient, type GithubClient } from './client.js'
+import { eligibleForRun } from './repair.js'
+import { assertPublishable, checkoutDir, git, issueTask, prepareCheckout } from './job.js'
+import { branchFor, fingerprint, issueDir, readState, saveState, states, type IssueState } from './state.js'
+
+export async function repairDoctor(cfg: GithubConfig, live = false) {
+  const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
+  const engine = source.engines[cfg.engine]
+  if (!cfg.repair || engine?.adapter !== 'codex' || engine.timeoutMs === 0) throw new Error('Requires a bounded Codex repair policy')
+  const checks: Record<string, string> = {}
+  for (const [name, cmd, args] of [['git', 'git', ['--version']], ['codex', 'codex', ['--version']], ['login', 'codex', ['login', 'status']], ['github', 'gh', ['api', '--hostname', 'github.com', `repos/${cfg.repo}`, '--jq', '.permissions.push']]] as const) {
+    try {
+      const result = await runProcess({ command: cmd, args: [...args], cwd: source.projectPath, stdinText: '', timeoutMs: 20_000, maxOutputChars: 2000 })
+      checks[name] = result.exitCode === 0 && !result.timedOut && (name !== 'github' || result.stdout.trim() === 'true') ? 'pass' : 'unavailable; run the CLI login/setup command'
+    } catch { checks[name] = 'unavailable; run the CLI login/setup command' }
+  }
+  let sandbox = { ok: false, detail: 'not tested; use repair-doctor --live (same worker permissions)' }
+  if (live && Object.values(checks).every(c => c === 'pass')) {
+    mkdirSync(cfg.dataDir, { recursive: true })
+    const worker = new CodexEngine({ ...engine, useUserLogin: true, homeDir: join(cfg.dataDir, 'codex-home'),
+      cache: new PreflightCache(join(cfg.dataDir, 'doctor-preflight.json'), 0, 0) })
+    sandbox = await worker.preflight()
+  }
+  const result = { repo: cfg.repo, at: new Date().toISOString(), live, ready: live && sandbox.ok && Object.values(checks).every(c => c === 'pass'),
+    paused: !cfg.enabled || existsSync(githubStopFile(cfg)), stopFile: githubStopFile(cfg), checks, sandbox }
+  if (live) writeFileSync(join(cfg.dataDir, 'doctor.json'), JSON.stringify(result, null, 2) + '\n')
+  return result
+}
+
+export function delivery(cfg: GithubConfig, state: IssueState) {
+  if (!['ready', 'published'].includes(state.status)) throw new Error('No completed candidate; inspect repair-status or recover the interrupted run')
+  assertPublishable(cfg, state)
+  return { repo: cfg.repo, issue: state.issue.number, commit: state.commit, base: state.baseSha, snapshot: state.fingerprint,
+    directory: checkoutDir(cfg, state), evidence: join(issueDir(cfg, state.issue.number), 'evidence'),
+    review: 'CI, independent reviewer, local checkout merge and original probe verified for this exact commit',
+    publishEnabled: cfg.publish, pr: state.pr ?? null, humanMergeRequired: true,
+    rollback: `git revert ${state.commit}` }
+}
+
+export async function recoverIssue(file: string, number: number, reason: string, resume = false,
+  options: { client?: GithubClient; doctor?: typeof repairDoctor } = {}): Promise<IssueState> {
+  if (!Number.isSafeInteger(number) || number <= 0 || reason.trim().length < 8 || reason.length > 1000) throw new Error('A positive Issue number and specific recovery reason (8–1000 characters) are required')
+  const cfg = loadGithubConfig(file), original = readFileSync(file, 'utf8'), source = readFileSync(cfg.sourceConfig, 'utf8')
+  if (!cfg.enabled || !cfg.repair) throw new Error('Repair configuration disabled or missing')
+  const policy = readFileSync(cfg.repair.reportConfig, 'utf8'), stop = githubStopFile(cfg)
+  const pause = existsSync(stop) ? readFileSync(stop, 'utf8') : undefined
+  if (pause !== undefined && !resume) throw new Error('Paused; use repair-resume after fixing the environment')
+  mkdirSync(cfg.dataDir, { recursive: true })
+  const lock = join(cfg.dataDir, 'runner.lock')
+  if (!acquireLock(lock)) throw new Error('Runner active; no recovery performed')
+  try {
+    const state = readState(cfg, number)
+    if (!state || !['blocked', 'running', 'queued', 'ready'].includes(state.status)) throw new Error('State cannot be recovered')
+    const client = options.client ?? githubClient(cfg)
+    const current = async () => {
+      const issue = await client.issue(number)
+      if (!eligibleForRun(issue, cfg) || fingerprint(issue) !== state.fingerprint) throw new Error('Issue changed, closed or authorization withdrawn')
+      if (readFileSync(file, 'utf8') !== original || readFileSync(cfg.sourceConfig, 'utf8') !== source || readFileSync(cfg.repair!.reportConfig, 'utf8') !== policy
+        || (existsSync(stop) ? readFileSync(stop, 'utf8') : undefined) !== pause) throw new Error('Configuration or pause changed during recovery')
+    }
+    await current()
+    if (await client.findPr(branchFor(number)) || await client.findLinkedPr(number)) throw new Error('Existing PR; inspect it before retry')
+    const cwd = checkoutDir(cfg, state)
+    if (existsSync(cwd)) {
+      prepareCheckout(cfg, state)
+      const head = git(cwd, ['rev-parse', 'HEAD'])
+      if (head !== state.baseSha) { state.commit = head; assertPublishable(cfg, state); state.status = 'ready' }
+      else if (state.commit || state.status === 'ready') throw new Error('Candidate missing; preserving state')
+      // Preserve every interrupted worktree; a clean non-base commit also requires evidence recovery.
+      for (const row of git(cwd, ['worktree', 'list', '--porcelain']).split(/\r?\n/).filter(l => l.startsWith('worktree '))) {
+        const path = row.slice(9)
+        if (git(path, ['status', '--porcelain'])) throw new Error('Dirty worktree preserved; inspect changes before retry')
+        const head = git(path, ['rev-parse', 'HEAD'])
+        if (path.replace(/\\/g, '/') !== cwd.replace(/\\/g, '/') && head !== state.baseSha && head !== state.commit) throw new Error('Unreconciled worktree commit; inspect evidence before retry')
+      }
+    } else if (state.baseSha) throw new Error('Checkout missing; preserving state')
+    if (state.status !== 'ready') {
+      if (state.runs >= cfg.maxRuns) throw new Error('Attempt limit reached; counters will not be reset')
+      const backlog = join(issueDir(cfg, number), 'BACKLOG.md')
+      if (existsSync(backlog)) {
+        const tasks = new BacklogStore(backlog).read()
+        if (tasks.length !== 1 || tasks[0]!.text !== issueTask(state) || tasks[0]!.status !== 'open') throw new Error('Backlog requires evidence recovery; no automatic rewrite')
+      }
+      state.status = 'queued'; state.nextRunAt = 0
+    }
+    if (state.status === 'queued' || pause !== undefined) {
+      const doctor = await (options.doctor ?? repairDoctor)(cfg, true)
+      if (!doctor.ready) throw new Error(`Repair environment unavailable: ${doctor.sandbox.detail}`)
+    }
+    await current()
+    const receipt = join(issueDir(cfg, number), `recovery-${randomUUID()}.json`)
+    const intent = { at: new Date().toISOString(), reason, before: readState(cfg, number), plannedStatus: state.status }
+    writeJsonAtomic(receipt, { ...intent, phase: 'prepared' })
+    state.detail = `Recovery: ${reason.trim()}`; saveState(cfg, state)
+    if (pause !== undefined) renameSync(stop, `${stop}.resumed-${randomUUID()}`)
+    writeJsonAtomic(receipt, { ...intent, phase: 'completed', after: readState(cfg, number), paused: existsSync(stop) })
+    return state
+  } finally { releaseLock(lock) }
+}
+
+export async function operationsCli(mode: string, argv: string[]): Promise<void> {
+  const { values } = parseArgs({ args: argv, options: { config: { type: 'string' }, issue: { type: 'string' }, reason: { type: 'string' }, live: { type: 'boolean' } } })
+  if (!values.config) throw new Error('Usage: adng github repair-<doctor|retry|resume|delivery|metrics> --config <path> [--issue N --reason text] [--live]')
+  const cfg = loadGithubConfig(values.config)
+  let result: unknown
+  if (mode === 'repair-doctor') { const doctor = await repairDoctor(cfg, values.live); result = doctor; if (values.live && !doctor.ready) process.exitCode = 1 }
+  else if (mode === 'repair-metrics') {
+    const rows = states(cfg), attempted = rows.filter(s => s.runs > 0), completed = rows.filter(s => ['ready', 'published'].includes(s.status))
+    const verified = completed.filter(s => { try { delivery(cfg, s); return true } catch { return false } })
+    const failures = rows.map(s => new Set((s.history ?? []).filter(e => e.runs > 0 && ['queued', 'blocked'].includes(e.status) && !e.detail?.startsWith('Recovery:')).map(e => e.runs)).size)
+    result = { repo: cfg.repo, at: new Date().toISOString(), paused: !cfg.enabled || existsSync(githubStopFile(cfg)), recordedFailedAttempts: failures.reduce((n, v) => n + v, 0), repeatedFailureIssues: failures.filter(n => n > 1).length, observedIssues: rows.length, attemptedIssues: attempted.length, attempts: rows.reduce((n, s) => n + s.runs, 0),
+      verifiedCompletions: verified.length, issueCompletionRate: attempted.length ? verified.length / attempted.length : null,
+      retriedIssues: rows.filter(s => s.runs > 1).length, needsAttention: rows.filter(s => ['blocked', 'cancelled'].includes(s.status)).length,
+      recoveries: rows.reduce((n, s) => n + (s.history ?? []).filter(e => e.detail?.startsWith('Recovery:')).length, 0),
+      journeyCompletions: { automatedRepairProbe: verified.length, humanAcceptance: null }, userOutcome: 'not measured; repair gates are not human acceptance', issues: rows.map(s => ({ number: s.issue.number, status: s.status, runs: s.runs, detail: s.detail })) }
+  } else if (mode === 'repair-delivery') {
+    const state = readState(cfg, Number(values.issue)); if (!state) throw new Error('Issue state not found'); result = delivery(cfg, state)
+  } else result = await recoverIssue(values.config, Number(values.issue), values.reason ?? '', mode === 'repair-resume')
+  console.log(JSON.stringify(result, null, 2))
+}

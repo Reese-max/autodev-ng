@@ -53,6 +53,29 @@
           "command": "node",
           "id": "cli-help",
           "expectedExit": 0
+        },
+        {
+          "id": "cli-guide",
+          "scenario": "onboarding",
+          "command": "node",
+          "args": [
+            "dist/cli.js",
+            "help"
+          ],
+          "expectedExit": 0,
+          "expectedText": "Create: adng task add",
+          "timeoutMs": 10000
+        },
+        {
+          "id": "cli-journey",
+          "scenario": "recovery",
+          "command": "node",
+          "args": [
+            "scripts/check-cli-journey.mjs"
+          ],
+          "expectedExit": 0,
+          "expectedText": "CLI_JOURNEY_PASS",
+          "timeoutMs": 30000
         }
       ],
       "githubSearch": "repo:cli/cli label:enhancement",
@@ -232,5 +255,8 @@
   ],
   "repairConfigs": [
     "./github-repair.json"
+  ],
+  "proposalRepos": [
+    "Reese-max/autodev-ng"
   ]
 }

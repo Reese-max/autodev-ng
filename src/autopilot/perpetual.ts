@@ -1,3 +1,4 @@
+import { llmFromConfig } from './llm.js'
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
@@ -357,7 +358,7 @@ export async function maybeRunPerpetual(
 ): Promise<boolean> {
   const cfg = deps.cfg as PerpetualConfig
   const offset = cfg.timezoneOffsetHours
-  const judgeLlm = { url: cfg.judgeUrl, model: cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs }
+  const judgeLlm = llmFromConfig(cfg, cfg.judgeModel, cfg.judgeUrl)
 
   const hooks: PerpetualHooks = {
     now: () => new Date(),
@@ -366,7 +367,7 @@ export async function maybeRunPerpetual(
       if (!cfg.surveyCommand && !hasSurveySources(cfg.dataDir)) return undefined
       return discoverProblems({
         finderLlm: judgeLlm,
-        criticLlm: { url: cfg.judgeUrl, model: cfg.auditModel ?? cfg.judgeModel, apiKey: cfg.judgeApiKey, timeoutMs: cfg.judgeTimeoutMs },
+        criticLlm: llmFromConfig(cfg, cfg.auditModel ?? cfg.judgeModel, cfg.judgeUrl),
         runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd, (type, data) => quiet(() => deps.events.append(type, data))) }),
         onEvent: (type, data) => quiet(() => deps.events.append(type, data)),
         readRoiSummary: () => readRecentGoalRoiSummary(join(cfg.dataDir, 'run.db')),

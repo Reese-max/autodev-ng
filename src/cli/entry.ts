@@ -27,6 +27,13 @@ export function parseArgv(argv: string[]): ParsedArgv {
 }
 
 export async function runCli(argv: string[], cliPath: string): Promise<void> {
+  if (argv.length === 1 && ['--help', '-h', 'help'].includes(argv[0]!)) {
+    console.log('Usage: adng <task|status|run-once|daemon|supervise|github>\n' +
+      'Create: adng task add --config <path> --text "task and acceptance"\n' +
+      'Inspect: adng task list --config <path>\nRun: adng run-once --config <path>\n' +
+      'GitHub: adng github --help\nRecovery: adng github repair-doctor --config <path> --live'); return
+  }
+  if (argv[0] === 'task') { await (await import('./tasks.js')).taskCli(argv.slice(1)); return }
   if (argv[0] === 'github') {
     const { githubCli } = await import('../github/cli.js')
     await githubCli(argv.slice(1))

@@ -68,5 +68,6 @@
   "perpetualCooldownMs": 3600000,
   "judgeEffort": "xhigh",
   "judgeTimeoutMs": 180000,
-  "engineIsolation": false
+  "engineIsolation": false,
+  "llmTransport": "cli"
 }

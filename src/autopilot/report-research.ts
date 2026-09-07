@@ -5,8 +5,8 @@ import { z } from 'zod'
 import { api, command } from '../github/client.js'
 import type { ReportConfig, ReportProject } from '../github/report-config.js'
 import { runProcess } from '../engines/proc.js'
-import { buildFleetCodexEnv } from '../engines/codex-runtime.js'
-import { homedir } from 'node:os'
+import { codexJson } from '../engines/cli-json.js'
+export { codexJson } from '../engines/cli-json.js'
 import { packHighWeightSources } from './survey-sources.js'
 
 export const SourceSchema = z.object({ url: z.string().url().refine(s => {
@@ -123,25 +123,6 @@ const ProposalSchema = z.object({ scenario: z.string(), title: z.string().min(8)
 const ResearchSchema = z.object({ proposals: z.array(ProposalSchema).max(3) }).strict()
 const ReviewSchema = z.object({ approved: z.boolean(), rationale: z.string().min(8).max(1500) }).strict()
 
-export async function codexJson<T>(cfg: { dataDir: string; model: string; effort: string; timeoutMs: number }, schema: z.ZodType<T>, prompt: string): Promise<T> {
-  const dir = join(cfg.dataDir, 'research', randomUUID()); mkdirSync(dir, { recursive: true })
-  const schemaFile = join(dir, 'schema.json'), answerFile = join(dir, 'answer.json')
-  // Codex Structured Outputs rejects format=uri; Zod still validates the returned URLs locally.
-  writeFileSync(schemaFile, JSON.stringify(z.toJSONSchema(schema), (key, value) => key === 'format' ? undefined : value))
-  const env = buildFleetCodexEnv(join(homedir(), '.codex'))
-  for (const key of Object.keys(env)) if (key.toUpperCase() === 'OPENAI_API_KEY') delete env[key]
-  const result = await runProcess({ command: 'codex', cwd: dir, stdinText: prompt, timeoutMs: cfg.timeoutMs, maxOutputChars: 16_000,
-    env, replaceEnv: true,
-    args: ['exec', '--json', '--model', cfg.model, '-c', `model_reasoning_effort=${cfg.effort}`,
-      '-c', 'approval_policy="never"', '--sandbox', 'read-only', '--ignore-user-config', '--ignore-rules', '--ephemeral', '--skip-git-repo-check',
-      ...['multi_agent', 'multi_agent_v2', 'shell_tool', 'unified_exec', 'code_mode', 'code_mode_host', 'apps', 'plugins', 'browser_use', 'computer_use', 'hooks'].flatMap(f => ['--disable', f]),
-      '--output-schema', schemaFile, '--output-last-message', answerFile, '-'] })
-  const events = result.stdout.split(/\r?\n/).flatMap(line => { try { return [JSON.parse(line)] } catch { return [] } }) as { type?: string; usage?: unknown; message?: string }[]
-  writeFileSync(join(dir, 'telemetry.json'), JSON.stringify({ at: new Date().toISOString(), command: 'codex exec', model: cfg.model, effort: cfg.effort, exitCode: result.exitCode, timedOut: result.timedOut, durationMs: result.durationMs,
-    usage: events.find(e => e.type === 'turn.completed')?.usage, diagnostics: result.stderr.slice(-4000), errors: events.filter(e => e.type === 'error').map(e => e.message?.slice(0, 2000)) }))
-  if (result.exitCode !== 0 || result.timedOut || !events.some(e => e.type === 'turn.completed')) throw new Error('Research model failed; no fallback approval (see local research telemetry)')
-  return schema.parse(JSON.parse(readFileSync(answerFile, 'utf8')))
-}
 
 export async function researchProject(cfg: ReportConfig, project: ReportProject, now: string, sources?: Source[], existingIssues = ''): Promise<Finding[]> {
   const ctx = projectContext(project)

@@ -9,6 +9,8 @@ export async function cmdRunOnce(cfgPath: string): Promise<void> {
   await withAssembled(cfgPath, async ({ deps }) => {
     const result = await runOnce(deps)
     finalizeRunOnceHeartbeat(deps, result)
+    if (typeof result === 'object' || !['done', 'idle', 'stopped', 'deferred'].includes(result)) process.exitCode = 1
     console.log(`CycleResult: ${formatCycleResult(result)}`)
+    try { await deps.lessons?.reflect(result) } catch { /* Reflection cannot replace the completed cycle outcome. */ }
   })
 }

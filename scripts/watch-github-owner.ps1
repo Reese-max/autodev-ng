@@ -1,13 +1,14 @@
-param([Parameter(Mandatory = $true)][string]$Config, [ValidateSet('issues', 'reports')][string]$Mode = 'issues')
+param([Parameter(Mandatory = $true)][string]$Config, [ValidateSet('issues', 'reports', 'repairs')][string]$Mode = 'issues')
 $ErrorActionPreference = 'Stop'
 $adngRoot = Split-Path -Parent $PSScriptRoot
 $adngConfig = (Resolve-Path -LiteralPath $Config).Path
 $adngSettings = Get-Content -LiteralPath $adngConfig -Encoding UTF8 -Raw | ConvertFrom-Json
 if (-not $adngSettings.owner) { throw 'Expected owner configuration' }
 $adngData = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $adngConfig) $adngSettings.dataDir))
+if ($Mode -eq 'repairs') { $adngData = Join-Path $adngData 'repairs' }
 $adngNode = (Get-Command node.exe -ErrorAction Stop).Source
-$adngCommand = if ($Mode -eq 'reports') { 'report' } else { 'owner-run' }
-$adngMutexScope = if ($Mode -eq 'reports') { 'reports-' } else { '' }
+$adngCommand = if ($Mode -eq 'reports') { 'report' } elseif ($Mode -eq 'repairs') { 'repair-batch' } else { 'owner-run' }
+$adngMutexScope = if ($Mode -eq 'reports') { 'reports-' } elseif ($Mode -eq 'repairs') { 'repairs-' } else { '' }
 $adngMutex = New-Object Threading.Mutex($false, ('Local\adng-github-' + $adngMutexScope + $adngSettings.owner))
 $adngAcquired = $false
 try {
@@ -26,7 +27,7 @@ try {
     } finally { $ErrorActionPreference = 'Stop' }
     [pscustomobject]@{ pid = $PID; mode = $Mode; checkedAt = (Get-Date).ToUniversalTime().ToString('o'); exitCode = $adngLastExit } |
       ConvertTo-Json | Set-Content -LiteralPath (Join-Path $adngData 'watcher.json') -Encoding UTF8
-    $adngInterval = if ($Mode -eq 'reports') { $adngSettings.intervalMs } else { $adngSettings.retryMs }
+    $adngInterval = if ($Mode -ne 'issues') { $adngSettings.intervalMs } else { $adngSettings.retryMs }
     Start-Sleep -Milliseconds ([Math]::Max(60000, [int]$adngInterval))
   }
 } finally {

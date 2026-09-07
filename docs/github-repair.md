@@ -28,7 +28,7 @@ node dist/cli.js github repair-status --config configs/integrations/github-repai
 
 ## 背景巡檢與停止
 
-`github-reports.json` 的 `repairConfigs` 明列可接案的修復設定。每次 `github report` 完成後最多接一案，現有十五分鐘 watcher 與 supervise 巡檢會使用相同入口；`report-collect` 和 `report --dry-run` 不接案。依序修復，可能延長該輪巡檢時間；這是單機、單一啟用設定的初版限制。
+`github-reports.json` 的 `repairConfigs` 明列可接案的修復設定。`github report` 只處理巡檢；獨立的 `github repair-batch` 每輪最多接一案，再驗證一項提案。Windows watcher 的 `-Mode reports` 與 `-Mode repairs` 使用各自的 mutex 與紀錄，長時間修復不延後巡檢。完整 CLI 與恢復命令見 [CLI 自主開發](cli-autonomy.md)。
 
 ```powershell
 # 暫停修復，保留原本巡檢立案
@@ -38,7 +38,7 @@ New-Item -ItemType File data/github-repairs/autodev-ng/.adng.stop
 node dist/cli.js github repair-status --config configs/integrations/github-repair.json
 ```
 
-修復也尊重 report、fleet 與專案停止旗標。修改／關閉 Issue、撤回標籤或修改本次 repair 設定，會在接案、完成及發布邊界重新核對，候選保留供檢查。停止不會回收已經產生的 commit，也不會強制終止其他程序。確認後移除自己建立的修復停止旗標，下一輪既有 watcher 即可再接案。
+修復也尊重 report、fleet 與專案停止旗標。修改／關閉 Issue、撤回標籤或修改本次 repair 設定，會在接案、完成及發布邊界重新核對，候選保留供檢查。停止不會回收已經產生的 commit，也不會強制終止其他程序。使用 `repair-doctor --live` 驗證相同權限的環境，再以 `repair-resume --issue <N> --reason <說明>` 保留次數並恢復；旗標改名保存。watcher 若已退出，須重新啟動相應模式。
 
 `publish=false`：只產生本地候選，不推送、不建立 PR、不關閉 Issue。日後明確允許推送並設定 `publish=true`，才沿用現有精確 commit 證據檢查與 draft PR 流程；自動合併／部署不在此入口範圍內。
 

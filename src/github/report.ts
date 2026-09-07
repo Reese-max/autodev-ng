@@ -13,6 +13,10 @@ const RemoteSchema = z.object({ number: z.number().int().positive(), html_url: z
 type RemoteIssue = z.infer<typeof RemoteSchema>
 const EntrySchema = z.object({ finding: FindingSchema, status: z.enum(['pending', 'publishing', 'posted', 'suppressed']),
   issueFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  decision: z.object({ kind: z.enum(['adopt', 'defer', 'reject']), reason: z.string(), at: z.string().datetime(), sha: z.string(),
+    validation: z.string(), lastAttemptAt: z.string().datetime().optional(), contextHash: z.string().regex(/^[a-f0-9]{64}$/), nextAt: z.number(), taskId: z.string().optional(), taskText: z.string().optional(), scheduled: z.boolean().optional(),
+    outcome: z.object({ value: z.enum(['helpful', 'not-helpful']), reason: z.string(), at: z.string().datetime(), signalRecorded: z.boolean().optional() }).optional(),
+  }).strict().optional(),
   firstSeen: z.string(), lastSeen: z.string(), attemptAt: z.string().optional(), issue: z.number().int().positive().optional(), url: z.string().url().optional(), detail: z.string().optional() }).strict()
 const StateSchema = z.object({ version: z.literal(1), owner: z.string(), nextApiAt: z.number(),
   projects: z.record(z.string(), z.object({ nextObserveAt: z.number(), nextResearchAt: z.number(), lastRun: z.string().optional(), detail: z.string().optional() }).strict()),
@@ -212,7 +216,6 @@ export async function reportCli(mode: string, file: string, dryRun = false): Pro
   if (mode === 'report-status') console.log(JSON.stringify({ enabled: cfg.enabled, publish: cfg.publish, paused: stopped(cfg), ...readReportState(cfg) }, null, 2))
   else {
     console.log(await runReports(cfg, { dryRun, collectOnly: mode === 'report-collect', configPath: file }))
-    if (mode === 'report' && !dryRun) await (await import('./repair.js')).repairFromReports(file)
   }
 }
 export async function reportFromPatrol(configsDir: string): Promise<void> {
@@ -220,6 +223,5 @@ export async function reportFromPatrol(configsDir: string): Promise<void> {
   if (!existsSync(file)) return
   try {
     console.log(`github-report: ${await runReports(loadReportConfig(file), { configPath: file })}`)
-    await (await import('./repair.js')).repairFromReports(file)
-  } catch { console.error('github-report/repair: blocked; inspect github report-status and repair-status') }
+  } catch { console.error('github-report: blocked; inspect github report-status and repair-status') }
 }

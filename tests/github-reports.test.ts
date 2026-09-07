@@ -8,6 +8,10 @@ import { ReportConfigSchema } from '../src/github/report-config.js'
 import { collectPublicSources, observeProject, publicationSafe, reportFingerprint, researchProject, type Finding } from '../src/autopilot/report-research.js'
 import * as proc from '../src/engines/proc.js'
 import { readReportState, reportBody, reportMarker, runReports, saveReportState } from '../src/github/report.js'
+import { proposalCli, reviewProposals } from '../src/github/proposals.js'
+import * as cliJson from '../src/engines/cli-json.js'
+import { BacklogStore } from '../src/backlog.js'
+import { acquireLock, releaseLock } from '../src/lock.js'
 
 const dirs: string[] = []
 afterEach(() => { vi.restoreAllMocks(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
@@ -47,6 +51,50 @@ function setup() {
   const observe = vi.fn(async () => [finding])
   return { dir, repo, cfg, now, finding, issues, writes, request, observe }
 }
+
+test('proposal validation defers without user direction, requires independent approval, schedules once and records operator feedback', async () => {
+  const f = setup(), file = join(f.dir, 'reports.json'), backlog = join(f.dir, 'BACKLOG.md'), signal = 'The operator needs clear onboarding commands with reproducible examples.'
+  f.cfg.research.enabled = true; f.cfg.proposalRepos = [f.finding.repo]
+  writeFileSync(file, JSON.stringify(f.cfg))
+  writeFileSync(f.cfg.projects[0]!.sourceConfig, JSON.stringify({ projectPath: f.repo, dataDir: f.dir, backlogFile: backlog, engine: 'mock', auditModel: 'independent-reviewer' }))
+  const finding = { ...f.finding, key: 'scenario:onboarding' as const, kind: 'proposal' as const, evidence: 'static' as const }
+  const id = reportFingerprint(finding), state = readReportState(f.cfg)
+  state.entries[id] = { finding, status: 'pending', firstSeen: finding.observedAt, lastSeen: finding.observedAt }; saveReportState(f.cfg, state)
+  const model = vi.spyOn(cliJson, 'codexJson').mockResolvedValue({ kind: 'adopt', reason: 'The user need and observed missing usage support this change.', signalQuote: signal })
+  expect(await reviewProposals(file)).toContain('defer'); expect(model).not.toHaveBeenCalled()
+  const due = readReportState(f.cfg), fresh = { ...finding, key: 'scenario:fresh' as const }, freshId = reportFingerprint(fresh)
+  due.entries[id]!.decision!.nextAt = 0
+  due.entries[freshId] = { finding: fresh, status: 'pending', firstSeen: finding.observedAt, lastSeen: finding.observedAt }
+  saveReportState(f.cfg, due)
+  expect(await reviewProposals(file)).toBe(`${freshId}: defer`) // A due old deferral cannot starve an unreviewed candidate.
+  writeFileSync(join(f.dir, 'NORTHSTAR.md'), signal); writeFileSync(join(f.dir, 'USER-SIGNALS.md'), signal)
+  const deferred = readReportState(f.cfg); deferred.entries[id]!.decision!.nextAt = 0; saveReportState(f.cfg, deferred)
+  model.mockImplementationOnce(async (_cfg, schema) => {
+    const lock = join(f.cfg.dataDir, 'report.lock'); expect(acquireLock(lock)).toBe(true); releaseLock(lock)
+    return schema.parse({ kind: 'adopt', reason: 'The observed first command lacks the user instructions.', signalQuote: signal })
+  })
+    .mockResolvedValueOnce({ approved: true, reason: 'User signals and the recorded probe support this bounded improvement.' })
+  expect(await reviewProposals(file)).toContain('adopt')
+  expect(new BacklogStore(backlog).read()).toHaveLength(1)
+  // Crash after append: replaying the outbox cannot append a duplicate task.
+  const interrupted = readReportState(f.cfg); interrupted.entries[id]!.decision!.scheduled = false; saveReportState(f.cfg, interrupted)
+  writeFileSync(join(f.dir, 'USER-SIGNALS.md'), 'User direction changed after the adoption decision')
+  await expect(reviewProposals(file)).rejects.toThrow('Adopted context changed')
+  expect(new BacklogStore(backlog).read()).toHaveLength(1)
+  writeFileSync(join(f.dir, 'USER-SIGNALS.md'), signal)
+  expect(await reviewProposals(file)).toContain('adopt'); expect(new BacklogStore(backlog).read()).toHaveLength(1)
+  expect(model).toHaveBeenCalledTimes(2)
+  await proposalCli('proposal-feedback', ['--config', file, '--id', id, '--outcome', 'not-helpful', '--reason', 'This task still needs a real completion check'])
+  expect(readReportState(f.cfg).entries[id]!.decision!.outcome?.value).toBe('not-helpful')
+  expect(readFileSync(join(f.dir, 'USER-SIGNALS.md'), 'utf8')).toContain(`proposal-feedback:${id}`)
+  const interruptedFeedback = readReportState(f.cfg), originalOutcome = interruptedFeedback.entries[id]!.decision!.outcome!
+  originalOutcome.signalRecorded = false; saveReportState(f.cfg, interruptedFeedback)
+  const signalsBeforeRetry = readFileSync(join(f.dir, 'USER-SIGNALS.md'), 'utf8')
+  await proposalCli('proposal-feedback', ['--config', file, '--id', id, '--outcome', 'not-helpful', '--reason', 'This task still needs a real completion check'])
+  expect(readFileSync(join(f.dir, 'USER-SIGNALS.md'), 'utf8')).toBe(signalsBeforeRetry)
+  expect(readReportState(f.cfg).entries[id]!.decision!.outcome).toEqual({ ...originalOutcome, signalRecorded: true })
+  await expect(proposalCli('proposal-feedback', ['--config', file, '--id', id, '--outcome', 'helpful', '--reason', 'Do not overwrite the original feedback'])).rejects.toThrow('already recorded')
+})
 test('real local probe repeats a failure; host-bound evidence is not a persona vote', async () => {
   const { cfg, finding } = setup()
   const actual = await observeProject(cfg.projects[0]!, finding.observedAt)
