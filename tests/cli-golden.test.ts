@@ -182,6 +182,14 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
       ['run-once', '--help'],
       ['supervise', '--help'],
       ['unknown', '--help', '--config', 'missing.json'],
+      ['github', '--help'],
+      ['github', 'scan', '--config', '--help'],
+      ['github', 'sync', '--config', '--help'],
+      ['github', 'run', '--config', '--help'],
+      ['github', 'status', '--config', '--help'],
+      ['github', 'owner-sync', '--config', '--help'],
+      ['github', 'owner-run', '--config', '--help'],
+      ['github', 'owner-status', '--config', '--help'],
     ]) {
       assertCliCapturesEqual(await captureCli(argv), expected)
     }

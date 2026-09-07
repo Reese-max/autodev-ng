@@ -21,8 +21,13 @@ export const CLI_HELP = [
   '  config.json：',
   '  { "projectPath": "./project", "backlogFile": "./project/BACKLOG.md",',
   '    "dataDir": "./data", "engine": "mock" }',
+  '  node -e "const fs=require(\'node:fs\'); fs.mkdirSync(\'project\',{recursive:true}); fs.writeFileSync(\'project/BACKLOG.md\',\'\')"',
+  '  git -C project init -q',
+  '  git -C project add BACKLOG.md',
+  '  git -C project -c user.name=synthetic -c user.email=synthetic@example.invalid commit -qm "synthetic empty backlog"',
   '  node dist/cli.js status --config config.json       # 預期 exit 0',
-  '  node dist/cli.js run-once --config config.json     # 預期輸出 CycleResult',
+  '  node dist/cli.js run-once --config config.json     # 預期 CycleResult: idle、exit 0',
+  '  # status/run-once 只建立本機 data；mock 不呼叫 provider 或通知',
   '',
   '憑證：judgeApiKey、telegramBotToken 請使用 {env:VAR} 或 {file:PATH}，不要把值寫入 JSON。',
   '限額／復原：dailyHardUsd 預設 100；建立 stopFile（預設 .adng.stop）可暫停，移除後恢復。',
@@ -54,14 +59,14 @@ export function parseArgv(argv: string[]): ParsedArgv {
 }
 
 export async function runCli(argv: string[], cliPath: string): Promise<void> {
-  if (argv[0] === 'github') {
-    const { githubCli } = await import('../github/cli.js')
-    await githubCli(argv.slice(1))
-    return
-  }
   if (argv.includes('--help')) {
     process.exitCode = 0
     printCliHelp()
+    return
+  }
+  if (argv[0] === 'github') {
+    const { githubCli } = await import('../github/cli.js')
+    await githubCli(argv.slice(1))
     return
   }
   const { command, configPath, configsDir, guardianMode } = parseArgv(argv)
