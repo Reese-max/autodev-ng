@@ -23,6 +23,8 @@ node dist/cli.js github repair-status --config configs/integrations/github-repai
 
 準備與驗收命令是操作者提供的本機命令；目前設定使用 Windows 的 npm 命令串接。其他平台需提供可執行的命令或單一驗收腳本。CLI 使用現有訂閱額度，成本與 token 紀錄不代表免費。
 
+本機修復設定透過 `npm --userconfig <絕對路徑>/github-repair.npmrc` 明列 `better-sqlite3@12.11.1` 的安裝腳本權限。這是遠端 checkout 在 npm 12 上載入 SQLite 的先決條件；搬移此專案時須更新兩個命令中的 npmrc 路徑。npm 12 的專案安裝須將政策放在 package.json 或 npmrc，不能把 `--allow-scripts` 直接傳給 `npm ci`。[npm 官方說明](https://docs.npmjs.com/cli/v12/commands/npm-ci/#allow-scripts)
+
 ## 背景巡檢與停止
 
 `github-reports.json` 的 `repairConfigs` 明列可接案的修復設定。每次 `github report` 完成後最多接一案，現有十五分鐘 watcher 與 supervise 巡檢會使用相同入口；`report-collect` 和 `report --dry-run` 不接案。依序修復，可能延長該輪巡檢時間；這是單機、單一啟用設定的初版限制。
