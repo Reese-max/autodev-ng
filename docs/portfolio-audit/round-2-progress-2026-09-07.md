@@ -14,6 +14,7 @@ Repository-local Round 2 audit state was persisted for:
 - `avatar-vfo`
 - `cf-mcp-server`
 - `lobsterpulse`
+- `project-doctor-web`
 
 Repositories newly marked CLEAN in this continuation: **0**.
 
@@ -27,6 +28,8 @@ Repositories newly marked CLEAN in this continuation: **0**.
 | `cf-mcp-server` | **P0** | Replacement OAuth owner-approval flow accepts the root `MCP_AUTH_TOKEN` through the `approval_secret` GET query parameter, exposing a root MCP credential to ordinary URL-handling surfaces | #4 |
 | `cf-mcp-server` | **P1** | Dynamic clients, authorization codes, and auth rate counters are stored only in module-level Worker `Map`s, so multi-request OAuth correctness and abuse accounting depend on one warm isolate | #5 |
 | `lobsterpulse` | **P1** | After the Round-1 hooks-preservation fix, Codex setup still leaves a valid pre-existing `[features].codex_hooks = false` unchanged because setup tests only whether the raw text contains `codex_hooks`; setup can succeed while core Codex monitoring remains disabled | #3 |
+| `project-doctor-web` | **P1** | Round-1 rate-limit remediation still keeps the advertised global cost breaker isolate-local; KV covers only the per-client counter via non-atomic `get` + `put`, so the original durable/shared acceptance criteria are not met | #2 reopened |
+| `project-doctor-web` | **P1** | The clinical system prompt fills a normal PE skeleton when no contrary objective data exists, so an initial turn with no examination can render unobserved normal findings as ordinary SOAP Objective facts | #9 |
 
 ### `clinical-scribe-worker`
 
@@ -67,6 +70,21 @@ The destructive hooks-overwrite path is no longer current: the merged code prese
 Issue #3 was created: `[P1][50-persona audit] Enabling Codex monitoring must turn an existing codex_hooks=false to true`.
 
 This is deterministic current-source evidence. No packaged LobsterPulse installation or live Codex process was executed in this audit turn, so the successful Actions run is not represented as real-user Codex runtime validation. Repo report: `docs/audits/50-persona-round-2-2026-09-07.md` (report commit `ddb2903b7980949dadbf6010820923665cbf3e61`). Status remains **NOT CLEAN**.
+
+### `project-doctor-web`
+
+Re-ran the fixed 50 personas after Round-1 P1 #1/#4 clinical-safety fixes and the #2 rate-limit remediation landed on current product-code SHA `3a7e83ed012722f5d28b4bc7fb4bddbf98d07579`.
+
+Two P1 findings passed the quality gate:
+
+- **P1 #2 reopened — remediation regression/incomplete fix.** `lib/durable-rate-limiter.ts` still keeps the global 250/10-minute cost circuit breaker in per-instance memory. KV is used only for the per-client bucket, and that path increments via non-atomic `get()` followed by `put(current + 1)`. The current KV test is sequential against an in-memory mock, so it does not establish concurrent/multi-isolate correctness. Repository search found no checked-in `RATE_LIMIT_KV` binding configuration. A dashboard-only binding could exist, but no runtime evidence was established. Durable-storage failure also falls back to isolate-local memory rather than a genuinely fail-safe shared cost gate. No deployed bypass or billing incident is claimed.
+- **P1 #9 — objective-data provenance failure.** The system prompt says to retain a predefined normal physical-exam skeleton when there is no contrary objective data. The first interview turn supplies `physicalTags = "無（初診狀態）"`; therefore a contract-valid model response can assert normal findings that were never observed, and the UI renders them under `Live SOAP → Objective / 檢查與客觀體徵`. The issue requires absent findings to remain `not assessed`/`not provided` unless the operator explicitly opts into a clearly labeled simulated fixture.
+
+Static regression evidence for closed #1 and #4 remains positive: deterministic emergency interception is present before provider-key/model calls, and the clinical parser rejects missing/duplicate/empty required sections. These are not represented as deployed clinical validation.
+
+The GitHub Actions runs API returned zero workflow runs for product SHA `3a7e83ed012722f5d28b4bc7fb4bddbf98d07579`; repository tests exist, but this continuation does not claim they executed successfully on that SHA. No deployed Cloudflare endpoint, MiniMax provider call, cross-isolate load test, accessibility browser test, mobile-device run, or real clinical execution was performed.
+
+Repo report: `docs/audits/50-persona-round-2-2026-09-07.md` (report commit `c86b17c906995fc0d33a475b41e6c82546f0cd7b`). Status remains **NOT CLEAN**.
 
 ## No-new-finding second static pass
 
