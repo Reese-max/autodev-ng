@@ -15,13 +15,11 @@ REM via openSync append + stdio inherit (src\supervisor\supervise.ts).
 REM ============================================================
 
 setlocal
-set "ADNG_ROOT=D:\Users\Administrator\Desktop\autodev-ng"
+for %%I in ("%~dp0..") do set "ADNG_ROOT=%%~fI"
 set "ADNG_STOP=%ADNG_ROOT%\configs\.adng.stop"
 set "ADNG_GATE=%ADNG_ROOT%\scripts\pause-gated-spawn.mjs"
 
 if exist "%ADNG_STOP%" exit /b 0
-
-if exist "%ADNG_ROOT%\configs\.adng.stop" exit /b 0
 
 if not exist "%ADNG_ROOT%\dist\cli.js" (
   echo adng-daemons: missing "%ADNG_ROOT%\dist\cli.js" - run npm run build first

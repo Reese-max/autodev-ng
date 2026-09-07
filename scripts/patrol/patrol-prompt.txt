@@ -1,8 +1,8 @@
-【永久巡檢（headless）】依 D:\Users\Administrator\Desktop\autodev-ng\docs\supervision-playbook.md 執行艦隊巡檢。
+【永久巡檢（headless）】工作目錄為本 checkout 根目錄，依 docs\supervision-playbook.md 執行艦隊巡檢；所有相對路徑均以此處為準。
 
-0. 互斥檢查：讀 D:\Users\Administrator\Desktop\autodev-ng\data\patrol-heartbeat.json——若 lastPatrolTs 距今 <60 分鐘，寫一行 skip 記錄後直接結束。開始巡檢時立即把 {lastPatrolTs: 現在ISO, source: "headless"} 寫回該檔。
+0. 互斥檢查：讀 data\patrol-heartbeat.json——若 lastPatrolTs 距今 <60 分鐘，寫一行 skip 記錄後直接結束。開始巡檢時立即把 {lastPatrolTs: 現在ISO, source: "headless"} 寫回該檔。
 1. 讀取範圍鐵律（熱層架構 2026-08-05）：狀態只讀 data\patrol-state.md（≤60 行熱層）；**不整讀 patrol-log.md**（append-only 歷史，需要舊案時才 rg 查詢）；playbook 按 § 引用。
-2. 機械合約：逐條執行 data\verification-contracts.json 的 cmd（bash），依 expect 判定；**只處置與報告失敗項**；到期（expires）合約先判斷續約需要（安全/純度類優先續），確不需要才刪；新增合約附 added 日期。
+2. 機械合約：讀 scripts\patrol\verification-contracts.json；cmd 從 repo 根目錄以 bash 執行。**只處置與報告失敗項**；到期（expires）合約先標為待複核，確認仍適用且驗收通過才續約，不把歷史合約直接視為現況。新增合約附 added 日期。
 3. §1 健康檢查全艦隊——名冊動態枚舉 configs/*.json（勿硬編碼）：heartbeat＋lock PID、最新 attempts、blocked 積壓、哨兵消費、各艦 GOAL 驗收實跑 exit code。
-4. 異常按 §0 授權分級處置：自動tier（§2 wedge 殺樹 Stop-Process、§3 誤殺補償、§4 blocked 重開每任務限一次、清殘鎖、放哨兵）直接做；需改程式碼→立 backlog 給 autodev-self（BacklogStore.append）；§8 條件→寫 PATROL-ALERTS.md 附證據等人工。§5.6 繼任：GOAL 驗收綠→備份→依 docs\goal-queue\README.md 佇列換裝下一棒（更新該表狀態）。
+4. 異常按 §0 授權分級處置：自動tier（§2 wedge 殺樹 Stop-Process、§3 誤殺補償、§4 blocked 重開每任務限一次、清殘鎖、放哨兵）直接做；需改程式碼→立 backlog 給 autodev-self（BacklogStore.append）；§8 條件→寫 PATROL-ALERTS.md 附證據等人工。§5.6 繼任：GOAL 驗收綠後先備份，只能換裝已獲授權且尚未完成的下一項；docs\goal-queue\README.md 為歷史規格索引，本身不構成派工授權。
 5. 巡檢結束三動作：(a) **重寫** patrol-state.md（完結項刪、新項入，維持 ≤60 行），並在 log 行內附 state-diff 摘要（刪了X/加了Y——覆寫可以，轉移必留痕）；(b) append 一行「發現→動作→驗證」至 patrol-log.md；(c) 新教訓：單次事件只入 log，復發 ≥2 次才提議入 playbook（居留權原則）。

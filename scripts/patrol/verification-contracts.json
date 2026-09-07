@@ -1,10 +1,10 @@
 {
-  "_readme": "機械化驗證合約：巡檢逐條以 bash 執行 cmd，依 expect 判定；只報告失敗項。expires 過期未續約即刪除。維護：巡檢可增刪，新增必附 added 日期。",
+  "_readme": "歷史機械化驗證合約：cmd 從 repo 根目錄以 bash 執行，依 expect 判定；只報告失敗項。expires 過期先標為待複核，確認仍適用且驗收通過才續約，不直接當成目前服務狀態。新增必附 added 日期。",
   "contracts": [
     {
       "id": "memory-snapshot-daily",
       "desc": "艦隊記憶快照每日更新且推雲",
-      "cmd": "git -C /d/adng-memory log -1 --format=%s",
+      "cmd": "git -C \"${ADNG_MEMORY_DIR:-../adng-memory}\" log -1 --format=%s",
       "expect": { "type": "contains", "value": "snapshot" },
       "added": "2026-08-05",
       "expires": "2026-09-05"
@@ -12,7 +12,7 @@
     {
       "id": "daemon-lock-valid",
       "desc": "各艦 lock PID 存活＋node 身分＋起時吻合（§9；孤兒防線在 daemon-fence 自檢，原 zero-orphan 外部偵測因 CommandLine 跨權限不可讀而空洞，2026-08-05 重定義）",
-      "cmd": "node 'D:/Users/Administrator/Desktop/autodev-ng/scripts/patrol/check-orphan-daemon.cjs'",
+      "cmd": "node 'scripts/patrol/check-orphan-daemon.cjs'",
       "expect": { "type": "exit0" },
       "added": "2026-08-05",
       "expires": "2026-09-05"
@@ -20,7 +20,7 @@
     {
       "id": "data-untracked",
       "desc": "data/ 零 git 追蹤（§9 灘頭堡）",
-      "cmd": "git -C /d/Users/Administrator/Desktop/autodev-ng ls-files data/ | wc -l",
+      "cmd": "git ls-files data/ | wc -l",
       "expect": { "type": "equals", "value": "0" },
       "added": "2026-08-05",
       "expires": "2026-09-05"
@@ -28,7 +28,7 @@
     {
       "id": "main-synced",
       "desc": "autodev-ng main 與 origin 同步（backup-push 有效）",
-      "cmd": "git -C /d/Users/Administrator/Desktop/autodev-ng status -sb | head -1",
+      "cmd": "git status -sb | head -1",
       "expect": { "type": "not-contains", "value": "ahead" },
       "added": "2026-08-05",
       "expires": "2026-09-05"
@@ -36,7 +36,7 @@
     {
       "id": "note-filler-free-only",
       "desc": "free-only 試點期間 note-filler 零 quota 輪（01:38 掛載後）",
-      "cmd": "sqlite3 /d/Users/Administrator/Desktop/autodev-ng/data/note-filler/run.db \"SELECT count(*) FROM attempts WHERE ts>'2026-08-04T17:38:35' AND engine IN ('codex-sol','codex-luna','codex-terra','grok')\"",
+      "cmd": "sqlite3 data/note-filler/run.db \"SELECT count(*) FROM attempts WHERE ts>'2026-08-04T17:38:35' AND engine IN ('codex-sol','codex-luna','codex-terra','grok')\"",
       "expect": { "type": "equals", "value": "0" },
       "added": "2026-08-05",
       "expires": "2026-08-07"
@@ -44,7 +44,7 @@
     {
       "id": "no-engine-black-hole",
       "desc": "無引擎黑洞：近 6h 內任一引擎 phantom completion >=5 且零成功即紅（2026-08-05 codex 沙箱 P0 立，行為判定不綁成因）",
-      "cmd": "node 'D:/Users/Administrator/Desktop/autodev-ng/scripts/patrol/check-phantom-completion.cjs'",
+      "cmd": "node 'scripts/patrol/check-phantom-completion.cjs'",
       "expect": { "type": "exit0" },
       "added": "2026-08-05",
       "expires": "2026-09-05"
@@ -60,7 +60,7 @@
     {
       "id": "kernel-budget",
       "desc": "kernel 行數帳本綠（<2250 且帳實相符）",
-      "cmd": "cd /d/Users/Administrator/Desktop/autodev-ng && npx vitest run tests/kernel-relocation-report.test.ts --reporter=dot 2>&1 | rg -c 'Test Files.*passed'",
+      "cmd": "npx vitest run tests/kernel-relocation-report.test.ts --reporter=dot 2>&1 | rg -c 'Test Files.*passed'",
       "expect": { "type": "equals", "value": "1" },
       "added": "2026-08-05",
       "expires": "2026-09-05"

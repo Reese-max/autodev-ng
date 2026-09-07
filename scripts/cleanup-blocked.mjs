@@ -10,17 +10,16 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parseBacklog, taskId, withBacklogLock } from '../dist/backlog.js'
 
-const PROJECTS = [
-  ['autodev-self', 'D:/Users/Administrator/Desktop/autodev-ng/data/autodev-self/BACKLOG.md'],
-  ['gooaye', 'D:/Users/Administrator/Desktop/Gooaye 股癌/BACKLOG-adng.md'],
-  ['neciken', 'D:/Users/Administrator/Desktop/南西肯恩/neciken-summer-poem/BACKLOG-adng.md'],
-  ['note-filler', 'D:/Users/Administrator/Desktop/筆記補齊/BACKLOG-adng.md'],
-  ['prompt-autoresearch', 'D:/Users/Administrator/Desktop/Prompt AutoResearch/BACKLOG-adng.md'],
-  ['taiwan-intel', 'D:/Users/Administrator/Desktop/爬蟲資料/taiwan-intel-dashboard/BACKLOG-adng.md'],
-]
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const CONFIGS = join(ROOT, 'configs')
+const PROJECTS = readdirSync(CONFIGS).filter(file => file.endsWith('.json')).sort().map(file => {
+  const cfg = JSON.parse(readFileSync(join(CONFIGS, file), 'utf8'))
+  return [basename(file, '.json'), resolve(CONFIGS, cfg.backlogFile), resolve(CONFIGS, cfg.worktreesDir ?? 'worktrees')]
+})
 
 const BLOCKED_REASON_RE = /<!--\s*adng:blocked\b\s+reason=(.*?)\s*-->/
 const REEVALUATED_RE = /<!--\s*adng:reevaluated\b/
@@ -185,7 +184,7 @@ function dryRun() {
 function apply() {
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
   const batch = `blocked-cleanup-${stamp}`
-  const safeguard = `D:/adng-safeguards/${batch}`
+  const safeguard = join(ROOT, 'data', 'safeguards', batch)
   mkdirSync(safeguard, { recursive: true })
   const manifest = { batch, createdAt: new Date().toISOString(), safeguard, projects: [] }
 
@@ -212,7 +211,7 @@ function apply() {
   }
 
   for (const row of manifest.projects) {
-    row.worktrees = captureWorktrees(`D:/adng-worktrees/${row.name}`)
+    row.worktrees = captureWorktrees(PROJECTS.find(([name]) => name === row.name)[2])
   }
   writeFileSync(join(safeguard, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
   const restore = manifest.projects.map(row =>

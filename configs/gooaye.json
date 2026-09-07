@@ -1,8 +1,8 @@
 {
-  "projectPath": "D:/Users/Administrator/Desktop/Gooaye 股癌",
-  "backlogFile": "D:/Users/Administrator/Desktop/Gooaye 股癌/BACKLOG-adng.md",
+  "projectPath": "../../gooaye",
+  "backlogFile": "../data/gooaye/BACKLOG.md",
   "dataDir": "../data/gooaye",
-  "worktreesDir": "D:/adng-worktrees/gooaye",
+  "worktreesDir": "../data/gooaye/worktrees",
   "goalFile": "../data/gooaye/GOAL.md",
   "verifyCommand": "python -m pytest -q",
   "verifyTimeoutMs": 300000,

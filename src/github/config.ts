@@ -36,6 +36,8 @@ export const IssueSchema = z.object({
 export type Issue = z.infer<typeof IssueSchema>
 export function eligible(issue: Issue, cfg: GithubConfig): boolean {
   return !issue.pull_request && issue.state === 'open'
+    && !issue.body?.includes('<!-- adng:report:')
+    && !issue.labels.some(label => label.name.toLowerCase() === 'autodev-reported')
     && cfg.authors.some(author => author.toLowerCase() === issue.user.login.toLowerCase())
     && !issue.labels.some(label => label.name.toLowerCase() === 'no-autofix')
     && (cfg.label === null || issue.labels.some(label => label.name === cfg.label))

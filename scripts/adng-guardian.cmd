@@ -15,7 +15,7 @@ REM triggers are harmless (concurrent runs log "locked" and skip).
 REM ============================================================
 
 setlocal
-set "ADNG_ROOT=D:\Users\Administrator\Desktop\autodev-ng"
+for %%I in ("%~dp0..") do set "ADNG_ROOT=%%~fI"
 
 if exist "%ADNG_ROOT%\configs\.adng.stop" exit /b 0
 

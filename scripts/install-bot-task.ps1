@@ -32,7 +32,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $TaskName = 'adng-bot'
-$RepoRoot = 'D:\Users\Administrator\Desktop\autodev-ng'
+$RepoRoot = Split-Path -Parent $PSScriptRoot
 $CmdPath  = Join-Path $RepoRoot 'scripts\adng-bot.cmd'
 
 if ($Uninstall) {

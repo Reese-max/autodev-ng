@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Registers a scheduled task named "adng-daemon" that runs
-    scripts\adng-daemon.cmd via cmd /c.
+    scripts\adng-daemons.cmd via cmd /c.
 
     Design decisions:
       - Trigger: at system startup, repeating every 15 minutes.
@@ -29,7 +29,7 @@
     READINESS VERIFICATION (pitfall 18):
       Do NOT trust the Task Scheduler state, exit codes, or a live
       PID. After the task has fired, verify readiness by polling:
-          node D:\Users\Administrator\Desktop\autodev-ng\dist\cli.js status
+          node dist\cli.js status --config configs\autodev-self.json
       and confirming the daemon heartbeat keeps increasing over time.
 
     PowerShell 5.1 compatible. Pure ASCII (no encoding pitfalls).
@@ -57,8 +57,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $TaskName = 'adng-daemon'
-$RepoRoot = 'D:\Users\Administrator\Desktop\autodev-ng'
-$CmdPath  = Join-Path $RepoRoot 'scripts\adng-daemon.cmd'
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$CmdPath  = Join-Path $RepoRoot 'scripts\adng-daemons.cmd'
 
 if ($Uninstall) {
     $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -127,7 +127,7 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register scheduled task')) {
     }
     Write-Host ''
     Write-Host 'NEXT - readiness check (pitfall 18): after the task fires, poll'
-    Write-Host ('  node ' + (Join-Path $RepoRoot 'dist\cli.js') + ' status')
+    Write-Host ('  node "' + (Join-Path $RepoRoot 'dist\cli.js') + '" status --config "' + (Join-Path $RepoRoot 'configs\autodev-self.json') + '"')
     Write-Host 'and confirm the daemon heartbeat keeps increasing. Do not trust'
     Write-Host 'the Task Scheduler state or a live PID as proof of readiness.'
 }

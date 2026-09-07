@@ -1,7 +1,7 @@
 # adng memory sweep (ASCII only). Kills ORPHANS only (parent dead + cmdline whitelist).
 # Never touches: chrome, claude sessions, wsl, hidden-cmdline processes (no double-key = no kill).
 $ErrorActionPreference = 'Continue'
-$root = 'D:\Users\Administrator\Desktop\autodev-ng'
+$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $stop = Join-Path $root 'configs\.adng.stop'
 
 function Invoke-PauseGated {

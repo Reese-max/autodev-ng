@@ -1,5 +1,5 @@
 {
- "projectPath": "D:/Users/Administrator/Desktop/autodev-ng",
+ "projectPath": "..",
  "backlogFile": "../data/autodev-self/BACKLOG.md",
  "dataDir": "../data/autodev-self",
  "goalFile": "../data/autodev-self/GOAL.md",
@@ -21,13 +21,13 @@
    "adapter": "devin",
    "costPerRunUsd": 0,
    "subscription": true,
-   "timeoutMs": 86400000
+   "timeoutMs": 7200000
   }
  },
  "discordChannelId": "1492793288514863164",
  "perpetual": true,
  "perpetualValueThreshold": 7,
- "extraDirective": "本專案就是 autodev-ng 自身（TypeScript）。鐵律：嚴禁修改 configs/ 目錄、scripts/ 目錄、data/ 目錄內任何檔案；嚴禁動任何 daemon/node 進程；kernel 行數預算測試（tests/kernel-budget.test.ts，src/*.ts 頂層 ≤2700 行）必須維持綠燈——新邏輯優先放 src/engines/ 等子目錄；所有變更需附單元測試。",
+ "extraDirective": "本專案就是 autodev-ng 自身（TypeScript）。鐵律：嚴禁修改 configs/ 目錄、scripts/ 目錄、data/ 目錄內任何檔案；嚴禁動任何 daemon/node 進程；kernel 行數預算測試（tests/kernel-slim.test.ts 與 tests/kernel-relocation-report.test.ts，src/*.ts 頂層 ≤2250 行）必須維持綠燈——新邏輯優先放 src/engines/ 等子目錄；所有變更需附單元測試。",
  "judgeApiKey": "{env:JUDGE_API_KEY}",
  "worktreesDir": "../data/autodev-self/worktrees",
  "perpetualCooldownMs": 3600000

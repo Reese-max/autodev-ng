@@ -1,16 +1,16 @@
 {
-  "projectPath": "D:/Users/Administrator/Desktop/筆記補齊",
-  "backlogFile": "D:/Users/Administrator/Desktop/筆記補齊/BACKLOG-adng.md",
+  "projectPath": "../../note-filler",
+  "backlogFile": "../data/note-filler/BACKLOG.md",
   "dataDir": "../data/note-filler",
   "goalFile": "../data/note-filler/GOAL.md",
-  "worktreesDir": "D:/adng-worktrees/note-filler",
-  "verifyCommand": "\"D:/Users/Administrator/Desktop/筆記補齊/.venv/Scripts/python.exe\" -X utf8 -m pytest -m \"not integration\" -q",
+  "worktreesDir": "../data/note-filler/worktrees",
+  "verifyCommand": "python -X utf8 -m pytest -m \"not integration\" -q",
   "verifyTimeoutMs": 600000,
   "judgeUrl": "http://127.0.0.1:8317/v1",
   "judgeModel": "gpt-5.6-terra",
   "judgeApiKey": "{env:JUDGE_API_KEY}",
   "auditModel": "gpt-5.6-sol",
-  "surveyCommand": "\"D:/Users/Administrator/Desktop/筆記補齊/.venv/Scripts/python.exe\" -X utf8 scripts/discovery_survey.py",
+  "surveyCommand": "python -X utf8 scripts/discovery_survey.py",
   "surveyTimeoutMs": 300000,
   "botAllowedUserIds": [
     "844236700611379200"

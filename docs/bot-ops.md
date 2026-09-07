@@ -15,7 +15,7 @@
 ## 啟動指令
 
 ```
-node dist/bot/index.js --config configs/voice-actress.json
+node dist/bot/index.js --configs-dir configs
 ```
 
 進程持有獨立 `bot.lock`（與 daemon 的 lock 分開），重複啟動因 lock busy 直接退出，不會雙開。
@@ -39,7 +39,7 @@ powershell -File scripts\install-bot-task.ps1 -WhatIf      # 預覽
 | 用途 | 環境變數 | 讀取邏輯 | 走向 |
 |---|---|---|---|
 | bot 本體 gateway（雙向互動/slash command） | `ADNG_BOT_TOKEN` | `src/bot/config.ts loadBotToken` | `src/bot/index.ts`，discord.js `Client.login` |
-| daemon 單向通知（成功/失敗/告警） | `LPBOT_TOKEN` | `src/notify.ts loadDiscordToken`（預設檔 `C:/Users/Administrator/openab/.env.tokens`） | `DiscordNotifier`，走 openab 舊 bot |
+| daemon 單向通知（成功/失敗/告警） | `LPBOT_TOKEN` | `src/engines/notify.ts loadDiscordToken`（預設檔 `C:/Users/Administrator/openab/.env.tokens`） | `DiscordNotifier`，走 openab 舊 bot |
 
 兩者是**兩個不同的 Discord application**，token 不可互換：`ADNG_BOT_TOKEN` 放錯會讓 bot 本體無法登入；`LPBOT_TOKEN` 放錯則 daemon 通知失敗（DLQ 記錄，不影響派工）。
 
@@ -47,7 +47,7 @@ powershell -File scripts\install-bot-task.ps1 -WhatIf      # 預覽
 
 不信 Task Scheduler 狀態、不信 PID 活著（踩雷 §18）。驗證方式：
 
-1. `data\voice-actress\bot-console.log` 出現一行含 `adng bot ready` 的日誌。
+1. 使用啟動腳本時，`data\bot-console.log` 出現一行含 `adng bot ready` 的日誌。
 2. Discord 頻道內對 bot 送 `/status`，收到回覆。
 
 ## Kill-switch
@@ -73,7 +73,7 @@ powershell -File scripts\install-bot-task.ps1 -WhatIf      # 預覽
 ## Web 控制台（M9–M9.1）
 
 ```
-node web/server.mjs --config configs/voice-actress.json
+node web/server.mjs --configs-dir configs
 ```
 
 只 bind `127.0.0.1:3900`；啟動時終端機印出的 URL 帶一次性 CSRF token（`http://127.0.0.1:3900/?token=...`），之後每個 POST 控制端點（`/api/run-once`、`/api/daemon/start|stop`、`/api/pause`、`/api/resume`、`/api/task`、`/api/goal/set|run|stop`、`/api/silence`）都要帶同一個 token（header `x-csrf-token` 或 query `?token=`），GET 監看端點（`/api/status`、`/api/logs` SSE、`/api/panel/:name`）不驗 token。**token 持久化**（M9.3）：啟動時先讀 `<dataDir>/web-console.token`（單行 hex），存在且非空即沿用；不存在才新生並寫入。常駐排程 respawn 後 token 不變，使用者分頁不會被 403 卡住；log 仍照舊印帶 token 的 URL 供撈取。
@@ -82,11 +82,13 @@ node web/server.mjs --config configs/voice-actress.json
 
 ## 排程現況
 
+排程註冊與服務狀態屬於目標主機，不由 repo 文件保證。先用 `Get-ScheduledTask -TaskName 'adng-*'` 查詢，再依前述 readiness 流程驗證；本次整理未註冊或啟動排程。
+
 | 任務 | 排程名稱 | 狀態 |
 |---|---|---|
-| Discord bot | `\adng-bot`（`scripts\install-bot-task.ps1`，開機自啟 + 每 15 分鐘重複觸發） | **已註冊**，常駐運行中（bot 靠 `bot.lock` 防重複，重複觸發等同 auto-respawn） |
-| daemon | `\adng-daemon`（`scripts\install-scheduled-task.ps1`） | **已註冊**，常駐運行中（使用者 2026-07-11 拍板保留常駐化，取代 M5「不註冊、純手動啟動」原決策；恢復純手動用 `powershell -File scripts\install-scheduled-task.ps1 -Uninstall`） |
-| web 控制台 | `\adng-web`（`scripts\install-web-task.ps1`，開機自啟 + 每 15 分鐘重複觸發） | 腳本已備（M9.3），**註冊待使用者親跑**；web server 無自帶 lock，雙開靠 port 3900 EADDRINUSE 退出等效單例 |
+| Discord bot | `\adng-bot`（`scripts\install-bot-task.ps1`） | 提供安裝／解除／`-WhatIf`；bot 以 `bot.lock` 防重複 |
+| daemon | `\adng-daemon`（`scripts\install-scheduled-task.ps1`） | 提供安裝／解除／`-WhatIf`，啟動 `scripts/adng-daemons.cmd` 多專案入口 |
+| web 控制台 | `\adng-web`（`scripts\install-web-task.ps1`） | 提供安裝／解除／`-WhatIf`；同埠雙開由 EADDRINUSE 阻擋 |
 
 ## 教訓庫維運（M7）
 

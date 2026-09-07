@@ -3,7 +3,7 @@
 # with no log; manual runs are healthy - this is the safety net, idempotent keep/launch).
 # Every 12th tick (3h): memory sweep + headless patrol.
 $ErrorActionPreference = 'Continue'
-$root = 'D:\Users\Administrator\Desktop\autodev-ng'
+$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $log = Join-Path $root 'data\patrol-supervise.log'
 $stop = Join-Path $root 'configs\.adng.stop'
 Start-Sleep -Seconds 900   # let boot storm settle

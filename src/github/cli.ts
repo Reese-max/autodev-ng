@@ -7,6 +7,10 @@ import { join } from 'node:path'
 
 export async function githubCli(argv: string[]): Promise<void> {
   const [mode, flag, file, ...extra] = argv
+  if (['report', 'report-collect', 'report-status'].includes(mode ?? '') && flag === '--config' && file
+    && (extra.length === 0 || (mode === 'report' && extra.length === 1 && extra[0] === '--dry-run'))) {
+    await (await import('./report.js')).reportCli(mode!, file, extra[0] === '--dry-run'); return
+  }
   if (!['scan', 'sync', 'run', 'status', 'owner-sync', 'owner-run', 'owner-status'].includes(mode ?? '') || flag !== '--config' || !file || extra.length) {
     throw new Error('Usage: adng github <scan|sync|run|status> --config <github-config.json>')
   }

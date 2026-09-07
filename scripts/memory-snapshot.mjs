@@ -1,6 +1,6 @@
 // memory-snapshot (2026-08-05): 艦隊「記憶」每日鏡像——run.db／BACKLOG／方向盤／制度日誌
 // 全都不在 git 追蹤圈（data/ ignored），磁碟死＝艦隊失憶。本腳本每日一次把關鍵狀態
-// 快照進獨立私有 repo D:/adng-memory 並推雲。由 adng-daemons.cmd 順跑（15 分一觸、
+// 快照進相鄰的 adng-memory repo（ADNG_MEMORY_DIR 可覆寫）並推雲。由 adng-daemons.cmd 順跑（15 分一觸、
 // 日戳自守衛）。sqlite 用 .backup 確保一致性快照；一切失敗寬容（絕不阻塞 supervise）。
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,7 +10,7 @@ import { spawnPauseGated, withPauseGate } from './pause-gated-spawn.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STOP = path.join(ROOT, 'configs', '.adng.stop');
-const MEM = 'D:/adng-memory';
+const MEM = path.resolve(process.env.ADNG_MEMORY_DIR ?? path.join(ROOT, '..', 'adng-memory'));
 const STAMP = path.join(MEM, '.last-snapshot');
 
 const mutate = action => withPauseGate(STOP, action).started;

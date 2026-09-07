@@ -13,7 +13,8 @@ REM exit immediately -- effectively single-instance in practice,
 REM same net effect as bot.lock (see install-web-task.ps1).
 REM ============================================================
 
-set "ADNG_ROOT=D:\Users\Administrator\Desktop\autodev-ng"
+setlocal
+for %%I in ("%~dp0..") do set "ADNG_ROOT=%%~fI"
 set "ADNG_LOG_DIR=%ADNG_ROOT%\data"
 set "ADNG_LOG=%ADNG_LOG_DIR%\web-console.log"
 

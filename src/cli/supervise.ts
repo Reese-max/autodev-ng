@@ -79,6 +79,7 @@ export async function cmdSupervise(
             notifyFn: sendGuardianNotification,
           }))
         }
+        await (await import('../github/report.js')).reportFromPatrol(configsDir)
       }
     } else {
       try {

@@ -2,6 +2,8 @@
 
 日期：2026-08-14
 
+> 2026-09-07 複核：下表保留 2026-08-14 的驗收快照。現行 scoped ownership 已補上 symlink／junction 檢查，admission 與候選驗收均拒絕連結路徑；kernel 為 2215／2250 行。Crash 與 PAUSED_READY 仍採保留候選、阻擋重複執行的既有策略。最新證據與界線見 [專案清理驗收](../verification/project-cleanup-2026-09-07.md)。
+
 狀態：本機多 Engineer 核心路徑已實作；完整工程組織治理仍未完成
 
 ## 結論

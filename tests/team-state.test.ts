@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, test } from 'vitest'
 import { TeamState } from '../src/engines/team-state.js'
+import { checkOwnership } from '../src/engines/ownership.js'
 import type { Task } from '../src/types.js'
 
 const repos: string[] = []
@@ -20,6 +21,19 @@ function repo(): string {
 function task(id: string, write: string[]): Task {
   return { id, text: id, line: 0, status: 'open', ownership: { write, resources: [], risk: 'medium' } }
 }
+
+test('ownership 拒絕 junction／symlink 別名，不能以兩個名稱取得重疊寫入權', () => {
+  const root = repo(), team = new TeamState(root)
+  mkdirSync(join(root, 'actual'))
+  symlinkSync(join(root, 'actual'), join(root, 'alias'), process.platform === 'win32' ? 'junction' : 'dir')
+  try {
+    const linked = task('linked', ['alias/new.ts'])
+    expect(() => team.claim({ executionId: 'e1', task: linked, workerId: 'w1', reservedCostUsd: 0, spentUsd: 0, dailyHardUsd: 0, leaseMs: 60_000 })).toThrow(/ownership path follows a link/)
+    expect(team.snapshot().claims).toEqual([])
+    expect(checkOwnership(root, linked, 'base', 'candidate')).toMatchObject({ ok: false, detail: expect.stringContaining('ownership path follows a link') })
+    expect(team.claim({ executionId: 'e2', task: task('plain', ['actual/new.ts']), workerId: 'w2', reservedCostUsd: 0, spentUsd: 0, dailyHardUsd: 0, leaseMs: 60_000 }).ok).toBe(true)
+  } finally { team.close() }
+})
 
 test('跨實例 admission：ownership 衝突與進行中成本保留在同一 Git common-dir DB', () => {
   const root = repo(), a = new TeamState(root), b = new TeamState(root)

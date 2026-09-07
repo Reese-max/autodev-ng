@@ -11,8 +11,8 @@ data/
 .tmp-crossgit-probe-*
 graphify-out/
 .graphifyignore
-probe.txt
-PI_PROVIDER_CANARY*.md
+/probe.txt
+/PI_PROVIDER_CANARY*.md
 
 # Dev scratch
 autodev-ng-integrate-v3/

@@ -21,7 +21,7 @@
 
     READINESS VERIFICATION (pitfall 18): do NOT trust Task
     Scheduler state or a live PID. Verify by checking that
-    data\voice-actress\web-console.log gains a line containing
+    data\web-console.log gains a line containing
     "autodev-ng" (control panel started) after the task fires, and
     that GET http://127.0.0.1:3900/api/status answers.
 
@@ -38,7 +38,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $TaskName = 'adng-web'
-$RepoRoot = 'D:\Users\Administrator\Desktop\autodev-ng'
+$RepoRoot = Split-Path -Parent $PSScriptRoot
 $CmdPath  = Join-Path $RepoRoot 'scripts\adng-web.cmd'
 
 if ($Uninstall) {
@@ -98,7 +98,7 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register scheduled task')) {
     Write-Host 'the de-facto single-instance guard for this task.'
     Write-Host ''
     Write-Host 'NEXT - readiness check (pitfall 18): after the task fires, confirm'
-    Write-Host ('  ' + (Join-Path $RepoRoot 'data\voice-actress\web-console.log'))
+    Write-Host ('  ' + (Join-Path $RepoRoot 'data\web-console.log'))
     Write-Host 'gains an "autodev-ng" control-panel-started line, then confirm'
     Write-Host 'GET http://127.0.0.1:3900/api/status answers.'
 }

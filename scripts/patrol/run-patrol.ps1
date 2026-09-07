@@ -1,6 +1,6 @@
 # adng durable patrol runner (ASCII only). Reads UTF-8 prompt, runs headless Codex GPT.
 $ErrorActionPreference = 'Continue'
-$root = 'D:\Users\Administrator\Desktop\autodev-ng'
+$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $stop = Join-Path $root 'configs\.adng.stop'
 if (Test-Path -LiteralPath $stop) { exit 0 }
 $allowedSecretEnv = @('CODEX_ACCESS_TOKEN', 'OPENAI_API_KEY')

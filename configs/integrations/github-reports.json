@@ -1,0 +1,233 @@
+{
+  "owner": "Reese-max",
+  "enabled": true,
+  "publish": true,
+  "dataDir": "../../data/github-reports",
+  "stopFile": "../.adng.stop",
+  "personaFile": "../../docs/portfolio-audit/2026-09-06-50-persona-audit.md",
+  "intervalMs": 900000,
+  "dailyRepoLimit": 3,
+  "dailyAccountLimit": 10,
+  "research": {
+    "enabled": true,
+    "model": "gpt-5.6-luna",
+    "effort": "max",
+    "intervalMs": 604800000,
+    "timeoutMs": 180000,
+    "anysearchScript": "C:/Users/Administrator/.agents/skills/anysearch/local/anysearch_round_robin.py"
+  },
+  "projects": [
+    {
+      "repo": "Reese-max/autodev-ng",
+      "sourceConfig": "../autodev-self.json",
+      "purpose": "讓開發者以可追蹤的巡檢、任務與驗收維護專案。",
+      "constraints": "只通報與研究；不自動建立 GOAL、修復、推送、部署或修改帳號權限。",
+      "scenarios": [
+        {
+          "id": "onboarding",
+          "persona": "B02",
+          "success": "能了解必要設定、操作範例及預期結果，不需猜測指令。",
+          "task": "首次使用者找到安全的起步操作與說明"
+        },
+        {
+          "id": "recovery",
+          "persona": "I05",
+          "success": "能辨識已完成部分、安全重試且不重複寫入資料。",
+          "task": "使用者在操作部分失敗後理解如何恢復"
+        },
+        {
+          "id": "trust",
+          "persona": "B04",
+          "success": "能分辨事實、推論、未驗證項目並追溯來源。",
+          "task": "使用者查核結果來源與觀察時間"
+        }
+      ],
+      "probes": [
+        {
+          "timeoutMs": 10000,
+          "scenario": "onboarding",
+          "args": [
+            "dist/cli.js",
+            "--help"
+          ],
+          "command": "node",
+          "id": "cli-help",
+          "expectedExit": 0
+        }
+      ],
+      "githubSearch": "repo:cli/cli label:enhancement",
+      "publicDocs": [
+        "https://clig.dev/"
+      ]
+    },
+    {
+      "repo": "Reese-max/gooaye",
+      "sourceConfig": "../gooaye.json",
+      "purpose": "依既有 gooaye 專案的已確認用途協助首次接手與使用。",
+      "constraints": "本機尚無 HEAD 時只記錄涵蓋缺口；不得猜測產品用途、建立 GOAL 或發送缺檔通報。",
+      "scenarios": [
+        {
+          "id": "onboarding",
+          "persona": "B02",
+          "success": "能了解必要設定、操作範例及預期結果，不需猜測指令。",
+          "task": "首次使用者找到安全的起步操作與說明"
+        },
+        {
+          "id": "recovery",
+          "persona": "I05",
+          "success": "能辨識已完成部分、安全重試且不重複寫入資料。",
+          "task": "使用者在操作部分失敗後理解如何恢復"
+        },
+        {
+          "id": "trust",
+          "persona": "B04",
+          "success": "能分辨事實、推論、未驗證項目並追溯來源。",
+          "task": "使用者查核結果來源與觀察時間"
+        }
+      ],
+      "probes": [],
+      "githubSearch": "repo:laurent22/joplin label:enhancement",
+      "publicDocs": [
+        "https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-readmes"
+      ]
+    },
+    {
+      "repo": "Reese-max/neciken-summer-poem",
+      "sourceConfig": "../neciken.json",
+      "purpose": "協助文學創作者完成備稿、評論、修改與投稿前檢查。",
+      "constraints": "不得自動投稿、執行付費生成、變更作品或冒充真人評審。",
+      "scenarios": [
+        {
+          "id": "onboarding",
+          "persona": "B02",
+          "success": "能了解必要設定、操作範例及預期結果，不需猜測指令。",
+          "task": "首次使用者找到安全的起步操作與說明"
+        },
+        {
+          "id": "recovery",
+          "persona": "I05",
+          "success": "能辨識已完成部分、安全重試且不重複寫入資料。",
+          "task": "使用者在操作部分失敗後理解如何恢復"
+        },
+        {
+          "id": "trust",
+          "persona": "B04",
+          "success": "能分辨事實、推論、未驗證項目並追溯來源。",
+          "task": "使用者查核結果來源與觀察時間"
+        }
+      ],
+      "probes": [
+        {
+          "timeoutMs": 10000,
+          "scenario": "onboarding",
+          "args": [
+            "-X",
+            "utf8",
+            "poem.py",
+            "--help"
+          ],
+          "command": "python",
+          "id": "cli-help",
+          "expectedExit": 0
+        }
+      ],
+      "githubSearch": "repo:langgenius/dify label:enhancement",
+      "publicDocs": [
+        "https://docs.python.org/3/library/argparse.html"
+      ]
+    },
+    {
+      "repo": "Reese-max/note-filler",
+      "sourceConfig": "../note-filler.json",
+      "purpose": "協助法律、行政與考試筆記補齊，保持原稿不可變與來源可追溯。",
+      "constraints": "無來源不進正文；不使用真實個案資料、不提供法律結論、不改寫原稿。",
+      "scenarios": [
+        {
+          "id": "onboarding",
+          "persona": "B02",
+          "success": "能了解必要設定、操作範例及預期結果，不需猜測指令。",
+          "task": "首次使用者找到安全的起步操作與說明"
+        },
+        {
+          "id": "recovery",
+          "persona": "I05",
+          "success": "能辨識已完成部分、安全重試且不重複寫入資料。",
+          "task": "使用者在操作部分失敗後理解如何恢復"
+        },
+        {
+          "id": "trust",
+          "persona": "B04",
+          "success": "能分辨事實、推論、未驗證項目並追溯來源。",
+          "task": "使用者查核結果來源與觀察時間"
+        }
+      ],
+      "probes": [],
+      "githubSearch": "repo:laurent22/joplin label:enhancement",
+      "publicDocs": [
+        "https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-readmes"
+      ]
+    },
+    {
+      "repo": "Reese-max/prompt-autoresearch",
+      "sourceConfig": "../prompt-autoresearch.json",
+      "purpose": "協助考生以固定評分契約改善申論題提示詞，理解評估結果與回滾。",
+      "constraints": "不得修改題庫、評分器或自動呼叫評分 API；建議必須保留 holdout 與審計紀錄。",
+      "scenarios": [
+        {
+          "id": "onboarding",
+          "persona": "B02",
+          "success": "能了解必要設定、操作範例及預期結果，不需猜測指令。",
+          "task": "首次使用者找到安全的起步操作與說明"
+        },
+        {
+          "id": "recovery",
+          "persona": "I05",
+          "success": "能辨識已完成部分、安全重試且不重複寫入資料。",
+          "task": "使用者在操作部分失敗後理解如何恢復"
+        },
+        {
+          "id": "trust",
+          "persona": "B04",
+          "success": "能分辨事實、推論、未驗證項目並追溯來源。",
+          "task": "使用者查核結果來源與觀察時間"
+        }
+      ],
+      "probes": [],
+      "githubSearch": "repo:promptfoo/promptfoo label:enhancement",
+      "publicDocs": [
+        "https://docs.python.org/3/library/argparse.html"
+      ]
+    },
+    {
+      "repo": "Reese-max/taiwan-intel-dashboard",
+      "sourceConfig": "../taiwan-intel.json",
+      "purpose": "協助讀者理解可追溯的台灣公開資訊與資料更新狀態。",
+      "constraints": "網站已依管理者決定暫停；503 與停用 workflow 不是新故障，不重新啟用部署；只用公開證據。",
+      "scenarios": [
+        {
+          "id": "onboarding",
+          "persona": "B02",
+          "success": "能了解必要設定、操作範例及預期結果，不需猜測指令。",
+          "task": "首次使用者找到安全的起步操作與說明"
+        },
+        {
+          "id": "recovery",
+          "persona": "I05",
+          "success": "能辨識已完成部分、安全重試且不重複寫入資料。",
+          "task": "使用者在操作部分失敗後理解如何恢復"
+        },
+        {
+          "id": "trust",
+          "persona": "B04",
+          "success": "能分辨事實、推論、未驗證項目並追溯來源。",
+          "task": "使用者查核結果來源與觀察時間"
+        }
+      ],
+      "probes": [],
+      "githubSearch": "repo:Leaflet/Leaflet label:enhancement",
+      "publicDocs": [
+        "https://developer.mozilla.org/en-US/docs/Web/Accessibility"
+      ]
+    }
+  ]
+}

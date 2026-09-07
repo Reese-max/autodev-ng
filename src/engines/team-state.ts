@@ -16,7 +16,7 @@ export class TeamState {
   readonly path: string
   private readonly db: Database.Database
 
-  constructor(projectPath: string) {
+  constructor(private readonly projectPath: string) {
     const raw = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: projectPath, encoding: 'utf8', timeout: 10_000, windowsHide: true }).trim()
     const common = isAbsolute(raw) ? raw : resolve(projectPath, raw)
     this.path = join(common, 'autodev-ng', 'team.db')
@@ -48,7 +48,7 @@ export class TeamState {
     executionId: string; task: Task; workerId: string; reservedCostUsd: number
     spentUsd: number; dailyHardUsd: number; leaseMs: number
   }): ClaimResult {
-    const manifest = ownershipManifest(args.task)
+    const manifest = ownershipManifest(args.task, this.projectPath)
     return this.db.transaction(() => {
       this.reapExpired(Date.now())
       const quarantined = this.db.prepare("SELECT 1 FROM team_claims WHERE task_id=? AND state='QUARANTINED' UNION ALL SELECT 1 FROM merge_queue WHERE task_id=? AND state IN ('QUARANTINED','PAUSED_READY') LIMIT 1").get(args.task.id, args.task.id)

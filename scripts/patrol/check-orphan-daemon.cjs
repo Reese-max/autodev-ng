@@ -6,7 +6,7 @@
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 
-const ROOT = 'D:/Users/Administrator/Desktop/autodev-ng';
+const ROOT = require('node:path').resolve(__dirname, '../..');
 const ships = fs.readdirSync(`${ROOT}/configs`).filter((f) => f.endsWith('.json')).map((f) => f.replace(/\.json$/, ''));
 
 const bad = [];
@@ -22,7 +22,7 @@ for (const s of ships) {
   try {
     out = execFileSync('powershell', ['-NoProfile', '-Command',
       `(Get-Process -Id ${lock.pid} -ErrorAction Stop | Select-Object ProcessName,@{n='T';e={$_.StartTime.ToUniversalTime().ToString('o')}} | ConvertTo-Json)`,
-    ], { encoding: 'utf8' });
+    ], { encoding: 'utf8', windowsHide: true });
   } catch {
     bad.push(`${s}:pid-${lock.pid}-dead`);
     continue;
