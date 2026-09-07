@@ -104,7 +104,8 @@ export async function collectPublicSources(cfg: ReportConfig, project: ReportPro
     let raw: unknown
     try { raw = JSON.parse(r.stdout) } catch { continue }
     const parsed = z.object({ url: z.string().url(), title: z.string(), content: z.string() }).safeParse(raw)
-    if (parsed.success && parsed.data.url === url) sources.push({ url, title: parsed.data.title, fetchedAt: now, updatedAt: 'not supplied by source', text: parsed.data.content.slice(0, 4000) })
+    if (parsed.success && new URL(parsed.data.url).href === new URL(url).href) sources.push({ url, title: parsed.data.title, fetchedAt: now, updatedAt: 'not supplied by source',
+      text: parsed.data.content.length <= 4000 ? parsed.data.content : `${parsed.data.content.slice(0, 1500)}\n[excerpt omitted]\n${parsed.data.content.slice(-2500)}` })
   }
   return sources.slice(0, 5)
 }

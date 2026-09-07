@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { command } from '../src/github/client.js'
 import { GithubConfigSchema, eligible } from '../src/github/config.js'
 import { ReportConfigSchema } from '../src/github/report-config.js'
-import { observeProject, publicationSafe, reportFingerprint, researchProject, type Finding } from '../src/autopilot/report-research.js'
+import { collectPublicSources, observeProject, publicationSafe, reportFingerprint, researchProject, type Finding } from '../src/autopilot/report-research.js'
 import * as proc from '../src/engines/proc.js'
 import { readReportState, reportBody, reportMarker, runReports, saveReportState } from '../src/github/report.js'
 
@@ -156,4 +156,13 @@ test('real research gate rejects invented quotes, uncited sources, low value and
   expect(accepted).toHaveLength(1); expect(accepted[0]!.evidence).toBe('static'); expect(accepted[0]!.reproduction).toContain('尚未執行 runtime')
   model.mockResolvedValue({ exitCode: 1, timedOut: false, durationMs: 1, stdout: '', stderr: 'rejected' })
   await expect(researchProject(f.cfg, f.cfg.projects[0]!, f.finding.observedAt, sources)).rejects.toThrow('no fallback approval')
+})
+test('public document extraction handles provider failure and retains bounded canonical source evidence', async () => {
+  const f = setup(); mkdirSync(f.cfg.dataDir); f.cfg.research.anysearchScript = 'trusted-installed-extractor.py'
+  f.cfg.projects[0]!.publicDocs = ['https://clig.dev/']
+  const extract = vi.spyOn(proc, 'runProcess').mockResolvedValue({ exitCode: 0, timedOut: false, durationMs: 1, stdout: 'extract_failed\nUnable to extract content', stderr: '' })
+  expect(await collectPublicSources(f.cfg, f.cfg.projects[0]!, f.finding.observedAt)).toEqual([])
+  extract.mockResolvedValue({ exitCode: 0, timedOut: false, durationMs: 1, stdout: JSON.stringify({ url: 'https://clig.dev', title: 'Command Line Interface Guidelines', content: 'start' + 'x'.repeat(8000) + 'last guidance' }), stderr: '' })
+  const sources = await collectPublicSources(f.cfg, f.cfg.projects[0]!, f.finding.observedAt)
+  expect(sources).toHaveLength(1); expect(sources[0]!.url).toBe('https://clig.dev/'); expect(sources[0]!.text).toContain('last guidance'); expect(sources[0]!.text.length).toBeLessThan(5000)
 })
