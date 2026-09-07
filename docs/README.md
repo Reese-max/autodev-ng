@@ -36,8 +36,8 @@ AutoDev NG 將使用者授權的 backlog／GOAL 交給引擎，在隔離工作�
 |---|---|
 | 基準 | 本機 `main`，整理前 HEAD 為 `5c00cd8` |
 | 技術組成 | TypeScript ESM、Node.js、better-sqlite3、discord.js、Zod；Web 使用 Node.js server 與 HTML |
-| 原始碼 | `src/` 151 個檔案，其中 `src/engines/` 85 個，包含 adapter 與共用支援模組 |
-| 測試規格 | 177 個 `.test.ts` 規格檔，另有 Node.js 原生 `.mjs` 驗收 |
+| 原始碼 | 含自動通報後 `src/` 154 個檔案，其中 `src/engines/` 85 個，包含 adapter 與共用支援模組 |
+| 測試規格 | 含自動通報後 178 個 `.test.ts` 規格檔，另有 Node.js 原生 `.mjs` 驗收 |
 | Kernel | 頂層 `src/*.ts` 共 **2215／2250 行**，餘裕 35 行 |
 | 本機環境 | Node.js `v26.7.0`、npm `12.0.2`；CI 為 Windows + Node.js 22 |
 | 導覽快取 | 本 checkout 沒有 Graphify 圖檔，直接核對原始碼 |

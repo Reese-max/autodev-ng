@@ -10,7 +10,7 @@
 - **本機工程團隊模式**：明示 ownership 的 low-risk 任務可依 `concurrency` 真正重疊執行；Git common-dir SQLite 負責原子 claim、成本保留與單一 Merge Captain，最終 CI／Reviewer／Release receipt 綁定精確 commit。
 - **失敗學習迴圈**：任務失敗或 blocked 時，reflect 用 LLM 從證據提煉一條教訓寫進 `learnings.md`，下一輪派工 prompt 自動附上——不會重蹈覆轍。
 - **三操作面**：CLI（`node dist/cli.js`）、Discord bot（雙向指令）、Web 控制台（監看與控制）。Discord 與 Web 的查詢／控制共用 `src/bot/handlers.ts`；CLI 由 `src/cli/` 分派，接到共用排程與設定組裝。
-- **Fleet Guardian**：多專案 supervisor 每輪只把新失敗、探測降級、重啟／回收或超過 wedge hard-cap 的事故交給單一 `gpt-5.6-sol`（reasoning `max`）診斷、修復與實證驗證；健康專案不呼叫 LLM。
+- **Fleet Guardian**：多專案 supervisor 每輪只把新失敗、探測降級、重啟／回收或超過 wedge hard-cap 的事故交給單一 `gpt-5.6-luna`（reasoning `max`）診斷、修復與實證驗證；健康專案不呼叫 LLM。
 - **有界自主 GOAL**：可選開一個「連續無進展就自動停」的自主迴圈，由 planner LLM 自己拆任務、派工、驗證，唯一煞車是「連續 N 輪沒進展」；受控例外——只有帶 `autopilot` 標記的行才算系統自產任務，鐵律 #1（任務只能來自使用者）不破。
 
 ## 架構總覽

@@ -41,6 +41,19 @@ powershell.exe -NoProfile -File scripts/install-github-issues-task.ps1 -Mode rep
 
 排程名稱 `adng-github-reports-Reese-max`，使用目前登入者的互動登入身分；登出時不能保證執行。任務註冊不等於驗收，須核對 `report-status`、實際 Issue URL 與重跑不重複的結果。
 
+本機於 2026-09-07 註冊排程遭 Windows 拒絕（`0x80070005`），目前改用既有背景 watcher 的通報模式，每輪間隔十五分鐘；登入時由 `AutoDevNG-GitHub-Reports.lnk` 啟動。命名 mutex 及 reporter 檔案鎖會阻擋重複執行。未登入、電腦關機或休眠時不會持續巡檢。
+
+```powershell
+# 查看實際背景巡檢結果
+Get-Content data/github-reports/watcher.json -Encoding UTF8
+Get-Content data/github-reports/last-run.log -Encoding UTF8
+
+# 清除自己建立的停止旗標後，可由登入捷徑恢復背景巡檢
+Start-Process (Join-Path ([Environment]::GetFolderPath('Startup')) 'AutoDevNG-GitHub-Reports.lnk')
+```
+
+背景腳本為 `scripts/watch-github-owner.ps1 -Mode reports -Config <設定路徑>`；未指定 `-Mode` 仍保持原本接單 watcher 行為。Windows PowerShell 5.1 的設定讀取已明示 UTF-8，保留繁體中文。停止旗標讓 watcher 結束後，單純移除旗標不會重新啟動程序，須執行捷徑或等下次登入。
+
 ## 驗證
 
 ```powershell
