@@ -3,7 +3,7 @@ param([Parameter(Mandatory = $true)][string]$Config, [ValidateSet('issues', 'rep
 $ErrorActionPreference = 'Stop'
 $adngRoot = Split-Path -Parent $PSScriptRoot
 $adngConfig = (Resolve-Path -LiteralPath $Config).Path
-$adngSettings = Get-Content -LiteralPath $adngConfig -Raw | ConvertFrom-Json
+$adngSettings = Get-Content -LiteralPath $adngConfig -Encoding UTF8 -Raw | ConvertFrom-Json
 if ($adngSettings.enabled -ne $true) { throw 'Set enabled=true after approving the repository and execution scope.' }
 $adngCli = Join-Path $adngRoot 'dist\cli.js'
 if (-not (Test-Path -LiteralPath $adngCli)) { throw 'Run npm run build first.' }
