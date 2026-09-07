@@ -113,16 +113,22 @@
 }
 ```
 
-若要先走一條不含 provider 的安全本機起步路徑，請在一個空的 task-owned 目錄中使用上面的最小設定，並明確建立 synthetic project、Git repository 與空的 `BACKLOG.md`：
+若要先走一條不含 provider 的安全本機起步路徑，請先在 `autodev-ng` checkout 根目錄建置 CLI；以下步驟會先保存已建置 CLI 的絕對路徑，再建立並切入一個新的 task-owned 目錄。步驟會明確建立 synthetic project、Git repository 與空的 `BACKLOG.md`：
 
 ```powershell
+npm run build
+$adngCli = (Resolve-Path (Join-Path (Get-Location) 'dist/cli.js')).Path
+$taskRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('adng-onboarding-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $taskRoot | Out-Null
+Push-Location $taskRoot
 node -e "const fs=require('node:fs'); fs.writeFileSync('config.json', JSON.stringify({projectPath:'./project', backlogFile:'./project/BACKLOG.md', dataDir:'./data', engine:'mock'}, null, 2)+'\n')"
 node -e "const fs=require('node:fs'); fs.mkdirSync('project',{recursive:true}); fs.writeFileSync('project/BACKLOG.md','')"
 git -C project init -q
 git -C project add BACKLOG.md
 git -C project -c user.name=synthetic -c user.email=synthetic@example.invalid commit -qm "synthetic empty backlog"
-node dist/cli.js status --config config.json       # 預期 exit 0
-node dist/cli.js run-once --config config.json     # 預期 CycleResult: idle、exit 0
+& node $adngCli status --config config.json       # 預期 exit 0
+& node $adngCli run-once --config config.json     # 預期 CycleResult: idle、exit 0
+Pop-Location
 ```
 
 第一次 `status`／`run-once` 會在本機建立 `data/` 下的狀態資料；`engine: "mock"` 不會呼叫 provider 或通知。若要接入實際專案，請回到上面的完整 config 欄位與憑證引用規則。
