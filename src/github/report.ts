@@ -158,7 +158,7 @@ export async function runReports(cfg: ReportConfig, options: { dryRun?: boolean;
         const f = entry.finding, id = reportFingerprint(f)
         const match = issues.find(i => i.body?.includes(reportMarker(id)) && i.user.login.toLowerCase() === cfg.owner.toLowerCase())
         if (match) { entry.issue = match.number; entry.url = match.html_url; entry.status = match.state === 'closed' ? 'suppressed' : 'posted'; continue }
-        const manual = f.key === 'docs:readme' ? issues.find(i => /(?:no|missing|lack\w*|absent)\s+(?:root\s+)?readme|readme[^\n]{0,60}(?:missing|absent)|(?:缺少|沒有|未提供)[^\n]{0,30}README/i.test(i.title + '\n' + i.body)) : undefined
+        const manual = f.key === 'docs:readme' ? issues.find(i => /(?:no|missing|lack\w*|absent)\s+(?:root\s+)?readme|readme[^\n]{0,60}(?:missing|absent)|(?:缺少|沒有|未提供)[^\n]{0,30}README/i.test((i.title + '\n' + i.body).replace(/[`*_]/g, ''))) : undefined
         if (manual) { entry.status = 'suppressed'; entry.issue = manual.number; entry.url = manual.html_url; entry.detail = 'Existing Issue already tracks missing README'; continue }
         const body = reportBody(f)
         if (options.dryRun) { console.log(JSON.stringify({ repo: project.repo, title: f.title, body, labels: labels(f) }, null, 2)); continue }

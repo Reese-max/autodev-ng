@@ -13,7 +13,7 @@
     "model": "gpt-5.6-luna",
     "effort": "max",
     "intervalMs": 604800000,
-    "timeoutMs": 180000,
+    "timeoutMs": 300000,
     "anysearchScript": "C:/Users/Administrator/.agents/skills/anysearch/local/anysearch_round_robin.py"
   },
   "projects": [
