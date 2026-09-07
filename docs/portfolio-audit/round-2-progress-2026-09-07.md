@@ -13,6 +13,7 @@ Repository-local Round 2 audit state was persisted for:
 - `UkePack`
 - `avatar-vfo`
 - `cf-mcp-server`
+- `lobsterpulse`
 
 Repositories newly marked CLEAN in this continuation: **0**.
 
@@ -25,6 +26,7 @@ Repositories newly marked CLEAN in this continuation: **0**.
 | `avatar-vfo` | **P1** | The remediation SHA has a failed full CI run and the deploy workflow fails with zero jobs because current workflow YAML is malformed; the `production` branch still predates the remediation | #3 |
 | `cf-mcp-server` | **P0** | Replacement OAuth owner-approval flow accepts the root `MCP_AUTH_TOKEN` through the `approval_secret` GET query parameter, exposing a root MCP credential to ordinary URL-handling surfaces | #4 |
 | `cf-mcp-server` | **P1** | Dynamic clients, authorization codes, and auth rate counters are stored only in module-level Worker `Map`s, so multi-request OAuth correctness and abuse accounting depend on one warm isolate | #5 |
+| `lobsterpulse` | **P1** | After the Round-1 hooks-preservation fix, Codex setup still leaves a valid pre-existing `[features].codex_hooks = false` unchanged because setup tests only whether the raw text contains `codex_hooks`; setup can succeed while core Codex monitoring remains disabled | #3 |
 
 ### `clinical-scribe-worker`
 
@@ -55,6 +57,16 @@ Two new findings passed the quality gate:
 - **P1 #5** — dynamic client registrations, one-time authorization codes, and rate-limit counters live only in module-level `Map`s in `src/oauth.ts`. The multi-request OAuth sequence therefore depends on requests reaching the same warm Worker isolate, and the rate limit is not durable/global. No production exchange failure is claimed without runtime evidence.
 
 The old unconditional refresh-token harvesting flaw is no longer current code; PKCE, exact redirect binding, random short-lived codes and short-lived signed access tokens are retained as positive static evidence. Repo report: `docs/audits/50-persona-round-2-2026-09-07.md` (report commit `b5daf030e5ea89dcc51fe4b3cfdb0d2dcffa6f7a`). Status remains **NOT CLEAN**.
+
+### `lobsterpulse`
+
+Re-ran the same Codex setup/recovery personas after Round-1 P0 #1 was closed by merged default-branch remediation SHA `9aa67523e36947beaef77fa3d420e186900e716b`.
+
+The destructive hooks-overwrite path is no longer current: the merged code preserves unrelated hooks and has real-filesystem regression coverage. GitHub Actions Build run `34052981259` succeeded on the merged SHA. However, a new core-path P1 passed the quality gate: `install_codex_hooks()` changes `config.toml` only if raw text does not contain `codex_hooks`. A valid existing `[features]` entry with `codex_hooks = false` is therefore left disabled even though setup writes the hooks and reports success. Comments/strings containing the same token can also suppress the update without establishing the effective TOML value.
+
+Issue #3 was created: `[P1][50-persona audit] Enabling Codex monitoring must turn an existing codex_hooks=false to true`.
+
+This is deterministic current-source evidence. No packaged LobsterPulse installation or live Codex process was executed in this audit turn, so the successful Actions run is not represented as real-user Codex runtime validation. Repo report: `docs/audits/50-persona-round-2-2026-09-07.md` (report commit `ddb2903b7980949dadbf6010820923665cbf3e61`). Status remains **NOT CLEAN**.
 
 ## No-new-finding second static pass
 
