@@ -16,6 +16,7 @@ export const CLI_HELP = [
   '  adng daemon --config <path>       前景常駐主迴圈',
   '  adng notify-test --config <path>  測試 Discord 告警通道',
   '  adng supervise --configs-dir <dir>  管理多專案 daemon',
+  '  adng github --help                GitHub Issue intake/status/owner 操作',
   '',
   '安全起步（使用 synthetic/mock 專案，不會呼叫 provider）：',
   '  config.json：',
@@ -59,14 +60,14 @@ export function parseArgv(argv: string[]): ParsedArgv {
 }
 
 export async function runCli(argv: string[], cliPath: string): Promise<void> {
-  if (argv.includes('--help')) {
-    process.exitCode = 0
-    printCliHelp()
-    return
-  }
   if (argv[0] === 'github') {
     const { githubCli } = await import('../github/cli.js')
     await githubCli(argv.slice(1))
+    return
+  }
+  if (argv.includes('--help')) {
+    process.exitCode = 0
+    printCliHelp()
     return
   }
   const { command, configPath, configsDir, guardianMode } = parseArgv(argv)

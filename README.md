@@ -104,6 +104,7 @@
   "judgeUrl": "http://127.0.0.1:8317/v1",
   "judgeApiKey": "{env:JUDGE_API_KEY}",
   "telegramBotToken": "{env:TELEGRAM_BOT_TOKEN}",
+  "telegramChatId": "<Telegram chat ID>",
   "dailySoftUsd": 40,
   "dailyHardUsd": 100,
   "learningsFile": "../data/your-project/learnings.md",
@@ -136,7 +137,7 @@ Pop-Location
 選配欄位說明：
 - `goalFile`：未設就沒有 GOAL autopilot 能力（`/goal set` 會回「config 未設 goalFile」）。
 - `learningsFile` / `globalLearningsFile`：`learningsFile` 未設時預設 `<dataDir>/learnings.md`（零設定自動開啟）；`globalLearningsFile` 為跨專案人工策展的全局教訓，未設即不注入。
-- `judgeApiKey` / `telegramBotToken`：請只寫 `{env:VAR}`、`${env:VAR}`、`${VAR}` 或 `{file:PATH}` 引用；值不應寫入版本控制的 JSON。缺少選配通知 token 時不會接入該通知通道。
+- `judgeApiKey` / `telegramBotToken`：請只寫 `{env:VAR}`、`${env:VAR}`、`${VAR}` 或 `{file:PATH}` 引用；值不應寫入版本控制的 JSON。Telegram 必須同時設定 `telegramBotToken` 與 `telegramChatId`，任一缺少就保持通知停用，不會發送訊息。
 - `botAllowedUserIds` / `botGuildId` / `botTokenFile`：不設 bot 相關欄位就是 fail-closed（allowlist 空陣列＝全員鎖死），Discord bot 需要這三者才能安全上線。
 - `concurrency`：預設 `1`。大於 `1` 時只讓明示 `risk:"low"` 且 ownership 不重疊的任務進平行 lane；未宣告或不合法的 ownership 會安全降級為全 repo 獨佔。
 - `reviewEngine`：中高風險必須有 Reviewer；未設時可沿用既有 `auditModel`，兩者皆缺或 Reviewer 無法完成時為 `BLOCKED`。

@@ -10,6 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { CLI_HELP, runCli } from '../src/cli/entry.js'
+import { GITHUB_HELP, GITHUB_MODES } from '../src/github/cli.js'
 import {
   PUBLIC_CLI_COMMANDS,
   assertCliCapturesEqual,
@@ -182,17 +183,15 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
       ['run-once', '--help'],
       ['supervise', '--help'],
       ['unknown', '--help', '--config', 'missing.json'],
-      ['github', '--help'],
-      ['github', 'scan', '--config', '--help'],
-      ['github', 'sync', '--config', '--help'],
-      ['github', 'run', '--config', '--help'],
-      ['github', 'status', '--config', '--help'],
-      ['github', 'owner-sync', '--config', '--help'],
-      ['github', 'owner-run', '--config', '--help'],
-      ['github', 'owner-status', '--config', '--help'],
     ]) {
       assertCliCapturesEqual(await captureCli(argv), expected)
     }
+    const githubExpected: CliGoldenCapture = { stdout: `${GITHUB_HELP}\n`, stderr: '', exitCode: 0 }
+    for (const mode of [undefined, ...GITHUB_MODES]) {
+      const argv = mode === undefined ? ['github', '--help'] : ['github', mode, '--config', '--help']
+      assertCliCapturesEqual(await captureCli(argv), githubExpected)
+    }
+    for (const mode of GITHUB_MODES) expect(GITHUB_HELP).toContain(mode)
   })
 
   test('supervise：缺參數與雙參數互斥用法錯誤（逐位元）', async () => {
