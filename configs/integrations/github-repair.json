@@ -1,0 +1,19 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "base": "main",
+  "label": null,
+  "authors": ["Reese-max"],
+  "sourceConfig": "../autodev-self.json",
+  "dataDir": "../../data/github-repairs/autodev-ng",
+  "engine": "codex-sol",
+  "enabled": true,
+  "publish": false,
+  "maxRuns": 3,
+  "retryMs": 900000,
+  "verifyCommand": "npm ci --no-audit --no-fund && npm run build && npm test",
+  "repair": {
+    "reportConfig": "./github-reports.json",
+    "probeIds": ["cli-help"],
+    "prepareCommand": "npm ci --no-audit --no-fund && npm run build"
+  }
+}

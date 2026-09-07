@@ -1,6 +1,6 @@
 # 自動巡檢立案與使用者研究
 
-`github report` 將可重現問題與有來源的改善提案建立為自己專案的 GitHub Issue。接入 `supervise --configs-dir configs`，也可獨立以十五分鐘排程執行。通報不會啟用修復、PR 推送或新 GOAL。
+`github report` 將可重現問題與有來源的改善提案建立為自己專案的 GitHub Issue。接入 `supervise --configs-dir configs`，也可獨立以十五分鐘排程執行。設定 `repairConfigs` 可在通報後接續 [CLI 自動修復](github-repair.md)；未設定時維持只通報。修復的 PR 推送有獨立開關，不建立新 GOAL。
 
 ```powershell
 node dist/cli.js github report-status --config configs/integrations/github-reports.json
@@ -22,7 +22,7 @@ node dist/cli.js github report --config configs/integrations/github-reports.json
 
 ## 發布、去重與停止
 
-所有新案都有 `autodev-reported`、`needs-triage`；改善提案另有 `needs-validation`。接單端即使 `label: null`，也排除自動來源標記或 `autodev-reported` 標籤。既有人工 Issue 契約保留。
+所有新案都有 `autodev-reported`、`needs-triage`；改善提案另有 `needs-validation`。一般接單端即使 `label: null`，也排除自動來源標記或 `autodev-reported` 標籤；明列的 CLI 修復政策只接收有不可變發布快照及可重現檢查的缺陷。既有人工 Issue 契約保留。
 
 每個 repo 每輪最多一張、滾動二十四小時最多三張；六個設定專案合計最多十張。每次 API 寫入前重查停止旗標與設定內容。GitHub 錯誤至少退避一小時，並尊重回傳的 Retry-After／reset；無原地重試迴圈。
 

@@ -6,11 +6,13 @@ import { acquireLock, releaseLock } from '../lock.js'
 import { FindingSchema, observeProject, projectContext, publicationSafe, reportFingerprint, researchProject, type Finding } from '../autopilot/report-research.js'
 import { command } from './client.js'
 import { loadReportConfig, type ReportConfig, type ReportProject } from './report-config.js'
+import { fingerprint } from './state.js'
 
 const RemoteSchema = z.object({ number: z.number().int().positive(), html_url: z.string().url(), body: z.string().nullable(), title: z.string(),
   state: z.enum(['open', 'closed']), user: z.object({ login: z.string() }), labels: z.array(z.object({ name: z.string() })), created_at: z.string(), pull_request: z.unknown().optional() })
 type RemoteIssue = z.infer<typeof RemoteSchema>
 const EntrySchema = z.object({ finding: FindingSchema, status: z.enum(['pending', 'publishing', 'posted', 'suppressed']),
+  issueFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   firstSeen: z.string(), lastSeen: z.string(), attemptAt: z.string().optional(), issue: z.number().int().positive().optional(), url: z.string().url().optional(), detail: z.string().optional() }).strict()
 const StateSchema = z.object({ version: z.literal(1), owner: z.string(), nextApiAt: z.number(),
   projects: z.record(z.string(), z.object({ nextObserveAt: z.number(), nextResearchAt: z.number(), lastRun: z.string().optional(), detail: z.string().optional() }).strict()),
@@ -74,7 +76,7 @@ function listIssues(repo: string, request: typeof reportApi): RemoteIssue[] {
   }
   throw new Error('Issue pagination ceiling reached; incomplete deduplication prevents publication')
 }
-function stopped(cfg: ReportConfig, project?: ReportProject): boolean {
+export function stopped(cfg: ReportConfig, project?: ReportProject): boolean {
   if (!cfg.enabled || existsSync(cfg.stopFile) || existsSync(join(cfg.dataDir, '.adng.stop'))) return true
   if (!project) return false
   const raw = z.object({ dataDir: z.string(), stopFile: z.string().optional() }).parse(JSON.parse(readFileSync(project.sourceConfig, 'utf8')))
@@ -185,6 +187,7 @@ export async function runReports(cfg: ReportConfig, options: { dryRun?: boolean;
         const verified = RemoteSchema.parse(request(`repos/${project.repo}/issues/${result.number}`))
         if (verified.html_url !== `https://github.com/${project.repo}/issues/${result.number}` || verified.title !== f.title || verified.body !== body
           || verified.user.login.toLowerCase() !== cfg.owner.toLowerCase() || labels(f).some(l => !verified.labels.some(v => v.name === l))) throw new Error('Issue readback mismatch; reconcile before any further publication')
+        entry.issueFingerprint = fingerprint(verified)
         entry.status = 'posted'; posted++
         issues.push(verified)
         saveReportState(cfg, state)
@@ -207,11 +210,16 @@ export async function runReports(cfg: ReportConfig, options: { dryRun?: boolean;
 export async function reportCli(mode: string, file: string, dryRun = false): Promise<void> {
   const cfg = loadReportConfig(file)
   if (mode === 'report-status') console.log(JSON.stringify({ enabled: cfg.enabled, publish: cfg.publish, paused: stopped(cfg), ...readReportState(cfg) }, null, 2))
-  else console.log(await runReports(cfg, { dryRun, collectOnly: mode === 'report-collect', configPath: file }))
+  else {
+    console.log(await runReports(cfg, { dryRun, collectOnly: mode === 'report-collect', configPath: file }))
+    if (mode === 'report' && !dryRun) await (await import('./repair.js')).repairFromReports(file)
+  }
 }
 export async function reportFromPatrol(configsDir: string): Promise<void> {
   const file = resolve(configsDir, 'integrations', 'github-reports.json')
   if (!existsSync(file)) return
-  try { console.log(`github-report: ${await runReports(loadReportConfig(file), { configPath: file })}`) }
-  catch { console.error('github-report: blocked; inspect github report-status (patrol repair is unaffected)') }
+  try {
+    console.log(`github-report: ${await runReports(loadReportConfig(file), { configPath: file })}`)
+    await (await import('./repair.js')).repairFromReports(file)
+  } catch { console.error('github-report/repair: blocked; inspect github report-status and repair-status') }
 }

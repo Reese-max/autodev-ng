@@ -66,6 +66,11 @@ test('20 patrols publish once; time, wording, version and persona do not change 
   for (let i = 0; i < 20; i++) await runReports(f.cfg, { now: f.now, request: f.request, observe: f.observe })
   expect(f.issues).toHaveLength(1); expect(f.issues[0].body).toContain('\n\n目前觀察：\n')
   expect(readReportState(f.cfg).entries[id]!.status).toBe('posted')
+  const snapshot = readReportState(f.cfg).entries[id]!.issueFingerprint
+  expect(snapshot).toMatch(/^[a-f0-9]{64}$/)
+  f.finding.observedAt = new Date(f.now + f.cfg.intervalMs).toISOString()
+  await runReports(f.cfg, { now: f.now + f.cfg.intervalMs, request: f.request, observe: f.observe })
+  expect(readReportState(f.cfg).entries[id]!.issueFingerprint).toBe(snapshot)
   expect(reportFingerprint({ ...f.finding, persona: 'A01', title: 'Different wording', observedAt: 'later' } as Finding)).toBe(id)
   f.issues[0].state = 'closed'; await runReports(f.cfg, { now: f.now, request: f.request, observe: f.observe })
   expect(readReportState(f.cfg).entries[id]!.status).toBe('suppressed'); expect(f.issues).toHaveLength(1)

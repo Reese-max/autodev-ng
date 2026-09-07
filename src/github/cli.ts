@@ -1,28 +1,34 @@
-import { eligible, loadGithubConfig } from './config.js'
+import { loadGithubConfig } from './config.js'
 import { githubClient } from './client.js'
 import { runGithub } from './runner.js'
-import { states } from './state.js'
+import { issueDir, states } from './state.js'
+import { eligibleForRun } from './repair.js'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 export async function githubCli(argv: string[]): Promise<void> {
   const [mode, flag, file, ...extra] = argv
+  if (argv.length === 1 && ['--help', '-h', 'help'].includes(mode!)) {
+    console.log('Usage: adng github <scan|sync|run|status|owner-sync|owner-run|owner-status|report|report-collect|report-status|repair|repair-status> --config <path>\nrepair --dry-run previews eligible reports; repair runs one bounded CLI repair.'); return
+  }
   if (['report', 'report-collect', 'report-status'].includes(mode ?? '') && flag === '--config' && file
     && (extra.length === 0 || (mode === 'report' && extra.length === 1 && extra[0] === '--dry-run'))) {
     await (await import('./report.js')).reportCli(mode!, file, extra[0] === '--dry-run'); return
   }
-  if (!['scan', 'sync', 'run', 'status', 'owner-sync', 'owner-run', 'owner-status'].includes(mode ?? '') || flag !== '--config' || !file || extra.length) {
-    throw new Error('Usage: adng github <scan|sync|run|status> --config <github-config.json>')
+  if (!['scan', 'sync', 'run', 'status', 'owner-sync', 'owner-run', 'owner-status', 'repair', 'repair-status'].includes(mode ?? '') || flag !== '--config' || !file
+    || (extra.length && !(mode === 'repair' && extra.length === 1 && extra[0] === '--dry-run'))) {
+    throw new Error('Usage: adng github <scan|sync|run|status|repair|repair-status> --config <github-config.json> [--dry-run (repair only)]')
   }
   if (mode!.startsWith('owner-')) { await (await import('./owner.js')).ownerCli(mode!, file); return }
   const cfg = loadGithubConfig(file)
-  if (mode === 'scan') {
-    console.log(JSON.stringify((await githubClient(cfg).list()).filter(i => eligible(i, cfg)).map(i => ({ number: i.number, title: i.title })), null, 2))
-  } else if (mode === 'status') {
+  if (mode!.startsWith('repair') && !cfg.repair) throw new Error('Repair CLI requires a local report/probe policy in configuration')
+  if (mode === 'scan' || (mode === 'repair' && extra[0] === '--dry-run')) {
+    console.log(JSON.stringify((await githubClient(cfg).list()).filter(i => eligibleForRun(i, cfg)).map(i => ({ number: i.number, title: i.title })), null, 2))
+  } else if (mode === 'status' || mode === 'repair-status') {
     console.log(JSON.stringify({ enabled: cfg.enabled, publish: cfg.publish, paused: !cfg.enabled || existsSync(join(cfg.dataDir, '.adng.stop')), repo: cfg.repo,
-      issues: states(cfg).map(s => ({ number: s.issue.number, status: s.status, runs: s.runs, detail: s.detail, pr: s.pr })) }, null, 2))
+      issues: states(cfg).map(s => ({ number: s.issue.number, status: s.status, runs: s.runs, detail: s.detail, commit: s.commit, directory: issueDir(cfg, s.issue.number), pr: s.pr })) }, null, 2))
   } else {
-    const result = await runGithub(cfg, { syncOnly: mode === 'sync' })
+    const result = await runGithub(cfg, { syncOnly: mode === 'sync', configPath: file })
     console.log(result)
     if (/blocked$/.test(result)) process.exitCode = 1
   }

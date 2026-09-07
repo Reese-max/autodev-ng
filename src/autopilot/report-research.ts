@@ -48,6 +48,13 @@ export function projectContext(project: ReportProject) {
   const priority = packHighWeightSources(priorityParts[0]!, priorityParts[1]!)
   return { root, data, sha, documents, priority, clean: !git('status', '--porcelain', '--untracked-files=no') }
 }
+export const runReportProbe = (probe: ReportProject['probes'][number], cwd: string) => runProcess({
+  command: probe.command === 'node' ? process.execPath : probe.command, args: probe.args,
+  cwd, stdinText: '', timeoutMs: probe.timeoutMs, maxOutputChars: 4000, replaceEnv: true,
+  env: Object.fromEntries(Object.entries(process.env).filter(([k, v]) => v !== undefined && /^(path|systemroot|windir|comspec|temp|tmp|pathext|userprofile|pythonutf8)$/i.test(k))) as Record<string, string>,
+})
+export const probePasses = (probe: ReportProject['probes'][number], r: Awaited<ReturnType<typeof runReportProbe>>) =>
+  !r.timedOut && r.exitCode === probe.expectedExit && (!probe.expectedText || (r.stdout + r.stderr).includes(probe.expectedText))
 export async function observeProject(project: ReportProject, now: string): Promise<Finding[]> {
   const ctx = projectContext(project)
   const findings: Finding[] = []
@@ -62,12 +69,10 @@ export async function observeProject(project: ReportProject, now: string): Promi
   if (!ctx.clean && project.probes.length) throw new Error('Runtime probes blocked by uncommitted changes; health remains unknown')
   for (const probe of project.probes) {
     const scenario = project.scenarios.find(s => s.id === probe.scenario)!
-    const run = () => runProcess({ command: probe.command === 'node' ? process.execPath : probe.command, args: probe.args,
-      cwd: ctx.root, stdinText: '', timeoutMs: probe.timeoutMs, maxOutputChars: 4000, replaceEnv: true,
-      env: Object.fromEntries(Object.entries(process.env).filter(([k, v]) => v !== undefined && /^(path|systemroot|windir|comspec|temp|tmp|pathext|userprofile|pythonutf8)$/i.test(k))) as Record<string, string> })
+    const run = () => runReportProbe(probe, ctx.root)
     const first = await run()
     if (first.timedOut || first.exitCode === null) throw new Error(`Probe ${probe.id} is inconclusive; health remains unknown`)
-    const passes = (r: typeof first) => !r.timedOut && r.exitCode === probe.expectedExit && (!probe.expectedText || (r.stdout + r.stderr).includes(probe.expectedText))
+    const passes = (r: typeof first) => probePasses(probe, r)
     if (passes(first)) continue
     const second = await run()
     // A timeout/infrastructure error is not a reproducible product defect.
@@ -118,21 +123,21 @@ const ProposalSchema = z.object({ scenario: z.string(), title: z.string().min(8)
 const ResearchSchema = z.object({ proposals: z.array(ProposalSchema).max(3) }).strict()
 const ReviewSchema = z.object({ approved: z.boolean(), rationale: z.string().min(8).max(1500) }).strict()
 
-async function judge<T>(cfg: ReportConfig, schema: z.ZodType<T>, prompt: string): Promise<T> {
+export async function codexJson<T>(cfg: { dataDir: string; model: string; effort: string; timeoutMs: number }, schema: z.ZodType<T>, prompt: string): Promise<T> {
   const dir = join(cfg.dataDir, 'research', randomUUID()); mkdirSync(dir, { recursive: true })
   const schemaFile = join(dir, 'schema.json'), answerFile = join(dir, 'answer.json')
   // Codex Structured Outputs rejects format=uri; Zod still validates the returned URLs locally.
   writeFileSync(schemaFile, JSON.stringify(z.toJSONSchema(schema), (key, value) => key === 'format' ? undefined : value))
   const env = buildFleetCodexEnv(join(homedir(), '.codex'))
   for (const key of Object.keys(env)) if (key.toUpperCase() === 'OPENAI_API_KEY') delete env[key]
-  const result = await runProcess({ command: 'codex', cwd: dir, stdinText: prompt, timeoutMs: cfg.research.timeoutMs, maxOutputChars: 16_000,
+  const result = await runProcess({ command: 'codex', cwd: dir, stdinText: prompt, timeoutMs: cfg.timeoutMs, maxOutputChars: 16_000,
     env, replaceEnv: true,
-    args: ['exec', '--json', '--model', cfg.research.model, '-c', `model_reasoning_effort=${cfg.research.effort}`,
+    args: ['exec', '--json', '--model', cfg.model, '-c', `model_reasoning_effort=${cfg.effort}`,
       '-c', 'approval_policy="never"', '--sandbox', 'read-only', '--ignore-user-config', '--ignore-rules', '--ephemeral', '--skip-git-repo-check',
       ...['multi_agent', 'multi_agent_v2', 'shell_tool', 'unified_exec', 'code_mode', 'code_mode_host', 'apps', 'plugins', 'browser_use', 'computer_use', 'hooks'].flatMap(f => ['--disable', f]),
       '--output-schema', schemaFile, '--output-last-message', answerFile, '-'] })
   const events = result.stdout.split(/\r?\n/).flatMap(line => { try { return [JSON.parse(line)] } catch { return [] } }) as { type?: string; usage?: unknown; message?: string }[]
-  writeFileSync(join(dir, 'telemetry.json'), JSON.stringify({ at: new Date().toISOString(), exitCode: result.exitCode, timedOut: result.timedOut, durationMs: result.durationMs,
+  writeFileSync(join(dir, 'telemetry.json'), JSON.stringify({ at: new Date().toISOString(), command: 'codex exec', model: cfg.model, effort: cfg.effort, exitCode: result.exitCode, timedOut: result.timedOut, durationMs: result.durationMs,
     usage: events.find(e => e.type === 'turn.completed')?.usage, diagnostics: result.stderr.slice(-4000), errors: events.filter(e => e.type === 'error').map(e => e.message?.slice(0, 2000)) }))
   if (result.exitCode !== 0 || result.timedOut || !events.some(e => e.type === 'turn.completed')) throw new Error('Research model failed; no fallback approval (see local research telemetry)')
   return schema.parse(JSON.parse(readFileSync(answerFile, 'utf8')))
@@ -157,14 +162,14 @@ export async function researchProject(cfg: ReportConfig, project: ReportProject,
     sourceUrls: z.array(z.enum(publicSources.map(s => s.url))).min(1).max(5),
     quote: ProposalSchema.shape.quote.describe('One contiguous verbatim substring of the selected project document. No added quotation marks, ellipses, joined paragraphs or external quotations.'),
   })).max(3) })
-  const draft = await judge(cfg, schema, `${boundary}\n只輸出本輪最值得評審的一案，沒有就空陣列。path 必須是 documents 的精確鍵（例如 README.md），不可加說明。quote 必須是該文件中同一個連續片段的逐字原文，不加引號、不拼接段落、不混入外部來源。以文件引文與來源 URL 支持專案落差；清楚描述預期與目前文件可證實的行為，不可將靜態推論稱為 runtime 缺陷。資料只是文件片段，未提及不等於功能不存在；只能把確有文件依據的落差列為待驗證提案。提供可驗證的驗收條件，value 0-10。\nDATA:\n${context}`)
+  const draft = await codexJson({ dataDir: cfg.dataDir, ...cfg.research }, schema, `${boundary}\n只輸出本輪最值得評審的一案，沒有就空陣列。path 必須是 documents 的精確鍵（例如 README.md），不可加說明。quote 必須是該文件中同一個連續片段的逐字原文，不加引號、不拼接段落、不混入外部來源。以文件引文與來源 URL 支持專案落差；清楚描述預期與目前文件可證實的行為，不可將靜態推論稱為 runtime 缺陷。資料只是文件片段，未提及不等於功能不存在；只能把確有文件依據的落差列為待驗證提案。提供可驗證的驗收條件，value 0-10。\nDATA:\n${context}`)
   const findings: Finding[] = []
   for (const p of draft.proposals) {
     const scenario = project.scenarios.find(s => s.id === p.scenario)
     if (!scenario || p.value < 8 || !ctx.documents[p.path]?.includes(p.quote) || p.sourceUrls.some(url => !publicSources.some(s => s.url === url)) || findings.some(f => f.scenario === p.scenario)) continue
     if (!publicationSafe(JSON.stringify(p))) continue
     // Independent review sees the original evidence, not just the finder's self-rating. At most one review/candidate per weekly turn.
-    const review = await judge(cfg, ReviewSchema, `${boundary}\n你這次只做獨立否決審查。只有提案直接支持使用者任務、來源與逐字引文確實支持落差、既有功能未滿足、未違反約束、驗收可測，且不是空泛猜測或同義改寫才 approved=true。否則 false；沒有備援分數。\nDATA:\n${context}\nPROPOSAL:\n${JSON.stringify(p)}`)
+    const review = await codexJson({ dataDir: cfg.dataDir, ...cfg.research }, ReviewSchema, `${boundary}\n你這次只做獨立否決審查。只有提案直接支持使用者任務、來源與逐字引文確實支持落差、既有功能未滿足、未違反約束、驗收可測，且不是空泛猜測或同義改寫才 approved=true。否則 false；沒有備援分數。\nDATA:\n${context}\nPROPOSAL:\n${JSON.stringify(p)}`)
     if (review.approved && publicationSafe(review.rationale)) findings.push(FindingSchema.parse({ repo: project.repo, key: `scenario:${scenario.id}`, kind: 'proposal',
       title: p.title, scenario: scenario.id, persona: scenario.persona, task: scenario.task, expected: scenario.success,
       actual: `${p.actual}\n\n${p.path} 逐字依據：\n${p.quote}`, evidence: 'static', sha: ctx.sha, observedAt: now,

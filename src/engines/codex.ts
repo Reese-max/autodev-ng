@@ -1,12 +1,13 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { homedir } from 'node:os'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess, withGitSafeDirectory } from './proc.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
-import { buildFleetCodexEnv, ensureFleetCodexHome } from './codex-runtime.js'
+import { buildFleetCodexEnv, ensureFleetCodexHome, FLEET_CODEX_PERMISSION_ARGS } from './codex-runtime.js'
 
 export interface CodexOpts {
   /** 觀測用引擎識別；registry 以 tag 帶入區分多檔位，未設維持 'codex'。 */
@@ -14,6 +15,8 @@ export interface CodexOpts {
   command?: string
   /** 艦隊專屬 CODEX_HOME；config/auth/session 均不讀使用者 ~/.codex。 */
   homeDir: string
+  /** Reuse local ChatGPT login without loading or rewriting user configuration. */
+  useUserLogin?: boolean
   /** run 用 args。沙箱由艦隊隔離 CODEX_HOME 的 config 決定。 */
   baseArgs?: string[]
   /** preflight 用 args。預設 read-only＋ephemeral：探針唯讀、不落 session（規格卡 ping 形式）。 */
@@ -49,14 +52,20 @@ export class CodexEngine implements Engine {
   private readonly commitChanges: (cwd: string, message: string) => string | undefined
   private readonly homeDir: string
   private readonly env: Record<string, string>
+  private readonly useUserLogin: boolean
 
   constructor(opts: CodexOpts) {
     this.id = opts.id ?? 'codex'
     this.command = opts.command ?? 'codex'
     const modelArgs = opts.model ? ['--model', opts.model] : []
     const effortArgs = opts.effort ? ['-c', `model_reasoning_effort=${opts.effort}`] : []
-    this.baseArgs = [...(opts.baseArgs ?? ['exec', '--json', '--ephemeral', '--strict-config']), ...modelArgs, ...effortArgs]
-    this.pingArgs = [...(opts.pingArgs ?? ['exec', '--json', '-s', 'read-only', '--ephemeral', '--strict-config', '--skip-git-repo-check']), ...modelArgs]
+    this.useUserLogin = opts.useUserLogin ?? false
+    const loginArgs = this.useUserLogin ? ['--ignore-user-config', '--ignore-rules', '-c', 'approval_policy="never"',
+      '-c', 'allow_login_shell=false', '-c', 'windows.sandbox="elevated"',
+      ...['multi_agent', 'multi_agent_v2', 'apps', 'plugins', 'remote_plugin', 'browser_use', 'computer_use', 'hooks'].flatMap(f => ['--disable', f])] : []
+    this.baseArgs = [...(opts.baseArgs ?? ['exec', '--json', '--ephemeral', '--strict-config']), ...modelArgs, ...effortArgs,
+      ...loginArgs, ...(this.useUserLogin ? FLEET_CODEX_PERMISSION_ARGS : [])]
+    this.pingArgs = [...(opts.pingArgs ?? ['exec', '--json', '-s', 'read-only', '--ephemeral', '--strict-config', '--skip-git-repo-check']), ...modelArgs, ...loginArgs]
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 180 * 1000 // skills 冷載入＋忙機器實測可超過 90s
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
@@ -147,6 +156,11 @@ export class CodexEngine implements Engine {
   }
 
   private runtimeEnv(): Record<string, string> {
+    if (this.useUserLogin) {
+      const env = buildFleetCodexEnv(join(homedir(), '.codex'))
+      for (const key of Object.keys(env)) if (/^(OPENAI_API_KEY|CODEX_API_KEY)$/i.test(key)) delete env[key]
+      return env
+    }
     ensureFleetCodexHome(this.homeDir)
     return buildFleetCodexEnv(this.homeDir, this.env)
   }

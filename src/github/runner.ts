@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { acquireLock, releaseLock } from '../lock.js'
-import { eligible, githubStopFile, type GithubConfig, type Issue } from './config.js'
+import { githubStopFile, type GithubConfig, type Issue } from './config.js'
+import { eligibleForRun } from './repair.js'
 import { githubClient, type GithubClient } from './client.js'
 import { assertPublishable, checkoutDir, executeIssue, git } from './job.js'
 import { branchFor, fingerprint, readState, saveState, states, type IssueState } from './state.js'
@@ -9,16 +10,16 @@ import { branchFor, fingerprint, readState, saveState, states, type IssueState }
 export async function syncIssues(cfg: GithubConfig, client: GithubClient): Promise<void> {
   for (const issue of await client.list()) {
     if (existsSync(githubStopFile(cfg))) return
-    if (!eligible(issue, cfg) || readState(cfg, issue.number)) continue
+    if (!eligibleForRun(issue, cfg) || readState(cfg, issue.number)) continue
     saveState(cfg, { repo: cfg.repo, base: cfg.base, issue, fingerprint: fingerprint(issue), status: 'queued', runs: 0, nextRunAt: 0 })
   }
 }
 function currentIssue(cfg: GithubConfig, state: IssueState, issue: Issue): boolean {
-  return issue.number === state.issue.number && eligible(issue, cfg) && fingerprint(issue) === state.fingerprint
+  return issue.number === state.issue.number && eligibleForRun(issue, cfg) && fingerprint(issue) === state.fingerprint
 }
 export async function publishIssue(cfg: GithubConfig, state: IssueState, client: GithubClient, check = assertPublishable,
-  push = () => git(checkoutDir(cfg, state), ['push', 'origin', `${state.commit}:refs/heads/${branchFor(state.issue.number)}`])): Promise<void> {
-  if (!cfg.enabled || !cfg.publish || existsSync(githubStopFile(cfg))) return
+  push = () => git(checkoutDir(cfg, state), ['push', 'origin', `${state.commit}:refs/heads/${branchFor(state.issue.number)}`]), active = () => true): Promise<void> {
+  if (!cfg.enabled || !cfg.publish || existsSync(githubStopFile(cfg)) || !active()) return
   if (!currentIssue(cfg, state, await client.issue(state.issue.number))) throw new Error('Issue closed, changed, or approval label/author no longer matches')
   check(cfg, state)
   const branch = branchFor(state.issue.number), existing = await client.findPr(branch)
@@ -28,10 +29,10 @@ export async function publishIssue(cfg: GithubConfig, state: IssueState, client:
   } else {
     if (await client.findLinkedPr(state.issue.number)) throw new Error('Issue already has a linked PR; manual review required')
     if (!currentIssue(cfg, state, await client.issue(state.issue.number))) throw new Error('Issue changed before push')
-    if (existsSync(githubStopFile(cfg))) return
+    if (existsSync(githubStopFile(cfg)) || !active()) return
     // Push only this candidate, never main or all branches; no force push.
     push()
-    if (existsSync(githubStopFile(cfg))) return
+    if (existsSync(githubStopFile(cfg)) || !active()) return
     if (await client.findLinkedPr(state.issue.number)) throw new Error('Issue acquired a linked PR before PR creation')
     if (!currentIssue(cfg, state, await client.issue(state.issue.number))) throw new Error('Issue changed before PR creation')
     const pr = await client.createPr(branch, `Fix #${state.issue.number}: ${state.issue.title}`.slice(0, 250),
@@ -43,13 +44,15 @@ export async function publishIssue(cfg: GithubConfig, state: IssueState, client:
   saveState(cfg, state)
 }
 export async function runGithub(cfg: GithubConfig, options: {
-  syncOnly?: boolean; client?: GithubClient; execute?: typeof executeIssue; publish?: typeof publishIssue
+  syncOnly?: boolean; client?: GithubClient; execute?: typeof executeIssue; publish?: typeof publishIssue; configPath?: string
 } = {}): Promise<string> {
   if (!cfg.enabled || existsSync(githubStopFile(cfg))) return 'paused'
+  const original = options.configPath ? readFileSync(options.configPath, 'utf8') : undefined
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'runner.lock')
   if (!acquireLock(lock)) return 'locked'
   const client = options.client ?? githubClient(cfg)
+  const active = () => !existsSync(githubStopFile(cfg)) && (!options.configPath || readFileSync(options.configPath, 'utf8') === original)
   try {
     await syncIssues(cfg, client)
     if (options.syncOnly) return 'synced'
@@ -61,7 +64,7 @@ export async function runGithub(cfg: GithubConfig, options: {
     if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
       state.status = 'cancelled'; state.detail = 'Issue changed, closed, or no longer eligible'; saveState(cfg, state); return 'cancelled'
     }
-    if (existsSync(githubStopFile(cfg))) return 'paused'
+    if (!active()) return 'paused'
     try {
       if (state.status === 'queued') {
         const existing = (await client.findPr(branchFor(state.issue.number)))?.html_url ?? await client.findLinkedPr(state.issue.number)
@@ -72,17 +75,21 @@ export async function runGithub(cfg: GithubConfig, options: {
         if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
           state.status = 'cancelled'; state.detail = 'Issue changed or excluded before execution'; saveState(cfg, state); return 'cancelled'
         }
-        if (existsSync(githubStopFile(cfg))) return 'paused'
+        if (!active()) return 'paused'
         if (state.runs >= cfg.maxRuns) { state.status = 'blocked'; saveState(cfg, state); return 'blocked' }
         state.status = 'running'; state.runs++; saveState(cfg, state)
         const result = await (options.execute ?? executeIssue)(cfg, state)
+        if (!active() || !currentIssue(cfg, state, await client.issue(state.issue.number))) {
+          state.status = 'cancelled'; state.detail = 'Issue or configuration changed during execution; candidate preserved'
+          saveState(cfg, state); return 'cancelled'
+        }
         state.detail = result.detail
         state.commit = result.commit
         state.status = result.done ? 'ready' : state.runs >= cfg.maxRuns ? 'blocked' : 'queued'
         state.nextRunAt = Date.now() + cfg.retryMs
         saveState(cfg, state)
       }
-      if (state.status === 'ready') await (options.publish ?? publishIssue)(cfg, state, client)
+      if (state.status === 'ready') await (options.publish ?? publishIssue)(cfg, state, client, undefined, undefined, active)
     } catch (err) {
       state.status = 'blocked'; state.detail = err instanceof Error ? err.message : String(err); saveState(cfg, state)
     }

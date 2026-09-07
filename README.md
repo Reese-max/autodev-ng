@@ -1,8 +1,8 @@
 # autodev-ng
 
-以微核心與插件協調已授權的開發任務；巡檢可自動提出待分流的 GitHub Issue。
+以微核心與插件協調已授權的開發任務；巡檢可自動提出 GitHub Issue，具備明確檢查契約的缺陷可接續 CLI 自動修復。
 
-文件入口：[專案導覽、現況與待辦](docs/README.md) · [Discord 維運](docs/bot-ops.md) · [Supervisor 維運](docs/supervision-playbook.md) · [GitHub Issue 接單](docs/github-issues.md) · [自動立案與研究](docs/github-reports.md)
+文件入口：[專案導覽、現況與待辦](docs/README.md) · [Discord 維運](docs/bot-ops.md) · [Supervisor 維運](docs/supervision-playbook.md) · [GitHub Issue 接單](docs/github-issues.md) · [自動立案與研究](docs/github-reports.md) · [CLI 自動修復](docs/github-repair.md)
 
 ## 核心特點
 

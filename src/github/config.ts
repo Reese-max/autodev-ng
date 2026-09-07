@@ -17,13 +17,19 @@ export const GithubConfigSchema = z.object({
   publish: z.boolean().default(false),
   maxRuns: z.number().int().min(1).max(5).default(3),
   retryMs: z.number().int().min(60_000).default(300_000),
+  repair: z.object({
+    reportConfig: z.string().min(1),
+    probeIds: z.array(z.string().regex(/^[a-z0-9][a-z0-9._-]{0,79}$/)).min(1).max(5),
+    prepareCommand: z.string().trim().min(1),
+  }).strict().optional(),
 }).strict()
 export type GithubConfig = z.infer<typeof GithubConfigSchema>
 export const githubStopFile = (cfg: GithubConfig): string => cfg.stopFile ?? join(cfg.dataDir, '.adng.stop')
 export function loadGithubConfig(path: string): GithubConfig {
   const cfg = GithubConfigSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
   return { ...cfg, sourceConfig: resolve(dirname(path), cfg.sourceConfig), dataDir: resolve(dirname(path), cfg.dataDir),
-    stopFile: cfg.stopFile ? resolve(dirname(path), cfg.stopFile) : undefined }
+    stopFile: cfg.stopFile ? resolve(dirname(path), cfg.stopFile) : undefined,
+    repair: cfg.repair ? { ...cfg.repair, reportConfig: resolve(dirname(path), cfg.repair.reportConfig) } : undefined }
 }
 
 export const IssueSchema = z.object({
@@ -34,10 +40,10 @@ export const IssueSchema = z.object({
   pull_request: z.unknown().optional(),
 })
 export type Issue = z.infer<typeof IssueSchema>
-export function eligible(issue: Issue, cfg: GithubConfig): boolean {
+export function eligible(issue: Issue, cfg: GithubConfig, approvedReport = false): boolean {
+  const reported = issue.body?.includes('<!-- adng:report:') || issue.labels.some(label => label.name.toLowerCase() === 'autodev-reported')
   return !issue.pull_request && issue.state === 'open'
-    && !issue.body?.includes('<!-- adng:report:')
-    && !issue.labels.some(label => label.name.toLowerCase() === 'autodev-reported')
+    && (reported ? approvedReport : !cfg.repair)
     && cfg.authors.some(author => author.toLowerCase() === issue.user.login.toLowerCase())
     && !issue.labels.some(label => label.name.toLowerCase() === 'no-autofix')
     && (cfg.label === null || issue.labels.some(label => label.name === cfg.label))

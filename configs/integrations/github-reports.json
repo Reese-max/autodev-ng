@@ -21,7 +21,7 @@
       "repo": "Reese-max/autodev-ng",
       "sourceConfig": "../autodev-self.json",
       "purpose": "讓開發者以可追蹤的巡檢、任務與驗收維護專案。",
-      "constraints": "只通報與研究；不自動建立 GOAL、修復、推送、部署或修改帳號權限。",
+      "constraints": "巡檢只蒐證與立案；已核對的可重現 CLI 缺陷可依獨立 repair 設定進行隔離修復與驗收。不建立新 GOAL，不推送、部署或修改帳號權限。",
       "scenarios": [
         {
           "id": "onboarding",
@@ -229,5 +229,8 @@
         "https://developer.mozilla.org/en-US/docs/Web/Accessibility"
       ]
     }
+  ],
+  "repairConfigs": [
+    "./github-repair.json"
   ]
 }

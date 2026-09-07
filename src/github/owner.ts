@@ -8,7 +8,7 @@ import { GithubConfigSchema, type GithubConfig } from './config.js'
 import { runGithub } from './runner.js'
 import { states } from './state.js'
 
-export const OwnerConfigSchema = GithubConfigSchema.omit({ repo: true, base: true, template: true, stopFile: true, verifyCommand: true }).extend({
+export const OwnerConfigSchema = GithubConfigSchema.omit({ repo: true, base: true, template: true, stopFile: true, verifyCommand: true, repair: true }).extend({
   owner: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/),
   projects: z.record(GithubConfigSchema.shape.repo, z.string().min(1)).optional(),
   verifyCommands: z.record(GithubConfigSchema.shape.repo, GithubConfigSchema.shape.verifyCommand.unwrap()).optional(),

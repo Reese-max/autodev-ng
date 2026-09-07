@@ -8,6 +8,10 @@ import { ConfigSchema } from '../types.js'
 import { command } from './client.js'
 import { githubStopFile, type GithubConfig } from './config.js'
 import { branchFor, issueDir, saveState, type IssueState } from './state.js'
+import { assertRepairEvidence, prepareRepair, reviewRepair, verifyRepairProbe } from './repair.js'
+import { CodexEngine } from '../engines/codex.js'
+import { PreflightCache } from '../preflight.js'
+import { KernelVerifier } from '../verifier.js'
 
 export const git = (cwd: string, args: string[]): string => command('git', ['-c', `safe.directory=${cwd.replace(/\\/g, '/')}`, ...args], cwd)
 export const checkoutDir = (cfg: GithubConfig, state: IssueState): string => join(issueDir(cfg, state.issue.number), 'repo')
@@ -28,6 +32,7 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
   const engine = source.engines[cfg.engine]
   if (!engine || ['freebuff', 'herdr', 'mock'].includes(engine.adapter)) throw new Error('GitHub runner requires an explicitly selected regular engine')
   if (engine.timeoutMs === 0) throw new Error('GitHub runner requires a bounded engine wall timeout')
+  if (cfg.repair && engine.adapter !== 'codex') throw new Error('Automatic report repairs require the Codex CLI engine')
   if (!source.verifyCommand?.trim() || !(source.reviewEngine ?? source.auditModel)) throw new Error('GitHub runner requires verifyCommand and reviewer configuration')
   const dir = issueDir(cfg, state.issue.number)
   return ConfigSchema.parse({ ...source,
@@ -36,7 +41,8 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
     maxAttempts: cfg.maxRuns, concurrency: 1, defaultRisk: 'medium', perpetual: false, goalFile: undefined,
     discordChannelId: undefined, telegramBotToken: undefined, telegramChatId: undefined,
     learningsFile: join(dir, 'learnings.md'), globalLearningsFile: undefined, releaseApprovalFile: undefined,
-    extraDirective: 'Only implement the Issue in this checkout. Do not push, create PRs, send messages, deploy, change credentials, or operate other repositories. The host handles publication after verified completion.',
+    ...(cfg.repair ? { judgeUrl: undefined, reviewUrl: undefined, judgeApiKey: '' } : {}),
+    extraDirective: [source.extraDirective, 'Only implement the Issue in this checkout. Do not push, create PRs, send messages, deploy, change credentials, or operate other repositories. The host handles publication after verified completion.'].filter(Boolean).join('\n'),
   })
 }
 export function prepareCheckout(cfg: GithubConfig, state: IssueState): void {
@@ -57,11 +63,26 @@ export function prepareCheckout(cfg: GithubConfig, state: IssueState): void {
 export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string }> {
   prepareCheckout(cfg, state)
   const runtime = runtimeConfig(cfg, state)
+  if (cfg.repair) await prepareRepair(cfg, state, runtime.projectPath, runtime.verifyTimeoutMs)
   if (!existsSync(runtime.backlogFile)) {
     writeFileSync(runtime.backlogFile, '')
     new BacklogStore(runtime.backlogFile).append(issueTask(state), { goalId: `github-${state.issue.number}`, round: 1 })
   }
   const app = assemble(runtime)
+  if (cfg.repair) {
+    const engine = runtime.engines[cfg.engine]!
+    const worker = new CodexEngine({ ...engine, useUserLogin: true, homeDir: join(runtime.dataDir, 'codex-home'),
+      cache: new PreflightCache(join(runtime.dataDir, 'preflight-cli.json')) })
+    app.deps.engines = { resolve: () => worker }
+    const verifier = new KernelVerifier({ cfg: runtime, reviewRun: args => reviewRepair({ dataDir: runtime.dataDir,
+      model: runtime.reviewEngine ?? runtime.auditModel!, effort: runtime.judgeEffort, timeoutMs: runtime.judgeTimeoutMs }, args) })
+    app.deps.verifier = { async check(job, res) {
+      const checked = await verifier.check(job, res)
+      if (checked.pass && (!res.commitHash || !await verifyRepairProbe(cfg, state, job.projectPath, res.commitHash)))
+        return { ...checked, pass: false, reason: 'Original reported probe still fails after repair' }
+      return checked
+    } }
+  }
   // No notifications or perpetual discovery: one imported Issue, one bounded scheduler cycle.
   app.deps.notify = undefined
   app.deps.taskTerminalNotify = undefined
@@ -73,7 +94,9 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     const result = await runOnce(app.deps)
     finalizeRunOnceHeartbeat(app.deps, result)
     const done = result === 'done'
-    return { done, detail: typeof result === 'string' ? result : result.reason, ...(done ? { commit: git(runtime.projectPath, ['rev-parse', 'HEAD']) } : {}) }
+    const commit = done ? git(runtime.projectPath, ['rev-parse', 'HEAD']) : undefined
+    if (done) assertPublishable(cfg, { ...state, commit })
+    return { done, detail: typeof result === 'string' ? result : result.reason, ...(commit ? { commit } : {}) }
   } finally { app.deps.db.close(); app.deps.team?.close() }
 }
 export function detectVerification(cwd: string): string {
@@ -101,4 +124,5 @@ export function assertPublishable(cfg: GithubConfig, state: IssueState): void {
     && b.gates?.ci?.status === 'pass' && b.gates.ci.executed === true && b.gates.ci.exitCode === 0
     && b.gates?.reviewer?.status === 'pass')
   if (!gate || !bundles.some(b => validHash(b) && b.mergedCommit === state.commit && b.gateBundleHash === gate.bundleHash)) throw new Error('Missing CI/reviewer/merge evidence for exact candidate commit')
+  if (cfg.repair) assertRepairEvidence(cfg, state)
 }

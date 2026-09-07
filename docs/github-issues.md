@@ -17,7 +17,7 @@ Freebuff、Herdr、mock 及無 wall timeout 的引擎不可用於此入口。
 - `label: null`：不需標籤，接收指定作者的既有與新增 open Issues。
 - 未指定 label：仍要求 `autodev`。
 - `no-autofix`：一律排除，不分大小寫。
-- AutoDev [自動通報](github-reports.md) 的來源標記或 `autodev-reported` 標籤一律排除，包含 `label: null`；待分流不代表修復授權。
+- AutoDev [自動通報](github-reports.md) 的來源標記或 `autodev-reported` 標籤預設排除，包含 `label: null`；只有明列本地通報快照與檢查契約的 [CLI 修復政策](github-repair.md) 可接案。
 - Issue 內容變更、關閉、作者不符或新增排除標籤，會在執行與發布前取消或阻擋。
 - 已有對應分支 PR 或 GitHub 關聯 PR（包含已關閉）時阻擋重複修復，保留 PR 連結。
 

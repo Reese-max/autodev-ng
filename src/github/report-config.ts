@@ -30,6 +30,7 @@ export const ReportConfigSchema = z.object({
   owner: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/), enabled: z.boolean().default(false), publish: z.boolean().default(false),
   dataDir: z.string().min(1), stopFile: z.string().min(1), personaFile: z.string().min(1),
   projects: z.array(ReportProjectSchema).min(1).max(50),
+  repairConfigs: z.array(z.string().min(1)).max(50).default([]),
   intervalMs: z.number().int().min(60_000).default(900_000),
   dailyRepoLimit: z.number().int().min(1).max(3).default(3), dailyAccountLimit: z.number().int().min(1).max(10).default(10),
   research: z.object({ enabled: z.boolean().default(false), model: z.string().min(1),
@@ -49,6 +50,7 @@ export function loadReportConfig(file: string): ReportConfig {
   const cfg = ReportConfigSchema.parse(JSON.parse(readFileSync(file, 'utf8')))
   const path = (p: string) => resolve(dirname(file), p)
   return { ...cfg, dataDir: path(cfg.dataDir), stopFile: path(cfg.stopFile), personaFile: path(cfg.personaFile),
+    repairConfigs: cfg.repairConfigs.map(path),
     projects: cfg.projects.map(p => ({ ...p, sourceConfig: path(p.sourceConfig) })),
     research: { ...cfg.research, anysearchScript: cfg.research.anysearchScript ? path(cfg.research.anysearchScript) : undefined } }
 }
