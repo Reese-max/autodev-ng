@@ -54,6 +54,13 @@ test('real local probe repeats a failure; host-bound evidence is not a persona v
   cfg.projects[0]!.probes[0]!.args = ['-e', 'console.log("Usage")']
   expect(await observeProject(cfg.projects[0]!, finding.observedAt)).toEqual([])
 })
+test('inconclusive runtime observations never masquerade as a healthy recovery', async () => {
+  const f = setup()
+  vi.spyOn(proc, 'runProcess').mockResolvedValue({ exitCode: null, timedOut: true, durationMs: 10000, stdout: '', stderr: '' })
+  await expect(observeProject(f.cfg.projects[0]!, f.finding.observedAt)).rejects.toThrow('health remains unknown')
+  writeFileSync(join(f.repo, 'README.md'), 'uncommitted work')
+  await expect(observeProject(f.cfg.projects[0]!, f.finding.observedAt)).rejects.toThrow('uncommitted changes')
+})
 test('20 patrols publish once; time, wording, version and persona do not change identity; readback preserves multiline text', async () => {
   const f = setup(); const id = reportFingerprint(f.finding)
   for (let i = 0; i < 20; i++) await runReports(f.cfg, { now: f.now, request: f.request, observe: f.observe })

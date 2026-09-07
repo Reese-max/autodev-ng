@@ -126,7 +126,7 @@ export async function runReports(cfg: ReportConfig, options: { dryRun?: boolean;
           const found = await (options.observe ?? observeProject)(project, stamp)
           observationFailed = false
           for (const entry of Object.values(state.entries).filter(e => e.finding.repo === project.repo && e.status === 'pending' && e.finding.kind === 'defect'))
-            if (!found.some(f => reportFingerprint(f) === reportFingerprint(entry.finding))) { entry.status = 'suppressed'; entry.detail = 'Probe recovered; no longer reportable' }
+            if (!found.some(f => reportFingerprint(f) === reportFingerprint(entry.finding))) { entry.status = 'suppressed'; entry.detail = 'Current patrol did not reproduce this finding; no longer reportable' }
           for (const finding of found) {
             FindingSchema.parse(finding)
             if (finding.repo !== project.repo) throw new Error('Cross-repository finding rejected')

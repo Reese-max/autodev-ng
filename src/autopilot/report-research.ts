@@ -59,21 +59,23 @@ export async function observeProject(project: ReportProject, now: string): Promi
       sha: ctx.sha, observedAt: now, reproduction: 'git ls-tree --name-only HEAD', acceptance: '根目錄 README 說明專案用途、先決條件與一個可驗證的最小操作範例。',
       sources: [], review: '宿主以 Git 追蹤檔案清單核對缺檔；不以 persona 意見作為故障證據。', value: 8 }))
   }
-  if (!ctx.clean) return findings // Static evidence comes from HEAD; do not run uncommitted executable code.
+  if (!ctx.clean && project.probes.length) throw new Error('Runtime probes blocked by uncommitted changes; health remains unknown')
   for (const probe of project.probes) {
     const scenario = project.scenarios.find(s => s.id === probe.scenario)!
     const run = () => runProcess({ command: probe.command === 'node' ? process.execPath : probe.command, args: probe.args,
       cwd: ctx.root, stdinText: '', timeoutMs: probe.timeoutMs, maxOutputChars: 4000, replaceEnv: true,
       env: Object.fromEntries(Object.entries(process.env).filter(([k, v]) => v !== undefined && /^(path|systemroot|windir|comspec|temp|tmp|pathext|userprofile|pythonutf8)$/i.test(k))) as Record<string, string> })
     const first = await run()
+    if (first.timedOut || first.exitCode === null) throw new Error(`Probe ${probe.id} is inconclusive; health remains unknown`)
     const passes = (r: typeof first) => !r.timedOut && r.exitCode === probe.expectedExit && (!probe.expectedText || (r.stdout + r.stderr).includes(probe.expectedText))
     if (passes(first)) continue
     const second = await run()
     // A timeout/infrastructure error is not a reproducible product defect.
-    if (passes(second) || first.timedOut || second.timedOut || first.exitCode === null || first.exitCode !== second.exitCode || first.stdout !== second.stdout || first.stderr !== second.stderr) continue
+    if (passes(second)) continue
+    if (second.timedOut || second.exitCode === null || first.exitCode !== second.exitCode || first.stdout !== second.stdout || first.stderr !== second.stderr) throw new Error(`Probe ${probe.id} is inconclusive; health remains unknown`)
     const actual = `Two identical observations: exit=${first.exitCode}\n${first.stdout}\n${first.stderr}`.trim()
     const reproduction = JSON.stringify([probe.command, ...probe.args])
-    if (!publicationSafe(actual + reproduction)) continue
+    if (!publicationSafe(actual + reproduction)) throw new Error(`Probe ${probe.id} output requires local privacy review`)
     findings.push(FindingSchema.parse({ repo: project.repo, key: `probe:${probe.id}`, kind: 'defect', title: `使用者巡檢：${scenario.task.slice(0, 140)}，檢查未通過`,
       scenario: scenario.id, persona: scenario.persona, task: scenario.task, expected: scenario.success, actual, evidence: 'runtime',
       sha: ctx.sha, observedAt: now, reproduction, acceptance: `重新執行相同 argv，exit=${probe.expectedExit}${probe.expectedText ? `，輸出包含 ${probe.expectedText}` : ''}；${scenario.success}`,
