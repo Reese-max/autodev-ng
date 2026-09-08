@@ -18,10 +18,10 @@
 
 ## 學習與使用者回饋
 
-沿用既有 lessons 的注入、反思與獨立審核。每次開始與結束另記 execution、任務、模型、基準 commit、教訓內容雜湊、耗時及交付結果；沒有結束紀錄的執行列為中斷／待定。
+沿用既有 lessons 的注入、反思與獨立審核。自動修復將教訓寫回來源專案，下一個 Issue 與一般工作都可讀取；共用檔案以既有檔案鎖序列化寫入，讀取錯誤不得當空檔覆寫。每次開始與結束另記 execution、任務、模型、基準 commit、教訓內容雜湊、耗時及交付結果；沒有結束紀錄的執行列為中斷／待定。
 
 ```powershell
-node scripts/learning-report.mjs --config configs/autodev-self.json
+node scripts/learning-report.mjs --config configs/autodev-self.json --repair-config configs/integrations/github-repair.json
 ```
 
 退出碼：`0` 有觀測、`2` 尚無觀測、`1` 讀取或資料完整性失敗。只有任務、模型、基準 commit 相同，而且有／無教訓各至少三次觀測時才顯示差異；不宣稱因果改善。報表使用保留中的事件紀錄，長期比較前先封存事件。沒有真實樣本時不可用測試資料冒充進步。

@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { withBacklogLock } from '../backlog.js'
 
 export const MAX_LESSONS = 30
 export const MAX_LESSON_LEN = 200
@@ -24,8 +25,9 @@ export function parseLessons(md: string): Lesson[] {
 function readWithFallback(f: string): string {
   try {
     return readFileSync(f, 'utf8')
-  } catch {
-    return ''
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return ''
+    throw error
   }
 }
 
@@ -46,6 +48,13 @@ export class LessonStore {
   ) {}
 
   add(text: string, now?: Date): boolean {
+    try {
+      mkdirSync(dirname(this.projectFile), { recursive: true })
+      return withBacklogLock(this.projectFile, () => this.addLocked(text, now))
+    } catch { return false }
+  }
+
+  private addLocked(text: string, now?: Date): boolean {
     try {
       const first = text.split('\n')[0]!.trim()
       if (!first) return false
@@ -70,10 +79,6 @@ export class LessonStore {
 
       const lines = ['# Learnings', ...lessons.map(l => `- L${String(l.num).padStart(3, '0')} [${l.date}] ${l.text}`), '']
       const content = lines.join('\n')
-
-      const dir = dirname(this.projectFile)
-      // 保證目錄存在；fail-open（故障不影響主流程）
-      mkdirSync(dir, { recursive: true })
 
       // tmp 與目標檔同目錄：避免跨磁碟機 EXDEV（e.g., C:/tmp + D:/projectFile）
       // tmp+rename 是不可部分的寫入，原子交付

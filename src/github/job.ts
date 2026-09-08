@@ -42,7 +42,7 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
     stopFile: githubStopFile(cfg), defaultEngine: cfg.engine, engineRotation: [cfg.engine], engines: { [cfg.engine]: engine },
     maxAttempts: cfg.maxRuns, concurrency: 1, defaultRisk: 'medium', perpetual: false, goalFile: undefined,
     discordChannelId: undefined, telegramBotToken: undefined, telegramChatId: undefined,
-    learningsFile: join(dir, 'learnings.md'), globalLearningsFile: undefined, releaseApprovalFile: undefined,
+    learningsFile: cfg.repair ? source.learningsFile ?? join(source.dataDir, 'learnings.md') : join(dir, 'learnings.md'), globalLearningsFile: undefined, releaseApprovalFile: undefined,
     ...(cfg.repair ? { llmTransport: 'cli', judgeUrl: undefined, reviewUrl: undefined, judgeApiKey: '' } : {}),
     extraDirective: [source.extraDirective, `Add a self-contained regression file ${regressionFile(state.issue.number, cfg, state)}. ${cfg.regression ? `Use this trusted test command: ${JSON.stringify(cfg.regression)}.` : 'Use Node node:test and node:assert/strict.'} It must pass on the fix and fail an assertion on the original code when ONLY this test file is copied there. Use the repository root as cwd. Do not change existing tests. Do not branch on git state, paths or environment to manufacture a pass.`, 'Only implement the Issue in this checkout. Do not push, create PRs, send messages, deploy, change credentials, or operate other repositories. The host handles publication after verified completion.'].filter(Boolean).join('\n'),
   })

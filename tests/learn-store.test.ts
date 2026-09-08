@@ -1,4 +1,7 @@
-import { describe, test, expect } from 'vitest'
+import { describe, test, expect, vi } from 'vitest'
+import fs from 'node:fs'
+import { spawn } from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,6 +20,24 @@ describe('parseLessons', () => {
 })
 
 describe('LessonStore.add', () => {
+  test('跨程序新增不覆蓋其他寫入者，讀取失敗保留原始檔案', async () => {
+    const file = join(dir(), 'shared.md'), moduleUrl = new URL('../dist/learn/store.js', import.meta.url).href
+    const script = `import { LessonStore } from ${JSON.stringify(moduleUrl)}; const s=new LessonStore(process.argv[1]); for(let i=0;i<12;i++) if(!s.add(process.argv[2]+' item '+i+' end')) process.exit(1)`
+    await Promise.all(['writer-a', 'writer-b'].map(id => new Promise<void>((done, fail) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script, file, id], { windowsHide: true, stdio: 'ignore' })
+      child.once('error', fail); child.once('exit', code => code === 0 ? done() : fail(new Error(`lesson writer exited ${code}`)))
+    })))
+    const original = readFileSync(file, 'utf8')
+    expect(parseLessons(original)).toHaveLength(24)
+    const read = fs.readFileSync
+    const spy = vi.spyOn(fs, 'readFileSync').mockImplementation(((path: fs.PathOrFileDescriptor, ...args: unknown[]) => {
+      if (path === file) throw Object.assign(new Error('fixture access denied'), { code: 'EACCES' })
+      return (read as Function)(path, ...args)
+    }) as typeof fs.readFileSync)
+    syncBuiltinESMExports()
+    try { expect(new LessonStore(file).add('must not overwrite')).toBe(false) } finally { spy.mockRestore(); syncBuiltinESMExports() }
+    expect(readFileSync(file, 'utf8')).toBe(original)
+  })
   test('新檔寫入 L001,含標題', () => {
     const f = join(dir(), 'learnings.md')
     const s = new LessonStore(f)

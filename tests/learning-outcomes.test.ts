@@ -1,6 +1,12 @@
 import { expect, test } from 'vitest'
 import { lessonFingerprints, observeLearning, summarizeLearning } from '../src/learn/outcomes.js'
 import type { EventLog } from '../src/events.js'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { GithubConfigSchema } from '../src/github/config.js'
+import { saveState } from '../src/github/state.js'
 
 test('同任務/模型/版本才能比較；中斷、未驗收與少量樣本不得宣稱改善', () => {
   const events: object[] = [], log: Pick<EventLog, 'append'> = { append: (type, data) => { events.push({ type, ...data }) } }
@@ -24,4 +30,24 @@ test('教訓內容指紋不依賴編號/日期；損壞紀錄明確呈現', () =
   expect(lessonFingerprints('- L001 [2026-01-01] same lesson')).toEqual(lessonFingerprints('- L008 [2026-09-08] same   lesson'))
   expect(summarizeLearning('{broken').malformed).toBe(1)
   expect(summarizeLearning('').comparisons).toEqual([])
+})
+
+test('報表納入同專案 Issue 紀錄，拒絕混入其他專案', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-learning-report-'))
+  try {
+    const file = join(dir, 'source.json'), repairFile = join(dir, 'repair.json')
+    writeFileSync(file, JSON.stringify({ dataDir: 'self' }))
+    const cfg = GithubConfigSchema.parse({ repo: 'fixture/project', authors: ['fixture'], sourceConfig: file, dataDir: join(dir, 'issues'), engine: 'writer',
+      repair: { reportConfig: 'unused.json', probeIds: ['fixture'], prepareCommand: 'unused' } })
+    writeFileSync(repairFile, JSON.stringify(cfg))
+    saveState(cfg, { repo: cfg.repo, base: cfg.base, status: 'queued', runs: 1, nextRunAt: 0, fingerprint: 'a'.repeat(64),
+      issue: { number: 1, title: 'fixture', body: '', state: 'open', user: { login: 'fixture' }, labels: [] } })
+    const log = join(cfg.dataDir, 'issue-1', 'events.jsonl')
+    writeFileSync(log, JSON.stringify({ type: 'learning-outcome', executionId: 'fixture-only', taskId: 'fixture', model: 'fixture', baseCommit: 'a'.repeat(40), lessons: [], accepted: true, commit: 'b'.repeat(40), durationMs: 1 }) + '\n')
+    const run = () => spawnSync(process.execPath, [resolve('scripts/learning-report.mjs'), '--config', file, '--repair-config', repairFile], { encoding: 'utf8', windowsHide: true })
+    const result = run()
+    expect(result.status).toBe(0); expect(JSON.parse(result.stdout)).toMatchObject({ observed: 1, causalImprovement: null })
+    writeFileSync(repairFile, JSON.stringify({ ...cfg, sourceConfig: join(dir, 'another.json') }))
+    expect(run().status).toBe(1)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
