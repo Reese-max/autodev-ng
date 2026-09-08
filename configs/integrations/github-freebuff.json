@@ -3,12 +3,22 @@
   "sourceConfig": "../autodev-self.json",
   "dataDir": "../../data/github-freebuff",
   "engine": "freebuff",
-  "authors": ["Reese-max"],
+  "authors": [
+    "Reese-max"
+  ],
   "label": "autodev-freebuff",
   "enabled": true,
   "publish": true,
   "maxRuns": 3,
   "retryMs": 900000,
   "verifyCommand": "npm --userconfig C:/Users/Administrator/autodev-ng/configs/integrations/github-repair.npmrc ci --no-audit --no-fund && npm run build && npm test",
-  "regressionPrepareCommand": "npm --userconfig C:/Users/Administrator/autodev-ng/configs/integrations/github-repair.npmrc ci --no-audit --no-fund && npm run build"
+  "regressionPrepareCommand": "npm --userconfig C:/Users/Administrator/autodev-ng/configs/integrations/github-repair.npmrc ci --no-audit --no-fund && npm run build",
+  "followup": true,
+  "acceptance": {
+    "command": "node",
+    "args": [
+      "--test",
+      "tests/regressions/github-7.test.cjs"
+    ]
+  }
 }
