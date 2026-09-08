@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'vitest'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { git } from '../src/github/job.js'
 import { GithubConfigSchema } from '../src/github/config.js'
 import type { IssueState } from '../src/github/state.js'
@@ -9,6 +10,15 @@ import { assertRegression, regressionFile, verifyRegression } from '../src/githu
 
 const dirs: string[] = []
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
+test.skipIf(process.platform !== 'win32')('single-repository watcher accepts absolute and relative data directories while disabled', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-watcher-')); dirs.push(root)
+  for (const dataDir of [join(root, 'absolute'), 'relative']) {
+    const file = join(root, 'config.json')
+    writeFileSync(file, JSON.stringify({ repo: 'owner/repo', dataDir, enabled: false, retryMs: 60000 }))
+    const run = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(import.meta.dirname, '../scripts/watch-github-owner.ps1'), '-Config', file, '-Mode', 'issues'], { encoding: 'utf8', windowsHide: true, timeout: 10_000 })
+    expect(run.status, run.stderr).toBe(0)
+  }
+})
 test.each(['valid', 'always-pass', 'missing-module', 'weakened-test'])('regression gate: %s', async mode => {
   const root = mkdtempSync(join(tmpdir(), 'adng-regression-')); dirs.push(root)
   const cwd = join(root, 'issue-9/repo'); mkdirSync(cwd, { recursive: true })

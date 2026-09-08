@@ -4,7 +4,7 @@ $adngRoot = Split-Path -Parent $PSScriptRoot
 $adngConfig = (Resolve-Path -LiteralPath $Config).Path
 $adngSettings = Get-Content -LiteralPath $adngConfig -Encoding UTF8 -Raw | ConvertFrom-Json
 if (-not $adngSettings.owner -and -not $adngSettings.repo) { throw 'Expected owner or repository configuration' }
-$adngData = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $adngConfig) $adngSettings.dataDir))
+$adngData = if ([IO.Path]::IsPathRooted($adngSettings.dataDir)) { [IO.Path]::GetFullPath($adngSettings.dataDir) } else { [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $adngConfig) $adngSettings.dataDir)) }
 if ($Mode -eq 'repairs') { $adngData = Join-Path $adngData 'repairs' }
 $adngNode = (Get-Command node.exe -ErrorAction Stop).Source
 $adngCommand = if ($Mode -eq 'reports') { 'report' } elseif ($Mode -eq 'repairs') { 'repair-batch' } elseif ($adngSettings.repo) { 'run' } else { 'owner-run' }
