@@ -1,16 +1,6 @@
-/** 影子帳（真實市價 2026-07-29 查證）：token 若按市價 API 計費的估值，分兩層：
- *   free  ＝零成本層（devin/oc 系/agy）——實付 $0，影子帳＝艦隊幫你省的錢
- *   quota ＝訂閱額度層（codex 系/grok）——額度內不另付費，影子帳＝額度的市價值
- * cache 命中另計（2026-07-29 修）：cached input 按官方 cached 價（OpenAI＝input 的 10%、
- * DeepSeek/MiMo cache-hit $0.0028、Windsurf cache-read $0.10）——實測 codex 單輪 95% 命中，
- * 全價計會灌水近一個量級。
- * 檔位來源（官方定價頁）：
- *   devin（swe-1.6）：Cognition 官方超額價 $0.50/$2.00，cache-read $0.10。agy 比照。
- *   oc 系 free：flash 檔 $0.14/$0.28，cache-hit $0.0028（deepseek 與 mimo 官方同價）。
- *   codex：gpt-5.6-sol $5/$30（cached $0.50）、terra $2.50/$15（cached $0.25，xhigh 同）、
- *     luna $1/$6（cached $0.10）。
- *   grok：實跑 composer-2.5-fast $3/$15（CLI 無 usage，恆 0；cached 假設比照 10%）。
- * 長前綴檔位排前。真金層（opencode/claude）回 null——已在 billed 帳。 */
+/** Legacy alias-based estimates retained for compatibility only.
+ * New accounting uses immutable attempt snapshots; these historical references are
+ * neither verified current tariffs nor evidence of realized savings. */
 
 export type ShadowTier = 'free' | 'quota'
 
@@ -34,6 +24,7 @@ export function isShadowFreeTierEngine(engine: string): boolean {
 }
 
 export function shadowCostUsd(engine: string, tokensIn: number, tokensOut: number, tokensCached = 0): { usd: number; tier: ShadowTier } | null {
+  if (![tokensIn, tokensOut, tokensCached].every(n => Number.isSafeInteger(n) && n >= 0)) return null
   const r = RATES.find(x => x.re.test(engine))
   if (!r) return null
   const cached = Math.min(tokensCached, tokensIn) // 防呆：cached 不得超過 in

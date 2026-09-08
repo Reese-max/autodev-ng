@@ -5,17 +5,48 @@ import { issueDir, states } from './state.js'
 import { eligibleForRun } from './repair.js'
 import { existsSync } from 'node:fs'
 
+export const GITHUB_MODES = ['scan', 'sync', 'run', 'status', 'owner-sync', 'owner-run', 'owner-status'] as const
+
+export const GITHUB_USAGE = `用法：adng github <${GITHUB_MODES.join('|')}> --config <github-config.json>`
+
+export const GITHUB_HELP = [
+  'adng github：GitHub Issue intake、同步、執行與 owner 管理',
+  '',
+  GITHUB_USAGE,
+  '',
+  '模式：',
+  '  scan         掃描符合條件的 Issue',
+  '  sync         同步 Issue 狀態至本機',
+  '  run          執行一個可處理的 Issue',
+  '  status       顯示本機 Issue 狀態',
+  '  owner-sync   同步 owner 擁有的 repositories',
+  '  owner-run    執行 owner repositories 的一輪工作',
+  '  owner-status 顯示 owner repositories 狀態',
+  '',
+  '  doctor [--live]、retry/resume --issue N --reason TEXT：診斷與恢復',
+  '  delivery、metrics、accept --issue N --commit SHA --reason EVIDENCE：交付與驗收',
+  '  report/report-collect/report-status、repair/repair-status/repair-batch：通報與修復',
+  '  proposal-review/proposal-status/proposal-feedback：提案審查',
+  '  followup=true 啟用受 maxRuns 限制的 PR 修正；不自動合併或部署。',
+  '  --help       顯示本說明；不讀取 config、不連線 GitHub 或通知服務',
+].join('\n')
+
+export function printGithubHelp(): void {
+  console.log(GITHUB_HELP)
+}
+
 export async function githubCli(argv: string[]): Promise<void> {
+  if (argv.includes('--help') || (argv.length === 1 && ['-h', 'help'].includes(argv[0]!))) {
+    process.exitCode = 0
+    printGithubHelp()
+    return
+  }
   const [mode, flag, file, ...extra] = argv
   if (['proposal-review', 'proposal-status', 'proposal-feedback'].includes(mode ?? '')) {
     await (await import('./proposals.js')).proposalCli(mode!, argv.slice(1)); return
   }
   if (['doctor', 'retry', 'resume', 'delivery', 'metrics', 'accept', 'repair-doctor', 'repair-retry', 'repair-resume', 'repair-delivery', 'repair-metrics'].includes(mode ?? '')) {
     await (await import('./operations.js')).operationsCli(mode!, argv.slice(1)); return
-  }
-  if (argv.length === 1 && ['--help', '-h', 'help'].includes(mode!)) {
-    console.log('GitHub operations: doctor [--live], retry|resume --issue N --reason TEXT, delivery|metrics, accept --issue N --commit SHA --reason EVIDENCE. All require --config PATH. followup=true enables bounded PR revisions within maxRuns. Acceptance commands are trusted local configuration, never Issue text.')
-    console.log('Usage: adng github <scan|sync|run|status|owner-sync|owner-run|owner-status|report|report-collect|report-status|repair|repair-status> --config <path>\nrepair --dry-run previews eligible reports; repair runs one bounded CLI repair.\nrepair-doctor --live: test login/sandbox; repair-retry|repair-resume --issue N --reason "details": preserve attempts.\nrepair-delivery --issue N: verify exact commit; repair-metrics: observed outcomes.\nproposal-review|proposal-status|proposal-feedback: validate, schedule and learn.\nrepair-batch: separate scheduled repairs (report never waits for them).'); return
   }
   if (mode === 'repair-batch' && flag === '--config' && file && !extra.length) {
     await (await import('./repair.js')).repairFromReports(file)

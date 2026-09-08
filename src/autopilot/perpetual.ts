@@ -390,7 +390,7 @@ export async function maybeRunPerpetual(
 
   // M10.5：全域日頂同步閘（安靜讓路，與其他前置閘一致）。
   if (cfg.globalDailyHardUsd !== undefined && deps.cfgPath) {
-    try { if (globalBilledToday(deps.cfgPath, new Date().toISOString()) >= cfg.globalDailyHardUsd) return false } catch { /* fail-open 放行 */ }
+    try { if (globalBilledToday(deps.cfgPath, new Date().toISOString()) >= cfg.globalDailyHardUsd) return false } catch { deps.events.appendOnce('cost-accounting-incomplete', { scope: 'global-discovery' }); return false }
   }
 
   return runPerpetualCycle(cfg, cfg.dataDir, deps.events, (t) => notifier.send(t), hooks)

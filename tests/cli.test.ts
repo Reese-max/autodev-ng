@@ -16,6 +16,7 @@ import { DiscordNotifier } from '../src/engines/notify.js'
 import { EventLog } from '../src/events.js'
 import { RunDb } from '../src/db.js'
 import type { CycleResult, Deps } from '../src/scheduler.js'
+import { expandConfigPaths } from '../src/cli/assemble.js'
 
 function writeConfig(dir: string, over: Record<string, unknown> = {}): string {
   const cfgPath = join(dir, 'config.json')
@@ -53,6 +54,32 @@ test('assemble：Telegram token/chat ID 齊全才接入任務終態通知', () =
     expect(deps.taskTerminalNotify).toBeTypeOf('function')
   } finally {
     deps.db.close()
+  }
+})
+
+test('config path expansion：judgeApiKey 與 telegramBotToken 都走環境引用，不把值寫回 config', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-cli-secrets-'))
+  const cfgPath = writeConfig(dir, {
+    judgeApiKey: '{env:ADNG_TEST_JUDGE_KEY}',
+    telegramBotToken: '${env:ADNG_TEST_TELEGRAM_TOKEN}',
+    telegramChatId: '-100123',
+  })
+  const savedJudge = process.env.ADNG_TEST_JUDGE_KEY
+  const savedTelegram = process.env.ADNG_TEST_TELEGRAM_TOKEN
+  process.env.ADNG_TEST_JUDGE_KEY = 'synthetic-judge-key'
+  process.env.ADNG_TEST_TELEGRAM_TOKEN = 'synthetic-telegram-token'
+  try {
+    const cfg = ConfigSchema.parse(JSON.parse(readFileSync(cfgPath, 'utf8')))
+    const expanded = expandConfigPaths(dir, cfg)
+    expect(expanded.judgeApiKey).toBe('synthetic-judge-key')
+    expect(expanded.telegramBotToken).toBe('synthetic-telegram-token')
+    expect(readFileSync(cfgPath, 'utf8')).not.toContain('synthetic-judge-key')
+    expect(readFileSync(cfgPath, 'utf8')).not.toContain('synthetic-telegram-token')
+  } finally {
+    if (savedJudge === undefined) delete process.env.ADNG_TEST_JUDGE_KEY
+    else process.env.ADNG_TEST_JUDGE_KEY = savedJudge
+    if (savedTelegram === undefined) delete process.env.ADNG_TEST_TELEGRAM_TOKEN
+    else process.env.ADNG_TEST_TELEGRAM_TOKEN = savedTelegram
   }
 })
 

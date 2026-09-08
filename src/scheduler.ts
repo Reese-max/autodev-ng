@@ -1,3 +1,4 @@
+import { attemptAccounting } from './engines/attempt-accounting.js'
 import { existsSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
 import { localDay, type AttemptFailureClass, type RunDb } from './db.js'
@@ -99,10 +100,10 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     return 'cost-hard-stop'
   }
 
-  // M10.5：全域日頂（第二道防線）。查帳失敗＝0 放行（fail-open，spec §4——第一道防線仍在）。
+  // M10.5：全域日頂（第二道防線）。查帳不完整時停止派工，不把未知當成零。
   if (cfg.globalDailyHardUsd !== undefined && deps.cfgPath) {
     let g = 0
-    try { g = globalBilledToday(deps.cfgPath, new Date().toISOString()) } catch { /* fail-open */ }
+    try { g = globalBilledToday(deps.cfgPath, new Date().toISOString()) } catch { quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global' })); writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent }); return 'cost-hard-stop' }
     if (g >= cfg.globalDailyHardUsd) {
       quiet(() => events.appendOnce('cost-hard-stop-global', { spent: g }))
       writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
@@ -207,7 +208,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   } catch (err) {
     if (isExternalEngineTermination(err)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${String(err)}`) }
     // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
-    db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, durationMs: Date.now() - runStartMs, failureClass: 'supply' })
+    db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, accounting: attemptAccounting({ ok: false, output: '', costUsd: 0, costUnknown: true }, cfg.engines?.[engineTag] ?? {}), durationMs: Date.now() - runStartMs, failureClass: 'supply' })
     engine.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
     quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
@@ -224,10 +225,11 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   const baseDetail = res.failureReason ?? res.commitHash ?? ''
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
   const failureClass = res.failureReason?.startsWith('no-commit') ? 'task' as const : 'supply' as const
-  db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached, ...(!res.ok ? { failureClass } : {}) })
+  db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag, accounting: attemptAccounting(res, cfg.engines?.[engineTag] ?? {}, costEstimated), durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached, ...(!res.ok ? { failureClass } : {}) })
   const quotaUsage = { costUsd: recordedCostUsd, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached }
   if (!res.ok) engine.invalidatePreflight?.() // timeout/exit≠0/no-commit：引擎健康存疑，下輪重探（verify 拒收不算）
 
+  const validationAccounting = { ...attemptAccounting({ ok: false, output: '', costUsd: 0, costUnknown: true }, {}), stage: 'validation' as const }
   const pauseReady = (): void => {
     const candidateHead = defaultCommitHash(wt.cwd) ?? res.commitHash ?? 'unknown'
     if (teamClaim && deps.team) try { deps.team.pauseCandidate({ executionId, token: teamClaim.token, taskId: task.id, candidateHead, branch: wt.branch, worktreePath: wt.cwd }) } catch (err) { quiet(() => events.append('pause-state-write-failed', { task: task.text, error: String(err) })) }
@@ -239,7 +241,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   if (res.ok) {
     const ownership = checkOwnership(wt.cwd, task, res.baseCommitHash ?? wt.baseHead, defaultCommitHash(wt.cwd) ?? res.commitHash)
     if (!ownership.ok) {
-      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: ownership.detail, engine: engineTag, durationMs: Date.now() - runStartMs, failureClass: 'task' })
+      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: ownership.detail, engine: engineTag, accounting: validationAccounting, durationMs: Date.now() - runStartMs, failureClass: 'task' })
       quiet(() => events.append('ownership-drift', { task: task.text, detail: ownership.detail, branch: wt.branch }))
       quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
       return blockTask({ store, events }, task, 'ownership-drift', `ownership-drift：${ownership.detail}`)
@@ -249,7 +251,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   const missingArtifact = res.ok ? firstMissingArtifact(wt.cwd, res.output, res.baseCommitHash, res.commitHash, cfg.artifactContract) : undefined
   if (missingArtifact) {
     const reason = `artifact-missing:${missingArtifact}`
-    db.record({ taskId: task.id, ok: false, costUsd: 0, detail: reason, engine: engineTag, durationMs: Date.now() - runStartMs, failureClass: 'task' })
+    db.record({ taskId: task.id, ok: false, costUsd: 0, detail: reason, engine: engineTag, accounting: validationAccounting, durationMs: Date.now() - runStartMs, failureClass: 'task' })
     quiet(() => events.append('task-failed', { task: task.text, reason, outputTail: res.output.slice(-600) }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
     return resolveFailure(deps, task, 'failed', reason, 'task', quotaUsage)
@@ -263,7 +265,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     if (vc.paused) { pauseReady(); return 'stopped' }
     if (!vc.pass) {
       // 引擎那筆已記 ok:true+真實 cost（成本不可造假）；這裡多記一筆 ok:false 讓失敗計數靠這筆走。
-      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected', engine: engineTag, durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached, failureClass: vc.blockedReason ? 'infra' : 'task' })
+      db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected', engine: engineTag, accounting: validationAccounting, durationMs: Date.now() - runStartMs, failureClass: vc.blockedReason ? 'infra' : 'task' })
       quiet(() => events.append('task-verify-failed', { task: task.text, reason: vc.reason }))
       // engine 失敗/verify 拒：rollback 已在 worktree 內安全跑過，保留現場供 debug（不清理）。
       quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))

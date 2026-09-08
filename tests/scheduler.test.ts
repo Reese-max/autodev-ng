@@ -829,11 +829,11 @@ function seedSiblingDb(dataDir: string, rows: { ts: string; cost: number; engine
     ok INTEGER NOT NULL,
     cost_usd REAL NOT NULL,
     detail TEXT NOT NULL,
-    engine TEXT NOT NULL DEFAULT ''
+    engine TEXT NOT NULL DEFAULT '', accounting_json TEXT
   )`)
   for (const r of rows) {
-    db.prepare('INSERT INTO attempts (task_id, ts, ok, cost_usd, detail, engine) VALUES (?,?,?,?,?,?)')
-      .run('t', r.ts, 1, r.cost, '', r.engine)
+    db.prepare('INSERT INTO attempts (task_id, ts, ok, cost_usd, detail, engine, accounting_json) VALUES (?,?,?,?,?,?,?)')
+      .run('t', r.ts, 1, r.cost, '', r.engine, JSON.stringify({version:1,costSource:'provider-reported'}))
   }
   db.close()
 }
@@ -844,6 +844,7 @@ function seedTwoProjectConfigs(): string {
   const configsDir = mkdtempSync(join(tmpdir(), 'adng-sch-global-'))
   writeFileSync(join(configsDir, 'self.json'), JSON.stringify({ dataDir: './data-self', timezoneOffsetHours: 8 }))
   writeFileSync(join(configsDir, 'sibling.json'), JSON.stringify({ dataDir: './data-sibling', timezoneOffsetHours: 8 }))
+  seedSiblingDb(join(configsDir, 'data-self'), [])
   seedSiblingDb(join(configsDir, 'data-sibling'), [{ ts: new Date().toISOString(), cost: 50, engine: 'claude' }])
   return join(configsDir, 'self.json')
 }

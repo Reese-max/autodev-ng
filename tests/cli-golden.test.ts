@@ -9,7 +9,8 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { runCli } from '../src/cli/entry.js'
+import { CLI_HELP, runCli } from '../src/cli/entry.js'
+import { GITHUB_HELP, GITHUB_MODES } from '../src/github/cli.js'
 import {
   PUBLIC_CLI_COMMANDS,
   assertCliCapturesEqual,
@@ -150,11 +151,7 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
 
   test('全域 help 顯示任務建立、執行及恢復指引並成功退出（逐位元）', async () => {
     const expected: CliGoldenCapture = {
-      stdout: 'Usage: adng <task|status|run-once|daemon|supervise|github>\n' +
-        'Create: adng task add --config <path> --text "task and acceptance"\n' +
-        'Inspect: adng task list --config <path>\nRun: adng run-once --config <path>\n' +
-        'GitHub: adng github --help\nRecovery: adng github repair-doctor --config <path> --live\n',
-      stderr: '', exitCode: 0,
+      stdout: CLI_HELP + '\n', stderr: '', exitCode: 0,
     }
     for (const command of ['--help', '-h', 'help']) {
       assertCliCapturesEqual(await captureCli([command]), expected)
@@ -170,9 +167,7 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
       { name: 'run-once', argv: ['run-once'] },
       { name: 'daemon', argv: ['daemon'] },
       { name: 'notify-test', argv: ['notify-test'] },
-      { name: 'status --help', argv: ['status', '--help'] },
       { name: 'status --version', argv: ['status', '--version'] },
-      { name: 'run-once --help', argv: ['run-once', '--help'] },
       { name: 'daemon --version', argv: ['daemon', '--version'] },
     ]
 
@@ -188,11 +183,29 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
     }
   })
 
+  test('--help：全域與子指令 help 都不讀 config，成功輸出起步契約', async () => {
+    const expected: CliGoldenCapture = { stdout: `${CLI_HELP}\n`, stderr: '', exitCode: 0 }
+    for (const argv of [
+      ['--help'],
+      ['status', '--help'],
+      ['run-once', '--help'],
+      ['supervise', '--help'],
+      ['unknown', '--help', '--config', 'missing.json'],
+    ]) {
+      assertCliCapturesEqual(await captureCli(argv), expected)
+    }
+    const githubExpected: CliGoldenCapture = { stdout: `${GITHUB_HELP}\n`, stderr: '', exitCode: 0 }
+    for (const mode of [undefined, ...GITHUB_MODES]) {
+      const argv = mode === undefined ? ['github', '--help'] : ['github', mode, '--config', '--help']
+      assertCliCapturesEqual(await captureCli(argv), githubExpected)
+    }
+    for (const mode of GITHUB_MODES) expect(GITHUB_HELP).toContain(mode)
+  })
+
   test('supervise：缺參數與雙參數互斥用法錯誤（逐位元）', async () => {
     const expected: CliGoldenCapture = { stdout: '', stderr: `${SUPERVISE_USAGE}\n`, exitCode: 1 }
     for (const argv of [
       ['supervise'],
-      ['supervise', '--help'],
       ['supervise', '--version'],
       ['supervise', '--config', 'a.json', '--configs-dir', 'configs'],
     ]) {
@@ -209,7 +222,7 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
         stderr: `未知子命令：${cmd}（可用：status | run-once | daemon | notify-test | supervise）\n`,
         exitCode: 1,
       })
-      for (const cmd of ['unknown', '--help', '--version', 'help', 'version', 'foo']) {
+      for (const cmd of ['unknown', '--version', 'help', 'version', 'foo']) {
         assertCliCapturesEqual(
           await captureCli([cmd, '--config', config]),
           expected(cmd),

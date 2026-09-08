@@ -1,3 +1,4 @@
+import { accountingLines } from '../engines/attempt-accounting.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { progressLines } from './progress.js'
@@ -107,8 +108,9 @@ async function cmdCost(d: BotDeps): Promise<CmdResult> {
     return {
       ok: true, text: [
         'adng 成本',
-        `今日成本：真金 $${stats.billedUsd.toFixed(4)}｜訂閱名義 $${(stats.costUsd - stats.billedUsd).toFixed(4)}（成功 ${stats.ok}／失敗 ${stats.fail}）`,
-        `昨日：真金 $${yStats.billedUsd.toFixed(4)}｜訂閱名義 $${(yStats.costUsd - yStats.billedUsd).toFixed(4)}`
+        `今日成本：已記錄 $${stats.costUsd.toFixed(4)}（含估算；非對帳結果）（成功 ${stats.ok}／失敗 ${stats.fail}）`,
+        `昨日：已記錄 $${yStats.costUsd.toFixed(4)}（含估算；非對帳結果）`,
+        ...accountingLines(d.db.accountingForDay(today, off))
       ].join('\n')
     }
   } catch {

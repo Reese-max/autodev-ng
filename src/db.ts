@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3'
+import { migrateAccounting, accountingSummary, billedSnapshotCost, type AccountingSnapshot } from './engines/attempt-accounting.js'
 export type AttemptFailureClass = 'task' | 'supply' | 'infra' | 'goal' | 'legacy'
 
 export interface AttemptRecord {
@@ -14,6 +15,7 @@ export interface AttemptRecord {
   tokensIn?: number
   tokensOut?: number
   tokensCached?: number
+  accounting?: AccountingSnapshot
   failureClass?: AttemptFailureClass
 }
 
@@ -40,18 +42,8 @@ export function localDayUtcRange(day: string, offsetHours: number): { startIso: 
 export function billedCostOnDb(
   db: Database.Database, day: string, offsetHours: number, subscriptionEngines: string[]
 ): number {
-  const { startIso, endIso } = localDayUtcRange(day, offsetHours)
-  if (subscriptionEngines.length === 0) {
-    const row = db.prepare(
-      'SELECT COALESCE(SUM(cost_usd),0) AS c FROM attempts WHERE ts >= ? AND ts < ?'
-    ).get(startIso, endIso) as { c: number }
-    return row.c
-  }
-  const ph = subscriptionEngines.map(() => '?').join(',')
-  const row = db.prepare(
-    `SELECT COALESCE(SUM(cost_usd),0) AS c FROM attempts WHERE ts >= ? AND ts < ? AND engine NOT IN (${ph})`
-  ).get(startIso, endIso, ...subscriptionEngines) as { c: number }
-  return row.c
+  const r = localDayUtcRange(day, offsetHours)
+  return billedSnapshotCost(db, r.startIso, r.endIso, subscriptionEngines)
 }
 
 export class RunDb {
@@ -89,18 +81,21 @@ export class RunDb {
         }
       }
     }
+    migrateAccounting(this.db)
     // 舊列無法可靠分辨 provider、verify 或任務失敗；保留 legacy，讓 taskFailCount fail-safe 計入。
     if (!cols.some(c => c.name === 'failure_class')) try { this.db.exec(`ALTER TABLE attempts ADD COLUMN failure_class TEXT NOT NULL DEFAULT 'legacy'`) } catch (err) { if (!String(err).includes('duplicate column')) throw err }
   }
 
   record(r: AttemptRecord): void {
     this.db.prepare(
-      'INSERT INTO attempts(task_id, ts, ok, cost_usd, detail, engine, duration_ms, tokens_in, tokens_out, tokens_cached, failure_class) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-    ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail, r.engine ?? '', r.durationMs ?? null, r.tokensIn ?? null, r.tokensOut ?? null, r.tokensCached ?? null, r.ok ? '' : (r.failureClass ?? 'task'))
+      'INSERT INTO attempts(task_id, ts, ok, cost_usd, detail, engine, duration_ms, tokens_in, tokens_out, tokens_cached, failure_class, accounting_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+    ).run(r.taskId, r.ts ?? new Date().toISOString(), r.ok ? 1 : 0, r.costUsd, r.detail, r.engine ?? '', r.durationMs ?? null, r.tokensIn ?? null, r.tokensOut ?? null, r.tokensCached ?? null, r.ok ? '' : (r.failureClass ?? 'task'), r.accounting ? JSON.stringify(r.accounting) : null)
   }
 
   /** 取 rowid（seq）最大一筆最近嘗試紀錄；空庫回 null。ok 欄位鏡像既有 record() 寫入慣例
    * （SQLite 存整數 0/1），讀出後轉回 boolean 供呼叫端使用。 */
+  accountingForDay(day: string, offsetHours = 0) { const r = localDayUtcRange(day, offsetHours); return accountingSummary(this.db, r.startIso, r.endIso) }
+
   lastAttempt(): AttemptRecord | null {
     const row = this.db.prepare(
       'SELECT task_id, ts, ok, cost_usd, detail, engine, failure_class FROM attempts ORDER BY seq DESC LIMIT 1'

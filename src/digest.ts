@@ -1,3 +1,4 @@
+import { accountingLines } from './engines/attempt-accounting.js'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { RunDb } from './db.js'
@@ -5,7 +6,6 @@ import { countDlqLines, countVerifyAlertsToday } from './engines/digest-counts.j
 import { digestDeliveryLines, digestGoalLine } from './engines/digest-deliveries.js'
 import { digestMechanismLines } from './engines/digest-mechanisms.js'
 import { reviewCalibrationDigestLines } from './engines/review-calibration.js'
-import { shadowTotals } from './engines/shadow-price.js'
 import { digestQuotaLines } from './engines/today-attempts-view.js'
 
 export interface BuildDigestOpts {
@@ -42,11 +42,12 @@ export function buildDigest(opts: BuildDigestOpts): string {
   const dlqCount = countDlqLines(dataDir)
   const { verifySkip, other } = countVerifyAlertsToday(dataDir, isoDayUtc, offsetHours)
   const engineStats = db.engineDayStats(isoDayUtc, offsetHours)
+  const accounting = db.accountingForDay(isoDayUtc, offsetHours)
   const lines = [
     // DC 可辨識性（2026-07-28）：三專案各發一份，首行帶專案名（dataDir 尾段）＋Discord 粗體。
     `**adng·${basename(dataDir)} 每日摘要 ${isoDayUtc}**`,
     `完成 ${stats.ok} 筆／失敗 ${stats.fail} 筆`,
-    `今日成本：真金 $${stats.billedUsd.toFixed(4)}｜訂閱名義 $${(stats.costUsd - stats.billedUsd).toFixed(4)}`,
+    `今日成本：已記錄 $${stats.costUsd.toFixed(4)}（含估算；非對帳結果）`,
     `DLQ 積壓：${dlqCount} 筆`,
   ]
   const goalLine = digestGoalLine(dataDir) // 可讀性（2026-07-28）：一眼知道艦隊在做什麼、今天交付了什麼
@@ -54,10 +55,7 @@ export function buildDigest(opts: BuildDigestOpts): string {
   lines.push(...digestDeliveryLines(dataDir, isoDayUtc, offsetHours))
   // 每引擎戰績（路由決策依據）；零派工日自動省略。tokens＝引擎自報 usage（免費層配額觀測 2026-07-29），零值省略。
   for (const e of engineStats) lines.push(`  引擎 ${e.engine}：${e.ok}/${e.n} 成，$${e.costUsd.toFixed(4)}${e.tokensIn > 0 ? `，tokens ${fmtTokens(e.tokensIn)}/${fmtTokens(e.tokensOut)}${e.tokensCached > 0 ? ` (${Math.round(e.tokensCached / e.tokensIn * 100)}% cached)` : ''}` : ''}`)
-  // 影子帳：token 按官方市價估值（2026-07-29 檔位，來源見 engines/shadow-price.ts）。零值省略。
-  const shadow = shadowTotals(engineStats)
-  if (shadow.free > 0) lines.push(`  免費層影子帳：市價估 $${shadow.free.toFixed(2)}，實付 $0（devin $0.5/$2 每 M、oc 系/kilo $0.14/$0.28）`)
-  if (shadow.quota > 0) lines.push(`  額度層影子帳：市價估 $${shadow.quota.toFixed(2)}，訂閱額度內（cached 另計 10% 檔；sol $5/$30、terra $2.5/$15、luna $1/$6）`)
+  lines.push(...accountingLines(accounting))
   lines.push(...digestQuotaLines(engineStats, opts.engines)) // 今日額度消耗表；只在有 cap 設定時顯示（獨有資訊）
   lines.push(...digestMechanismLines(dataDir, isoDayUtc, offsetHours))
   if (opts.reviewCalibrationDir) lines.push(...reviewCalibrationDigestLines(opts.reviewCalibrationDir))

@@ -47,6 +47,8 @@ export interface Job {
 }
 
 export interface RunResult {
+  /** Provider-reported identity; absent means unknown, never inferred from engine tags. */
+  actualModel?: string
   ok: boolean
   output: string
   costUsd: number

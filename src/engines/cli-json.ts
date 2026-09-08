@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { z } from 'zod'
 import { runProcess } from './proc.js'
 import { buildFleetCodexEnv } from './codex-runtime.js'
 
 export async function codexJson<T>(cfg: { dataDir: string; model: string; effort: string; timeoutMs: number; onUsage?: (totalTokens: number) => void }, schema: z.ZodType<T>, prompt: string): Promise<T> {
-  const dir = join(cfg.dataDir, 'research', randomUUID()); mkdirSync(dir, { recursive: true })
+  // Resolve the run directory against the caller's cwd before the child process switches cwd to it;
+  // otherwise a relative dataDir makes codex exec re-resolve schema/answer beneath the child directory (autodev-ng#7).
+  const dir = resolve(join(cfg.dataDir, 'research', randomUUID())); mkdirSync(dir, { recursive: true })
   const schemaFile = join(dir, 'schema.json'), answerFile = join(dir, 'answer.json')
   // Codex Structured Outputs rejects format=uri; Zod still validates the returned URLs locally.
   writeFileSync(schemaFile, JSON.stringify(z.toJSONSchema(schema), (key, value) => key === 'format' ? undefined : value))

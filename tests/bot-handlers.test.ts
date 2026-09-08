@@ -99,8 +99,8 @@ describe('cost', () => {
     s.db.record({ taskId: 'y-sub', ok: true, costUsd: 100, detail: '', engine: 'codex-spark', ts: yesterdayTs })
     const out = await handleCommand('cost', '', toDeps({ ...s, cfg }))
     expect(out.ok).toBe(true)
-    expect(out.text).toContain('今日成本：真金 $0.0000｜訂閱名義 $0.0000')
-    expect(out.text).toContain('昨日：真金 $2.0000｜訂閱名義 $100.0000')
+    expect(out.text).toContain('今日成本：已記錄 $0.0000')
+    expect(out.text).toContain('昨日：已記錄 $102.0000')
   })
 })
 
