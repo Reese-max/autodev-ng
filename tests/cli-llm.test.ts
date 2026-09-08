@@ -15,7 +15,7 @@ test('CLI planning, judge, reviewer and evidence-reviewed lessons never fall bac
   reply.mockResolvedValue({ text: 'MATCH' }); expect((await judgeCommit(opts, 'claim', 'diff')).verdict).toBe('MATCH')
   reply.mockResolvedValue({ text: 'REVIEW: PASS' }); expect(parseReviewVerdict(await reviewDiff(opts, 'diff', 'task')).kind).toBe('pass')
   const add = vi.fn(() => true)
-  const deps = { llm: opts, reviewLlm: llmFromConfig(cfg, 'reviewer'), lessons: { add }, db: { lastAttempt: () => null }, backlog: {} } as unknown as Parameters<typeof reflectOnFailure>[0]
+  const deps = { llm: opts, reviewLlm: llmFromConfig(cfg, 'reviewer'), lessons: { add }, db: { lastFailureFor: () => null }, backlog: {} } as unknown as Parameters<typeof reflectOnFailure>[0]
   const failure = { kind: 'blocked', taskId: 'id', taskText: 'Fix task', reason: 'infra:worktree-timeout' } as const
   reply.mockResolvedValueOnce({ text: 'Verify the sandbox before retrying.' }).mockResolvedValueOnce({ text: 'REJECT' })
   await reflectOnFailure(deps, failure); expect(add).not.toHaveBeenCalled()
