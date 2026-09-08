@@ -70,6 +70,8 @@
 
 ## 快速開始
 
+建置後可執行 `node dist/cli.js --help`，不讀取設定、不呼叫 provider。
+
 ### 0. 安裝相依套件
 
 需要 Node.js ≥22；CI 使用 Windows + Node.js 22。在專案根目錄執行：
@@ -114,10 +116,31 @@ npm 12 會依 `package.json` 的 `allowScripts` 決定是否執行相依套件�
 }
 ```
 
+若要先走一條不含 provider 的安全本機起步路徑，請先在 `autodev-ng` checkout 根目錄建置 CLI；以下步驟會先保存已建置 CLI 的絕對路徑，再建立並切入一個新的 task-owned 目錄。步驟會明確建立 synthetic project、Git repository 與空的 `BACKLOG.md`：
+
+```powershell
+npm run build
+$adngCli = (Resolve-Path (Join-Path (Get-Location) 'dist/cli.js')).Path
+$taskRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('adng-onboarding-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $taskRoot | Out-Null
+Push-Location $taskRoot
+node -e "const fs=require('node:fs'); fs.writeFileSync('config.json', JSON.stringify({projectPath:'./project', backlogFile:'./project/BACKLOG.md', dataDir:'./data', engine:'mock'}, null, 2)+'\n')"
+node -e "const fs=require('node:fs'); fs.mkdirSync('project',{recursive:true}); fs.writeFileSync('project/BACKLOG.md','')"
+git -C project init -q
+git -C project add BACKLOG.md
+git -C project -c user.name=synthetic -c user.email=synthetic@example.invalid commit -qm "synthetic empty backlog"
+& node $adngCli status --config config.json       # 預期 exit 0
+& node $adngCli run-once --config config.json     # 預期 CycleResult: idle、exit 0
+Pop-Location
+```
+
+第一次 `status`／`run-once` 會在本機建立 `data/` 下的狀態資料；`engine: "mock"` 不會呼叫 provider 或通知。若要接入實際專案，請回到上面的完整 config 欄位與憑證引用規則。
+
 選配欄位說明：
 - `judgeApiKey`：以 `{env:JUDGE_API_KEY}` 引用啟動程序的環境變數；不要將真實金鑰寫進版控。
 - `goalFile`：未設就沒有 GOAL autopilot 能力（`/goal set` 會回「config 未設 goalFile」）。
 - `learningsFile` / `globalLearningsFile`：`learningsFile` 未設時預設 `<dataDir>/learnings.md`（零設定自動開啟）；`globalLearningsFile` 為跨專案人工策展的全局教訓，未設即不注入。
+- `judgeApiKey` / `telegramBotToken`：請只寫 `{env:VAR}`、`${env:VAR}`、`${VAR}` 或 `{file:PATH}` 引用；值不應寫入版本控制的 JSON。Telegram 必須同時設定 `telegramBotToken` 與 `telegramChatId`，任一缺少就保持通知停用，不會發送訊息。
 - `botAllowedUserIds` / `botGuildId` / `botTokenFile`：不設 bot 相關欄位就是 fail-closed（allowlist 空陣列＝全員鎖死），Discord bot 需要這三者才能安全上線。
 - `concurrency`：預設 `1`。大於 `1` 時只讓明示 `risk:"low"` 且 ownership 不重疊的任務進平行 lane；未宣告或不合法的 ownership 會安全降級為全 repo 獨佔。
 - `reviewEngine`：中高風險必須有 Reviewer；未設時可沿用既有 `auditModel`，兩者皆缺或 Reviewer 無法完成時為 `BLOCKED`。
