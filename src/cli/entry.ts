@@ -11,7 +11,7 @@ export const CLI_HELP = [
   '',
   '用法：',
   '  adng --help',
-  '  adng task add --config <path> --text "task and acceptance"',
+  '  Create: adng task add --config <path> --text "task and acceptance"',
   '  adng task list --config <path>',
   '  adng github resume --config <path> --issue N --reason TEXT',
   '  adng status --config <path>       唯讀狀態、成本、backlog 與 DLQ',

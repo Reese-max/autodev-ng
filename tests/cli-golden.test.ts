@@ -6,7 +6,7 @@
  * daemon 正常長駐路徑不測（禁動 daemon 進程）；只鎖用法／設定失敗出口。
  */
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { CLI_HELP, runCli } from '../src/cli/entry.js'
@@ -200,6 +200,8 @@ describe('CLI 公開子指令 golden 快照矩陣（搬移後行為鎖定）', (
       assertCliCapturesEqual(await captureCli(argv), githubExpected)
     }
     for (const mode of GITHUB_MODES) expect(GITHUB_HELP).toContain(mode)
+    const reports = JSON.parse(readFileSync(join(process.cwd(), 'configs/integrations/github-reports.json'), 'utf8'))
+    for (const probe of reports.projects.find((p: { repo: string }) => p.repo === 'Reese-max/autodev-ng').probes.filter((p: { id: string }) => p.id === 'cli-guide')) expect(CLI_HELP).toContain(probe.expectedText)
   })
 
   test('supervise：缺參數與雙參數互斥用法錯誤（逐位元）', async () => {
