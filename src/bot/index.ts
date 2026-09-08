@@ -9,6 +9,7 @@ import { acquireLock, releaseLock } from '../lock.js'
 import { loadBotConfig, loadBotToken, listProjectConfigs, type BotConfig } from './config.js'
 import { handleCommand, type BotDeps } from './handlers.js'
 import { buildReplyPayload } from './reply.js'
+import { loadMonitorConfig } from './monitor.js'
 import { routeInteraction, routeMultiInteraction, ACTION_COMMANDS, type InteractionLike, type ProjectRuntime } from './route.js'
 
 // discord.js adapter 只放 index.ts / reply.ts；純路由邏輯住 route.ts（不 import discord.js），
@@ -162,7 +163,12 @@ export async function mainMulti(configsDir: string): Promise<void> {
       projects.set(name, { deps: botDeps, allowed: botCfg.allowedUserIds })
       loadedConfigs.push({ name, botCfg })
     } catch (err) {
-      console.warn(`[bot] 專案 ${name} 載入失敗，已跳過：`, err instanceof Error ? err.message : String(err))
+      try {
+        const cfg = loadMonitorConfig(cfgPath), botCfg = loadBotConfig(cfgPath)
+        projects.set(name, { monitorOnly: { cfg, cfgPath: resolve(cfgPath) }, allowed: botCfg.allowedUserIds })
+        loadedConfigs.push({ name, botCfg })
+        console.warn(`[bot] 專案 ${name} 完整環境未就緒，保留監控與暫停控制`)
+      } catch { console.warn(`[bot] 專案 ${name} 設定無法解析，已跳過`) }
     }
   }
 

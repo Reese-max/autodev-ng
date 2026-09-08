@@ -32,6 +32,8 @@ node dist/cli.js bot --configs-dir configs
 
 通過 allowlist 後先延後回覆，再執行查詢／動作，避免慢操作超過 Discord 首次回覆期限；回覆僅本人可見。禁止文字觸發 mention。多專案超長回覆附 `adng-monitor.txt`，保留所有已產生的專案摘要；原有單專案 handler 的內容上限仍適用。一個專案查詢失敗時，其餘可讀專案仍顯示。
 
+多專案啟動時，設定可解析但模型憑證或完整執行環境缺失的專案會保留為監控模式：仍可使用 `monitor/status/github/pause/resume`，不會因缺少模型金鑰而從清單消失。`goal/ask/task/cost` 等需要完整 handler 的指令會明確拒絕，不偷用其他專案的憑證。
+
 註冊成功與 Gateway 連線只代表 bot 已上線；真人在 Discord 執行指令並收到回覆，才算互動端驗收。
 
 ## 上線前置

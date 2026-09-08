@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { ConfigSchema } from '../src/types.js'
 import { formatMonitor, readMonitor } from '../src/bot/monitor.js'
 import { runCli } from '../src/cli/entry.js'
+import { routeMultiInteraction, type ProjectRuntime } from '../src/bot/route.js'
 
 const roots: string[] = []
 afterEach(() => { vi.restoreAllMocks(); process.exitCode = undefined; for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
@@ -95,4 +96,16 @@ test('status --json 使用相同監控契約', async () => {
   const f = fixture()
   const r = await cli(['status', '--config', f.cfgPath, '--json'])
   expect(JSON.parse(r.lines[0]!)).toMatchObject({ project: 'config', health: 'not-running', backlog: { open: 1 } })
+})
+
+test('Discord 缺模型憑證的專案仍可監控與暫停，模型動作不執行', async () => {
+  const f = fixture(), replies: string[] = []
+  const projects = new Map<string, ProjectRuntime>([['demo', { allowed: ['u'], monitorOnly: { cfg: f.cfg, cfgPath: f.cfgPath } }]])
+  const handle = vi.fn(async () => ({ ok: true, text: 'must not run' }))
+  const run = (commandName: string) => routeMultiInteraction({ commandName, project: 'demo', userId: 'u', arg: '', reply: async text => { replies.push(text) } }, projects, handle)
+  await run('monitor'); expect(replies.pop()).toContain('僅供監控')
+  await run('pause'); expect(existsSync(f.cfg.stopFile)).toBe(true)
+  await run('resume'); expect(existsSync(f.cfg.stopFile)).toBe(false)
+  await run('ask'); expect(replies.pop()).toContain('其餘操作需先修正')
+  expect(handle).not.toHaveBeenCalled(); expect(existsSync(f.cfg.dataDir)).toBe(false)
 })

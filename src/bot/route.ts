@@ -1,4 +1,6 @@
 import { handleCommand, type BotDeps } from './handlers.js'
+import { formatMonitor, githubMonitor, readMonitor } from './monitor.js'
+import { doPause, doResume } from './actions.js'
 
 /** discord.js Interaction 的最小投影——index.ts 把真 discord.js Interaction 轉成此形狀，
  * 本檔（純路由層）完全不 import discord.js，讓 tests/bot-route.test.ts 可以零依賴測路由邏輯。 */
@@ -50,7 +52,19 @@ export function resolveProject(input: string, names: string[]):
 }
 
 /** 多專案執行環境：每專案自己的 BotDeps＋allowlist（鏡像單專案 routeInteraction 的 allowed 參數）。 */
-export interface ProjectRuntime { deps: BotDeps; allowed: string[] }
+export type ProjectRuntime = { allowed: string[] } & (
+  { deps: BotDeps; monitorOnly?: never } | { deps?: never; monitorOnly: Pick<BotDeps, 'cfg' | 'cfgPath'> }
+)
+
+async function handleProject(name: string, arg: string, rt: ProjectRuntime, handle: typeof handleCommand) {
+  if (rt.deps) return handle(name, arg, rt.deps)
+  const d = rt.monitorOnly
+  if (name === 'pause') return doPause(d)
+  if (name === 'resume') return doResume(d)
+  if (name === 'status' || name === 'monitor') return { ok: true, text: formatMonitor(readMonitor(d.cfg, d.cfgPath)) + '\n僅供監控／暫停控制：完整執行環境未就緒，請檢查設定與憑證' }
+  if (name === 'github') return { ok: true, text: await githubMonitor(d.cfgPath) }
+  return { ok: false, text: '此專案完整執行環境未就緒；可用 monitor/status/github/pause/resume，其餘操作需先修正設定與憑證' }
+}
 
 /** 多專案路由（M10.5 Task 5）：
  * - i.project 有值：resolveProject → unknown/ambiguous 回人話（不呼叫 handle）；命中 → 該專案
@@ -83,7 +97,7 @@ export async function routeMultiInteraction(
     }
     try {
       await i.defer?.()
-      const result = await handle(i.commandName, i.arg, rt.deps)
+      const result = await handleProject(i.commandName, i.arg, rt, handle)
       await i.reply(result.text)
     } catch {
       await i.reply('內部錯誤')
@@ -111,7 +125,7 @@ export async function routeMultiInteraction(
     const sections: string[] = []
     for (const [name, rt] of allowedEntries) {
       try {
-        const result = await handle(i.commandName, i.arg, rt.deps)
+        const result = await handleProject(i.commandName, i.arg, rt, handle)
         sections.push(`【${name}】\n${result.text}`)
       } catch { sections.push(`【${name}】\n查詢失敗，其他專案仍可查看`) }
     }

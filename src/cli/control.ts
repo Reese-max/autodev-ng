@@ -1,9 +1,8 @@
-import { readFileSync, readdirSync } from 'node:fs'
-import { basename, dirname, resolve } from 'node:path'
+import { readdirSync } from 'node:fs'
+import { basename, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import { ConfigSchema } from '../types.js'
 import { doPause, doResume } from '../bot/actions.js'
-import { formatMonitor, readMonitor } from '../bot/monitor.js'
+import { formatMonitor, loadMonitorConfig, readMonitor } from '../bot/monitor.js'
 import { handleCommand } from '../bot/handlers.js'
 import { withAssembled } from './assemble.js'
 import { llmFromConfig } from '../autopilot/llm.js'
@@ -23,8 +22,7 @@ export async function controlCli(command: string, args: string[]): Promise<void>
   for (const file of files) {
     try {
       // Monitoring and pause/resume need no provider secrets, database migration or worker.
-      const cfg = ConfigSchema.parse(JSON.parse(readFileSync(file, 'utf8')))
-      for (const key of ['dataDir', 'stopFile', 'backlogFile', 'projectPath'] as const) cfg[key] = resolve(dirname(file), cfg[key])
+      const cfg = loadMonitorConfig(file)
       if (monitor) {
         const result = readMonitor(cfg, file)
         results.push(result)

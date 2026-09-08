@@ -2,7 +2,13 @@ import { readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { parseBacklog } from '../backlog.js'
 import { githubConsole } from '../github/console.js'
-import type { Config } from '../types.js'
+import { ConfigSchema, type Config } from '../types.js'
+
+export function loadMonitorConfig(file: string): Config {
+  const cfg = ConfigSchema.parse(JSON.parse(readFileSync(file, 'utf8')))
+  for (const key of ['dataDir', 'stopFile', 'backlogFile', 'projectPath'] as const) cfg[key] = resolve(dirname(file), cfg[key])
+  return cfg
+}
 
 /** Read-only operator evidence; a live PID alone never proves a working daemon. */
 export function readMonitor(cfg: Config, cfgPath: string, now = Date.now()) {
