@@ -19,5 +19,19 @@ export function verifyRequired(risk: TaskRisk): boolean { return riskAtLeast(ris
 export function reviewRequired(risk: TaskRisk): boolean { return riskAtLeast(risk, 'medium') }
 
 export function releaseEvidenceRequired(task: Task): boolean {
-  return /\b(?:deploy|release|publish)\b|部署|發布/i.test(task.text)
+  const release = /\b(?:deploy|release|publish)\b|部署|發布/i
+  const prohibition = /\b(?:do not|don't|never|must not|mustn't|should not|shouldn't|without|no need to)\s+|不要|請勿|不得|禁止|不需(?:要)?|無需|不必/i
+  const action = /^(?:(?:access|modify|change|edit|touch|push|commit|deploy|release|publish|send)\b|(?:對外|直接|進行)?(?:存取|修改|變更|編輯|推送|提交|部署|發布|發送|傳送))/i
+  // ponytail: recognize explicit prohibitions only; ambiguous intent still requires approval.
+  return task.text.replace(/\\[rn]/g, '\n').split(/[.!?;\n。！？；]/).some(sentence => {
+    if (!release.test(sentence)) return false
+    if (/\b(?:if|unless|until|except)\b|如果|除非|直到|例外/i.test(sentence)) return true
+    return sentence.split(/[,，]|\b(?:but|however|then)\b|但是|然而|然後/i).some(clause => {
+      if (!release.test(clause)) return false
+      const denied = prohibition.exec(clause)
+      if (!denied || release.test(clause.slice(0, denied.index))) return true
+      return clause.slice(denied.index + denied[0].length).split(/\b(?:and|or)\b|或|與|及|和|、/i)
+        .some(part => !action.test(part.trim()))
+    })
+  })
 }

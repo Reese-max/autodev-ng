@@ -49,3 +49,30 @@ test('發布任務：沒有人工核可或 commit 不符時 BLOCKED；精確相�
   expect(receipt.releaseBlocked).toBeUndefined()
   expect(JSON.parse(readFileSync(receipt.path, 'utf8'))).toMatchObject({ verdict: 'ready', gates: { release: { status: 'pass', identity: 'human@example' } } })
 })
+
+test.each([
+  ['do not access GitHub or publish anything', false],
+  [JSON.stringify({ title: 'Fix clamp', body: 'Fix clamp.cjs.\nDo not access GitHub or publish anything.' }), false],
+  ['只修復，不要部署或發布', false],
+  ["Fix it without publishing changes. Don't deploy anything.", false],
+  ['No need to publish anything', false],
+  ['publish locally but do not deploy', true],
+  ['do not publish anything; deploy production', true],
+  ['do not publish anything and then deploy production', true],
+  ['不要部署，但是發布新版', true],
+  ['do not forget to publish', true],
+  ['不要忘記發布', true],
+  ['do not prevent anyone from deploying; publish tomorrow', true],
+  ['do not publish unless approved', true],
+  ['do not deploy until tests pass', true],
+  ['除非核准，否則不要發布', true],
+  ['Unless approved, do not publish', true],
+  ['release production', true],
+])('發布意圖 %s → requires approval=%s', (text, required) => {
+  const f = fixture(text)
+  const receipt = f.store.record({ executionId: 'intent', task: f.task, risk: 'high', writerIdentity: 'codex:writer', verification })
+  expect(Boolean(receipt.releaseBlocked)).toBe(required)
+  expect(JSON.parse(readFileSync(receipt.path, 'utf8')).gates).toMatchObject({
+    ci: { status: 'pass' }, reviewer: { status: 'pass' }, release: { status: required ? 'blocked' : 'not-applicable' },
+  })
+})
