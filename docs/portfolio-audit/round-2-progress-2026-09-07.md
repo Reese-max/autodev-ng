@@ -11,14 +11,25 @@ Repository-local Round 2 audit state was persisted for:
 
 - `clinical-scribe-worker`
 - `UkePack`
+- `avatar-vfo`
+- `cf-mcp-server`
+- `lobsterpulse`
+- `project-doctor-web`
 
 Repositories newly marked CLEAN in this continuation: **0**.
 
-## New actionable finding
+## New actionable findings
 
 | Repository | Severity | Finding | Tracking |
 |---|---:|---|---|
 | `clinical-scribe-worker` | **P0** | `/api/score/confirm` has no authentication/authorization; caller controls both `score_id` and authoritative-looking `reviewed_by`, allowing a reachable caller to mark another score as human-reviewed with a forged reviewer identity | #2 |
+| `avatar-vfo` | **P0** | Round-1 auth remediation still accepts a predictable tracked `AUTH_SECRET` fallback as a master/admin credential and trusts `cf-access-authenticated-user-email` without cryptographic Access proof | #2 |
+| `avatar-vfo` | **P1** | The remediation SHA has a failed full CI run and the deploy workflow fails with zero jobs because current workflow YAML is malformed; the `production` branch still predates the remediation | #3 |
+| `cf-mcp-server` | **P0** | Replacement OAuth owner-approval flow accepts the root `MCP_AUTH_TOKEN` through the `approval_secret` GET query parameter, exposing a root MCP credential to ordinary URL-handling surfaces | #4 |
+| `cf-mcp-server` | **P1** | Dynamic clients, authorization codes, and auth rate counters are stored only in module-level Worker `Map`s, so multi-request OAuth correctness and abuse accounting depend on one warm isolate | #5 |
+| `lobsterpulse` | **P1** | After the Round-1 hooks-preservation fix, Codex setup still leaves a valid pre-existing `[features].codex_hooks = false` unchanged because setup tests only whether the raw text contains `codex_hooks`; setup can succeed while core Codex monitoring remains disabled | #3 |
+| `project-doctor-web` | **P1** | Round-1 rate-limit remediation still keeps the advertised global cost breaker isolate-local; KV covers only the per-client counter via non-atomic `get` + `put`, so the original durable/shared acceptance criteria are not met | #2 reopened |
+| `project-doctor-web` | **P1** | The clinical system prompt fills a normal PE skeleton when no contrary objective data exists, so an initial turn with no examination can render unobserved normal findings as ordinary SOAP Objective facts | #9 |
 
 ### `clinical-scribe-worker`
 
@@ -27,6 +38,53 @@ Audited product code at default-branch SHA `1b66d6cc0052204c4f9901a47e300c0eaee9
 Issue #2 was created: `[P0][50-persona audit] Require authenticated reviewer identity for score confirmation`.
 
 No live exploit is claimed. GitHub Actions CI run `33989064325` succeeded for the audited SHA, but no deployed 401/403 check, D1 authorization test, or production runtime evidence was established. Existing P1 #1 (unrestricted server-funded Gemini endpoint) also remains unresolved. Repo report: `docs/audits/50-persona-round-2-2026-09-07.md` (report commit `bf66edf3e70d626899863f976e2738518f5be746`).
+
+### `avatar-vfo`
+
+Re-ran the same security/privacy personas after Round-1 P0 #1 was closed by default-branch remediation SHA `a0672ad76d0cccdd09a9ed212831ba8e2cf203ee`.
+
+Two new findings passed the quality gate:
+
+- **P0 #2** — `worker/wrangler.toml` contains a predictable normal-var `AUTH_SECRET` fallback, while `worker/src/auth.ts` accepts that secret itself as the admin bearer and permits admin-selected `X-User-Id`. The same auth function also accepts `cf-access-authenticated-user-email` as authenticated identity without validating `cf-access-jwt-assertion`; the regression test explicitly accepts an email header alone. This is deterministic repository evidence, but there is no claim that the deployed Worker currently lacks a secret override or Access policy.
+- **P1 #3** — actual GitHub Actions run `34052964033` on the remediation SHA concluded failure: Worker typecheck/vitest and frontend test/build succeeded, but backend lint failed before mypy/pytest. Deploy workflow run `34052963410` concluded failure with zero jobs, matching malformed current workflow YAML. The `production` branch remains at `b6eb2f0e93377241a07fcc4460c97be8f0e5d7a6`, which predates the auth remediation. This is CI/branch evidence, not proof of the currently deployed Worker version.
+
+Repo report: `docs/audits/50-persona-round-2-2026-09-07.md` (report commit `59fafce69faeb077cb210284237822a833e5bbbe`). Status remains **NOT CLEAN**.
+
+### `cf-mcp-server`
+
+Re-ran the same OAuth/security/integration personas after Round-1 P0 #2 was closed by default-branch remediation SHA `3e025e964f24ba11423edb6df6f6a478f92acf0e`.
+
+Two new findings passed the quality gate:
+
+- **P0 #4** — `/oauth/authorize` accepts `approval_secret` from the GET query string and compares it directly to root `MCP_AUTH_TOKEN`; `/mcp` also accepts that same root token directly. README/tests normalize the query-parameter flow. No claim is made that an actual deployed token has leaked.
+- **P1 #5** — dynamic client registrations, one-time authorization codes, and rate-limit counters live only in module-level `Map`s in `src/oauth.ts`. The multi-request OAuth sequence therefore depends on requests reaching the same warm Worker isolate, and the rate limit is not durable/global. No production exchange failure is claimed without runtime evidence.
+
+The old unconditional refresh-token harvesting flaw is no longer current code; PKCE, exact redirect binding, random short-lived codes and short-lived signed access tokens are retained as positive static evidence. Repo report: `docs/audits/50-persona-round-2-2026-09-07.md` (report commit `b5daf030e5ea89dcc51fe4b3cfdb0d2dcffa6f7a`). Status remains **NOT CLEAN**.
+
+### `lobsterpulse`
+
+Re-ran the same Codex setup/recovery personas after Round-1 P0 #1 was closed by merged default-branch remediation SHA `9aa67523e36947beaef77fa3d420e186900e716b`.
+
+The destructive hooks-overwrite path is no longer current: the merged code preserves unrelated hooks and has real-filesystem regression coverage. GitHub Actions Build run `34052981259` succeeded on the merged SHA. However, a new core-path P1 passed the quality gate: `install_codex_hooks()` changes `config.toml` only if raw text does not contain `codex_hooks`. A valid existing `[features]` entry with `codex_hooks = false` is therefore left disabled even though setup writes the hooks and reports success. Comments/strings containing the same token can also suppress the update without establishing the effective TOML value.
+
+Issue #3 was created: `[P1][50-persona audit] Enabling Codex monitoring must turn an existing codex_hooks=false to true`.
+
+This is deterministic current-source evidence. No packaged LobsterPulse installation or live Codex process was executed in this audit turn, so the successful Actions run is not represented as real-user Codex runtime validation. Repo report: `docs/audits/50-persona-round-2-2026-09-07.md` (report commit `ddb2903b7980949dadbf6010820923665cbf3e61`). Status remains **NOT CLEAN**.
+
+### `project-doctor-web`
+
+Re-ran the fixed 50 personas after Round-1 P1 #1/#4 clinical-safety fixes and the #2 rate-limit remediation landed on current product-code SHA `3a7e83ed012722f5d28b4bc7fb4bddbf98d07579`.
+
+Two P1 findings passed the quality gate:
+
+- **P1 #2 reopened — remediation regression/incomplete fix.** `lib/durable-rate-limiter.ts` still keeps the global 250/10-minute cost circuit breaker in per-instance memory. KV is used only for the per-client bucket, and that path increments via non-atomic `get()` followed by `put(current + 1)`. The current KV test is sequential against an in-memory mock, so it does not establish concurrent/multi-isolate correctness. Repository search found no checked-in `RATE_LIMIT_KV` binding configuration. A dashboard-only binding could exist, but no runtime evidence was established. Durable-storage failure also falls back to isolate-local memory rather than a genuinely fail-safe shared cost gate. No deployed bypass or billing incident is claimed.
+- **P1 #9 — objective-data provenance failure.** The system prompt says to retain a predefined normal physical-exam skeleton when there is no contrary objective data. The first interview turn supplies `physicalTags = "無（初診狀態）"`; therefore a contract-valid model response can assert normal findings that were never observed, and the UI renders them under `Live SOAP → Objective / 檢查與客觀體徵`. The issue requires absent findings to remain `not assessed`/`not provided` unless the operator explicitly opts into a clearly labeled simulated fixture.
+
+Static regression evidence for closed #1 and #4 remains positive: deterministic emergency interception is present before provider-key/model calls, and the clinical parser rejects missing/duplicate/empty required sections. These are not represented as deployed clinical validation.
+
+The GitHub Actions runs API returned zero workflow runs for product SHA `3a7e83ed012722f5d28b4bc7fb4bddbf98d07579`; repository tests exist, but this continuation does not claim they executed successfully on that SHA. No deployed Cloudflare endpoint, MiniMax provider call, cross-isolate load test, accessibility browser test, mobile-device run, or real clinical execution was performed.
+
+Repo report: `docs/audits/50-persona-round-2-2026-09-07.md` (report commit `c86b17c906995fc0d33a475b41e6c82546f0cd7b`). Status remains **NOT CLEAN**.
 
 ## No-new-finding second static pass
 

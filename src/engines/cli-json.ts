@@ -28,4 +28,3 @@ export async function codexJson<T>(cfg: { dataDir: string; model: string; effort
   if (result.exitCode !== 0 || result.timedOut || !events.some(e => e.type === 'turn.completed')) throw new Error('CLI model failed; no fallback approval (see local research telemetry)')
   return schema.parse(JSON.parse(readFileSync(answerFile, 'utf8')))
 }
-
