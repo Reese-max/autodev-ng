@@ -38,8 +38,8 @@ export async function reflectOnFailure(d: LessonsDeps, result: CycleResult): Pro
 
     if (typeof result === 'object' && result.kind === 'blocked') {
       taskText = result.taskText
-      context = `blocked(${result.reason})`
-      const tail = d.db.lastAttempt()?.detail
+      context = `blocked(${result.reason}) ${result.alertDetail ?? ''}`
+      const tail = d.db.lastFailureFor(result.taskId)
       if (tail) context += ` 最近嘗試 detail 尾段:${tail.slice(-500)}`
     } else if (result === 'failed') {
       const last = d.db.lastAttempt()

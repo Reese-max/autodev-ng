@@ -5,7 +5,8 @@ export { stopAlertMessage } from './session.js'
 
 export async function main(cfgPath: string): Promise<void> {
   const { deps, notifier, cfg } = assemble(cfgPath)
-  await runGoalWithDeps(deps, notifier, cfg)
+  const result = await runGoalWithDeps(deps, notifier, cfg)
+  if (typeof result === 'object' && result.outcome.kind !== 'achieved') process.exitCode = 1
 }
 
 const cfgArg = process.argv.indexOf('--config')

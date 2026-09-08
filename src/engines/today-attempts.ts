@@ -25,6 +25,8 @@ export interface TodayAttemptsSummary {
 }
 
 export interface TodayAttemptsOptions {
+  /** 用於額度守門；無法確認計數時拋錯，不能當成零。 */
+  strict?: boolean
   /** 預設 new Date().toISOString()；測試可注入 */
   nowIso?: string
   /** 同步查詢逾時毫秒；預設 1000，超時 fail-open 空摘要 */
@@ -49,23 +51,27 @@ export function todayAttemptsSummary(
   const nowIso = opts.nowIso ?? new Date().toISOString()
   const timeoutMs = opts.timeoutMs ?? 1_000
   const day = localDay(nowIso, UTC_OFFSET)
+  const unavailable = () => {
+    if (opts.strict) throw new Error('Daily attempt history unavailable')
+    return empty(day)
+  }
 
-  if (!dbFile || !existsSync(dbFile)) return empty(day)
+  if (!dbFile || !existsSync(dbFile)) return unavailable()
 
   const started = Date.now()
   let db: Database.Database | undefined
   try {
     db = new Database(dbFile, { readonly: true, fileMustExist: true, timeout: timeoutMs })
-    if (timedOut(started, timeoutMs)) return empty(day)
+    if (timedOut(started, timeoutMs)) return unavailable()
 
     const table = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='attempts'")
       .get() as { name: string } | undefined
-    if (!table) return empty(day)
+    if (!table) return unavailable()
 
     const cols = db.prepare('PRAGMA table_info(attempts)').all() as { name: string }[]
-    if (!cols.some(c => c.name === 'engine')) return empty(day)
-    if (timedOut(started, timeoutMs)) return empty(day)
+    if (!cols.some(c => c.name === 'engine')) return unavailable()
+    if (timedOut(started, timeoutMs)) return unavailable()
 
     const { startIso, endIso } = localDayUtcRange(day, UTC_OFFSET)
     const rows = db
@@ -74,7 +80,7 @@ export function todayAttemptsSummary(
       )
       .all(startIso, endIso) as { engine: string; n: number; ok: number }[]
 
-    if (timedOut(started, timeoutMs)) return empty(day)
+    if (timedOut(started, timeoutMs)) return unavailable()
 
     const engines: EngineTodayAttempts[] = rows.map(row => ({
       engine: row.engine,
@@ -85,7 +91,7 @@ export function todayAttemptsSummary(
     const totalOk = engines.reduce((sum, e) => sum + e.ok, 0)
     return { day, engines, totalAttempts, totalOk }
   } catch {
-    return empty(day)
+    return unavailable()
   } finally {
     try {
       db?.close()

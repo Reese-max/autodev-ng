@@ -37,6 +37,22 @@ export interface EvidenceReceipt { path: string; bundleHash: string; releaseBloc
 export class EvidenceStore {
   constructor(private readonly dataDir: string) {}
 
+  /** A checked backlog row alone is not a delivery receipt. */
+  verifiedTaskCommit(taskId: string, taskText: string): string | undefined {
+    const dir = join(this.dataDir, 'evidence')
+    if (!existsSync(dir)) return undefined
+    const bundles = readdirSync(dir).filter(name => name.endsWith('.json')).map(name => {
+      const { bundleHash, ...body } = JSON.parse(readFileSync(join(dir, name), 'utf8'))
+      if (bundleHash !== createHash('sha256').update(JSON.stringify(body)).digest('hex')) throw new Error('Delivery evidence checksum mismatch')
+      return { ...body, bundleHash }
+    })
+    return bundles.filter(b => b.taskId === taskId && b.taskText === taskText && b.verdict === 'ready'
+      && /^[a-f0-9]{40,64}$/.test(b.candidateCommit ?? '') && b.gates?.ci?.status === 'pass'
+      && b.gates.ci.executed === true && b.gates.ci.exitCode === 0 && b.gates?.reviewer?.status === 'pass'
+      && bundles.some(m => m.taskId === taskId && m.executionId === b.executionId && m.mergedCommit === b.candidateCommit && m.gateBundleHash === b.bundleHash))
+      .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0]?.candidateCommit
+  }
+
   record(args: {
     executionId: string
     task: Task

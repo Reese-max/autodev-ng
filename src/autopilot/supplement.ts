@@ -1,23 +1,21 @@
 import type { Goal } from './goal.js'
 import { callAgent, type LlmOpts } from './llm.js'
-import { gatherEvidence } from './evaluator.js'
+import { gatherEvidence, type GoalVerification } from './evaluator.js'
 
 // M9.6 verify-and-supplement 階段：autopilot 回 achieved 後的對抗式獨立驗證＋補足。
 // 獨立性三支柱：換模型（auditLlm 異於 judgeModel）＋對抗式 framing＋機械接地（跑 verifyCommand）。
-// fail-open 為最高原則：本階段是加值，任一環節故障都保留已達成成果、絕不反殺。
+// 審查故障保留程式與任務，但不得把未驗證成果標記為完成。
 
 export interface AuditResult { clean: boolean; gapTasks: string[] }
 
-// 解析對抗式稽核回應（仿 planner 首行判定，嚴格）：首個非空行須恰為 GAPS（可帶冒號）才進補足模式，
-// 其後每行一任務（可帶 - 前綴）；否則（CLEAN/話多/亂格式/空/GAPS 無任務）一律 clean（fail-open，
-// 保守——寧可漏補也不憑話多模型的 chatty 回應憑空生任務）。
+// 只有完整 CLEAN 才通過；GAPS 後接任務，無法解析時不通過也不憑空生任務。
 export function parseAudit(out: string): AuditResult {
   const lines = out.split(/\r?\n/)
   const firstIdx = lines.findIndex(l => l.trim())
   const first = firstIdx >= 0 ? lines[firstIdx]!.trim() : ''
-  if (!/^GAPS[:：]?$/i.test(first)) return { clean: true, gapTasks: [] }
+  if (!/^GAPS[:：]?$/i.test(first)) return { clean: /^CLEAN$/i.test(out.trim()), gapTasks: [] }
   const gapTasks = lines.slice(firstIdx + 1).map(l => l.trim().replace(/^-\s*/, '')).filter(Boolean)
-  return { clean: gapTasks.length === 0, gapTasks }
+  return { clean: false, gapTasks: gapTasks.slice(0, 5) }
 }
 
 function buildAuditPrompt(goal: Goal, evidence: string, verifyOut: string): string {
@@ -34,7 +32,7 @@ function buildAuditPrompt(goal: Goal, evidence: string, verifyOut: string): stri
 
 export interface SupplementDeps {
   auditLlm: LlmOpts
-  runVerify?: (cmd: string, cwd: string) => { exitCode: number; passed: number; output?: string }
+  runVerify?: (cmd: string, cwd: string) => GoalVerification | Promise<GoalVerification>
   readEvidence?: (absPath: string) => string
   runOnceFn: () => Promise<unknown>
   appendTask: (text: string) => void
@@ -50,22 +48,26 @@ export async function verifyAndSupplement(deps: SupplementDeps, goal: Goal, cwd:
   for (let i = 0; i < deps.supplementLimit; i++) {
     if (!deps.isAlive()) break
     rounds++
-    // 機械接地：跑 verifyCommand，輸出併入稽核 prompt（fail-open：verify 崩不擋稽核）。
+    // 機械驗收失敗或不可執行時，模型不能覆蓋失敗結果。
     let verifyOut = ''
-    if (goal.verifyCommand && deps.runVerify) {
+    if (goal.verifyCommand) {
       try {
-        const r = deps.runVerify(goal.verifyCommand, cwd)
+        if (!deps.runVerify) throw new Error('verification runner unavailable')
+        const r = await deps.runVerify(goal.verifyCommand, cwd)
         verifyOut = `exit=${r.exitCode} passed=${r.passed}\n${r.output ?? ''}`.trim()
-      } catch { /* fail-open */ }
+        if (r.exitCode !== 0) return { clean: false, rounds, supplemented, residualGaps: [verifyOut] }
+      } catch (error) { return { clean: false, rounds, supplemented, residualGaps: [`verify error: ${String(error)}`] } }
     }
     const evidence = gatherEvidence(goal.evidenceFiles, cwd, deps.readEvidence)
-    // 對抗式稽核（fail-open：audit LLM 錯或亂格式 → 視為 clean，不憑空生任務、不反殺成果）。
+    // 審查失敗與無法解析的回應不新增任務，也不簽發通過結果。
     let audit: AuditResult
     try {
-      const out = (await callAgent(deps.auditLlm, buildAuditPrompt(goal, evidence, verifyOut))).text.trim()
-      audit = parseAudit(out)
-    } catch { audit = { clean: true, gapTasks: [] } }
+      const reply = await callAgent(deps.auditLlm, buildAuditPrompt(goal, evidence, verifyOut))
+      if (reply.error) throw new Error(reply.error)
+      audit = parseAudit(reply.text)
+    } catch (error) { return { clean: false, rounds, supplemented, residualGaps: [`audit error: ${String(error)}`] } }
     if (audit.clean) return { clean: true, rounds, supplemented, residualGaps: [] }
+    if (!audit.gapTasks.length) return { clean: false, rounds, supplemented, residualGaps: ['audit response invalid or missing gap tasks'] }
     residualGaps = audit.gapTasks
     for (const t of audit.gapTasks) {
       if (!deps.isAlive()) break

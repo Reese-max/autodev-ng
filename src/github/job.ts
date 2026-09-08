@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { BacklogStore } from '../backlog.js'
 import { assembleConfig, expandConfigPaths } from '../cli/assemble.js'
@@ -13,6 +13,7 @@ import { makeEngineRegistry } from '../engines/registry.js'
 import { KernelVerifier } from '../verifier.js'
 import { regressionFile, verifyRegression, assertRegression } from './regression.js'
 import { verifyAcceptance, assertAcceptance } from './acceptance.js'
+import { TeamState } from '../engines/team-state.js'
 
 export const git = (cwd: string, args: string[]): string => command('git', ['-c', `safe.directory=${cwd.replace(/\\/g, '/')}`, ...args], cwd)
 export const checkoutDir = (cfg: GithubConfig, state: IssueState): string => join(runDir(cfg, state), 'repo')
@@ -69,7 +70,16 @@ export function prepareCheckout(cfg: GithubConfig, state: IssueState): void {
   if (git(cwd, ['status', '--porcelain'])) throw new Error('Issue checkout is dirty; preserving changes for review')
   if (git(cwd, ['remote', 'get-url', 'origin']) !== `https://github.com/${cfg.repo}.git`) throw new Error('Issue checkout origin changed')
 }
-export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string }> {
+export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string; attempted?: boolean }> {
+  if (cfg.repair) {
+    const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
+    const cap = source.engines[cfg.engine]?.dailyAttemptCap
+    if (cap !== undefined) {
+      const team = new TeamState(source.projectPath)
+      try { if (team.attemptsToday(cfg.engine) >= cap) return { done: false, detail: 'Daily writer attempt cap reached; wait for next UTC day', attempted: false } }
+      finally { team.close() }
+    }
+  }
   prepareCheckout(cfg, state)
   const runtime = runtimeConfig(cfg, state)
   const worker = cfg.repair ? makeEngineRegistry(runtime).resolve(cfg.engine) : undefined
@@ -111,6 +121,11 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
   app.deps.taskTerminalNotify = undefined
   if (!cfg.repair) app.deps.lessons = undefined
   try {
+    if (cfg.repair) {
+      const source = JSON.parse(readFileSync(cfg.sourceConfig, 'utf8')) as { projectPath: string }
+      const shared = new TeamState(resolve(dirname(cfg.sourceConfig), source.projectPath))
+      app.deps.team?.close(); app.deps.team = shared
+    }
     const tasks = app.deps.store.read()
     if (tasks.length !== 1 || tasks[0]!.text !== issueTask(state)) throw new Error('Issue backlog contract changed')
     if (tasks[0]!.status === 'done') throw new Error('Interrupted completed cycle; manual evidence recovery required')

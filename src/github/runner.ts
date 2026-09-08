@@ -100,6 +100,7 @@ export async function runGithub(cfg: GithubConfig, options: {
         if (state.runs >= cfg.maxRuns) { state.status = 'blocked'; saveState(cfg, state); return 'blocked' }
         state.status = 'running'; state.runs++; saveState(cfg, state)
         const result = await (options.execute ?? executeIssue)(cfg, state)
+        if (result.attempted === false) state.runs-- // Capacity deferral never ran a worker; preserve the repair budget.
         if (!active() || !currentIssue(cfg, state, await client.issue(state.issue.number))) {
           state.status = 'cancelled'; state.detail = 'Issue or configuration changed during execution; candidate preserved'
           saveState(cfg, state); return 'cancelled'

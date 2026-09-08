@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { evaluate } from '../src/autopilot/evaluator.js'
+import { evaluate, runGoalVerify } from '../src/autopilot/evaluator.js'
 import type { Goal } from '../src/autopilot/goal.js'
 
 const withVerify: Goal = { objective: 'o', verifyCommand: 'npm run verify', noProgressLimit: 3 }
@@ -7,6 +7,19 @@ const noVerify: Goal = { objective: 'o', noProgressLimit: 3 }
 const llm = { model: 'm', apiKey: 'k' } // url 省略：callAgent fail-open 回 ''
 
 describe('evaluate', () => {
+  test('真實 shell 驗收保留成功、失敗與串接指令的退出碼', async () => {
+    expect(await runGoalVerify('node -e "console.log(42)"', process.cwd(), 5000)).toMatchObject({ exitCode: 0, output: expect.stringContaining('42') })
+    expect(await runGoalVerify('node -e "process.exit(3)" && node -e "process.exit(0)"', process.cwd(), 5000)).toMatchObject({ exitCode: 3 })
+  })
+  test('機械驗收逾時回未達成，不留下無期限等待', async () => {
+    const s = await evaluate({ llm, verifyTimeoutMs: 50 }, { ...withVerify, verifyCommand: `"${process.execPath}" -e "setTimeout(()=>{},500)"` }, process.cwd())
+    expect(s.achieved).toBe(false)
+  })
+  test.each(['NOT ACHIEVED', 'NOT  ACHIEVED', 'NOT-ACHIEVED', 'UNACHIEVED', 'ACHIEVED\nNOT-YET'])('無佐證判斷不得把否定句 %s 當成成功', async content => {
+    const fetchFn = (async () => new Response(JSON.stringify({ choices: [{ message: { content } }] }))) as typeof fetch
+    const result = await evaluate({ llm: { url: 'http://fixture.invalid', model: 'test', apiKey: '', fetchFn } }, noVerify, '/tmp')
+    expect(result.achieved).toBe(false)
+  })
   test('可量測優先：verify exit 0 → achieved，score=通過項數', async () => {
     const s = await evaluate({ llm, runVerify: () => ({ exitCode: 0, passed: 42 }) }, withVerify, '/tmp')
     expect(s.achieved).toBe(true)

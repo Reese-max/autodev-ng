@@ -35,7 +35,7 @@ export async function gateAuthoredGoal(
   let root: string | undefined
   let cwd: string | undefined
   let added = false
-  let result: GoalQualityGateResult = { ok: true, warning: 'gate-not-run' }
+  let result: GoalQualityGateResult = { ok: false, reason: 'gate-not-run' }
   try {
     const goal = parseGoal(md)
     const command = goal.verifyCommand?.trim()
@@ -55,10 +55,10 @@ export async function gateAuthoredGoal(
       const verification = await runVerify({ command, cwd, timeoutMs: opts.verifyTimeoutMs, env: goalVerifyEnv(opts.projectPath) })
       if (verification.status === 'fail') result = { ok: true, verifyCommand: command }
       else if (verification.status === 'pass') result = { ok: false, reason: `verify-green: ${verification.detail}` }
-      else result = { ok: true, verifyCommand: command, warning: `verify-unverifiable: ${verification.detail}` }
+      else result = { ok: false, reason: `verify-unverifiable: ${verification.detail}` }
     }
   } catch (error) {
-    result = { ok: true, warning: `gate-exception: ${detailOf(error)}` }
+    result = { ok: false, reason: `gate-exception: ${detailOf(error)}` }
   } finally {
     const cleanupErrors: string[] = []
     if (added) {
@@ -67,7 +67,7 @@ export async function gateAuthoredGoal(
     if (root) {
       try { rmSync(root, { recursive: true, force: true, maxRetries: 3 }) } catch (error) { cleanupErrors.push(detailOf(error)) }
     }
-    if (cleanupErrors.length) result = { ok: true, warning: `gate-cleanup: ${cleanupErrors.join('｜').slice(0, 240)}` }
+    if (cleanupErrors.length) result = { ok: false, reason: `${result.ok ? '' : result.reason + '；'}gate-cleanup: ${cleanupErrors.join('｜').slice(0, 240)}` }
   }
   return result
 }

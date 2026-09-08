@@ -97,3 +97,10 @@ kernel 薄殼邊界；`kernel-budget` 仍保留既有 ≤2700 工作上限守門
 ## 2026-09-08 Freebuff 接線
 
 `src/types.ts` 擴充 adapter 枚舉並增加一行 Freebuff 設定驗證；其餘實作位於 `src/engines/` 與 `src/github/`。頂層共 **2218 行**，低於 2250 行；未調高上限。
+
+## 2026-09-08 完成證據與嘗試額度
+
+`src/scheduler.ts` 接入既有 team 帳本的每日 admission、學習結果紀錄，以及合併後任務狀態寫入失敗時的暫停；計數與分析實作留在 `src/engines/`、`src/learn/`。
+頂層共 **2237 行**，低於 2250 行；未調高上限。
+
+驗證：`npx vitest run tests/kernel-relocation-report.test.ts tests/scheduler.test.ts tests/team-state.test.ts tests/learning-outcomes.test.ts`。

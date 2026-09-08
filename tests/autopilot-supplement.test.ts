@@ -22,20 +22,30 @@ describe('parseAudit', () => {
     const r = parseAudit('GAPS\n補 A\n- 補 B')
     expect(r.clean).toBe(false); expect(r.gapTasks).toEqual(['補 A', '補 B'])
   })
-  test('GAPS 但無任務 → clean', () => { expect(parseAudit('GAPS\n\n').clean).toBe(true) })
-  test('亂格式（無標記）→ fail-open clean', () => { expect(parseAudit('我覺得還行').clean).toBe(true) })
-  test('空回應 → clean', () => { expect(parseAudit('').clean).toBe(true) })
+  test('GAPS 但無任務 → 未通過', () => { expect(parseAudit('GAPS\n\n').clean).toBe(false) })
+  test('亂格式（無標記）→ 未通過', () => { expect(parseAudit('我覺得還行').clean).toBe(false) })
+  test('空回應 → 未通過', () => { expect(parseAudit('').clean).toBe(false) })
   test('GAPS: 冒號變體 → 仍解析', () => {
     const r = parseAudit('GAPS：\n補 A')
     expect(r.clean).toBe(false); expect(r.gapTasks).toEqual(['補 A'])
   })
-  test('首行非恰為 GAPS(話多開頭) → 保守 clean，不誤觸發', () => {
-    expect(parseAudit('GAPS 是我回報缺口的方式，這裡沒有\nCLEAN').clean).toBe(true)
-    expect(parseAudit('分析後我認為\nGAPS\n補 X').clean).toBe(true) // GAPS 不在首個非空行 → 保守 clean
+  test('非契約回應不通過也不派工', () => {
+    expect(parseAudit('GAPS 是我回報缺口的方式，這裡沒有\nCLEAN').clean).toBe(false)
+    expect(parseAudit('分析後我認為\nGAPS\n補 X').clean).toBe(false) // GAPS 不在首個非空行 → 保守 clean
   })
 })
 
 describe('verifyAndSupplement', () => {
+  test('驗收失敗不能被 CLEAN 覆蓋，也不再呼叫模型', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: 'CLEAN' } }] })))
+    const runOnce = vi.fn()
+    const result = await verifyAndSupplement({ ...base, auditLlm: { url: 'http://fixture.invalid', model: 'audit', apiKey: '', fetchFn },
+      runVerify: () => ({ exitCode: 1, passed: 0 }), runOnceFn: runOnce, supplementLimit: 2 },
+      { ...goalWithEvidence, verifyCommand: 'failing-check' }, '/proj')
+    expect(result.clean).toBe(false)
+    expect(fetchFn).not.toHaveBeenCalled()
+    expect(runOnce).not.toHaveBeenCalled()
+  })
   test('audit 首輪 clean → 不補足', async () => {
     const runOnce = vi.fn()
     const r = await verifyAndSupplement({ ...base, auditLlm: auditLlm(['CLEAN']), runOnceFn: runOnce, supplementLimit: 2 }, goalWithEvidence, '/proj')
@@ -51,11 +61,11 @@ describe('verifyAndSupplement', () => {
     const r = await verifyAndSupplement({ ...base, auditLlm: auditLlm(['GAPS\n補 X']), runOnceFn: vi.fn(), supplementLimit: 2 }, goalWithEvidence, '/proj')
     expect(r.clean).toBe(false); expect(r.rounds).toBe(2); expect(r.residualGaps).toContain('補 X')
   })
-  test('fail-open：audit LLM 錯 → 視為 clean，不崩不生任務', async () => {
+  test('audit LLM 故障 → 未通過，不生任務', async () => {
     const runOnce = vi.fn()
     const throwLlm = { url: 'http://x/v1', model: 'a', apiKey: 'k', fetchFn: (async () => { throw new Error('boom') }) as unknown as typeof fetch }
     const r = await verifyAndSupplement({ ...base, auditLlm: throwLlm, runOnceFn: runOnce, supplementLimit: 2 }, goalWithEvidence, '/proj')
-    expect(r.clean).toBe(true); expect(runOnce).not.toHaveBeenCalled()
+    expect(r.clean).toBe(false); expect(runOnce).not.toHaveBeenCalled()
   })
   test('kill switch：isAlive false → 立即中止 rounds 0', async () => {
     const runOnce = vi.fn()
@@ -68,7 +78,7 @@ describe('verifyAndSupplement', () => {
     const llm = { url: 'http://x/v1', model: 'a', apiKey: 'k',
       fetchFn: (async (_u: unknown, init: { body: string }) => { captured = init.body; return { ok: true, status: 200,
         json: async () => ({ choices: [{ message: { content: 'CLEAN' } }] }) } }) as unknown as typeof fetch }
-    await verifyAndSupplement({ ...base, auditLlm: llm, runVerify: () => ({ exitCode: 1, passed: 3, output: 'FAILMARKER' }),
+    await verifyAndSupplement({ ...base, auditLlm: llm, runVerify: () => ({ exitCode: 0, passed: 3, output: 'FAILMARKER' }),
       runOnceFn: vi.fn(), supplementLimit: 1 }, g, '/proj')
     expect(captured).toContain('FAILMARKER')
   })

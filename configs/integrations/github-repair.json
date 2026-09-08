@@ -7,7 +7,7 @@
   ],
   "sourceConfig": "../autodev-self.json",
   "dataDir": "../../data/github-repairs/autodev-ng",
-  "engine": "codex-sol",
+  "engine": "codex-astra",
   "enabled": true,
   "publish": false,
   "maxRuns": 3,

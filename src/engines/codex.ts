@@ -93,6 +93,10 @@ export class CodexEngine implements Engine {
         env: this.runtimeEnv(), replaceEnv: true
       })
       const p = parseJsonl(r.stdout)
+      if (this.useUserLogin) {
+        mkdirSync(this.homeDir, { recursive: true })
+        writeFileSync(join(this.homeDir, 'preflight-last.json'), JSON.stringify({ at: new Date().toISOString(), args: this.pingArgs, exitCode: r.exitCode, timedOut: r.timedOut, durationMs: r.durationMs, stdout: r.stdout.slice(-8000), stderr: r.stderr.slice(-8000) }, null, 2))
+      }
       result = r.exitCode === 0 && !r.timedOut && p.turnCompleted && p.message.trim() === 'PONG'
         ? { ok: true, detail: `PONG ${r.durationMs}ms` }
         : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG/turn.completed (exit ${r.exitCode}) ${r.stderr.slice(0, 120)}` }

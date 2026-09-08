@@ -29,6 +29,18 @@ function setup(reply: string) {
 }
 
 describe('reflectOnFailure', () => {
+  test('blocked 只使用相符任務的失敗證據，不混入較新的其他任務', async () => {
+    const { deps, db, tid } = setup('NONE')
+    db.record({ taskId: tid, ok: false, costUsd: 0, detail: 'MATCHING_FAILURE' })
+    db.record({ taskId: 'another', ok: false, costUsd: 0, detail: 'UNRELATED_FAILURE' })
+    let prompt = ''
+    deps.llm.fetchFn = (async (_url, init) => {
+      prompt = String(init?.body)
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'NONE' } }] }))
+    }) as typeof fetch
+    await reflectOnFailure(deps, { kind: 'blocked', taskId: tid, taskText: '修 smoke 失敗', reason: 'max-attempts' })
+    expect(prompt).toContain('MATCHING_FAILURE'); expect(prompt).not.toContain('UNRELATED_FAILURE')
+  })
   test("failed:從 lastAttempt 取證據,寫入一條教訓", async () => {
     const { d, db, deps, tid } = setup('smoke 要用 port 3210,3000 被佔用')
     db.record({ taskId: tid, ok: false, costUsd: 0, detail: 'verify 輸出:EADDRINUSE 3000' })

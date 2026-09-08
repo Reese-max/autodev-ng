@@ -26,8 +26,13 @@ test('非發布任務：寫入綁定 candidate commit 的 CI／Reviewer／Releas
   const body = JSON.parse(readFileSync(receipt.path, 'utf8')) as Record<string, unknown>
   expect(body).toMatchObject({ candidateCommit: 'a'.repeat(40), verdict: 'ready', bundleHash: receipt.bundleHash })
   expect(body.gates).toMatchObject({ ci: { status: 'pass' }, reviewer: { status: 'pass' }, release: { status: 'not-applicable' } })
+  expect(f.store.verifiedTaskCommit(f.task.id, f.task.text)).toBeUndefined()
   const merged = f.store.recordMerge({ executionId: 'exec-1', taskId: f.task.id, mergedCommit: verification.candidateCommit })
   expect(JSON.parse(readFileSync(merged.path, 'utf8'))).toMatchObject({ mergedCommit: verification.candidateCommit, gateBundleHash: receipt.bundleHash })
+  expect(f.store.verifiedTaskCommit(f.task.id, f.task.text)).toBe(verification.candidateCommit)
+  expect(f.store.verifiedTaskCommit(f.task.id, 'different requirement')).toBeUndefined()
+  writeFileSync(merged.path, readFileSync(merged.path, 'utf8').replace(verification.candidateCommit, 'b'.repeat(40)))
+  expect(() => f.store.verifiedTaskCommit(f.task.id, f.task.text)).toThrow('checksum')
 })
 
 test('發布任務：沒有人工核可或 commit 不符時 BLOCKED；精確相符才通過', () => {

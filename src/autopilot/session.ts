@@ -1,6 +1,5 @@
 import { llmFromConfig } from './llm.js'
 import { existsSync, appendFileSync, readFileSync } from 'node:fs'
-import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { Config } from '../types.js'
@@ -11,7 +10,7 @@ import { acquireLock, releaseLock } from '../lock.js'
 import { parseGoal } from './goal.js'
 import { readHandledProblemTitles } from './ledger.js'
 import { plan } from './planner.js'
-import { evaluate } from './evaluator.js'
+import { evaluate, runGoalVerify } from './evaluator.js'
 import { verifyAndSupplement } from './supplement.js'
 import { discoverProblems, type DiscoverResult } from './discover.js'
 import { runGoalSession, type OrchestratorDeps, type GoalOutcome } from './orchestrator.js'
@@ -86,10 +85,20 @@ export async function runGoalWithDeps(
       }
       return { goalId, outcome: { kind: 'blocked', rounds: 0, reason: workspace.reason, detail: workspace.detail, repairCommands: workspace.repairCommands } }
     }
+    if (!goal.verifyCommand?.trim()) {
+      const outcome: GoalOutcome = { kind: 'stuck', rounds: 0, reason: 'GOAL 缺少可執行的機械驗收指令，未派工' }
+      appendFileSync(auditFile, JSON.stringify({ outcome }) + '\n')
+      return { goalId, outcome }
+    }
     // GOAL 指定引擎時鎖死選擎（config 白名單須含此引擎）
     const kernelDeps = goal.engine
       ? { ...deps, cfg: pinGoalEngine(cfg, goal.engine) }
       : deps
+    if (cfg.llmTransport === 'cli' && (!cfg.auditModel || cfg.auditModel === cfg.judgeModel || cfg.auditModel === cfg.engines[kernelDeps.cfg.defaultEngine]?.model)) {
+      const outcome: GoalOutcome = { kind: 'stuck', rounds: 0, reason: 'CLI GOAL 需要不同模型的獨立審查，未派工' }
+      appendFileSync(auditFile, JSON.stringify({ outcome }) + '\n')
+      return { goalId, outcome }
+    }
     const llm = llmFromConfig(cfg, cfg.judgeModel, cfg.judgeUrl)
     // M7 Task 5：session 開始時讀一次教訓（不逐輪重讀），fail-open——教訓面故障不擋 GOAL 啟動
     let lessonsText = ''
@@ -125,25 +134,20 @@ export async function runGoalWithDeps(
     const orchDeps: OrchestratorDeps = {
       goalId, goal, cwd: cfg.projectPath, kernelDeps, lessonsText, discovered,
       planFn: (input) => plan(llm, input),
-      evalFn: (cwd) => evaluate({ llm }, goal, cwd),
-      runOnceFn: async (d) => { const r = await runOnce(d); finalizeRunOnceHeartbeat(d, r); return r },
+      evalFn: (cwd) => evaluate({ llm, verifyTimeoutMs: cfg.verifyTimeoutMs }, goal, cwd),
+      runOnceFn: async (d) => { const r = await runOnce(d); finalizeRunOnceHeartbeat(d, r); try { await d.lessons?.reflect(r) } catch { /* Learning cannot overwrite a cycle result. */ } return r },
       isAlive: alive,
       onRound: (r) => appendFileSync(auditFile, JSON.stringify(r) + '\n')
     }
-    const outcome = await runGoalSession(orchDeps)
-    appendFileSync(auditFile, JSON.stringify({ outcome }) + '\n') // 停止原因入稽核（spec 段⑤）
-    console.log(`GOAL outcome: ${JSON.stringify(outcome)}`)
-    // M9.6：達成後對抗式獨立驗證＋補足（僅 cfg.auditModel 有設時啟動；fail-open——本階段故障保留 achieved）。
+    let outcome = await runGoalSession(orchDeps)
+    // 最終成果必須包含已設定的獨立審查結果。
     let supplement: SessionResult['supplement']
     if (outcome.kind === 'achieved' && cfg.auditModel) {
       try {
         const sup = await verifyAndSupplement({
           auditLlm: llmFromConfig(cfg, cfg.auditModel, cfg.judgeUrl),
-          runVerify: (cmd, wd) => {
-            try { return { exitCode: 0, passed: 1, output: execSync(cmd, { cwd: wd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }).slice(-2000) } }
-            catch (e) { const er = e as { status?: number; stdout?: string }; return { exitCode: er.status ?? 1, passed: 0, output: (er.stdout ?? '').slice(-2000) } }
-          },
-          runOnceFn: async () => { const r = await runOnce(kernelDeps); finalizeRunOnceHeartbeat(kernelDeps, r); return r },
+          runVerify: (cmd, wd) => runGoalVerify(cmd, wd, cfg.verifyTimeoutMs),
+          runOnceFn: async () => { const r = await runOnce(kernelDeps); finalizeRunOnceHeartbeat(kernelDeps, r); try { await kernelDeps.lessons?.reflect(r) } catch { /* Preserve cycle outcome. */ } return r },
           appendTask: (t) => kernelDeps.store.append(t, { goalId, round: 0 }),
           isAlive: alive,
           supplementLimit: cfg.supplementLimit
@@ -151,8 +155,13 @@ export async function runGoalWithDeps(
         supplement = sup
         appendFileSync(auditFile, JSON.stringify({ supplement: sup }) + '\n')
         console.log(`supplement: ${JSON.stringify(sup)}`)
-      } catch (e) { console.error('supplement 階段故障（fail-open，保留 achieved）:', String(e)) }
+      } catch (e) {
+        supplement = { clean: false, rounds: 0, supplemented: 0, residualGaps: [`audit error: ${String(e)}`] }
+      }
+      if (!supplement?.clean) outcome = { kind: 'stuck', rounds: outcome.rounds, reason: `獨立審查未通過：${supplement?.residualGaps.join('；') || '審查未完成'}` }
     }
+    appendFileSync(auditFile, JSON.stringify({ outcome }) + '\n')
+    console.log(`GOAL outcome: ${JSON.stringify(outcome)}`)
     if (outcome.kind !== 'killed' && outcome.kind !== 'blocked') {
       settleGoalRoi({
         events: deps.events, dbFile: join(cfg.dataDir, 'run.db'), backlogFile: cfg.backlogFile,

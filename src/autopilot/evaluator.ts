@@ -1,35 +1,35 @@
-import { execSync } from 'node:child_process'
+import { runProcess } from '../engines/proc.js'
 import { readFileSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import type { Goal } from './goal.js'
 import { callAgent, type LlmOpts } from './llm.js'
 
 export interface ProgressSnapshot { achieved: boolean; score: number; detail: string }
+export interface GoalVerification { exitCode: number; passed: number; output?: string }
 export interface EvalDeps {
   llm: LlmOpts
-  runVerify?: (cmd: string, cwd: string) => { exitCode: number; passed: number }
+  verifyTimeoutMs?: number
+  runVerify?: (cmd: string, cwd: string) => GoalVerification | Promise<GoalVerification>
   // 品質類目標（無 verifyCommand）用：讀佐證檔內容餵判定 LLM。可注入以利測試，預設 readFileSync。
   readEvidence?: (absPath: string) => string
 }
 
 // 預設 verify 執行：非零 exit 不 throw；passed = 從輸出數 "pass"/"passing" 的粗略計數（沙盒足夠）
-function defaultRunVerify(cmd: string, cwd: string): { exitCode: number; passed: number } {
-  try {
-    const out = execSync(cmd, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
-    const m = out.match(/(\d+)\s+pass/i)
-    return { exitCode: 0, passed: m ? Number(m[1]) : 1 }
-  } catch (err) {
-    const e = err as { status?: number; stdout?: string }
-    const m = (e.stdout ?? '').match(/(\d+)\s+pass/i)
-    return { exitCode: e.status ?? 1, passed: m ? Number(m[1]) : 0 }
-  }
+export async function runGoalVerify(cmd: string, cwd: string, timeoutMs = 15 * 60_000): Promise<GoalVerification> {
+  const windows = process.platform === 'win32'
+  // cmd at stdin EOF returns zero; explicitly preserve the command's errorlevel.
+  const r = await runProcess({ command: windows ? 'cmd.exe' : '/bin/sh', args: windows ? ['/d', '/q'] : [], cwd,
+    stdinText: cmd + (windows ? '\r\nexit %errorlevel%\r\n' : '\n'), timeoutMs })
+  const exitCode = r.timedOut ? 1 : r.exitCode ?? 1, m = r.stdout.match(/(\d+)\s+pass/i)
+  return { exitCode, passed: m ? Number(m[1]) : exitCode === 0 ? 1 : 0,
+    output: (r.timedOut ? `verification timed out after ${timeoutMs}ms` : r.stdout + r.stderr).slice(-2000) }
 }
 
 export async function evaluate(deps: EvalDeps, goal: Goal, cwd: string): Promise<ProgressSnapshot> {
   if (goal.verifyCommand) {
-    const run = deps.runVerify ?? defaultRunVerify
+    const run = deps.runVerify ?? ((cmd, wd) => runGoalVerify(cmd, wd, deps.verifyTimeoutMs))
     try {
-      const { exitCode, passed } = run(goal.verifyCommand, cwd)
+      const { exitCode, passed } = await run(goal.verifyCommand, cwd)
       return { achieved: exitCode === 0, score: passed, detail: `verify exit=${exitCode} passed=${passed}` }
     } catch (err) {
       return { achieved: false, score: 0, detail: `verify error: ${String(err).slice(0, 120)}` }
@@ -40,7 +40,7 @@ export async function evaluate(deps: EvalDeps, goal: Goal, cwd: string): Promise
   if (!goal.evidenceFiles?.length) {
     const out = (await callAgent(deps.llm,
       `目標：${goal.objective}\n判斷是否已達成，達成回 ACHIEVED，否則回 NOT-YET 並簡述缺口。`)).text.trim()
-    const achieved = /ACHIEVED/i.test(out.slice(0, 20))
+    const achieved = /^ACHIEVED\b/i.test(out) && !/\bNOT[\s-]*(?:YET|ACHIEVED)\b/i.test(out)
     return { achieved, score: achieved ? 1 : 0, detail: out.slice(0, 200) || 'agent 無回應' }
   }
   // informed 判定（有佐證檔）：讀檔內容餵 judge，回 0~10 品質分 + 達成與否
@@ -58,7 +58,7 @@ export async function evaluate(deps: EvalDeps, goal: Goal, cwd: string): Promise
   const scoreM = out.match(/SCORE[：:]\s*(\d+)/i)
   const score = scoreM ? Math.min(10, Math.max(0, Number(scoreM[1]))) : 0
   // 保守判達成：出現 ACHIEVED 且無任何否定式（NOT-YET / NOT YET / NOT ACHIEVED …）。
-  const achieved = /\bACHIEVED\b/i.test(out) && !/NOT[\s-]*(?:YET|ACHIEVED)/i.test(out)
+  const achieved = !!scoreM && /^ACHIEVED\s*$/im.test(out) && !/\bNOT[\s-]*(?:YET|ACHIEVED)\b/i.test(out)
   return { achieved, score, detail: out.slice(0, 200) || 'agent 無回應' }
 }
 

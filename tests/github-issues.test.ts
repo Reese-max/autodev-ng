@@ -109,6 +109,15 @@ test('one Issue per run, retry cooldown and total attempt ceiling bound supply f
   expect(readState(cfg, 7)!.status).toBe('blocked')
   expect(execute).toHaveBeenCalledTimes(cfg.maxRuns)
 })
+test('capacity deferral before worker execution preserves the Issue retry budget', async () => {
+  const { cfg, client } = fixture()
+  const execute = vi.fn(async () => ({ done: false, detail: 'daily cap', attempted: false }))
+  await runGithub(cfg, { client, execute })
+  expect(readState(cfg, 7)).toMatchObject({ status: 'queued', runs: 0, detail: 'daily cap' })
+  expect(await runGithub(cfg, { client, execute })).toBe('idle')
+  expect(execute).toHaveBeenCalledTimes(1)
+})
+
 test('interrupted running state is blocked, never silently executed again', async () => {
   const { cfg, client, state } = fixture(); state.status = 'running'; saveState(cfg, state)
   const execute = vi.fn()

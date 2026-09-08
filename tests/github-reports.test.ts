@@ -86,6 +86,7 @@ test('proposal validation defers without user direction, requires independent ap
   expect(model).toHaveBeenCalledTimes(2)
   await proposalCli('proposal-feedback', ['--config', file, '--id', id, '--outcome', 'not-helpful', '--reason', 'This task still needs a real completion check'])
   expect(readReportState(f.cfg).entries[id]!.decision!.outcome?.value).toBe('not-helpful')
+  expect(readReportState(f.cfg).entries[id]!.decision!.outcome?.delivery).toBe('unverified')
   expect(readFileSync(join(f.dir, 'USER-SIGNALS.md'), 'utf8')).toContain(`proposal-feedback:${id}`)
   const interruptedFeedback = readReportState(f.cfg), originalOutcome = interruptedFeedback.entries[id]!.decision!.outcome!
   originalOutcome.signalRecorded = false; saveReportState(f.cfg, interruptedFeedback)

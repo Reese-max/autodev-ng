@@ -291,7 +291,7 @@ test('preflight 失敗：回 preflight-failed，engine.run 零呼叫，事件 24
   expect(events.match(/"type":"preflight-failed"/g)).toHaveLength(1)
 })
 
-test('engine 成功但 store.report 拋錯：仍回 done、db 只記一筆 ok（無假失敗）、events 含 report-failed', async () => {
+test('engine 成功但 store.report 拋錯：保留成果並暫停，不回 done 或重複派工', async () => {
   const d = deps(new MockEngine([{ ok: true, costUsd: 0.2 }]))
 
   class ThrowingReportStore extends BacklogStore {
@@ -302,7 +302,8 @@ test('engine 成功但 store.report 拋錯：仍回 done、db 只記一筆 ok（
   const throwingStore = new ThrowingReportStore(d.cfg.backlogFile)
 
   const result = await runOnce({ ...d, store: throwingStore })
-  expect(result).toBe('done')
+  expect(result).toMatchObject({ kind: 'blocked', reason: 'verification-infra' })
+  expect(await runOnce({ ...d, store: throwingStore })).toBe('stopped')
 
   // db 只記一筆「ok」紀錄，沒有因為下游 report 失敗而被誤記成假失敗
   const task = d.store.nextTask()
@@ -312,9 +313,9 @@ test('engine 成功但 store.report 拋錯：仍回 done、db 只記一筆 ok（
 
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events).toContain('"type":"report-failed"')
-  expect(events).toContain('"willRepick":true')
+  expect(events).toContain('"willRepick":false')
 
-  // 已知殘留風險：backlog 沒打勾（下一輪會重新撿到這個「已完成」任務）
+  // Original row and evidence remain available for recovery; the stop marker blocks re-dispatch.
   expect(readFileSync(d.cfg.backlogFile, 'utf8')).toContain('- [ ] 任務一')
 })
 

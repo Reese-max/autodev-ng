@@ -6,7 +6,7 @@ import Database from 'better-sqlite3'
 import type { Task } from '../types.js'
 import { ownershipConflicts, ownershipManifest, type OwnershipManifest } from './ownership.js'
 
-export type ClaimFailure = 'ownership-conflict' | 'cost-reserved' | 'quarantined'
+export type ClaimFailure = 'ownership-conflict' | 'cost-reserved' | 'quarantined' | 'attempt-cap'
 export type ClaimResult = { ok: true; token: string } | { ok: false; reason: ClaimFailure; detail: string }
 
 interface ActiveClaim { execution_id: string; task_id: string; manifest_json: string }
@@ -32,6 +32,7 @@ export class TeamState {
         state TEXT NOT NULL, lease_until INTEGER NOT NULL, updated_at TEXT NOT NULL
       );
       CREATE UNIQUE INDEX IF NOT EXISTS one_active_execution_per_task ON team_claims(task_id) WHERE active=1;
+      CREATE TABLE IF NOT EXISTS team_attempts(execution_id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, day TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS merge_queue(
         seq INTEGER PRIMARY KEY AUTOINCREMENT, execution_id TEXT NOT NULL UNIQUE, task_id TEXT NOT NULL,
         candidate_head TEXT NOT NULL, branch TEXT NOT NULL, worktree_path TEXT NOT NULL,
@@ -46,10 +47,16 @@ export class TeamState {
 
   claim(args: {
     executionId: string; task: Task; workerId: string; reservedCostUsd: number
-    spentUsd: number; dailyHardUsd: number; leaseMs: number
+    spentUsd: number; dailyHardUsd: number; leaseMs: number; dailyAttemptCap?: number
   }): ClaimResult {
     const manifest = ownershipManifest(args.task, this.projectPath)
     return this.db.transaction(() => {
+      const day = new Date().toISOString().slice(0, 10)
+      if (args.dailyAttemptCap !== undefined) {
+        if (!Number.isSafeInteger(args.dailyAttemptCap) || args.dailyAttemptCap <= 0) throw new Error('Invalid dailyAttemptCap')
+        const used = this.attemptsToday(args.workerId, day)
+        if (used >= args.dailyAttemptCap) return { ok: false, reason: 'attempt-cap', detail: `UTC ${day}: ${args.workerId} admitted ${used}/${args.dailyAttemptCap}; wait for next day` } as const
+      }
       this.reapExpired(Date.now())
       const quarantined = this.db.prepare("SELECT 1 FROM team_claims WHERE task_id=? AND state='QUARANTINED' UNION ALL SELECT 1 FROM merge_queue WHERE task_id=? AND state IN ('QUARANTINED','PAUSED_READY') LIMIT 1").get(args.task.id, args.task.id)
       if (quarantined) return { ok: false, reason: 'quarantined', detail: 'previous execution expired; worktree requires manual recovery' } as const
@@ -63,6 +70,7 @@ export class TeamState {
         return { ok: false, reason: 'cost-reserved', detail: `spent ${args.spentUsd} + reserved ${reserved + args.reservedCostUsd} > hard ${args.dailyHardUsd}` } as const
       }
       const token = randomUUID(), now = new Date().toISOString()
+      this.db.prepare('INSERT INTO team_attempts(execution_id,worker_id,day) VALUES (?,?,?)').run(args.executionId, args.workerId, day)
       this.db.prepare(`INSERT INTO team_claims(
         execution_id,task_id,worker_id,lease_token,manifest_json,ownership_hash,reserved_cost_usd,active,state,lease_until,updated_at
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
@@ -71,6 +79,10 @@ export class TeamState {
       )
       return { ok: true, token } as const
     }).immediate()
+  }
+
+  attemptsToday(workerId: string, day = new Date().toISOString().slice(0, 10)): number {
+    return (this.db.prepare('SELECT COUNT(*) n FROM team_attempts WHERE worker_id=? AND day=?').get(workerId, day) as { n: number }).n
   }
 
   heartbeat(executionId: string, token: string, leaseMs: number): boolean {

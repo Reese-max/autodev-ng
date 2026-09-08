@@ -35,6 +35,20 @@ test('ownership 拒絕 junction／symlink 別名，不能以兩個名稱取得�
   } finally { team.close() }
 })
 
+test('每日額度跨實例原子保留，完成釋放與重啟均不能重設', () => {
+  const root = repo(), a = new TeamState(root), b = new TeamState(root)
+  const args = { workerId: 'codex-astra', reservedCostUsd: 0, spentUsd: 0, dailyHardUsd: 0, leaseMs: 60_000, dailyAttemptCap: 1 }
+  try {
+    const first = a.claim({ ...args, executionId: 'first', task: task('first', ['src/a.ts']) })
+    expect(first.ok).toBe(true)
+    if (first.ok) a.release('first', first.token)
+    expect(b.claim({ ...args, executionId: 'second', task: task('second', ['src/b.ts']) })).toMatchObject({ ok: false, reason: 'attempt-cap' })
+  } finally { a.close(); b.close() }
+  const reopened = new TeamState(root)
+  try { expect(reopened.claim({ ...args, executionId: 'third', task: task('third', ['src/c.ts']) })).toMatchObject({ ok: false, reason: 'attempt-cap' }) }
+  finally { reopened.close() }
+})
+
 test('跨實例 admission：ownership 衝突與進行中成本保留在同一 Git common-dir DB', () => {
   const root = repo(), a = new TeamState(root), b = new TeamState(root)
   try {

@@ -210,7 +210,7 @@ async function runBody(
         gate = await hooks.gateAuthoredGoal(md)
       } catch (error) {
         quiet(() => events.append('goal-quality-gate-warning', { fingerprint: row.fingerprint, title: row.title, warning: `gate-exception: ${String(error).slice(0, 240)}` }))
-        authored = { md, fp: row.fingerprint, title: row.title, problem }
+        rejectionReason = `gate-exception: ${String(error).slice(0, 240)}`
         break
       }
       if (gate.ok) {
@@ -357,6 +357,12 @@ export async function maybeRunPerpetual(
   deps: Deps, notifier: { send(t: string): Promise<boolean> }
 ): Promise<boolean> {
   const cfg = deps.cfg as PerpetualConfig
+  // Do not pay for new plans while the selected writer cannot be admitted today.
+  const cap = cfg.engines[cfg.defaultEngine]?.dailyAttemptCap
+  if (cap !== undefined) {
+    try { if (!deps.team || deps.team.attemptsToday(cfg.defaultEngine) >= cap) return false }
+    catch { deps.events.appendOnce('attempt-accounting-incomplete', { scope: 'discovery' }); return false }
+  }
   const offset = cfg.timezoneOffsetHours
   const judgeLlm = llmFromConfig(cfg, cfg.judgeModel, cfg.judgeUrl)
 

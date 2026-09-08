@@ -388,7 +388,7 @@ describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {
     expect(readEvents(dir).some(e => e.type === 'goal-authoring-rejected' && e.reason === reasons[2] && e.attempts === 3)).toBe(true)
   })
 
-  test('品質閘例外 → 記告警、fail-open，持續原 perpetual 成案與 session', async () => {
+  test('品質閘例外 → 記告警並延後，不執行 session', async () => {
     const cfg = makeCfg(dir)
     const fp = problemFingerprint('閘門例外問題')
     const hooks = makeHooks({
@@ -396,8 +396,8 @@ describe('runPerpetualCycle 無 GOAL：discover→立案→收案', () => {
       author: vi.fn(async () => autoGoalMd(fp, '修閘門例外問題')),
       gateAuthoredGoal: vi.fn(async () => { throw new Error('gate I/O boom') })
     })
-    expect(await runPerpetualCycle(cfg, dir, events, async () => true, hooks)).toBe(true)
-    expect(hooks.runSession).toHaveBeenCalledOnce()
+    expect(await runPerpetualCycle(cfg, dir, events, async () => true, hooks)).toBe(false)
+    expect(hooks.runSession).not.toHaveBeenCalled()
     expect(readEvents(dir).some(e => e.type === 'goal-quality-gate-warning' && String(e.warning).includes('gate I/O boom'))).toBe(true)
   })
 

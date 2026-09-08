@@ -53,7 +53,7 @@ describe('auto-goal 寫檔前品質閘', () => {
     await expect(gate(goal('node -e "process.exit(0)"'))).resolves.toMatchObject({ ok: false, reason: expect.stringMatching(/^verify-green: /) })
   })
 
-  test('無法執行的驗收 → fail-open 告警，交由 perpetual 記錄', async () => {
-    await expect(gate(goal('adng-command-does-not-exist'))).resolves.toMatchObject({ ok: true, warning: expect.stringMatching(/^verify-unverifiable: /) })
+  test('無法執行的驗收 → 拒絕派工', async () => {
+    await expect(gate(goal('adng-command-does-not-exist'))).resolves.toMatchObject({ ok: false, reason: expect.stringMatching(/^verify-unverifiable: /) })
   })
 })

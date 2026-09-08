@@ -63,7 +63,7 @@ describe('defaultDailyAttemptCapGate', () => {
     ).toEqual(['a'])
   })
 
-  test('全部達 cap → fail-open 回原清單', () => {
+  test('全部達 cap → 延後派工', () => {
     expect(
       defaultDailyAttemptCapGate(
         ['a', 'b'],
@@ -76,7 +76,7 @@ describe('defaultDailyAttemptCapGate', () => {
           ['b', 9],
         ]),
       ),
-    ).toEqual(['a', 'b'])
+    ).toEqual([])
   })
 
   test('空候選 → 空陣列', () => {
@@ -158,7 +158,7 @@ describe('loadDailyAttemptCapContext', () => {
     expect(summaryFn).not.toHaveBeenCalled()
   })
 
-  test('有 cap 且 helper 失敗 → caps 仍有、counts 空（不攔截）', () => {
+  test('有 cap 且 helper 失敗 → 禁止有上限的引擎派工', () => {
     const ctx = loadDailyAttemptCapContext(
       { free: { dailyAttemptCap: 2 } },
       '/tmp/nope',
@@ -169,15 +169,15 @@ describe('loadDailyAttemptCapContext', () => {
       },
     )
     expect([...ctx.dailyAttemptCaps.entries()]).toEqual([['free', 2]])
-    expect(ctx.todayAttemptCounts.size).toBe(0)
-    // gate 以 counts=0 不攔截
+    expect(ctx.todayAttemptCounts.get('free')).toBe(Infinity)
+    // 未知次數不能當成零；無上限引擎仍可用
     expect(
       defaultDailyAttemptCapGate(
         ['free', 'paid'],
         ctx.dailyAttemptCaps,
         ctx.todayAttemptCounts,
       ),
-    ).toEqual(['free', 'paid'])
+    ).toEqual(['paid'])
   })
 
   test('有 cap 且今日達額 → 輪替下一檔', () => {

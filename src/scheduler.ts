@@ -1,5 +1,5 @@
 import { attemptAccounting } from './engines/attempt-accounting.js'
-import { existsSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
 import { localDay, type AttemptFailureClass, type RunDb } from './db.js'
 import { loadIsolatedTagsForPick } from './engines/apply-stats-isolation.js'
@@ -29,6 +29,7 @@ import { newExecutionId, type EvidenceStore } from './engines/evidence-chain.js'
 import { checkOwnership, compatibleTasks } from './engines/ownership.js'
 import type { TeamState } from './engines/team-state.js'
 import { trackedDirtyFiles } from './engines/main-admission.js'
+import { observeLearning } from './learn/outcomes.js'
 
 /** M7：教訓注入/反思 port（Task 2 makeLessonsPort 的輸出型別）。inject() 供 scheduler
  * 附進 job.directive；reflect() 留給 Task 4/5 接線（本 task 只注入 inject）。 */
@@ -124,7 +125,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   if (dups.length > 0) quiet(() => events.appendOnce('duplicate-tasks', { ids: dups }))
 
   const candidates = retry.taskId ? openTasks.filter(task => task.id === retry.taskId) : openTasks; if (candidates.length === 0) return 'idle'
-  const picked = await pickReadyTask({ cfg, store, db, events, engines, notify }, candidates)
+  const picked = await pickReadyTask({ cfg, store, db, events, engines, notify, team: deps.team }, candidates)
   if (typeof picked === 'string' || 'kind' in picked) {
     if (picked === 'preflight-failed') writeHeartbeat(events, cfg, { state: 'preflight-failed', todayCostUsd: spent })
     return picked
@@ -144,7 +145,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
       const claimed = deps.team.claim({
         executionId, task, workerId: engineTag,
         reservedCostUsd: cfg.engines[engineTag]?.subscription ? 0 : (fixedCost ?? cfg.failureCostEstimateUsd),
-        spentUsd: spent, dailyHardUsd: cfg.dailyHardUsd, leaseMs,
+        spentUsd: spent, dailyHardUsd: cfg.dailyHardUsd, leaseMs, dailyAttemptCap: cfg.engines[engineTag]?.dailyAttemptCap,
       })
       if (!claimed.ok) {
         quiet(() => events.append('team-admission-deferred', { task: task.text, reason: claimed.reason, detail: claimed.detail }))
@@ -165,6 +166,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   }
   const claimHeartbeat = teamClaim ? setInterval(() => { try { deps.team?.heartbeat(executionId, teamClaim!.token, leaseMs) } catch { /* merge admission 仍會 fail-closed */ } }, Math.max(10_000, Math.floor(leaseMs / 3))) : undefined
   claimHeartbeat?.unref?.()
+  let finishLearning: ReturnType<typeof observeLearning> | undefined, learningResult: { accepted: boolean; commit?: string } = { accepted: false }
 
   try {
 
@@ -192,6 +194,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   let lessonsText = ''
   try { lessonsText = deps.lessons?.inject() ?? '' } catch { /* 教訓面故障不擋派工 */ }
   if (lessonsText) directive = `${directive ?? task.text}\n\n${lessonsText}`
+  finishLearning = observeLearning(events, { executionId, taskId: task.id, model: cfg.engines[engineTag]?.model ?? engineTag, baseCommit: wt.baseHead, lessonsText })
   // 驗收回饋（judge 有效性分析 2026-07-28）：上一輪失敗原因餵回派工，終結同型連環打回
   // （491bd799 案例：引擎不知道打回原因，同款 claim 膨脹重複六輪）。fail-open 不擋派工。
   try {
@@ -354,11 +357,14 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     try {
       store.report(task.id, { kind: 'done', commitHash: merge.commitHash ?? res.commitHash ?? 'unknown' })
     } catch (err) {
-      // backlog 沒打勾：已知殘留風險——下一輪會重新撿到這個「已完成」任務。
+      // Preserve the merged work and pause before another cycle can pick the unchecked row.
+      if (!existsSync(cfg.stopFile)) writeFileSync(cfg.stopFile, `Task ${task.id} merged but backlog write failed; recover state before resuming.\n`, { flag: 'wx' })
       quiet(() => events.append('report-failed', {
-        task: task.text, kind: 'done', error: String(err), willRepick: true
+        task: task.text, kind: 'done', error: String(err), willRepick: false
       }))
+      return blockTask({ store, events }, task, 'verification-infra', '成果已合併但任務狀態寫入失敗，需先恢復狀態')
     }
+    learningResult = { accepted: true, commit: merge.commitHash ?? res.commitHash }
     quiet(() => events.append('task-done', { task: task.text, cost: recordedCostUsd, commit: merge.commitHash }))
 
     try {
@@ -395,6 +401,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
   return resolveFailure(deps, task, 'failed', res.failureReason ?? '未知', failureClass, quotaUsage)
   } finally {
+    if (finishLearning) quiet(() => finishLearning!({ ...learningResult, failure: learningResult.accepted ? undefined : db.lastFailureFor(task.id) ?? undefined }))
     if (claimHeartbeat) clearInterval(claimHeartbeat)
     releaseClaim()
   }
@@ -465,7 +472,7 @@ async function retryInfrastructure(deps: Deps, task: Task, retry: InfraRetryStat
 
 /** 戰績隔離→輪替候選→preflight；全壞→preflight-failed；白名單外/單候選 resolve 拋→blocked。 */
 export async function pickReadyTask(
-  { cfg, store, db, events, engines, notify }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines' | 'notify'>,
+  { cfg, store, db, events, engines, notify, team }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines' | 'notify' | 'team'>,
   openTasks: Task[]
 ): Promise<{ task: Task; engine: Engine; engineTag: string; fixedCost: number | undefined } | CycleResult> {
   const routingKey = JSON.stringify([cfg.dataDir, cfg.engineRotation, cfg.timezoneOffsetHours])
@@ -476,8 +483,9 @@ export async function pickReadyTask(
       void notify?.(`⛔ 引擎隔離：${ev.engine} — ${ev.reason}（24h 後單次試探）`)
     },
   )) : [], subs = subscriptionTags(cfg)
-  // 日額度守門：helper/run.db 失敗 → 空 caps/counts，維持原派工路徑（fail-open）
+  // 日額度守門：無法確認計數或已達上限時延後派工。
   const { dailyAttemptCaps, todayAttemptCounts } = loadDailyAttemptCapContext(cfg.engines, cfg.dataDir)
+  for (const tag of dailyAttemptCaps.keys()) { try { if (team) todayAttemptCounts.set(tag, Math.max(todayAttemptCounts.get(tag) ?? 0, team.attemptsToday(tag))) } catch { todayAttemptCounts.set(tag, Infinity) } }
   const engineStats = loadEngineStatsForWeighting(db, events, cfg.dataDir, cfg.engineRotation)
   let supplyDeferred = false
   for (const cand of openTasks) {
@@ -487,7 +495,7 @@ export async function pickReadyTask(
     if (!attempted) { supplyDeferred = true; quiet(() => events.appendOnce('task-deferred', { taskId: cand.id, task: cand.text, reason: 'engine-supply-history-unavailable', retryAfterMs: cfg.supplyRetryCooldownMs })); continue }
     const candidates = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs, dailyAttemptCaps, todayAttemptCounts, engineStats, zeroCostTags: zeroCostTags(cfg), tierMode: cfg.tierMode })
     const tags = freeOnlyRetryCandidates(candidates, cfg.tierMode, attempted).filter(tag => !attempted.has(tag))
-    if (candidates.length > 0 && tags.length === 0) {
+    if (tags.length === 0) {
       supplyDeferred = true
       quiet(() => events.appendOnce('task-deferred', { taskId: cand.id, task: cand.text, reason: 'engine-supply-exhausted', retryAfterMs: cfg.supplyRetryCooldownMs }))
       continue

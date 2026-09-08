@@ -77,7 +77,7 @@ describe('engine quota', () => {
     })).toEqual(['paid'])
   })
 
-  test('run.db 讀取失敗時 fail-open 保留原候選', () => {
+  test('run.db 讀取失敗時拒絕所有有上限的候選', () => {
     const dataDir = freshDataDir()
     const dbFile = join(dataDir, 'run.db')
     writeFileSync(dbFile, 'not sqlite')
@@ -87,14 +87,14 @@ describe('engine quota', () => {
       dataDir,
       { dbFile, nowIso: NOW },
     )
-    expect(quota.todayAttemptCounts.size).toBe(0)
+    expect([...quota.todayAttemptCounts.values()]).toEqual([Infinity, Infinity])
     expect(pickCandidateTags({
       rotation: ['free', 'paid'],
       defaultEngine: 'free',
       task: { id: '0' },
       failCount: 0,
       ...quota,
-    })).toEqual(['free', 'paid'])
+    })).toEqual([])
   })
 
   test('heartbeat 與 digest 輸出固定 quota 欄位與表格格式', () => {

@@ -264,7 +264,7 @@ describe('pickCandidateTags 單一入口', () => {
     ).toEqual(['b', 'c']) // a、spark 達 cap；b/c 無 cap
   })
 
-  test('日額度：全部達 cap → fail-open 保留清單', () => {
+  test('日額度：全部達 cap → 延後派工', () => {
     expect(
       pickCandidateTags({
         rotation: ['a', 'b'],
@@ -280,7 +280,7 @@ describe('pickCandidateTags 單一入口', () => {
           ['b', 1],
         ]),
       })
-    ).toEqual(['a', 'b'])
+    ).toEqual([])
   })
 
   test('hooks 可替換 dailyAttemptCapGate', () => {

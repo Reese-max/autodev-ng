@@ -15,7 +15,7 @@ const EntrySchema = z.object({ finding: FindingSchema, status: z.enum(['pending'
   issueFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   decision: z.object({ kind: z.enum(['adopt', 'defer', 'reject']), reason: z.string(), at: z.string().datetime(), sha: z.string(),
     validation: z.string(), lastAttemptAt: z.string().datetime().optional(), contextHash: z.string().regex(/^[a-f0-9]{64}$/), nextAt: z.number(), taskId: z.string().optional(), taskText: z.string().optional(), scheduled: z.boolean().optional(),
-    outcome: z.object({ value: z.enum(['helpful', 'not-helpful']), reason: z.string(), at: z.string().datetime(), signalRecorded: z.boolean().optional() }).optional(),
+    outcome: z.object({ value: z.enum(['helpful', 'not-helpful']), reason: z.string(), at: z.string().datetime(), signalRecorded: z.boolean().optional(), delivery: z.enum(['locally-verified', 'unverified']).optional(), commit: z.string().regex(/^[a-f0-9]{40,64}$/).optional() }).optional(),
   }).strict().optional(),
   firstSeen: z.string(), lastSeen: z.string(), attemptAt: z.string().optional(), issue: z.number().int().positive().optional(), url: z.string().url().optional(), detail: z.string().optional() }).strict()
 const StateSchema = z.object({ version: z.literal(1), owner: z.string(), nextApiAt: z.number(),

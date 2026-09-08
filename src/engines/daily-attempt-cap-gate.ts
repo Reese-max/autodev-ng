@@ -5,8 +5,8 @@
  * 從清單移除以輪替下一候選。
  * 契約：
  * - 未設 cap 的引擎不限
- * - caps 空／未傳、counts 讀取失敗、helper 例外 → fail-open 回原清單
- * - 全部被 cap 濾光 → fail-open 回原清單（不把派工堵死）
+ * - 未設 cap 不限；計數不可讀時保留沒有上限的引擎
+ * - 全部被 cap 濾光 → 空清單，等待下一日
  * 可替換：經 pickCandidateTags hooks.dailyAttemptCapGate 注入。
  */
 import { join } from 'node:path'
@@ -22,7 +22,7 @@ export type DailyAttemptCapGate = (
   todayCounts: ReadonlyMap<string, number>,
 ) => string[]
 
-/** 預設閘：attempts >= cap 視為不可用；濾光或例外 → fail-open。 */
+/** 達上限就不可派工；讀取異常時僅保留沒有設定上限的引擎。 */
 export const defaultDailyAttemptCapGate: DailyAttemptCapGate = (
   candidates,
   caps,
@@ -37,9 +37,9 @@ export const defaultDailyAttemptCapGate: DailyAttemptCapGate = (
       const n = todayCounts?.get(tag) ?? 0
       return n < cap
     })
-    return kept.length > 0 ? kept : [...candidates]
+    return kept
   } catch {
-    return [...candidates]
+    return candidates.filter(tag => !caps.has(tag))
   }
 }
 
@@ -76,26 +76,26 @@ export interface LoadTodayAttemptCountsOptions extends TodayAttemptsOptions {
 
 /**
  * 讀 run.db 今日 attempts 計數。
- * 缺檔／helper 失敗／例外 → 空 map（fail-open，不觸發日額度攔截）。
+ * 診斷預設回空 map；strict 守門模式保留讀取失敗。
  */
 export function loadTodayAttemptCounts(
   dbFile: string,
   opts: LoadTodayAttemptCountsOptions = {},
 ): Map<string, number> {
   try {
-    if (!dbFile) return new Map()
+    if (!dbFile) { if (opts.strict) throw new Error('Daily attempt database missing'); return new Map() }
     const { summaryFn, ...summaryOpts } = opts
     const summary = (summaryFn ?? todayAttemptsSummary)(dbFile, summaryOpts)
     return todayCountsFromSummary(summary)
-  } catch {
+  } catch (error) {
+    if (opts.strict) throw error
     return new Map()
   }
 }
 
 /**
  * 派工用：一次組裝 caps + 今日 counts。
- * 無任何 cap、或讀取失敗 → counts 空、caps 可能仍有值但 gate 在 counts 全 0 時不攔截。
- * 最外層例外 → 兩者皆空（完全不攔截）。
+ * 讀取失敗時 capped 引擎計數視為 Infinity，不能把未知當作零。
  */
 export function loadDailyAttemptCapContext(
   engines: Record<string, { dailyAttemptCap?: number }> | undefined,
@@ -105,15 +105,15 @@ export function loadDailyAttemptCapContext(
   dailyAttemptCaps: Map<string, number>
   todayAttemptCounts: Map<string, number>
 } {
+  const dailyAttemptCaps = dailyAttemptCapsFromEngines(engines)
   try {
-    const dailyAttemptCaps = dailyAttemptCapsFromEngines(engines)
     if (dailyAttemptCaps.size === 0) {
       return { dailyAttemptCaps, todayAttemptCounts: new Map() }
     }
     const dbFile = opts.dbFile ?? (dataDir ? join(dataDir, 'run.db') : '')
-    const todayAttemptCounts = loadTodayAttemptCounts(dbFile, opts)
+    const todayAttemptCounts = loadTodayAttemptCounts(dbFile, { ...opts, strict: true })
     return { dailyAttemptCaps, todayAttemptCounts }
   } catch {
-    return { dailyAttemptCaps: new Map(), todayAttemptCounts: new Map() }
+    return { dailyAttemptCaps, todayAttemptCounts: new Map([...dailyAttemptCaps.keys()].map(tag => [tag, Infinity])) }
   }
 }
