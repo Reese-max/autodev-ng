@@ -133,6 +133,8 @@ test.each(['codex', 'freebuff'])('%s: real Git/scheduler repairs red to green wi
     else if (!ping) {
       expect(opts.stdinText).toContain('Preserve the existing public API.')
       writeFileSync(join(opts.cwd, 'add.cjs'), 'module.exports = (a, b) => a + b\n')
+      mkdirSync(join(opts.cwd, 'tests/regressions'), { recursive: true })
+      writeFileSync(join(opts.cwd, 'tests/regressions/github-4.test.cjs'), "require('node:test')('addition', () => require('node:assert/strict').equal(require('../../add.cjs')(2, 3), 5))\n")
     }
     return { stdout: JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: ping ? 'PONG' : 'Repaired addition.' } }) + '\n' + JSON.stringify({ type: 'turn.completed' }),
       stderr: '', exitCode: 0, timedOut: false, durationMs: 1 }

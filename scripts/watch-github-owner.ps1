@@ -3,13 +3,14 @@ $ErrorActionPreference = 'Stop'
 $adngRoot = Split-Path -Parent $PSScriptRoot
 $adngConfig = (Resolve-Path -LiteralPath $Config).Path
 $adngSettings = Get-Content -LiteralPath $adngConfig -Encoding UTF8 -Raw | ConvertFrom-Json
-if (-not $adngSettings.owner) { throw 'Expected owner configuration' }
+if (-not $adngSettings.owner -and -not $adngSettings.repo) { throw 'Expected owner or repository configuration' }
 $adngData = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $adngConfig) $adngSettings.dataDir))
 if ($Mode -eq 'repairs') { $adngData = Join-Path $adngData 'repairs' }
 $adngNode = (Get-Command node.exe -ErrorAction Stop).Source
-$adngCommand = if ($Mode -eq 'reports') { 'report' } elseif ($Mode -eq 'repairs') { 'repair-batch' } else { 'owner-run' }
+$adngCommand = if ($Mode -eq 'reports') { 'report' } elseif ($Mode -eq 'repairs') { 'repair-batch' } elseif ($adngSettings.repo) { 'run' } else { 'owner-run' }
 $adngMutexScope = if ($Mode -eq 'reports') { 'reports-' } elseif ($Mode -eq 'repairs') { 'repairs-' } else { '' }
-$adngMutex = New-Object Threading.Mutex($false, ('Local\adng-github-' + $adngMutexScope + $adngSettings.owner))
+$adngIdentity = if ($adngSettings.repo) { $adngSettings.repo.Replace('/', '-') } else { $adngSettings.owner }
+$adngMutex = New-Object Threading.Mutex($false, ('Local\adng-github-' + $adngMutexScope + $adngIdentity))
 $adngAcquired = $false
 try {
   try { $adngAcquired = $adngMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $adngAcquired = $true }

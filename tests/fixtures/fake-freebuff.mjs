@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline'
 import { execFileSync } from 'node:child_process'
-import { existsSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 
 const mode = process.argv[2] ?? 'ok'
 const rl = createInterface({ input: process.stdin })
@@ -37,7 +37,9 @@ rl.on('line', line => {
     if (mode === 'repair') {
       if (args.cwd !== process.cwd() || !existsSync('check.cjs') || !existsSync('add.cjs')) throw new Error('Invalid repair fixture cwd')
       writeFileSync('add.cjs', 'module.exports = (a, b) => a + b\n')
-      execFileSync('git', ['add', 'add.cjs'], { windowsHide: true })
+      mkdirSync('tests/regressions', { recursive: true })
+      writeFileSync('tests/regressions/github-4.test.cjs', "require('node:test')('addition', () => require('node:assert/strict').equal(require('../../add.cjs')(2, 3), 5))\n")
+      execFileSync('git', ['add', '.'], { windowsHide: true })
       execFileSync('git', ['commit', '-qm', 'fix: addition'], { windowsHide: true })
     }
     if (mode === 'hang') return

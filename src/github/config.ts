@@ -11,6 +11,7 @@ export const GithubConfigSchema = z.object({
   dataDir: z.string().min(1),
   engine: z.string().min(1),
   verifyCommand: z.string().trim().min(1).optional(),
+  regressionPrepareCommand: z.string().trim().min(1).optional(),
   template: z.boolean().optional(),
   stopFile: z.string().optional(),
   enabled: z.boolean().default(false),

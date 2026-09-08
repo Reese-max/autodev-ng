@@ -44,6 +44,10 @@ Freebuff 可由本機設定明確選用，見 [Freebuff 使用方式](freebuff.m
 `projects` 也可將完整 repo 名稱對應到既有 AutoDev 專案設定；該 sourceConfig 的 origin 必須匹配。
 不能將未執行的測試或已有的基線失敗當成通過。Issue 內容不能改寫本機驗收設定。
 
+每案另須新增 `tests/regressions/github-N.test.cjs`（N 為 Issue 編號），使用 `node:test` 與 `node:assert/strict`。宿主在候選版本執行，再把同一測試檔放入原始版本的獨立本機 clone 重跑：候選必須成功且不得跳過測試，原版必須因 assertion 失敗；逾時、缺少模組或只有 exit 1 不算重現。`regressionPrepareCommand` 可明列原版的安裝／建置命令；通報修復預設沿用 `repair.prepareCommand`。命令不由 Issue 決定。
+
+此入口目前只接受新增回歸測試，不接受修改、刪除或改名既有測試；需要改動既有測試的案件交由人工處理。原版、候選 commit 與測試雜湊綁定收據，發布時再次核對。模型仍須審查測試是否對應問題，測試執行不代表具備 OS 沙箱。
+
 ## 執行
 
 ```powershell
@@ -60,6 +64,7 @@ Windows 可用 `scripts/install-github-issues-task.ps1 -Config <設定檔>` 安�
 支援 `-WhatIf` 且不覆寫同名工作。無排程器權限時，可在背景執行
 `scripts/watch-github-owner.ps1 -Config <設定檔>`，並由使用者 Startup 捷徑登入啟動。
 watcher 使用 mutex 防止重複，每輪結束後等待 retryMs；登出或關機時不執行。
+watcher 的 `-Mode issues` 也可直接讀取單一 repo 設定，僅輪詢該 repo。
 
 ## 狀態與停止
 

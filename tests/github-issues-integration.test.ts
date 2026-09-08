@@ -34,7 +34,9 @@ test('Issue → real scheduler/worktree → failing-to-passing test → evidence
     const engine = new MockEngine([{ ok: true, beforeResult(job) {
       const base = git(job.projectPath, ['rev-parse', 'HEAD'])
       writeFileSync(join(job.projectPath, 'add.cjs'), 'module.exports = (a, b) => a + b\n')
-      git(job.projectPath, ['add', 'add.cjs']); git(job.projectPath, ['commit', '-m', 'fix addition'])
+      mkdirSync(join(job.projectPath, 'tests/regressions'), { recursive: true })
+      writeFileSync(join(job.projectPath, 'tests/regressions/github-1.test.cjs'), "require('node:test')('addition', () => require('node:assert/strict').equal(require('../../add.cjs')(2, 3), 5))\n")
+      git(job.projectPath, ['add', '.']); git(job.projectPath, ['commit', '-m', 'fix addition'])
       return base
     } }])
     const client: GithubClient = { list: async () => [issue], issue: async () => issue, findPr: vi.fn(async () => undefined), findLinkedPr: vi.fn(async () => undefined),

@@ -11,6 +11,7 @@ import { branchFor, issueDir, saveState, type IssueState } from './state.js'
 import { assertRepairEvidence, prepareRepair, reviewRepair, verifyRepairProbe } from './repair.js'
 import { makeEngineRegistry } from '../engines/registry.js'
 import { KernelVerifier } from '../verifier.js'
+import { regressionFile, verifyRegression, assertRegression } from './regression.js'
 
 export const git = (cwd: string, args: string[]): string => command('git', ['-c', `safe.directory=${cwd.replace(/\\/g, '/')}`, ...args], cwd)
 export const checkoutDir = (cfg: GithubConfig, state: IssueState): string => join(issueDir(cfg, state.issue.number), 'repo')
@@ -41,7 +42,7 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
     discordChannelId: undefined, telegramBotToken: undefined, telegramChatId: undefined,
     learningsFile: join(dir, 'learnings.md'), globalLearningsFile: undefined, releaseApprovalFile: undefined,
     ...(cfg.repair ? { llmTransport: 'cli', judgeUrl: undefined, reviewUrl: undefined, judgeApiKey: '' } : {}),
-    extraDirective: [source.extraDirective, 'Only implement the Issue in this checkout. Do not push, create PRs, send messages, deploy, change credentials, or operate other repositories. The host handles publication after verified completion.'].filter(Boolean).join('\n'),
+    extraDirective: [source.extraDirective, `Add a self-contained Node node:test regression file ${regressionFile(state.issue.number)} using node:assert/strict. It must pass on the fix and fail an assertion on the original code when ONLY this test file is copied there. Use the repository root as cwd. Do not change existing tests. Do not branch on git state, paths or environment to manufacture a pass.`, 'Only implement the Issue in this checkout. Do not push, create PRs, send messages, deploy, change credentials, or operate other repositories. The host handles publication after verified completion.'].filter(Boolean).join('\n'),
   })
 }
 export function prepareCheckout(cfg: GithubConfig, state: IssueState): void {
@@ -84,6 +85,17 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
       return checked
     } }
   }
+  const verifier = app.deps.verifier
+  if (!verifier) throw new Error('GitHub runner requires a verifier')
+  app.deps.verifier = { async check(job, res) {
+    const checked = await verifier.check(job, res)
+    if (!checked.pass) return checked
+    try {
+      if (!res.commitHash) throw new Error('Regression candidate commit missing')
+      await verifyRegression(cfg, state, job.projectPath, res.commitHash, runtime.verifyTimeoutMs)
+      return checked
+    } catch (err) { return { ...checked, pass: false, reason: `regression-fail: ${String(err)}` } }
+  } }
   // No notifications or perpetual discovery: one imported Issue, one bounded scheduler cycle.
   app.deps.notify = undefined
   app.deps.taskTerminalNotify = undefined
@@ -128,4 +140,5 @@ export function assertPublishable(cfg: GithubConfig, state: IssueState): void {
     && b.gates?.reviewer?.status === 'pass')
   if (!gate || !bundles.some(b => validHash(b) && b.mergedCommit === state.commit && b.gateBundleHash === gate.bundleHash)) throw new Error('Missing CI/reviewer/merge evidence for exact candidate commit')
   if (cfg.repair) assertRepairEvidence(cfg, state)
+  assertRegression(cfg, state, cwd)
 }
