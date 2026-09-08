@@ -20,7 +20,19 @@ export function command(exe, args, cwd, env = process.env) {
   return execFileSync(exe, args, { cwd, env, encoding: 'utf8', windowsHide: true, timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
 export function inside(root, path) {
-  const rel = relative(resolve(root), resolve(path))
+  // Resolve existing parents too: a new destination may sit below a Windows junction.
+  const canonical = input => {
+    let parent = resolve(input)
+    const suffix = []
+    for (;;) {
+      try { return resolve(fs.realpathSync.native(parent), ...suffix) }
+      catch (error) {
+        if (error.code !== 'ENOENT' || dirname(parent) === parent) throw error
+        suffix.unshift(relative(dirname(parent), parent)); parent = dirname(parent)
+      }
+    }
+  }
+  const rel = relative(canonical(root), canonical(path))
   return rel !== '..' && !rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(rel)
 }
 export function revision(runtime) { return command('git', ['rev-parse', 'HEAD'], runtime) }
