@@ -621,6 +621,10 @@ export function createRequestHandler(ctxOrMap) {
       res.end(anyCtx.indexHtml)
       return
     }
+    if (req.method === 'GET' && url.pathname === '/github.mjs') {
+      res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' })
+      res.end(readFileSync(join(HERE, 'github.mjs'), 'utf8')); return
+    }
 
     // 多專案彙總端點：/api/status 無 project 參數 → 回全部專案摘要（供首頁卡片，Task 8）。
     if (isMulti && req.method === 'GET' && url.pathname === '/api/status' && !url.searchParams.get('project')) {
@@ -643,6 +647,14 @@ export function createRequestHandler(ctxOrMap) {
     const { cfg, cfgPath, store, db, dbPath, token, spawnFn, childState, localDayFn, spawnOpts } = ctx
     const getBotDeps = () => getBotDepsFor(ctx)
     const getCommandHandler = () => ctx.handleCommand ? Promise.resolve(ctx.handleCommand) : getHandleCommand()
+    if (url.pathname === '/api/github' && ['GET', 'POST'].includes(req.method)) {
+      if (!hasValidToken(req, url, token)) { send(403, { error: 'GitHub 案件需要控制台 token' }); return }
+      const input = req.method === 'POST' ? await readJsonBody(req) : {}
+      const { githubConsole } = await import('../dist/github/console.js')
+      try { send(200, await githubConsole(cfgPath, input)) }
+      catch (error) { send(409, { error: String(error) }) }
+      return
+    }
 
     if (req.method === 'GET' && url.pathname === '/api/status') {
       try {

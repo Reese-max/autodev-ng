@@ -10,6 +10,8 @@ import { command, type GithubClient } from '../src/github/client.js'
 import { assertPublishable, executeIssue, git } from '../src/github/job.js'
 import { branchFor, fingerprint, readState, saveState, type IssueState } from '../src/github/state.js'
 import { publishIssue, runGithub } from '../src/github/runner.js'
+import { acceptDelivery, recoverIssue } from '../src/github/operations.js'
+import * as github from '../src/github/client.js'
 
 test('Issue → real scheduler/worktree → failing-to-passing test → evidence → local push → one PR', async () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-gh-flow-'))
@@ -31,7 +33,7 @@ test('Issue → real scheduler/worktree → failing-to-passing test → evidence
     writeFileSync(cfg.sourceConfig, JSON.stringify({ projectPath: cwd, backlogFile: 'unused', dataDir: 'unused',
       engines: { writer: { adapter: 'opencode', model: 'fixture' } }, defaultEngine: 'writer',
       verifyCommand: 'exit 97', reviewEngine: 'fixture-reviewer' }))
-    const engine = new MockEngine([{ ok: true, beforeResult(job) {
+    let engine = new MockEngine([{ ok: true, beforeResult(job) {
       const base = git(job.projectPath, ['rev-parse', 'HEAD'])
       writeFileSync(join(job.projectPath, 'add.cjs'), 'module.exports = (a, b) => a + b\n')
       mkdirSync(join(job.projectPath, 'tests/regressions'), { recursive: true })
@@ -61,7 +63,52 @@ test('Issue → real scheduler/worktree → failing-to-passing test → evidence
     expect(readFileSync(join(cwd, 'add.cjs'), 'utf8')).toContain('a + b')
     await runGithub(cfg, { client, execute, publish })
     expect(engine.calls).toHaveLength(1); expect(client.createPr).toHaveBeenCalledTimes(1)
+    const first = readState(cfg, 1)!, firstCommit = first.commit!
+    cfg.followup = true
+    client.findPr = async () => ({ number: 2, html_url: first.pr!, state: 'open', head: { ref: branchFor(1), sha: git(bare, ['rev-parse', `refs/heads/${branchFor(1)}`]) }, base: { ref: 'main' } })
+    client.feedback = async () => ({ number: 2, url: first.pr!, head: firstCommit, base: 'main', state: 'open', checks: 'pass', feedback: 'Handle numeric string inputs as addition too.' })
+    expect(await runGithub(cfg, { client, execute, publish })).toBe('idle')
+    const revision = readState(cfg, 1)!
+    expect(revision.status).toBe('queued'); expect(revision.revision?.baseCommit).toBe(firstCommit)
+    expect(revision.runs).toBe(1); revision.nextRunAt = 0; saveState(cfg, revision)
+    engine = new MockEngine([{ ok: true, beforeResult(job) {
+      const base = git(job.projectPath, ['rev-parse', 'HEAD'])
+      git(job.projectPath, ['config', 'user.name', 'Test']); git(job.projectPath, ['config', 'user.email', 'test@example.invalid'])
+      writeFileSync(join(job.projectPath, 'add.cjs'), 'module.exports = (a, b) => Number(a) + Number(b)\n')
+      writeFileSync(join(job.projectPath, 'tests/regressions/github-1-r1.test.cjs'), "require('node:test')('numeric strings', () => require('node:assert/strict').equal(require('../../add.cjs')('2', '3'), 5))\n")
+      git(job.projectPath, ['add', '.']); git(job.projectPath, ['commit', '-m', 'handle review feedback'])
+      return base
+    } }])
+    const reviseExecute: typeof executeIssue = (c, s) => executeIssue(c, s, runtime => {
+      const app = assembleConfig(runtime); app.deps.engines = { resolve: () => engine }
+      app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' }); return app
+    })
+    const revisePublish: typeof publishIssue = (c, s, api) => publishIssue(c, s, api, assertPublishable,
+      () => git(join(root, 'issue-1/revisions/1/repo'), ['push', bare, `${s.commit}:refs/heads/${branchFor(1)}`]))
+    expect(await runGithub(cfg, { client, execute: reviseExecute, publish: revisePublish })).toBe('1: published')
+    expect(readState(cfg, 1)!.runs).toBe(2)
+    expect(client.createPr).toHaveBeenCalledTimes(1)
+    expect(git(cwd, ['rev-parse', 'HEAD'])).toBe(firstCommit)
+    expect(git(bare, ['rev-parse', `refs/heads/${branchFor(1)}`])).toBe(readState(cfg, 1)!.commit)
+    const current = readState(cfg, 1)!, configFile = join(root, 'github.json')
+    writeFileSync(configFile, JSON.stringify(cfg))
+    saveState(cfg, { ...current, status: 'blocked', detail: 'Interrupted after PR push' })
+    const doctor = vi.fn().mockRejectedValue(new Error('Verified completed work must not rerun a model'))
+    const recovered = await recoverIssue(configFile, 1, 'Recover confirmed PR push after host interruption', false, { client, doctor })
+    expect(recovered.status).toBe('ready'); expect(doctor).not.toHaveBeenCalled()
+    await revisePublish(cfg, recovered, client)
+    let merged = false
+    client.feedback = async () => ({ number: 2, url: current.pr!, head: current.commit!, base: 'main', state: merged ? 'merged' : 'open', checks: 'pass', feedback: '' })
+    vi.spyOn(github, 'githubClient').mockReturnValue(client)
+    const originalCommand = github.command
+    vi.spyOn(github, 'command').mockImplementation((exe, args, cwd, input) => args.includes('user') && args.includes('.login') ? 'owner' : originalCommand(exe, args, cwd, input))
+    await expect(acceptDelivery(configFile, 1, current.commit!, 'Verified both numeric and string inputs')).rejects.toThrow('Merge must be confirmed')
+    merged = true
+    await expect(acceptDelivery(configFile, 1, firstCommit, 'Verified both numeric and string inputs')).rejects.toThrow('candidate changed')
+    await acceptDelivery(configFile, 1, current.commit!, 'Verified both numeric and string inputs')
+    expect(readState(cfg, 1)!.acceptance?.commit).toBe(current.commit)
+    expect(readState(cfg, 1)!.acceptance?.actor).toBe('owner')
     writeFileSync(join(cwd, 'unexpected.txt'), 'dirty')
-    expect(() => assertPublishable(cfg, readState(cfg, 1)!)).toThrow('dirty')
-  } finally { rmSync(root, { recursive: true, force: true }) }
-}, 30_000)
+    expect(() => assertPublishable(cfg, first)).toThrow('dirty')
+  } finally { vi.restoreAllMocks(); rmSync(root, { recursive: true, force: true }) }
+}, 90_000)

@@ -10,17 +10,24 @@ import { makeEngineRegistry } from '../engines/registry.js'
 import { runProcess } from '../engines/proc.js'
 import { writeJsonAtomic } from '../guardian/incident.js'
 import { githubStopFile, loadGithubConfig, type GithubConfig } from './config.js'
-import { githubClient, type GithubClient } from './client.js'
+import { command, githubClient, type GithubClient } from './client.js'
 import { eligibleForRun } from './repair.js'
 import { assertPublishable, checkoutDir, git, issueTask, prepareCheckout } from './job.js'
-import { branchFor, fingerprint, issueDir, readState, saveState, states, type IssueState } from './state.js'
+import { branchFor, fingerprint, issueDir, runDir, readState, saveState, states, type IssueState } from './state.js'
 
 export async function repairDoctor(cfg: GithubConfig, live = false) {
   const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
   const engine = source.engines[cfg.engine]
-  if (!cfg.repair || !engine || !['codex', 'freebuff'].includes(engine.adapter) || engine.timeoutMs === 0) throw new Error('Requires a bounded Codex CLI or Freebuff repair policy')
-  const checks: Record<string, string> = {}
-  for (const [name, cmd, args] of [['git', 'git', ['--version']], ['codex', 'codex', ['--version']], ['login', 'codex', ['login', 'status']], ['github', 'gh', ['api', '--hostname', 'github.com', `repos/${cfg.repo}`, '--jq', '.permissions.push']]] as const) {
+  if (!engine || ['mock', 'herdr'].includes(engine.adapter) || engine.timeoutMs === 0) throw new Error('Requires a bounded supported worker')
+  if (!(cfg.verifyCommand ?? source.verifyCommand)?.trim() || !(source.reviewEngine ?? source.auditModel)) throw new Error('Requires verification command and independent reviewer')
+  const checks: Record<string, string> = { credentials: 'pass', verification: 'pass', reviewer: 'pass' }
+  if (!cfg.template) {
+    const origin = git(source.projectPath, ['remote', 'get-url', 'origin']).replace(/\.git$/, '').replace(/^git@github.com:/, 'https://github.com/').replace(/^https:\/\//, '').toLowerCase()
+    if (origin !== `github.com/${cfg.repo}`.toLowerCase()) throw new Error('Source repository origin does not match GitHub configuration')
+  }
+  const probes: [string, string, string[]][] = [['git', 'git', ['--version']], ['github', 'gh', ['api', '--hostname', 'github.com', `repos/${cfg.repo}`, '--jq', '.permissions.push']]]
+  if (source.llmTransport === 'cli' || ['codex', 'freebuff'].includes(engine.adapter)) probes.push(['codex', 'codex', ['--version']], ['login', 'codex', ['login', 'status']])
+  for (const [name, cmd, args] of probes) {
     try {
       const result = await runProcess({ command: cmd, args: [...args], cwd: source.projectPath, stdinText: '', timeoutMs: 20_000, maxOutputChars: 2000 })
       checks[name] = result.exitCode === 0 && !result.timedOut && (name !== 'github' || result.stdout.trim() === 'true') ? 'pass' : 'unavailable; run the CLI login/setup command'
@@ -29,13 +36,14 @@ export async function repairDoctor(cfg: GithubConfig, live = false) {
   let sandbox = { ok: false, detail: 'not tested; use repair-doctor --live (same worker permissions)' }
   if (live && Object.values(checks).every(c => c === 'pass')) {
     mkdirSync(cfg.dataDir, { recursive: true })
-    const worker = makeEngineRegistry({ ...source, dataDir: cfg.dataDir, llmTransport: 'cli' }).resolve(cfg.engine)
+    const worker = makeEngineRegistry({ ...source, dataDir: cfg.dataDir, ...(cfg.repair ? { llmTransport: 'cli' as const } : {}) }).resolve(cfg.engine)
     worker.invalidatePreflight?.()
     sandbox = await worker.preflight()
   }
   const result = { repo: cfg.repo, at: new Date().toISOString(), live, ready: live && sandbox.ok && Object.values(checks).every(c => c === 'pass'),
     paused: !cfg.enabled || existsSync(githubStopFile(cfg)), stopFile: githubStopFile(cfg), checks, sandbox,
-    isolation: engine.adapter === 'freebuff' ? 'worktree and prompt scope; MCP preflight is not an OS sandbox test' : 'Codex sandbox' }
+    verification: { configured: true, executed: false, acceptanceConfigured: !!cfg.acceptance },
+    isolation: engine.adapter === 'freebuff' ? 'worktree and prompt scope; MCP preflight is not an OS sandbox test' : engine.adapter === 'codex' ? 'Codex sandbox' : 'adapter-controlled permissions; preflight is not an OS sandbox proof' }
   if (live) writeFileSync(join(cfg.dataDir, 'doctor.json'), JSON.stringify(result, null, 2) + '\n')
   return result
 }
@@ -44,8 +52,10 @@ export function delivery(cfg: GithubConfig, state: IssueState) {
   if (!['ready', 'published'].includes(state.status)) throw new Error('No completed candidate; inspect repair-status or recover the interrupted run')
   assertPublishable(cfg, state)
   return { repo: cfg.repo, issue: state.issue.number, commit: state.commit, base: state.baseSha, snapshot: state.fingerprint,
-    directory: checkoutDir(cfg, state), evidence: join(issueDir(cfg, state.issue.number), 'evidence'),
-    review: 'CI, independent reviewer, local checkout merge and original probe verified for this exact commit',
+    directory: checkoutDir(cfg, state), evidence: join(runDir(cfg, state), 'evidence'),
+    review: 'CI, independent reviewer, local checkout merge and regression verified for this exact commit',
+    projectAcceptance: cfg.acceptance ? 'passed for candidate' : 'not configured',
+    remote: state.remote?.head === state.commit ? state.remote : null, humanAcceptance: state.acceptance?.commit === state.commit ? state.acceptance : null,
     publishEnabled: cfg.publish, pr: state.pr ?? null, humanMergeRequired: true,
     rollback: `git revert ${state.commit}` }
 }
@@ -54,8 +64,8 @@ export async function recoverIssue(file: string, number: number, reason: string,
   options: { client?: GithubClient; doctor?: typeof repairDoctor } = {}): Promise<IssueState> {
   if (!Number.isSafeInteger(number) || number <= 0 || reason.trim().length < 8 || reason.length > 1000) throw new Error('A positive Issue number and specific recovery reason (8–1000 characters) are required')
   const cfg = loadGithubConfig(file), original = readFileSync(file, 'utf8'), source = readFileSync(cfg.sourceConfig, 'utf8')
-  if (!cfg.enabled || !cfg.repair) throw new Error('Repair configuration disabled or missing')
-  const policy = readFileSync(cfg.repair.reportConfig, 'utf8'), stop = githubStopFile(cfg)
+  if (!cfg.enabled) throw new Error('Repair configuration disabled or missing')
+  const policy = cfg.repair ? readFileSync(cfg.repair.reportConfig, 'utf8') : undefined, stop = githubStopFile(cfg)
   const pause = existsSync(stop) ? readFileSync(stop, 'utf8') : undefined
   if (pause !== undefined && !resume) throw new Error('Paused; use repair-resume after fixing the environment')
   mkdirSync(cfg.dataDir, { recursive: true })
@@ -68,11 +78,16 @@ export async function recoverIssue(file: string, number: number, reason: string,
     const current = async () => {
       const issue = await client.issue(number)
       if (!eligibleForRun(issue, cfg) || fingerprint(issue) !== state.fingerprint) throw new Error('Issue changed, closed or authorization withdrawn')
-      if (readFileSync(file, 'utf8') !== original || readFileSync(cfg.sourceConfig, 'utf8') !== source || readFileSync(cfg.repair!.reportConfig, 'utf8') !== policy
+      if (readFileSync(file, 'utf8') !== original || readFileSync(cfg.sourceConfig, 'utf8') !== source || (cfg.repair ? readFileSync(cfg.repair.reportConfig, 'utf8') : undefined) !== policy
         || (existsSync(stop) ? readFileSync(stop, 'utf8') : undefined) !== pause) throw new Error('Configuration or pause changed during recovery')
     }
     await current()
-    if (await client.findPr(branchFor(number)) || await client.findLinkedPr(number)) throw new Error('Existing PR; inspect it before retry')
+    const pr = await client.findPr(branchFor(number))
+    if (pr && pr.state === 'open' && pr.head.sha === state.commit && pr.base.ref === cfg.base) {
+      state.pr = pr.html_url // Publish may have succeeded before the host persisted its final state.
+    } else if (state.revision) {
+      if (!pr || pr.state !== 'open' || pr.html_url !== state.pr || pr.head.sha !== state.revision.baseCommit || pr.base.ref !== cfg.base) throw new Error('Existing PR changed; inspect it before retry')
+    } else if (pr || await client.findLinkedPr(number)) throw new Error('Existing PR; inspect it before retry')
     const cwd = checkoutDir(cfg, state)
     if (existsSync(cwd)) {
       prepareCheckout(cfg, state)
@@ -86,10 +101,10 @@ export async function recoverIssue(file: string, number: number, reason: string,
         const head = git(path, ['rev-parse', 'HEAD'])
         if (path.replace(/\\/g, '/') !== cwd.replace(/\\/g, '/') && head !== state.baseSha && head !== state.commit) throw new Error('Unreconciled worktree commit; inspect evidence before retry')
       }
-    } else if (state.baseSha) throw new Error('Checkout missing; preserving state')
+    } else if (state.baseSha && !state.revision) throw new Error('Checkout missing; preserving state')
     if (state.status !== 'ready') {
       if (state.runs >= cfg.maxRuns) throw new Error('Attempt limit reached; counters will not be reset')
-      const backlog = join(issueDir(cfg, number), 'BACKLOG.md')
+      const backlog = join(runDir(cfg, state), 'BACKLOG.md')
       if (existsSync(backlog)) {
         const tasks = new BacklogStore(backlog).read()
         if (tasks.length !== 1 || tasks[0]!.text !== issueTask(state) || tasks[0]!.status !== 'open') throw new Error('Backlog requires evidence recovery; no automatic rewrite')
@@ -111,12 +126,34 @@ export async function recoverIssue(file: string, number: number, reason: string,
   } finally { releaseLock(lock) }
 }
 
+export async function acceptDelivery(file: string, number: number, commit: string, evidence: string) {
+  if (!Number.isSafeInteger(number) || number < 1 || evidence.trim().length < 8 || evidence.length > 2000) throw new Error('Issue and concrete acceptance evidence required (8–2000 characters)')
+  const cfg = loadGithubConfig(file), lock = join(cfg.dataDir, 'runner.lock'), original = readFileSync(file, 'utf8'), source = readFileSync(cfg.sourceConfig, 'utf8')
+  if (!acquireLock(lock)) throw new Error('Runner active; retry acceptance later')
+  try {
+    const state = readState(cfg, number)
+    if (!state || state.commit !== commit || state.status !== 'published') throw new Error('Published candidate changed; review current commit')
+    delivery(cfg, state)
+    const client = githubClient(cfg), remote = await client.feedback!(branchFor(number))
+    if (remote.head !== commit || remote.url !== state.pr || remote.state !== 'merged') throw new Error('Merge must be confirmed before human acceptance')
+    const actor = command('gh', ['api', '--hostname', 'github.com', 'user', '--jq', '.login'])
+    if (!cfg.authors.some(a => a.toLowerCase() === actor.toLowerCase())) throw new Error('Acceptance requires an allowed operator')
+    if (readFileSync(file, 'utf8') !== original || readFileSync(cfg.sourceConfig, 'utf8') !== source) throw new Error('Acceptance configuration changed; inspect current policy')
+    state.acceptance = { commit, at: new Date().toISOString(), actor, evidence: evidence.trim() }
+    state.remote = { ...remote, at: new Date().toISOString(), key: state.remote?.key ?? '' }
+    saveState(cfg, state)
+    return state.acceptance
+  } finally { releaseLock(lock) }
+}
+
 export async function operationsCli(mode: string, argv: string[]): Promise<void> {
-  const { values } = parseArgs({ args: argv, options: { config: { type: 'string' }, issue: { type: 'string' }, reason: { type: 'string' }, live: { type: 'boolean' } } })
+  if (!mode.startsWith('repair-')) mode = `repair-${mode}` // Shared recovery and diagnosis for both intake paths.
+  const { values } = parseArgs({ args: argv, options: { config: { type: 'string' }, issue: { type: 'string' }, reason: { type: 'string' }, commit: { type: 'string' }, live: { type: 'boolean' } } })
   if (!values.config) throw new Error('Usage: adng github repair-<doctor|retry|resume|delivery|metrics> --config <path> [--issue N --reason text] [--live]')
   const cfg = loadGithubConfig(values.config)
   let result: unknown
-  if (mode === 'repair-doctor') { const doctor = await repairDoctor(cfg, values.live); result = doctor; if (values.live && !doctor.ready) process.exitCode = 1 }
+  if (mode === 'repair-accept') result = await acceptDelivery(values.config, Number(values.issue), values.commit ?? '', values.reason ?? '')
+  else if (mode === 'repair-doctor') { const doctor = await repairDoctor(cfg, values.live); result = doctor; if (!doctor.ready) process.exitCode = 1 }
   else if (mode === 'repair-metrics') {
     const rows = states(cfg), attempted = rows.filter(s => s.runs > 0), completed = rows.filter(s => ['ready', 'published'].includes(s.status))
     const verified = completed.filter(s => { try { delivery(cfg, s); return true } catch { return false } })
@@ -125,7 +162,10 @@ export async function operationsCli(mode: string, argv: string[]): Promise<void>
       verifiedCompletions: verified.length, issueCompletionRate: attempted.length ? verified.length / attempted.length : null,
       retriedIssues: rows.filter(s => s.runs > 1).length, needsAttention: rows.filter(s => ['blocked', 'cancelled'].includes(s.status)).length,
       recoveries: rows.reduce((n, s) => n + (s.history ?? []).filter(e => e.detail?.startsWith('Recovery:')).length, 0),
-      journeyCompletions: { automatedRepairProbe: verified.length, humanAcceptance: null }, userOutcome: 'not measured; repair gates are not human acceptance', issues: rows.map(s => ({ number: s.issue.number, status: s.status, runs: s.runs, detail: s.detail })) }
+      journeyCompletions: { verifiedCandidates: verified.length, automatedRepairProbe: cfg.repair ? verified.length : null,
+        merged: rows.filter(s => s.remote?.state === 'merged' && s.remote.head === s.commit).length,
+        humanAcceptance: rows.filter(s => s.acceptance && s.acceptance.commit === s.commit).length },
+      userOutcome: 'explicit acceptance only; candidate verification is not human acceptance', issues: rows.map(s => ({ number: s.issue.number, status: s.status, runs: s.runs, detail: s.detail })) }
   } else if (mode === 'repair-delivery') {
     const state = readState(cfg, Number(values.issue)); if (!state) throw new Error('Issue state not found'); result = delivery(cfg, state)
   } else result = await recoverIssue(values.config, Number(values.issue), values.reason ?? '', mode === 'repair-resume')

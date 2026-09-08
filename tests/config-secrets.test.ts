@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { resolveSecretString } from '../src/cli/assemble.js'
+import { expandConfigPaths, resolveSecretString } from '../src/cli/assemble.js'
+import { ConfigSchema } from '../src/types.js'
 
 describe('resolveSecretString', () => {
   const originalEnv = { ...process.env }
@@ -24,8 +25,17 @@ describe('resolveSecretString', () => {
     expect(resolveSecretString('${TEST_SECRET_KEY}')).toBe('super-secret-key-123')
   })
 
-  it('環境變數不存在時回傳空字串，不丟出未捕捉例外', () => {
-    expect(resolveSecretString('{env:NON_EXISTENT_VAR}')).toBe('')
+  it('明確指定但缺少或空白的憑證在啟動前失敗', () => {
+    delete process.env.NON_EXISTENT_VAR
+    expect(() => resolveSecretString('{env:NON_EXISTENT_VAR}')).toThrow('missing or empty')
+    process.env.NON_EXISTENT_VAR = '  '
+    expect(() => resolveSecretString('${NON_EXISTENT_VAR}')).toThrow('missing or empty')
+    expect(() => resolveSecretString('{file:missing-secret-fixture}')).toThrow('missing or unreadable')
+    expect(() => resolveSecretString(`{file:${tmpdir()}}`)).toThrow('missing or unreadable')
+    const file = join(tmpdir(), `empty-secret-${Date.now()}.txt`)
+    writeFileSync(file, ' \n')
+    try { expect(() => resolveSecretString(`{file:${file}}`)).toThrow('empty') } finally { unlinkSync(file) }
+    expect(resolveSecretString('')).toBe('') // Optional integration explicitly disabled.
   })
 
   it('支援 {file:PATH} 格式', () => {
@@ -41,5 +51,11 @@ describe('resolveSecretString', () => {
   it('一般字串原樣保留', () => {
     expect(resolveSecretString('sk-ordinary-key')).toBe('sk-ordinary-key')
     expect(resolveSecretString(undefined)).toBeUndefined()
+  })
+  it('CLI 登入模式不要求停用的 HTTP API key，HTTP 模式仍嚴格檢查', () => {
+    delete process.env.UNUSED_HTTP_KEY
+    const cfg = ConfigSchema.parse({ projectPath: '.', backlogFile: 'BACKLOG.md', dataDir: 'data', engines: { fixture: { adapter: 'mock' } }, defaultEngine: 'fixture', llmTransport: 'cli', judgeApiKey: '{env:UNUSED_HTTP_KEY}' })
+    expect(expandConfigPaths(tmpdir(), cfg).judgeApiKey).toBe('')
+    expect(() => expandConfigPaths(tmpdir(), { ...cfg, llmTransport: 'http' })).toThrow('missing or empty')
   })
 })

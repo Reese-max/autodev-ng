@@ -3,6 +3,8 @@
 使用既有 scheduler、隔離 checkout、CI 與 reviewer 處理 GitHub Issues；驗收證據完整才推送
 `autodev/issue-N` 並建立 draft PR。合併與部署由操作者決定。
 
+案件控制台、一般 Issue 恢復、PR 後續修正、自訂回歸及人工驗收，見 [GitHub 交付與日常操作](github-delivery.md)。
+
 ## 設定
 
 `configs/integrations/github-issues.example.json` 為單一 repo 範例，

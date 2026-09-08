@@ -53,16 +53,18 @@ export function resolveSecretString(val: string | undefined, baseDir?: string): 
   if (!val) return val
   const envMatch = val.match(/^\{env:([A-Za-z0-9_]+)\}$/) || val.match(/^\$\{env:([A-Za-z0-9_]+)\}$/) || val.match(/^\$\{([A-Za-z0-9_]+)\}$/)
   if (envMatch && envMatch[1]) {
-    return process.env[envMatch[1]] ?? ''
+    const secret = process.env[envMatch[1]]
+    if (!secret?.trim()) throw new Error(`Configured secret environment variable is missing or empty: ${envMatch[1]}`)
+    return secret
   }
   const fileMatch = val.match(/^\{file:(.+)\}$/)
   if (fileMatch && fileMatch[1]) {
     const filePath = baseDir ? resolve(baseDir, fileMatch[1]) : resolve(fileMatch[1])
-    try {
-      return readFileSync(filePath, 'utf8').trim()
-    } catch {
-      return ''
-    }
+    let secret: string
+    try { secret = readFileSync(filePath, 'utf8').trim() }
+    catch { throw new Error('Configured secret file is missing or unreadable') }
+    if (!secret) throw new Error('Configured secret file is empty')
+    return secret
   }
   return val
 }
@@ -80,7 +82,7 @@ export function expandConfigPaths(baseDir: string, cfg: Config): Config {
     learningsFile: cfg.learningsFile ? resolve(baseDir, cfg.learningsFile) : undefined,
     globalLearningsFile: cfg.globalLearningsFile ? resolve(baseDir, cfg.globalLearningsFile) : undefined,
     releaseApprovalFile: cfg.releaseApprovalFile ? resolve(baseDir, cfg.releaseApprovalFile) : undefined,
-    judgeApiKey: resolveSecretString(cfg.judgeApiKey, baseDir) ?? 'sk-any',
+    judgeApiKey: cfg.llmTransport === 'cli' ? '' : resolveSecretString(cfg.judgeApiKey, baseDir) ?? 'sk-any',
     telegramBotToken: resolveSecretString(cfg.telegramBotToken, baseDir),
   }
 }

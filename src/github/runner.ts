@@ -6,6 +6,7 @@ import { eligibleForRun } from './repair.js'
 import { githubClient, type GithubClient } from './client.js'
 import { assertPublishable, checkoutDir, executeIssue, git } from './job.js'
 import { branchFor, fingerprint, readState, saveState, states, type IssueState } from './state.js'
+import { observePr } from './followup.js'
 
 export async function syncIssues(cfg: GithubConfig, client: GithubClient): Promise<void> {
   for (const issue of await client.list()) {
@@ -24,6 +25,14 @@ export async function publishIssue(cfg: GithubConfig, state: IssueState, client:
   check(cfg, state)
   const branch = branchFor(state.issue.number), existing = await client.findPr(branch)
   if (existing) {
+    if (state.revision && existing.state === 'open' && existing.head.sha === state.revision.baseCommit && existing.base.ref === cfg.base) {
+      if (!currentIssue(cfg, state, await client.issue(state.issue.number)) || existsSync(githubStopFile(cfg)) || !active()) return
+      git(checkoutDir(cfg, state), ['merge-base', '--is-ancestor', state.revision.baseCommit, state.commit!])
+      push() // Ordinary fast-forward push; never overwrite a reviewer edit.
+      const updated = await client.findPr(branch)
+      if (!updated || updated.head.sha !== state.commit || updated.state !== 'open' || updated.base.ref !== cfg.base) throw new Error('Updated PR head/base mismatch')
+      state.pr = updated.html_url; state.status = 'published'; saveState(cfg, state); return
+    }
     if (existing.head.sha !== state.commit || existing.base.ref !== cfg.base) throw new Error('Existing PR does not match the verified candidate')
     state.pr = existing.html_url
   } else {
@@ -60,6 +69,10 @@ export async function runGithub(cfg: GithubConfig, options: {
   try {
     await syncIssues(cfg, client)
     if (options.syncOnly) return 'synced'
+    for (const published of states(cfg).filter(s => s.status === 'published')) {
+      try { await observePr(cfg, published, client, active) }
+      catch (error) { published.detail = String(error); saveState(cfg, published) }
+    }
     for (const stale of states(cfg).filter(s => s.status === 'running')) {
       stale.status = 'blocked'; stale.detail = 'Previous runner interrupted; inspect artifacts before retry'; saveState(cfg, stale)
     }
@@ -72,9 +85,13 @@ export async function runGithub(cfg: GithubConfig, options: {
     try {
       if (state.status === 'queued') {
         const existing = (await client.findPr(branchFor(state.issue.number)))?.html_url ?? await client.findLinkedPr(state.issue.number)
-        if (existing) {
+        if (existing && !state.revision) {
           state.status = 'blocked'; state.pr = existing; state.detail = 'Existing PR; manual review required before further execution'
           saveState(cfg, state); return 'blocked'
+        }
+        if (state.revision) {
+          const pr = await client.findPr(branchFor(state.issue.number))
+          if (!pr || pr.state !== 'open' || pr.html_url !== state.pr || pr.head.sha !== state.revision.baseCommit || pr.base.ref !== cfg.base) throw new Error('PR changed before revision execution')
         }
         if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
           state.status = 'cancelled'; state.detail = 'Issue changed or excluded before execution'; saveState(cfg, state); return 'cancelled'
