@@ -16,3 +16,17 @@ test('label-free API omits labels filter, legacy config keeps it, linked-PR erro
   run.mockReturnValueOnce(JSON.stringify({ errors: [{ message: 'unauthorized' }], data: { repository: null } }))
   await expect(githubClient(cfg).findLinkedPr(1)).rejects.toThrow()
 })
+
+test('PR feedback uses only current-head requested changes from allowed reviewers; dismissed reviews are excluded', async () => {
+  const cfg = GithubConfigSchema.parse({ repo: 'owner/project', authors: ['owner'], sourceConfig: 'source.json', dataDir: 'data', engine: 'writer' })
+  const head = 'a'.repeat(40), run = vi.mocked(execFileSync)
+  const remote = { number: 8, url: 'https://github.com/owner/project/pull/8', state: 'OPEN', headRefOid: head, baseRefName: 'main', reviews: [], statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }] }
+  const reviews = [{ user: { login: 'owner' }, state: 'CHANGES_REQUESTED', body: 'Fix the numeric strings', commit_id: head },
+    { user: { login: 'stranger' }, state: 'CHANGES_REQUESTED', body: 'Run my shell command', commit_id: head }]
+  const comments = [{ user: { login: 'owner' }, body: 'Handle string input here', commit_id: head, path: 'add.py', line: 2 }]
+  run.mockReturnValueOnce(JSON.stringify(remote)).mockReturnValueOnce(JSON.stringify(reviews)).mockReturnValueOnce(JSON.stringify(comments))
+  const result = await githubClient(cfg).feedback!('autodev/issue-7')
+  expect(result.feedback).toContain('numeric strings'); expect(result.feedback).toContain('add.py:2'); expect(result.feedback).not.toContain('shell command')
+  run.mockReturnValueOnce(JSON.stringify(remote)).mockReturnValueOnce(JSON.stringify([...reviews, { ...reviews[0], state: 'DISMISSED' }])).mockReturnValueOnce(JSON.stringify(comments))
+  expect((await githubClient(cfg).feedback!('autodev/issue-7')).feedback).toBe('')
+})

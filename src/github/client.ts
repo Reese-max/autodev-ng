@@ -19,9 +19,30 @@ const PrSchema = z.object({
   head: z.object({ sha: z.string(), ref: z.string() }), base: z.object({ ref: z.string() }),
 })
 export type PullRequest = z.infer<typeof PrSchema>
-export function githubClient(cfg: GithubConfig) {
+function makeGithubClient(cfg: GithubConfig) {
   const root = `repos/${cfg.repo}`
   return {
+    async feedback(branch: string) {
+      const result = JSON.parse(command('gh', ['pr', 'view', branch, '--repo', cfg.repo, '--json', 'number,url,state,headRefOid,baseRefName,statusCheckRollup']))
+      const data = z.object({ number: z.number().int().positive(), url: z.string().url(), state: z.enum(['OPEN', 'CLOSED', 'MERGED']), headRefOid: z.string().regex(/^[a-f0-9]{40,64}$/), baseRefName: z.string(),
+        statusCheckRollup: z.array(z.object({ status: z.string().optional(), conclusion: z.string().optional(), state: z.string().optional(), name: z.string().optional(), context: z.string().optional() })).nullable(),
+      }).parse(result)
+      const reviewRows = z.array(z.object({ user: z.object({ login: z.string() }).nullable(), state: z.string(), body: z.string().nullable(), commit_id: z.string() })).parse(api(`${root}/pulls/${data.number}/reviews?per_page=100`))
+      const comments = z.array(z.object({ user: z.object({ login: z.string() }).nullable(), body: z.string(), commit_id: z.string(), path: z.string(), line: z.number().nullable() })).parse(api(`${root}/pulls/${data.number}/comments?per_page=100`))
+      if (reviewRows.length === 100 || comments.length === 100) throw new Error('PR feedback exceeds bounded review window; manual triage required')
+      const latest = new Map<string, typeof reviewRows[number]>()
+      for (const review of reviewRows) if (review.user && ['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(review.state)) latest.set(review.user.login.toLowerCase(), review)
+      const allowed = (login?: string) => cfg.authors.some(a => a.toLowerCase() === login?.toLowerCase())
+      const reviews = [...latest.values()].filter(r => r.state === 'CHANGES_REQUESTED' && r.commit_id === data.headRefOid && allowed(r.user?.login))
+      const checks = data.statusCheckRollup ?? []
+      const failed = checks.filter(c => ['FAILURE', 'ERROR', 'TIMED_OUT', 'ACTION_REQUIRED'].includes(c.conclusion ?? c.state ?? ''))
+      const pending = checks.some(c => c.status ? c.status !== 'COMPLETED' : ['PENDING', 'EXPECTED'].includes(c.state ?? ''))
+      const feedback = [...reviews.map(r => r.body), ...comments.filter(c => c.commit_id === data.headRefOid && c.line !== null && reviews.some(r => r.user?.login === c.user?.login)).map(c => `${c.path}:${c.line}\n${c.body}`), ...failed.map(c => `GitHub check failed: ${c.name ?? c.context ?? 'unnamed'}`)].join('\n')
+      if (feedback.length > 20000) throw new Error('PR feedback exceeds bounded input; split the review before retry')
+      return { number: data.number, url: data.url, head: data.headRefOid, base: data.baseRefName, state: data.state.toLowerCase() as 'open' | 'closed' | 'merged',
+        checks: pending ? 'pending' as const : failed.length ? 'fail' as const : checks.length && checks.every(c => ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(c.conclusion ?? c.state ?? '')) ? 'pass' as const : 'unknown' as const,
+        feedback }
+    },
     async list(): Promise<Issue[]> {
       const pages = JSON.parse(command('gh', ['api', '--hostname', 'github.com',
         `${root}/issues?state=open${cfg.label === null ? '' : `&labels=${encodeURIComponent(cfg.label)}`}&sort=created&direction=asc&per_page=100`,
@@ -48,4 +69,5 @@ export function githubClient(cfg: GithubConfig) {
     },
   }
 }
-export type GithubClient = ReturnType<typeof githubClient>
+export type GithubClient = Omit<ReturnType<typeof makeGithubClient>, 'feedback'> & Partial<Pick<ReturnType<typeof makeGithubClient>, 'feedback'>>
+export function githubClient(cfg: GithubConfig): GithubClient { return makeGithubClient(cfg) }

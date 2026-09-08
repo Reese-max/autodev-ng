@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { z } from 'zod'
+const outputPattern = z.string().min(3).max(200).refine(value => { try { new RegExp(value); return true } catch { return false } }, 'Invalid output pattern')
 
 export const GithubConfigSchema = z.object({
   repo: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9_.-]+$/).refine(v => !['.', '..'].includes(v.split('/')[1]!)),
@@ -12,6 +13,13 @@ export const GithubConfigSchema = z.object({
   engine: z.string().min(1),
   verifyCommand: z.string().trim().min(1).optional(),
   regressionPrepareCommand: z.string().trim().min(1).optional(),
+  regression: z.object({
+    file: z.string().regex(/^tests\/regressions\/[A-Za-z0-9_.{}-]+$/).refine(v => v.includes('{issue}') && v.includes('{revision}') && !/[{}]/.test(v.replaceAll('{issue}', '1').replaceAll('{revision}', '0'))),
+    command: z.string().min(1), args: z.array(z.string()).refine(args => args.some(a => a.includes('{file}')), 'Regression command must execute {file}'),
+    passPattern: outputPattern, failPattern: outputPattern,
+  }).strict().optional(),
+  acceptance: z.object({ command: z.string().min(1), args: z.array(z.string()) }).strict().optional(),
+  followup: z.boolean().default(false),
   template: z.boolean().optional(),
   stopFile: z.string().optional(),
   enabled: z.boolean().default(false),

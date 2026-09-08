@@ -1,10 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { expandConfigPaths } from '../src/cli/assemble.js'
 import { ConfigSchema } from '../src/types.js'
+afterEach(() => vi.unstubAllEnvs())
 
 test('專案設定搬到另一個 workspace 後，仍依設定目錄解析專案、backlog 與 worktree', () => {
+  vi.stubEnv('JUDGE_API_KEY', 'layout-fixture-only') // Path relocation is independent of operator credentials.
   const moved = resolve('relocated workspace', 'autodev-ng')
   const projects = { 'autodev-self': 'autodev-ng', gooaye: 'gooaye', neciken: 'neciken-summer-poem', 'note-filler': 'note-filler', 'prompt-autoresearch': 'prompt-autoresearch', 'taiwan-intel': 'taiwan-intel-dashboard' }
   for (const [name, project] of Object.entries(projects)) {

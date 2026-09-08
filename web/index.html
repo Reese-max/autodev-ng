@@ -27,6 +27,13 @@
     background: linear-gradient(90deg, var(--ok) 0%, rgba(61,220,151,.25) 40%, transparent 80%);
   }
   .num { font-variant-numeric: tabular-nums; }
+  #githubPanel { overflow-wrap: anywhere; }
+  #githubPanel h2 { color: var(--mut); }
+  #githubPanel a { color: var(--ok); text-underline-offset: .2em; }
+  #githubPanel button, #githubPanel summary { min-height: 44px; margin: 4px 6px 4px 0; }
+  #githubPanel summary { cursor: pointer; padding: 10px 0; }
+  #githubPanel input { display: block; min-height: 44px; margin: 6px 0; padding: 8px; font: inherit; font-size: 16px; color: var(--ink); background: var(--bg0); border: 1px solid var(--line-strong); }
+  #githubPanel :is(button, input, summary, a):focus-visible { outline: 2px solid var(--ok); outline-offset: 3px; }
 
   /* ---------- 頂欄 ---------- */
   header {
@@ -160,6 +167,11 @@
   @media (max-width: 920px) { #projectCards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 760px) {
     main, header { padding-left: 14px; padding-right: 14px; }
+    header { flex-wrap: wrap; }
+    header .spacer { display: none; }
+    section { overflow-x: auto; }
+    .panelgrid { grid-template-columns: minmax(0, 1fr); }
+    .card { overflow-x: auto; }
     #projectCards { grid-template-columns: 1fr; }
   }
 </style>
@@ -207,6 +219,7 @@
   <table><thead><tr><th>時間</th><th>task</th><th>結果</th><th>cost</th><th>detail</th></tr></thead>
   <tbody id="attemptsBody"></tbody></table>
 </section>
+<section id="githubPanel" aria-label="GitHub 案件與交付"></section>
 
 <section>
   <h2>Events 尾段 · 自動增量 + 每 3s 快照 50 筆</h2>
@@ -377,7 +390,12 @@
   async function pollPanels() {
     for (const name of PANELS) await loadPanel(name)
     await loadCockpit()
+    if (!projectsMode || currentProject) {
+      githubRefresh ??= import('/github.mjs').then(m => m.githubPanel(document.getElementById('githubPanel'), withProject, () => tokenInput.value))
+      await (await githubRefresh)()
+    }
   }
+  let githubRefresh
 
   // ---- 駕駛艙面板(GOAL cockpit):JSON 端點各自渲染;單一面板失敗不拖垮其餘 ----
   async function fetchJson(path) {

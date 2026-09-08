@@ -10,10 +10,11 @@ export async function githubCli(argv: string[]): Promise<void> {
   if (['proposal-review', 'proposal-status', 'proposal-feedback'].includes(mode ?? '')) {
     await (await import('./proposals.js')).proposalCli(mode!, argv.slice(1)); return
   }
-  if (['repair-doctor', 'repair-retry', 'repair-resume', 'repair-delivery', 'repair-metrics'].includes(mode ?? '')) {
+  if (['doctor', 'retry', 'resume', 'delivery', 'metrics', 'accept', 'repair-doctor', 'repair-retry', 'repair-resume', 'repair-delivery', 'repair-metrics'].includes(mode ?? '')) {
     await (await import('./operations.js')).operationsCli(mode!, argv.slice(1)); return
   }
   if (argv.length === 1 && ['--help', '-h', 'help'].includes(mode!)) {
+    console.log('GitHub operations: doctor [--live], retry|resume --issue N --reason TEXT, delivery|metrics, accept --issue N --commit SHA --reason EVIDENCE. All require --config PATH. followup=true enables bounded PR revisions within maxRuns. Acceptance commands are trusted local configuration, never Issue text.')
     console.log('Usage: adng github <scan|sync|run|status|owner-sync|owner-run|owner-status|report|report-collect|report-status|repair|repair-status> --config <path>\nrepair --dry-run previews eligible reports; repair runs one bounded CLI repair.\nrepair-doctor --live: test login/sandbox; repair-retry|repair-resume --issue N --reason "details": preserve attempts.\nrepair-delivery --issue N: verify exact commit; repair-metrics: observed outcomes.\nproposal-review|proposal-status|proposal-feedback: validate, schedule and learn.\nrepair-batch: separate scheduled repairs (report never waits for them).'); return
   }
   if (mode === 'repair-batch' && flag === '--config' && file && !extra.length) {
@@ -39,6 +40,6 @@ export async function githubCli(argv: string[]): Promise<void> {
   } else {
     const result = await runGithub(cfg, { syncOnly: mode === 'sync', configPath: file })
     console.log(result)
-    if (/blocked$/.test(result) || (cfg.repair && /: queued$/.test(result))) process.exitCode = 1
+    if (/blocked$/.test(result) || /: queued$/.test(result)) process.exitCode = 1
   }
 }
