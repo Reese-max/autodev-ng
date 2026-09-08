@@ -75,5 +75,9 @@
   "judgeEffort": "xhigh",
   "judgeTimeoutMs": 180000,
   "engineIsolation": false,
-  "llmTransport": "cli"
+  "llmTransport": "cli",
+  "botTokenFile": "C:/Users/Administrator/.adng/bot.env",
+  "botAllowedUserIds": [
+    "844236700611379200"
+  ]
 }

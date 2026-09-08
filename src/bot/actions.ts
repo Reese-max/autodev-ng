@@ -1,5 +1,5 @@
 import {
-  appendFileSync, closeSync, existsSync, openSync, readdirSync, readFileSync,
+  appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync,
   renameSync, statSync, unlinkSync, writeFileSync
 } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -46,9 +46,10 @@ export function appendUserTask(backlogFile: string, text: string): void {
   })
 }
 
-export async function doPause(d: BotDeps): Promise<CmdResult> {
+export async function doPause(d: Pick<BotDeps, 'cfg'>): Promise<CmdResult> {
   try {
-    withPauseGate([d.cfg.stopFile], () => writeFileSync(d.cfg.stopFile, 'bot /pause\n'))
+    mkdirSync(dirname(d.cfg.stopFile), { recursive: true })
+    withPauseGate([d.cfg.stopFile], () => { if (!existsSync(d.cfg.stopFile)) writeFileSync(d.cfg.stopFile, 'operator pause\n', { flag: 'wx' }) })
     return { ok: true, text: '已寫入 stop 檔，daemon 將優雅停止' }
   } catch {
     return { ok: false, text: '暫停失敗，請檢查 stop 檔權限' }
@@ -56,12 +57,13 @@ export async function doPause(d: BotDeps): Promise<CmdResult> {
 }
 
 /** 缺 stopFile 也回成功文字——resume 的語意是「確保處於運作狀態」，不是「一定有檔可刪」。 */
-export async function doResume(d: BotDeps): Promise<CmdResult> {
+export async function doResume(d: Pick<BotDeps, 'cfg'> & { cfgPath?: string }): Promise<CmdResult> {
   try {
     withPauseGate([d.cfg.stopFile], () => {
       if (existsSync(d.cfg.stopFile)) unlinkSync(d.cfg.stopFile)
     })
-    return { ok: true, text: '已恢復，daemon 將繼續運作' }
+    const fleetPaused = d.cfgPath && existsSync(join(dirname(d.cfgPath), '.adng.stop'))
+    return { ok: true, text: fleetPaused ? '已恢復專案旗標；車隊仍暫停，未移除車隊旗標' : '已恢復派工許可；既有 daemon 可繼續運作（本指令不啟動進程）' }
   } catch {
     return { ok: false, text: '恢復失敗，請檢查 stop 檔權限' }
   }

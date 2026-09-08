@@ -6,6 +6,7 @@ export interface InteractionLike {
   commandName: string
   userId: string
   arg: string
+  defer?(): Promise<void>
   reply(text: string, ephemeral?: boolean): Promise<void>
 }
 
@@ -23,6 +24,7 @@ export async function routeInteraction(
     return
   }
   try {
+    await i.defer?.()
     const r = await handle(i.commandName, i.arg, d)
     await i.reply(r.text)
   } catch {
@@ -32,7 +34,7 @@ export async function routeInteraction(
 
 /** 讀類指令：無 project 參數時對使用者有權限的每個專案各摘要一段。
  * 動作類指令：project 必填（改狀態動作不可對「全部專案」批次做）。 */
-export const READ_COMMANDS = ['status', 'cost', 'backlog', 'log', 'lessons', 'problems'] as const
+export const READ_COMMANDS = ['status', 'cost', 'backlog', 'log', 'lessons', 'problems', 'monitor', 'github'] as const
 export const ACTION_COMMANDS = ['pause', 'resume', 'silence', 'task', 'ask', 'goal'] as const
 
 /** 專案名解析：精確匹配優先（即使該名同時是另一專案的前綴）；否則在 names 裡找唯一前綴匹配；
@@ -80,6 +82,7 @@ export async function routeMultiInteraction(
       return
     }
     try {
+      await i.defer?.()
       const result = await handle(i.commandName, i.arg, rt.deps)
       await i.reply(result.text)
     } catch {
@@ -104,10 +107,13 @@ export async function routeMultiInteraction(
     return
   }
   try {
+    await i.defer?.()
     const sections: string[] = []
     for (const [name, rt] of allowedEntries) {
-      const result = await handle(i.commandName, i.arg, rt.deps)
-      sections.push(`【${name}】\n${result.text}`)
+      try {
+        const result = await handle(i.commandName, i.arg, rt.deps)
+        sections.push(`【${name}】\n${result.text}`)
+      } catch { sections.push(`【${name}】\n查詢失敗，其他專案仍可查看`) }
     }
     await i.reply(sections.join('\n\n'))
   } catch {

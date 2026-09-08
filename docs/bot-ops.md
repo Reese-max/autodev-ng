@@ -1,5 +1,39 @@
 # adng Discord Bot 營運手冊
 
+## CLI 控制與監控
+
+在專案根目錄執行（已安裝 `adng` 時可取代 `node dist/cli.js`）：
+
+```powershell
+node dist/cli.js monitor --config configs/autodev-self.json
+node dist/cli.js monitor --configs-dir configs --json
+node dist/cli.js status --config configs/autodev-self.json --json
+node dist/cli.js monitor --config configs/autodev-self.json --check
+node dist/cli.js pause --config configs/autodev-self.json
+node dist/cli.js resume --config configs/autodev-self.json
+node dist/cli.js cost --config configs/autodev-self.json
+node dist/cli.js backlog --config configs/autodev-self.json
+node dist/cli.js log --config configs/autodev-self.json
+node dist/cli.js bot --configs-dir configs
+```
+
+`monitor` 和 `status --json` 共用監控契約；不讀 provider 憑證、不建立資料庫、不派工。輸出包含心跳時間與時效、PID 觀測、專案／車隊暫停旗標、backlog 四種狀態與通知 DLQ。`observed` 只表示 PID 存在且心跳尚新，未核對程序身分，不代表任務成功；`stale`、`not-running`、`unknown`、`blocked` 需人工查看。`paused` 是明確暫停。心跳成本屬該時間的快照，可能跨日過期，完整帳務來源看 `cost`。
+
+查詢預設 exit 0；設定／操作錯誤 exit 1。加 `--check` 後，心跳過期、未運行、未知或被阻擋回 exit 2；明確暫停且資料可讀回 0。多專案保留個別錯誤並繼續列出其餘專案，任何設定錯誤優先回 1。單份監控檔案上限 2 MiB，超過顯示未知，不假裝空資料。`cost/backlog/log` 沿用既有 handler 與組裝流程，可能初始化本機 data，但不啟動 worker。
+
+`pause/resume` 必須指定單一設定檔，沿用設定中的 `stopFile`，不要讓不同專案共用該檔。再次 pause 保留原本的暫停理由；resume 只移除該設定的旗標，獨立的車隊旗標仍保留並明確顯示。resume 不會啟動已停止的 daemon，也不會解除 GitHub integration 自己的 stopFile。
+
+## Discord 查看
+
+- `/monitor [project]`：上述監控摘要；不指定 project 時列出自己有權限的所有專案。
+- `/github [project]`：GitHub Issue／PR、執行次數上限、交付驗證及接受收據。遠端狀態是最近保存的觀測；查詢不會刷新 GitHub、不會觸發修復。
+- `/status [project]`：心跳時效與最近進度；`/cost` 查看影子帳來源與未知覆蓋率。
+- `/pause project:<名稱>`、`/resume project:<名稱>`：控制單一專案；多專案模式不得省略 project。
+
+通過 allowlist 後先延後回覆，再執行查詢／動作，避免慢操作超過 Discord 首次回覆期限；回覆僅本人可見。禁止文字觸發 mention。多專案超長回覆附 `adng-monitor.txt`，保留所有已產生的專案摘要；原有單專案 handler 的內容上限仍適用。一個專案查詢失敗時，其餘可讀專案仍顯示。
+
+註冊成功與 Gateway 連線只代表 bot 已上線；真人在 Discord 執行指令並收到回覆，才算互動端驗收。
+
 ## 上線前置
 
 1. 建立 token 檔（純文字，cmd/shell 格式皆可，逐行 regex 解析）：`C:\Users\Administrator\.adng\bot.env`

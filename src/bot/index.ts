@@ -1,7 +1,9 @@
 import { llmFromConfig } from '../autopilot/llm.js'
 import { mkdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { Client, Events, GatewayIntentBits, SlashCommandBuilder } from 'discord.js'
+import { pathToFileURL } from 'node:url'
+import { parseArgs } from 'node:util'
+import { Client, Events, GatewayIntentBits, MessageFlags, SlashCommandBuilder } from 'discord.js'
 import { assemble } from '../cli.js'
 import { acquireLock, releaseLock } from '../lock.js'
 import { loadBotConfig, loadBotToken, listProjectConfigs, type BotConfig } from './config.js'
@@ -15,6 +17,8 @@ import { routeInteraction, routeMultiInteraction, ACTION_COMMANDS, type Interact
 /** 無參數指令（查詢/控制）+ 有字串參數指令，各自的中文說明（slash command 註冊用）。 */
 const NO_ARG_COMMANDS: Record<string, string> = {
   status: '查詢 adng 執行狀態',
+  monitor: '查看心跳時效、派工暫停、PID 與任務及通知積壓',
+  github: '查看 GitHub Issue、PR、執行次數與交付驗收收據',
   cost: '查詢今日／昨日成本',
   backlog: '查詢 backlog 概況',
   log: '查詢近期事件紀錄',
@@ -31,12 +35,12 @@ const ARG_COMMANDS: Record<string, string> = {
   goal: 'GOAL autopilot：set <目標文字>／run／status／stop'
 }
 
-/** 12 個 slash command 定義（8 無參數 + 4 帶字串參數 arg）。
+/** Slash command 定義。
  * withProject=true（多專案模式）時每指令再加 string option `project`：
  * READ_COMMANDS（NO_ARG_COMMANDS 扣掉 pause/resume）optional、ACTION_COMMANDS required
  * （arg 與 project 皆 required 時 Discord 要求 arg 排前，故 project 在 arg 之後加）。
  * withProject=false（單專案 --config 模式，main() 呼叫）維持原樣，無 project 選項。 */
-function buildCommandsData(withProject = false): ReturnType<SlashCommandBuilder['toJSON']>[] {
+export function buildCommandsData(withProject = false): ReturnType<SlashCommandBuilder['toJSON']>[] {
   const noArg = Object.entries(NO_ARG_COMMANDS).map(([name, desc]) => {
     const builder = new SlashCommandBuilder().setName(name).setDescription(desc)
     if (withProject) {
@@ -108,10 +112,13 @@ export async function main(cfgPath: string): Promise<void> {
         commandName: interaction.commandName,
         userId: interaction.user.id,
         arg,
+        defer: async () => { await interaction.deferReply({ flags: MessageFlags.Ephemeral }) },
         reply: async (text, ephemeral) => {
           try {
             const payload = buildReplyPayload(text, ephemeral)
-            if (interaction.replied || interaction.deferred) {
+            if (interaction.deferred && !interaction.replied) {
+              await interaction.editReply({ content: payload.content, files: payload.files, allowedMentions: payload.allowedMentions })
+            } else if (interaction.replied) {
               await interaction.followUp(payload)
             } else {
               await interaction.reply(payload)
@@ -209,10 +216,13 @@ export async function mainMulti(configsDir: string): Promise<void> {
         userId: interaction.user.id,
         arg,
         project,
+        defer: async () => { await interaction.deferReply({ flags: MessageFlags.Ephemeral }) },
         reply: async (text, ephemeral) => {
           try {
             const payload = buildReplyPayload(text, ephemeral)
-            if (interaction.replied || interaction.deferred) {
+            if (interaction.deferred && !interaction.replied) {
+              await interaction.editReply({ content: payload.content, files: payload.files, allowedMentions: payload.allowedMentions })
+            } else if (interaction.replied) {
               await interaction.followUp(payload)
             } else {
               await interaction.reply(payload)
@@ -239,19 +249,18 @@ export async function mainMulti(configsDir: string): Promise<void> {
   await client.login(token)
 }
 
-const configsDirArg = process.argv.indexOf('--configs-dir')
-const cfgArg = process.argv.indexOf('--config')
-if (configsDirArg >= 0 && configsDirArg + 1 < process.argv.length) {
-  mainMulti(process.argv[configsDirArg + 1]!).catch((err: unknown) => {
+export async function runBotCli(args: string[]): Promise<void> {
+  const { values } = parseArgs({ args, options: { config: { type: 'string' }, 'configs-dir': { type: 'string' }, help: { type: 'boolean' } } })
+  const usage = '用法：adng bot --configs-dir <dir> 或 --config <path>'
+  if (values.help) { console.log(usage); return }
+  if (!!values.config === !!values['configs-dir']) throw new Error(usage)
+  if (values.config) await main(values.config)
+  else await mainMulti(values['configs-dir']!)
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  runBotCli(process.argv.slice(2)).catch((err: unknown) => {
     console.error(err instanceof Error ? err.message : String(err))
-    process.exit(1)
+    process.exitCode = 1
   })
-} else if (cfgArg >= 0 && cfgArg + 1 < process.argv.length) {
-  main(process.argv[cfgArg + 1]!).catch((err: unknown) => {
-    console.error(err instanceof Error ? err.message : String(err))
-    process.exit(1)
-  })
-} else {
-  console.error('用法：node dist/bot/index.js --configs-dir <dir> 或 --config <path>')
-  process.exit(1)
 }

@@ -60,7 +60,7 @@ describe('routeInteraction', () => {
 
 describe('READ_COMMANDS/ACTION_COMMANDS', () => {
   test('讀類與動作類指令清單', () => {
-    expect(READ_COMMANDS).toEqual(['status', 'cost', 'backlog', 'log', 'lessons', 'problems'])
+    expect(READ_COMMANDS).toEqual(['status', 'cost', 'backlog', 'log', 'lessons', 'problems', 'monitor', 'github'])
     expect(ACTION_COMMANDS).toEqual(['pause', 'resume', 'silence', 'task', 'ask', 'goal'])
   })
 })
@@ -211,12 +211,12 @@ describe('routeMultiInteraction', () => {
     expect(replies).toEqual([{ text: '內部錯誤', ephemeral: undefined }])
   })
 
-  test('handle throw(讀類聚合) → 不外拋,整體回內部錯誤', async () => {
+  test('handle throw(讀類聚合) → 不外拋,標示該專案查詢失敗', async () => {
     const projects = new Map<string, ProjectRuntime>([['a', runtime(['u1'])]])
     const { i, replies } = fakeMultiInteraction({ commandName: 'status', project: undefined })
     const handle = vi.fn(async () => { throw new Error('boom') })
     await expect(routeMultiInteraction(i, projects, handle)).resolves.toBeUndefined()
-    expect(replies).toEqual([{ text: '內部錯誤', ephemeral: undefined }])
+    expect(replies).toEqual([{ text: '【a】\n查詢失敗，其他專案仍可查看', ephemeral: undefined }])
   })
 
   test('未分類指令(無 project) → reply 未知指令,handle 零呼叫', async () => {

@@ -12,6 +12,7 @@ import { isSilenced } from './silence.js'
 import { doPause, doResume, doSilence, doTask, doAsk, doGoal } from './actions.js'
 import { subscriptionTags } from '../scheduler.js'
 import { ProblemsLedger } from '../autopilot/ledger.js'
+import { formatMonitor, githubMonitor, monitorRuntimeLines, readMonitor } from './monitor.js'
 
 export interface BotDeps {
   cfg: Config
@@ -34,60 +35,11 @@ function truncate(text: string): string {
 
 export interface CmdResult { ok: boolean; text: string }
 
-interface Heartbeat {
-  ts: string
-  state: string
-  currentTask?: string
-  todayCostUsd: number
-}
-
-/** 讀 ${dataDir}/heartbeat.json。缺檔/損壞/欄位不符一律回 null，不炸（鏡像 src/cli.ts readHeartbeat）。 */
-function readHeartbeat(dataDir: string): Heartbeat | null {
-  try {
-    const file = join(dataDir, 'heartbeat.json')
-    if (!existsSync(file)) return null
-    const raw = JSON.parse(readFileSync(file, 'utf8')) as unknown
-    if (typeof raw !== 'object' || raw === null) return null
-    const r = raw as Record<string, unknown>
-    if (typeof r.ts !== 'string' || typeof r.state !== 'string' || typeof r.todayCostUsd !== 'number') return null
-    return {
-      ts: r.ts, state: r.state, todayCostUsd: r.todayCostUsd,
-      currentTask: typeof r.currentTask === 'string' ? r.currentTask : undefined
-    }
-  } catch {
-    return null
-  }
-}
-
-/** 讀 ${dataDir}/daemon.lock/pid.json 判活，鏡像 src/lock.ts checkLockOwner 的 process.kill(pid,0) 慣例。
- * 缺檔/損壞/pid 非法一律回 false（此處只是狀態展示，寧可低估不誤報）。 */
-function isDaemonAlive(dataDir: string): boolean {
-  try {
-    const file = join(dataDir, 'daemon.lock', 'pid.json')
-    if (!existsSync(file)) return false
-    const raw = JSON.parse(readFileSync(file, 'utf8')) as { pid?: unknown }
-    if (typeof raw.pid !== 'number' || !Number.isInteger(raw.pid) || raw.pid <= 0) return false
-    try {
-      process.kill(raw.pid, 0)
-      return true
-    } catch (err) {
-      return (err as NodeJS.ErrnoException).code !== 'ESRCH'
-    }
-  } catch {
-    return false
-  }
-}
-
 async function cmdStatus(d: BotDeps): Promise<CmdResult> {
   try {
-    const hb = readHeartbeat(d.cfg.dataDir)
-    const lines: string[] = ['adng 狀態']
-    lines.push(hb
-      ? `heartbeat：${hb.ts}｜state=${hb.state}${hb.currentTask ? `｜任務=${hb.currentTask}` : ''}｜今日成本 $${hb.todayCostUsd.toFixed(4)}`
-      : '尚無 heartbeat 紀錄（daemon 未跑過或剛啟動）')
-    lines.push(`daemon 進程：${isDaemonAlive(d.cfg.dataDir) ? '存活' : '未偵測到'}`)
+    const monitor = readMonitor(d.cfg, d.cfgPath)
+    const lines: string[] = ['adng 狀態', ...monitorRuntimeLines(monitor)]
     lines.push(...progressLines(d.cfg, d.db, d.store))
-    if (existsSync(d.cfg.stopFile)) lines.push('已暫停')
     if (isSilenced(d.cfg.dataDir)) lines.push('靜音中')
     return { ok: true, text: lines.join('\n') }
   } catch {
@@ -210,6 +162,8 @@ export async function handleCommand(name: string, arg: string, d: BotDeps): Prom
   try {
     switch (name) {
       case 'status': return pass(await cmdStatus(d))
+      case 'monitor': return pass({ ok: true, text: formatMonitor(readMonitor(d.cfg, d.cfgPath)) })
+      case 'github': return { ok: true, text: await githubMonitor(d.cfgPath) }
       case 'cost': return pass(await cmdCost(d))
       case 'backlog': return pass(await cmdBacklog(d))
       case 'log': return pass(await cmdLog(d))

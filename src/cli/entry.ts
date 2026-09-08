@@ -15,6 +15,11 @@ export const CLI_HELP = [
   '  adng task list --config <path>',
   '  adng github resume --config <path> --issue N --reason TEXT',
   '  adng status --config <path>       唯讀狀態、成本、backlog 與 DLQ',
+  '  adng monitor --config <path> [--json] [--check]  心跳、PID、暫停與積壓監控',
+  '  adng monitor --configs-dir <dir> [--json]       多專案監控',
+  '  adng pause|resume --config <path> [--json]      暫停／恢復單一專案派工',
+  '  adng cost|backlog|log --config <path> [--json]  查看成本、任務與事件',
+  '  adng bot (--config <path> | --configs-dir <dir>)  啟動 Discord 控制與監控',
   '  adng run-once --config <path>     執行一輪後退出',
   '  adng daemon --config <path>       前景常駐主迴圈',
   '  adng notify-test --config <path>  測試 Discord 告警通道',
@@ -65,6 +70,10 @@ export function parseArgv(argv: string[]): ParsedArgv {
 export async function runCli(argv: string[], cliPath: string): Promise<void> {
   if (argv[0] !== 'github' && (argv.includes('--help') || (argv.length === 1 && ['-h', 'help'].includes(argv[0]!)))) { process.exitCode = 0; printCliHelp(); return }
   if (argv[0] === 'task') { await (await import('./tasks.js')).taskCli(argv.slice(1)); return }
+  if (argv[0] === 'bot') { await (await import('../bot/index.js')).runBotCli(argv.slice(1)); return }
+  if (['monitor', 'pause', 'resume', 'cost', 'backlog', 'log'].includes(argv[0] ?? '') || (argv[0] === 'status' && argv.includes('--json'))) {
+    await (await import('./control.js')).controlCli(argv[0]!, argv.slice(1)); return
+  }
   if (argv[0] === 'github') {
     const { githubCli } = await import('../github/cli.js')
     await githubCli(argv.slice(1))
