@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { join, resolve, dirname, relative } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import Database from 'better-sqlite3'
-import { assertQuiescent, assertIdleData, command, initHost, inside, readJson, writeJson } from './host.mjs'
+import { assertQuiescent, assertIdleData, command, initHost, inside, readJson, writeJson, exists } from './host.mjs'
 
 const hash = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex')
 function assertNoInlineSecrets(value) {
@@ -47,19 +47,19 @@ function inventory(root) {
 }
 export async function backupState(config, out) {
   config = resolve(config); out = resolve(out)
-  if (fs.existsSync(out)) throw new Error('Backup destination already exists')
+  if (exists(out)) throw new Error('Backup destination already exists')
   const source = assertQuiescent(config), excludedFiles = []
   assertNoInlineSecrets(source.raw)
   if ([source.data, source.project].some(p => inside(p, out))) throw new Error('Backup must be outside source data and project')
   const worktrees = command('git', ['worktree', 'list', '--porcelain'], source.project).split('\n').filter(l => l.startsWith('worktree ')).map(l => l.slice(9))
   for (const worktree of worktrees) if (command('git', ['status', '--porcelain'], worktree)) throw new Error('Commit or preserve dirty worktrees before backup')
   const integrationsDir = join(source.base, 'integrations'), integrations = []
-  if (fs.existsSync(integrationsDir)) for (const name of fs.readdirSync(integrationsDir).filter(n => n.endsWith('.json') && !n.endsWith('.example.json'))) {
+  if (exists(integrationsDir)) for (const name of fs.readdirSync(integrationsDir).filter(n => n.endsWith('.json') && !n.endsWith('.example.json'))) {
     const file = join(integrationsDir, name), cfg = readJson(file)
     if (!cfg.sourceConfig || resolve(integrationsDir, cfg.sourceConfig) !== config) continue
     assertNoInlineSecrets(cfg)
     const data = resolve(integrationsDir, cfg.dataDir), stop = cfg.stopFile ? resolve(integrationsDir, cfg.stopFile) : join(data, '.adng.stop')
-    if (!fs.existsSync(stop)) throw new Error('Pause every matching GitHub integration before backup')
+    if (!exists(stop)) throw new Error('Pause every matching GitHub integration before backup')
     // Use the same PID checks without touching the original integration config.
     assertIdleData(data)
     integrations.push({ name, cfg, data, stop, originalConfig: file })
@@ -67,12 +67,12 @@ export async function backupState(config, out) {
   const temp = `${out}.partial-${randomUUID()}`
   fs.mkdirSync(temp, { recursive: true })
   try {
-    if (fs.existsSync(source.data)) await copyTree(source.data, join(temp, 'data'), excludedFiles)
+    if (exists(source.data)) await copyTree(source.data, join(temp, 'data'), excludedFiles)
     const backlog = resolve(source.base, source.raw.backlogFile)
     await copyTree(backlog, join(temp, 'BACKLOG.md'), excludedFiles)
     const common = resolve(source.project, command('git', ['rev-parse', '--git-common-dir'], source.project))
     const team = join(common, 'autodev-ng', 'team.db')
-    if (fs.existsSync(team)) {
+    if (exists(team)) {
       const db = new Database(team, { readonly: true })
       try { if (db.prepare('SELECT 1 FROM team_claims WHERE active=1 LIMIT 1').get()) throw new Error('Active team claims must be resolved before migration') } finally { db.close() }
       await copyTree(team, join(temp, 'team.db'), excludedFiles)
@@ -81,14 +81,14 @@ export async function backupState(config, out) {
     command('git', ['bundle', 'create', join(temp, 'project.bundle'), '--all', ...heads], source.project)
     for (const key of ['goalFile', 'learningsFile', 'globalLearningsFile']) if (source.raw[key]) {
       const extra = resolve(source.base, source.raw[key])
-      if (fs.existsSync(extra)) await copyTree(extra, join(temp, 'extra', key), excludedFiles)
+      if (exists(extra)) await copyTree(extra, join(temp, 'extra', key), excludedFiles)
     }
     for (const i of integrations) {
-      if (fs.existsSync(i.data)) await copyTree(i.data, join(temp, 'integrations', i.name), excludedFiles)
+      if (exists(i.data)) await copyTree(i.data, join(temp, 'integrations', i.name), excludedFiles)
     }
     // Recheck ownership before publishing the snapshot. Keep partial evidence on any failure.
     assertQuiescent(config)
-    for (const i of integrations) { if (!fs.existsSync(i.stop)) throw new Error('Integration resumed during snapshot'); assertIdleData(i.data) }
+    for (const i of integrations) { if (!exists(i.stop)) throw new Error('Integration resumed during snapshot'); assertIdleData(i.data) }
     const branch = command('git', ['symbolic-ref', '--short', 'HEAD'], source.project)
     const manifest = { version: 1, at: new Date().toISOString(), source: config, project: source.project, branch, config: source.raw, integrations, excludedFiles, worktrees, files: inventory(temp), activationRequiresRevalidation: true }
     writeJson(join(temp, 'manifest.json'), manifest)
@@ -98,7 +98,7 @@ export async function backupState(config, out) {
 }
 export async function restoreState(from, home, runtime) {
   from = resolve(from); home = resolve(home)
-  if (fs.existsSync(home) || inside(from, home) || inside(home, from)) throw new Error('Restore requires a separate new host directory')
+  if (exists(home) || inside(from, home) || inside(home, from)) throw new Error('Restore requires a separate new host directory')
   const m = readJson(join(from, 'manifest.json'))
   if (m.version !== 1 || !m.files || typeof m.files !== 'object') throw new Error('Invalid snapshot manifest')
   const actual = inventory(from); delete actual['manifest.json']
@@ -118,9 +118,9 @@ export async function restoreState(from, home, runtime) {
     command('git', ['-c', hooks, 'checkout', m.branch, '--'], project, gitEnv)
     const hostDir = join(staging, 'host')
     initHost(hostDir, project, runtime)
-    if (fs.existsSync(join(from, 'data'))) await copyTree(join(from, 'data'), join(hostDir, 'data/project'), [])
+    if (exists(join(from, 'data'))) await copyTree(join(from, 'data'), join(hostDir, 'data/project'), [])
     fs.copyFileSync(join(from, 'BACKLOG.md'), join(hostDir, 'data/BACKLOG.md'))
-    if (fs.existsSync(join(from, 'team.db'))) {
+    if (exists(join(from, 'team.db'))) {
       fs.mkdirSync(join(project, '.git/autodev-ng'), { recursive: true })
       fs.copyFileSync(join(from, 'team.db'), join(project, '.git/autodev-ng/team.db'))
     }
@@ -128,13 +128,13 @@ export async function restoreState(from, home, runtime) {
     delete cfg.botTokenFile; delete cfg.botTestPeer; delete cfg.botAllowedUserIds
     // Old absolute evidence paths remain evidence; never rewrite their contents/hashes or auto-resume.
     for (const key of ['goalFile', 'learningsFile', 'worktreesDir']) if (cfg[key]) cfg[key] = `../data/project/${key === 'goalFile' ? 'GOAL.md' : key === 'learningsFile' ? 'learnings.md' : 'worktrees'}`
-    for (const key of ['goalFile', 'learningsFile', 'globalLearningsFile']) if (fs.existsSync(join(from, 'extra', key))) {
+    for (const key of ['goalFile', 'learningsFile', 'globalLearningsFile']) if (exists(join(from, 'extra', key))) {
       cfg[key] = `../data/${key}.md`; fs.copyFileSync(join(from, 'extra', key), join(hostDir, 'data', `${key}.md`))
     }
     writeJson(join(hostDir, 'configs/project.json'), cfg)
     for (const i of m.integrations || []) {
       const dst = join(hostDir, 'data/integrations', i.name)
-      if (fs.existsSync(join(from, 'integrations', i.name))) await copyTree(join(from, 'integrations', i.name), dst, [])
+      if (exists(join(from, 'integrations', i.name))) await copyTree(join(from, 'integrations', i.name), dst, [])
       fs.mkdirSync(dst, { recursive: true }); fs.writeFileSync(join(dst, '.adng.stop'), 'Restored: ownership and receipts require revalidation\n')
       writeJson(join(hostDir, 'configs/integrations', i.name), { ...i.cfg, enabled: false, sourceConfig: '../project.json', dataDir: `../../data/integrations/${i.name}`, stopFile: `../../data/integrations/${i.name}/.adng.stop` })
     }

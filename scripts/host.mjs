@@ -10,6 +10,9 @@ import Database from 'better-sqlite3'
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 export const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'))
+export function exists(file) {
+  try { fs.lstatSync(file); return true } catch (error) { if (error.code === 'ENOENT') return false; throw error }
+}
 export function writeJson(file, value) {
   fs.mkdirSync(dirname(file), { recursive: true })
   const temp = `${file}.tmp-${randomUUID()}`
@@ -101,7 +104,7 @@ export function assertQuiescent(config, runtime = ROOT) {
 }
 export function assertIdleData(data) {
   const visit = dir => {
-    if (!fs.existsSync(dir)) return
+    if (!exists(dir)) return
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = join(dir, e.name)
       if (e.isSymbolicLink()) throw new Error('State contains a link; inspect before migration')

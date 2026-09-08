@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -106,4 +106,15 @@ test('backup rejects inline credentials and missing pause without creating a sna
   expect(fs.existsSync(out)).toBe(false)
   writeJson(f.config, cfg); fs.unlinkSync(join(f.home, 'configs/.adng.stop'))
   await expect(backupState(f.config, out)).rejects.toThrow('Pause')
+})
+
+test('state inventory access errors abort backup instead of treating the directory as missing', async () => {
+  const f = fixture(), data = join(f.home, 'data/project'), out = join(f.root, 'backup')
+  const original = fs.lstatSync
+  const spy = vi.spyOn(fs, 'lstatSync').mockImplementation(((file: fs.PathLike, ...args: unknown[]) => {
+    if (file === data) throw Object.assign(new Error('fixture access denied'), { code: 'EACCES' })
+    return (original as Function)(file, ...args)
+  }) as typeof fs.lstatSync)
+  try { await expect(backupState(f.config, out)).rejects.toThrow('access denied'); expect(fs.existsSync(out)).toBe(false) }
+  finally { spy.mockRestore() }
 })
