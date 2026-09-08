@@ -116,6 +116,14 @@ node web/server.mjs --configs-dir configs
 
 面板/控制邏輯**與 bot 同一套**：`GET /api/panel/:name`（`status`/`cost`/`backlog`/`log`/`lessons`/`goal` 白名單）與 `/api/goal/*`、`/api/silence`、`/api/pause`、`/api/resume`、`/api/task` 全部直接呼叫 `dist/bot/handlers.js` 的 `handleCommand`，零重複業務邏輯——web 只是 bot handler 的另一張皮。`/api/run-once`、`/api/daemon/start|stop` 則是 spawn 既有 `dist/cli.js`（單一事實來源，web 不 import scheduler）。
 
+## CCTEST 實際訊息驗收
+
+專案設定可選填 `botTestPeer: { "botId": "1494777289676685433", "channelId": "1494779722314285179" }`。
+僅該 bot 在該頻道直接提及 AutoDev 時，可送出 `@AutoDev cctest monitor autodev-self CCTEST_<唯一標記>` 或 `github`；專案必須完整名稱。
+回覆沿用正式查詢 handler，會附上標記；`OK` 代表查詢成功，不代表 daemon 健康或 GitHub 交付通過。此入口不授予 slash 或控制權限，不接受 webhook、其他指令、過期訊息及最近重複的訊息。
+未設定時不訂閱訊息事件。啟用時只增加 GuildMessages intent，直接提及不需 MessageContent privileged intent。
+這是 bot-to-bot 真實往返驗收；Discord 真人 slash 選單、互動及 ephemeral 顯示仍需另外驗收。移除 `botTestPeer` 並重啟 bot 即可停用。
+
 ## 排程現況
 
 排程註冊與服務狀態屬於目標主機，不由 repo 文件保證。先用 `Get-ScheduledTask -TaskName 'adng-*'` 查詢，再依前述 readiness 流程驗證；本次整理未註冊或啟動排程。

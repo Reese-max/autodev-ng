@@ -1,6 +1,7 @@
 import { handleCommand, type BotDeps } from './handlers.js'
 import { formatMonitor, githubMonitor, readMonitor } from './monitor.js'
 import { doPause, doResume } from './actions.js'
+import type { BotConfig } from './config.js'
 
 /** discord.js Interaction 的最小投影——index.ts 把真 discord.js Interaction 轉成此形狀，
  * 本檔（純路由層）完全不 import discord.js，讓 tests/bot-route.test.ts 可以零依賴測路由邏輯。 */
@@ -52,11 +53,11 @@ export function resolveProject(input: string, names: string[]):
 }
 
 /** 多專案執行環境：每專案自己的 BotDeps＋allowlist（鏡像單專案 routeInteraction 的 allowed 參數）。 */
-export type ProjectRuntime = { allowed: string[] } & (
+export type ProjectRuntime = { allowed: string[]; testPeer?: BotConfig['testPeer'] } & (
   { deps: BotDeps; monitorOnly?: never } | { deps?: never; monitorOnly: Pick<BotDeps, 'cfg' | 'cfgPath'> }
 )
 
-async function handleProject(name: string, arg: string, rt: ProjectRuntime, handle: typeof handleCommand) {
+export async function handleProject(name: string, arg: string, rt: ProjectRuntime, handle: typeof handleCommand = handleCommand) {
   if (rt.deps) return handle(name, arg, rt.deps)
   const d = rt.monitorOnly
   if (name === 'pause') return doPause(d)

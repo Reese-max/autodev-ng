@@ -79,5 +79,9 @@
   "botTokenFile": "C:/Users/Administrator/.adng/bot.env",
   "botAllowedUserIds": [
     "844236700611379200"
-  ]
+  ],
+  "botTestPeer": {
+    "botId": "1494777289676685433",
+    "channelId": "1494779722314285179"
+  }
 }

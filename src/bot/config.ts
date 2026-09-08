@@ -5,6 +5,7 @@ export interface BotConfig {
   allowedUserIds: string[]
   guildId?: string
   botTokenFile?: string
+  testPeer?: { botId: string; channelId: string }
 }
 
 /** 讀同一份 config JSON 的 bot 相關欄位
@@ -43,9 +44,12 @@ export function loadBotConfig(cfgPath: string): BotConfig {
     const rawGuildId: unknown = cfg.botGuildId
     const guildId = rawGuildId !== undefined ? String(rawGuildId) : undefined
 
+    const peer = cfg.botTestPeer
+    const snowflake = (value: unknown): value is string => typeof value === 'string' && /^[1-9]\d{16,19}$/.test(value)
     return {
       allowedUserIds,
       guildId,
+      ...(snowflake(peer?.botId) && snowflake(peer?.channelId) ? { testPeer: { botId: peer.botId, channelId: peer.channelId } } : {}),
       botTokenFile: cfg.botTokenFile ? resolve(configDir, cfg.botTokenFile) : undefined
     }
   } catch {

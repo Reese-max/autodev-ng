@@ -1,6 +1,6 @@
 import { llmFromConfig } from '../autopilot/llm.js'
 import { mkdirSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { Client, Events, GatewayIntentBits, MessageFlags, SlashCommandBuilder } from 'discord.js'
@@ -10,6 +10,7 @@ import { loadBotConfig, loadBotToken, listProjectConfigs, type BotConfig } from 
 import { handleCommand, type BotDeps } from './handlers.js'
 import { buildReplyPayload } from './reply.js'
 import { loadMonitorConfig } from './monitor.js'
+import { attachTestPeer } from './cctest.js'
 import { routeInteraction, routeMultiInteraction, ACTION_COMMANDS, type InteractionLike, type ProjectRuntime } from './route.js'
 
 // discord.js adapter 只放 index.ts / reply.ts；純路由邏輯住 route.ts（不 import discord.js），
@@ -84,7 +85,8 @@ export async function main(cfgPath: string): Promise<void> {
     process.exit(1)
   }
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] })
+  const client = new Client({ intents: [GatewayIntentBits.Guilds, ...(botCfg.testPeer ? [GatewayIntentBits.GuildMessages] : [])] })
+  attachTestPeer(client, new Map([[basename(cfgPath, '.json'), { deps: botDeps, allowed: botCfg.allowedUserIds, testPeer: botCfg.testPeer }]]))
   client.on(Events.ShardError, (error, shardId) => console.error(`Discord shard ${shardId} 連線錯誤：`, error.message))
   process.once('uncaughtExceptionMonitor', () => releaseLock(lockDir)) // 不吞例外；只讓 guardian 能立即接手
 
@@ -160,12 +162,12 @@ export async function mainMulti(configsDir: string): Promise<void> {
       const botCfg = loadBotConfig(cfgPath)
       const llm = llmFromConfig(cfg, cfg.judgeModel, cfg.judgeUrl)
       const botDeps: BotDeps = { cfg, store: deps.store, db: deps.db, llm, cfgPath: resolve(cfgPath), events: deps.events }
-      projects.set(name, { deps: botDeps, allowed: botCfg.allowedUserIds })
+      projects.set(name, { deps: botDeps, allowed: botCfg.allowedUserIds, testPeer: botCfg.testPeer })
       loadedConfigs.push({ name, botCfg })
     } catch (err) {
       try {
         const cfg = loadMonitorConfig(cfgPath), botCfg = loadBotConfig(cfgPath)
-        projects.set(name, { monitorOnly: { cfg, cfgPath: resolve(cfgPath) }, allowed: botCfg.allowedUserIds })
+        projects.set(name, { monitorOnly: { cfg, cfgPath: resolve(cfgPath) }, allowed: botCfg.allowedUserIds, testPeer: botCfg.testPeer })
         loadedConfigs.push({ name, botCfg })
         console.warn(`[bot] 專案 ${name} 完整環境未就緒，保留監控與暫停控制`)
       } catch { console.warn(`[bot] 專案 ${name} 設定無法解析，已跳過`) }
@@ -194,7 +196,8 @@ export async function mainMulti(configsDir: string): Promise<void> {
     process.exit(1)
   }
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] })
+  const client = new Client({ intents: [GatewayIntentBits.Guilds, ...([...projects.values()].some(p => p.testPeer) ? [GatewayIntentBits.GuildMessages] : [])] })
+  attachTestPeer(client, projects)
   client.on(Events.ShardError, (error, shardId) => console.error(`Discord shard ${shardId} 連線錯誤：`, error.message))
   process.once('uncaughtExceptionMonitor', () => releaseLock(lockDir)) // 不吞例外；只讓 guardian 能立即接手
 
