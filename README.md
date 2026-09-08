@@ -70,6 +70,8 @@
 
 ## 快速開始
 
+換電腦或準備無人值守部署，先讀 [Windows 主機部署、備份還原與驗收](docs/host-deployment.md)。
+
 建置後可執行 `node dist/cli.js --help`，不讀取設定、不呼叫 provider。
 
 ### 0. 安裝相依套件

@@ -1,5 +1,6 @@
 import { readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
+import { hostname } from 'node:os'
 import { parseBacklog } from '../backlog.js'
 import { githubConsole } from '../github/console.js'
 import { ConfigSchema, type Config } from '../types.js'
@@ -92,7 +93,7 @@ export function monitorRuntimeLines(m: ReturnType<typeof readMonitor>): string[]
 
 export function formatMonitor(m: ReturnType<typeof readMonitor>): string {
   return [
-    `adng 監控｜${m.project}`, ...monitorRuntimeLines(m),
+    `adng 監控｜${m.project}`, `主機：${hostname()}`, ...monitorRuntimeLines(m),
     m.backlog ? `backlog：open ${m.backlog.open}｜blocked ${m.backlog.blocked}｜done ${m.backlog.done}｜superseded ${m.backlog.superseded}` : 'backlog：未知',
     `通知 DLQ：${m.dlqCount ?? '未知'} 筆`,
     `心跳成本快照：${m.heartbeat?.recordedCostUsd == null ? '未知' : '$' + m.heartbeat.recordedCostUsd.toFixed(4)}（依心跳時間；非帳單）`,
