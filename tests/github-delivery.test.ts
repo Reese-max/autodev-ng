@@ -49,6 +49,7 @@ test.each(['pending', 'changed-head', 'withdrawn', 'exhausted', 'disabled', 'mer
 test('console restricts configuration selection and reports unverified evidence honestly', async () => {
   const f = setup()
   writeFileSync(join(f.root, 'integrations/other.json'), JSON.stringify({ ...f.cfg, sourceConfig: 'other-project.json' }))
+  writeFileSync(join(f.root, 'integrations/github.example.json'), JSON.stringify(f.cfg))
   const result = await githubConsole(f.source) as { integrations: { issues: { verified: boolean }[] }[] }
   expect(result.integrations).toHaveLength(1); expect(result.integrations[0]!.issues[0]!.verified).toBe(false)
   await expect(githubConsole(f.source, { action: 'retry', integration: '../source.json', issue: 7 })).rejects.toThrow()

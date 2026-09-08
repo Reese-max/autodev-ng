@@ -12,7 +12,7 @@ import { z } from 'zod'
 export async function githubConsole(sourceFile: string, input: { action?: string; integration?: string; issue?: number; reason?: string; commit?: string } = {}) {
   input = z.object({ action: z.enum(['doctor', 'retry', 'resume', 'accept', 'refresh', 'evidence']).optional(), integration: z.string().regex(/^[A-Za-z0-9_.-]+\.json$/).optional(), issue: z.number().int().positive().optional(), reason: z.string().max(2000).optional(), commit: z.string().regex(/^[a-f0-9]{40,64}$/).optional() }).strict().parse(input)
   const dir = join(dirname(resolve(sourceFile)), 'integrations')
-  const integrations = existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.json')).flatMap((name): { name: string; file: string; cfg?: GithubConfig; error: string }[] => {
+  const integrations = existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.json') && !n.endsWith('.example.json')).flatMap((name): { name: string; file: string; cfg?: GithubConfig; error: string }[] => {
     const file = join(dir, name)
     let raw: { repo?: string; sourceConfig?: string }
     try { raw = JSON.parse(readFileSync(file, 'utf8')) } catch { return [] }
