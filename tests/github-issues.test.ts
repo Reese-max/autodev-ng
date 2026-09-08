@@ -118,6 +118,35 @@ test('capacity deferral before worker execution preserves the Issue retry budget
   expect(execute).toHaveBeenCalledTimes(1)
 })
 
+test('只有明確二次修復待辦可多跑一次，重啟及容量延後不重置 runs', async () => {
+  const { cfg, client, state } = fixture()
+  writeFileSync(cfg.sourceConfig, JSON.stringify({ alternativeRetry: true }))
+  state.runs = cfg.maxRuns - 1; saveState(cfg, state)
+  const failed = vi.fn(async () => ({ done: false, detail: 'failed', alternativeRetryPending: true }))
+  expect(await runGithub(cfg, { client, execute: failed })).toBe('7: queued')
+  let saved = readState(cfg, 7)!
+  expect(saved).toMatchObject({ runs: cfg.maxRuns, alternativeRetryPending: true })
+  saved.nextRunAt = 0; saveState(cfg, saved)
+  expect(await runGithub(cfg, { client, execute: async () => ({ done: false, detail: 'capacity', attempted: false }) })).toBe('7: queued')
+  saved = readState(cfg, 7)!
+  expect(saved).toMatchObject({ runs: cfg.maxRuns, alternativeRetryPending: true })
+  saved.nextRunAt = 0; saveState(cfg, saved)
+  expect(await runGithub(cfg, { client, execute: failed })).toBe('7: blocked')
+  expect(readState(cfg, 7)).toMatchObject({ runs: cfg.maxRuns + 1, alternativeRetryPending: false })
+  await runGithub(cfg, { client, execute: failed })
+  expect(failed).toHaveBeenCalledTimes(2)
+})
+
+test.each([false, true])('二次修復開關=%s，沒有待辦證據不得越過原 maxRuns', async enabled => {
+  const { cfg, client, state } = fixture()
+  writeFileSync(cfg.sourceConfig, JSON.stringify({ alternativeRetry: enabled }))
+  state.runs = cfg.maxRuns; state.alternativeRetryPending = !enabled; saveState(cfg, state)
+  const execute = vi.fn()
+  expect(await runGithub(cfg, { client, execute })).toBe('blocked')
+  expect(execute).not.toHaveBeenCalled()
+  expect(readState(cfg, 7)!.runs).toBe(cfg.maxRuns)
+})
+
 test('interrupted running state is blocked, never silently executed again', async () => {
   const { cfg, client, state } = fixture(); state.status = 'running'; saveState(cfg, state)
   const execute = vi.fn()

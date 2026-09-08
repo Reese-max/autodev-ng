@@ -4,6 +4,7 @@
   "dataDir": "../data/autodev-self",
   "goalFile": "../data/autodev-self/GOAL.md",
   "maxAttempts": 3,
+  "alternativeRetry": true,
   "timezoneOffsetHours": 8,
   "dailySoftUsd": 5,
   "dailyHardUsd": 10,
@@ -20,7 +21,6 @@
     "codex-astra": {
       "adapter": "codex",
       "model": "gpt-6-astra",
-      "dailyAttemptCap": 6,
       "costPerRunUsd": 0,
       "subscription": true,
       "timeoutMs": 5400000,

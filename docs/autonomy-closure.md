@@ -8,13 +8,15 @@
 - 自主 GOAL 必須有可執行的驗收；CLI 模式必須使用不同模型審查。新 GOAL 的原始紅燈無法驗證時不立案。
 - 最終 GOAL 紀錄與 ROI 必須等補充審查通過。成果已合併而任務狀態寫入失敗時暫停，保留原始成果與收據供恢復。
 
+自我專案啟用 `alternativeRetry: true`：同一任務累積三次任務／驗收失敗後，再給一次替代方案修復。第 4 次使用「最小重現、追查呼叫端與共用根因、不同實作、完整回歸」指令，沿用原任務、Astra writer、獨立審查與驗收；再失敗即 blocked。這是不同修復流程的派工契約，不保證模型一定找得到新解法。既有持久失敗計數不清零，啟動前以排他寫入保存 `dataDir/alternative-retries/` 收據；重啟或供應中斷不重發額度。沙箱、權限、驗收基礎設施故障仍直接阻擋。GitHub runner 只有收到 scheduler 的二次修復待辦證據才允許第 4 次，保留原本 runs。其他專案預設停用，free-only 沿用原有拆解流程。
+
 ## Astra 路由與用量
 
 `configs/autodev-self.json` 的開發候選只保留 `codex-astra`（`gpt-6-astra`、`max`）；判斷及研究走 `gpt-6-astra`，獨立審查走 `gpt-5.6-sol`。GitHub repair 使用相同開發引擎。已有 GOAL 的引擎指定會覆蓋預設，操作時必須一併檢查。
 
-自我專案設定 `dailyAttemptCap: 6`。UTC 每日共用 Git team 帳本在 SQLite transaction 內計數，直接工作與 repair checkout 共用來源帳本；釋放租約、重啟或換 Issue 不能清零。額度不足時延後，尚未執行 worker 的 GitHub 延後不消耗 Issue 重試次數。計數不可讀時不假設為零。
+依使用者要求，自我專案與繼承其設定的 GitHub repair 不設定 `dailyAttemptCap`，不因每日派工次數停止，可供全天持續運作。仍保留執行紀錄、同一任務的重試次數、逾時、暫停與單一寫入者保護；實際常駐啟用另須通過下方驗收。
 
-這是開發派工次數上限；預檢、判斷、研究與審查仍可能使用訂閱額度，並受各自逾時、研究間隔及 GOAL 輪數控制。`subscription: true` 的 `costPerRunUsd: 0` 只代表不計入美元帳，不能用來宣稱零用量或帳號配額充足。
+預檢、判斷、研究與審查同樣不加每日次數上限，保留各自逾時、研究間隔及 GOAL 輪數控制。`subscription: true` 的 `costPerRunUsd: 0` 不計入美元帳；付費 API 的美元預算保護仍保留。服務端限制不由本專案設定控制。
 
 ## 學習與使用者回饋
 

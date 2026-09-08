@@ -8,6 +8,7 @@ const StateSchema = z.object({
   repo: z.string(), base: z.string(), issue: IssueSchema, fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   status: z.enum(['queued', 'running', 'ready', 'published', 'blocked', 'cancelled']),
   runs: z.number().int().nonnegative(), nextRunAt: z.number(),
+  alternativeRetryPending: z.boolean().optional(),
   revision: z.object({ round: z.number().int().positive().max(5), baseCommit: z.string().regex(/^[a-f0-9]{40,64}$/), feedback: z.string().min(1).max(20000), key: z.string() }).optional(),
   remote: z.object({ at: z.string(), head: z.string(), state: z.enum(['open', 'closed', 'merged']), checks: z.enum(['pass', 'fail', 'pending', 'unknown']), feedback: z.string(), key: z.string() }).optional(),
   acceptance: z.object({ commit: z.string(), at: z.string(), actor: z.string(), evidence: z.string().min(8).max(2000) }).optional(),
@@ -15,6 +16,11 @@ const StateSchema = z.object({
   baseSha: z.string().regex(/^[a-f0-9]{40,64}$/).optional(), commit: z.string().regex(/^[a-f0-9]{40,64}$/).optional(), pr: z.string().url().optional(), detail: z.string().optional(),
 })
 export type IssueState = z.infer<typeof StateSchema>
+export function alternativeRunPending(cfg: GithubConfig, state: IssueState): boolean {
+  if (!state.alternativeRetryPending || state.runs !== cfg.maxRuns) return false
+  const source = JSON.parse(readFileSync(cfg.sourceConfig, 'utf8')) as { alternativeRetry?: boolean; tierMode?: string }
+  return source.alternativeRetry === true && source.tierMode !== 'free-only'
+}
 export const issueDir = (cfg: GithubConfig, number: number): string => join(cfg.dataDir, `issue-${number}`)
 export const runDir = (cfg: GithubConfig, state: IssueState): string => state.revision ? join(issueDir(cfg, state.issue.number), 'revisions', String(state.revision.round)) : issueDir(cfg, state.issue.number)
 export const branchFor = (number: number): string => `autodev/issue-${number}`

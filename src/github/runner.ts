@@ -5,7 +5,7 @@ import { githubStopFile, loadGithubConfig, type GithubConfig, type Issue } from 
 import { eligibleForRun } from './repair.js'
 import { githubClient, type GithubClient } from './client.js'
 import { assertPublishable, checkoutDir, executeIssue, git } from './job.js'
-import { branchFor, fingerprint, readState, saveState, states, type IssueState } from './state.js'
+import { alternativeRunPending, branchFor, fingerprint, readState, saveState, states, type IssueState } from './state.js'
 import { observePr } from './followup.js'
 
 export async function syncIssues(cfg: GithubConfig, client: GithubClient): Promise<void> {
@@ -97,17 +97,20 @@ export async function runGithub(cfg: GithubConfig, options: {
           state.status = 'cancelled'; state.detail = 'Issue changed or excluded before execution'; saveState(cfg, state); return 'cancelled'
         }
         if (!active()) return 'paused'
-        if (state.runs >= cfg.maxRuns) { state.status = 'blocked'; saveState(cfg, state); return 'blocked' }
+        if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state)) { state.status = 'blocked'; saveState(cfg, state); return 'blocked' }
+        const pending = state.alternativeRetryPending
+        state.alternativeRetryPending = false
         state.status = 'running'; state.runs++; saveState(cfg, state)
         const result = await (options.execute ?? executeIssue)(cfg, state)
-        if (result.attempted === false) state.runs-- // Capacity deferral never ran a worker; preserve the repair budget.
+        if (result.attempted === false) { state.runs--; state.alternativeRetryPending = pending } // Capacity deferral never consumes the alternative attempt.
         if (!active() || !currentIssue(cfg, state, await client.issue(state.issue.number))) {
           state.status = 'cancelled'; state.detail = 'Issue or configuration changed during execution; candidate preserved'
           saveState(cfg, state); return 'cancelled'
         }
         state.detail = result.detail
         state.commit = result.commit
-        state.status = result.done ? 'ready' : state.runs >= cfg.maxRuns ? 'blocked' : 'queued'
+        if (result.alternativeRetryPending) state.alternativeRetryPending = alternativeRunPending(cfg, { ...state, alternativeRetryPending: true })
+        state.status = result.done ? 'ready' : state.runs >= cfg.maxRuns && !state.alternativeRetryPending ? 'blocked' : 'queued'
         state.nextRunAt = Date.now() + cfg.retryMs
         saveState(cfg, state)
       }

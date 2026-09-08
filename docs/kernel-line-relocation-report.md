@@ -1,5 +1,7 @@
 # Kernel 頂層搬移前後行數報告
 
+2026-09-08 二次解決：`scheduler.ts` 接上 `src/engines/alternative-retry.ts`，以既有持久失敗次數選擇一次替代修復並在派工前拒絕超額重試；`types.ts` 新增預設停用的專案選項。原 2250 行上限不變，並執行即時計數測試。
+
 2026-09-08 帳務修正：`db.ts` 委由 `src/engines/attempt-accounting.ts` 保存及彙總來源快照，`digest.ts` 共用帳務文字；`scheduler.ts` 接上逐筆來源及查帳不完整停止，`globalcost.ts` 保留唯讀範圍盤點。行數上限與歷史基準不變，以既有即時計數測試驗證。
 
 ## 結論

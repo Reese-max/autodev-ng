@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { expect, test } from 'vitest'
 import { ConfigSchema } from '../src/types.js'
 import { pickCandidateTags } from '../src/engines/pick-candidates.js'
+import { dailyAttemptCapsFromEngines } from '../src/engines/daily-attempt-cap-gate.js'
 import { researchModels } from '../src/autopilot/report-research.js'
 import { loadReportConfig } from '../src/github/report-config.js'
 import { loadGithubConfig } from '../src/github/config.js'
@@ -20,14 +21,18 @@ test('自我專案所有執行候選與研究走 Astra，獨立審查保持不�
     issue: { number: 999, title: 'fixture', body: '', state: 'open', user: { login: 'fixture' }, labels: [] } }
   expect(runtimeConfig(integration, state).learningsFile).toBe(join(root, 'data/autodev-self/learnings.md'))
   expect(cfg.judgeModel).toBe('gpt-6-astra')
-  expect(cfg.engines[cfg.defaultEngine]).toMatchObject({ model: 'gpt-6-astra', effort: 'max', dailyAttemptCap: 6 })
+  expect(cfg.alternativeRetry).toBe(true)
+  expect(runtimeConfig(integration, state).alternativeRetry).toBe(true)
+  expect(cfg.engines[cfg.defaultEngine]).toMatchObject({ model: 'gpt-6-astra', effort: 'max', subscription: true, costPerRunUsd: 0 })
+  expect(cfg.engines[cfg.defaultEngine]!.dailyAttemptCap).toBeUndefined()
+  expect(runtimeConfig(integration, state).engines[repair.engine]!.dailyAttemptCap).toBeUndefined()
   expect(researchModels(reports, reports.projects.find(p => p.repo === repair.repo)!)).toEqual({ model: 'gpt-6-astra', reviewer: 'gpt-5.6-sol' })
   const subscriptionTags = Object.keys(cfg.engines).filter(tag => cfg.engines[tag]?.subscription)
   for (const id of ['0', '1', '2', 'ffffffff']) for (let failCount = 0; failCount < 3; failCount++) {
     expect(pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: { id }, failCount, subscriptionTags })).toEqual(['codex-astra'])
   }
   expect(pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: { id: '0' }, failCount: 0, subscriptionTags,
-    dailyAttemptCaps: new Map([['codex-astra', 6]]), todayAttemptCounts: new Map([['codex-astra', 6]]) })).toEqual([])
+    dailyAttemptCaps: dailyAttemptCapsFromEngines(cfg.engines), todayAttemptCounts: new Map([['codex-astra', 1_000_000]]) })).toEqual(['codex-astra'])
 })
 
 test('CLI 研究拒絕同模型自審；非 CLI 專案保留既有研究模型', () => {

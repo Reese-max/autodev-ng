@@ -364,6 +364,50 @@ test('verifier 拒絕 → failed 計數、不打勾；達 maxAttempts 轉 blocke
   expect(await runOnce(dd)).toEqual({ kind: 'blocked', taskId: taskId('任務一'), taskText: '任務一', reason: 'max-attempts' })
 })
 
+test.each([true, false])('三敗後重啟仍只給一次替代方案，成功=%s', async success => {
+  const engine = new MockEngine(), d = deps(engine)
+  d.cfg.alternativeRetry = true; d.cfg.maxAttempts = 3
+  let checks = 0
+  d.verifier = { check: async () => ({ pass: ++checks === 4 && success, reason: 'shared parser assertion failed', alerts: [] }) }
+  for (let i = 0; i < 3; i++) expect(await runOnce(d)).toBe('failed')
+  expect(engine.calls.every(call => !call.directive?.includes('二次解決：'))).toBe(true)
+  d.db.close(); d.db = new RunDb(join(dir, 'run.db'))
+  expect(d.db.taskFailCount(taskId('任務一'))).toBe(3)
+  const result = await runOnce(d)
+  if (success) expect(result).toBe('done')
+  else expect(result).toMatchObject({ kind: 'blocked', reason: 'max-attempts' })
+  expect(engine.calls[3]!.directive).toContain('最小重現 → 追查所有呼叫端與共用根因')
+  expect(engine.calls[3]!.directive).toContain('shared parser assertion failed')
+  expect(engine.calls[3]!.task.id).toBe(engine.calls[0]!.task.id)
+  expect(d.db.taskFailCount(taskId('任務一'))).toBe(success ? 3 : 4)
+  await runOnce(d)
+  expect(engine.calls).toHaveLength(4)
+  d.db.close()
+})
+
+test('替代方案遇到供應中斷也不能在重啟後再發一次', async () => {
+  const engine = new MockEngine([{ ok: true }, { ok: true }, { ok: true }, { throw: 'provider unavailable' }]), d = deps(engine)
+  d.cfg.alternativeRetry = true; d.cfg.maxAttempts = 3
+  d.verifier = { check: async () => ({ pass: false, reason: 'assertion failed', alerts: [] }) }
+  for (let i = 0; i < 3; i++) expect(await runOnce(d)).toBe('failed')
+  expect(await runOnce(d)).toBe('engine-error')
+  d.db.close(); d.db = new RunDb(join(dir, 'run.db'))
+  expect(await runOnce(d)).toMatchObject({ kind: 'blocked', reason: 'max-attempts' })
+  expect(engine.calls).toHaveLength(4)
+  d.db.close()
+})
+
+test('啟用二次解決仍不得重試驗收基礎設施故障', async () => {
+  const engine = new MockEngine(), d = deps(engine)
+  d.cfg.alternativeRetry = true; d.cfg.maxAttempts = 3
+  d.verifier = { check: async () => ({ pass: false, blockedReason: 'verification-infra', reason: 'sandbox unavailable', alerts: [] }) }
+  expect(await runOnce(d)).toMatchObject({ kind: 'blocked', reason: 'verification-infra' })
+  await runOnce(d)
+  expect(engine.calls).toHaveLength(1)
+  expect(d.db.taskFailCount(taskId('任務一'))).toBe(0)
+  d.db.close()
+})
+
 test('medium risk：verifier throw → BLOCKED，不可再 fail-open', async () => {
   const d = deps(new MockEngine([{ ok: true }]))
   const bomber = { check: async () => { throw new Error('verifier exploded') } }

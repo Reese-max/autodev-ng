@@ -117,6 +117,7 @@ export const ConfigSchema = z.object({
   dataDir: z.string().min(1),
   engine: z.enum(['mock', 'claude-cli']).optional(), // legacy 欄位：純新形狀（只寫 engines map）可缺；與 engines 全缺由 superRefine 拒
   maxAttempts: z.number().int().positive().default(2),
+  alternativeRetry: z.boolean().default(false),
   dailySoftUsd: z.number().nonnegative().default(40), // 0＝停用該專案日成本告警
   dailyHardUsd: z.number().nonnegative().default(100),
   // M10.5 全域日頂：跨專案真金總帳防線。未設＝無全域防線（現狀）。

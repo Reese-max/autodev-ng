@@ -13,6 +13,61 @@ import { publishIssue, runGithub } from '../src/github/runner.js'
 import { acceptDelivery, recoverIssue } from '../src/github/operations.js'
 import * as github from '../src/github/client.js'
 
+test('三次真實驗收紅燈後，runner 接續一次替代方案並通過原始紅綠回歸', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-gh-alternative-'))
+  try {
+    const cfg = GithubConfigSchema.parse({ repo: 'owner/project', authors: ['owner'], sourceConfig: join(root, 'source.json'), dataDir: root,
+      engine: 'writer', enabled: true, publish: false, label: null, verifyCommand: `"${process.execPath}" check.cjs` })
+    const issue: Issue = { number: 8, title: 'Fix addition', body: 'add(2, 3) must return 5', state: 'open', user: { login: 'owner' }, labels: [] }
+    const cwd = join(root, 'issue-8', 'repo'); mkdirSync(cwd, { recursive: true })
+    git(cwd, ['init', '-b', branchFor(8)])
+    git(cwd, ['config', 'user.name', 'Test']); git(cwd, ['config', 'user.email', 'test@example.invalid'])
+    git(cwd, ['config', 'core.autocrlf', 'false'])
+    git(cwd, ['remote', 'add', 'origin', 'https://github.com/owner/project.git'])
+    writeFileSync(join(cwd, 'add.cjs'), 'module.exports = (a, b) => a - b\n')
+    writeFileSync(join(cwd, 'check.cjs'), "require('node:assert/strict').equal(require('./add.cjs')(2, 3), 5)\n")
+    git(cwd, ['add', '.']); git(cwd, ['commit', '-m', 'initial failing case'])
+    const initial = git(cwd, ['rev-parse', 'HEAD'])
+    saveState(cfg, { repo: cfg.repo, base: cfg.base, issue, fingerprint: fingerprint(issue), status: 'queued', runs: 0, nextRunAt: 0, baseSha: initial })
+    writeFileSync(cfg.sourceConfig, JSON.stringify({ projectPath: cwd, backlogFile: 'unused', dataDir: 'unused', alternativeRetry: true,
+      engines: { writer: { adapter: 'opencode', model: 'fixture' } }, defaultEngine: 'writer', reviewEngine: 'fixture-reviewer' }))
+    const engine = new MockEngine(Array.from({ length: 4 }, (_, index) => ({ ok: true as const, beforeResult(job) {
+      const base = git(job.projectPath, ['rev-parse', 'HEAD'])
+      expect(job.directive?.includes('二次解決：')).toBe(index === 3)
+      writeFileSync(join(job.projectPath, 'add.cjs'), `module.exports = (a, b) => a ${index === 3 ? '+' : '-'} b // attempt ${index + 1}\n`)
+      if (index === 3) {
+        mkdirSync(join(job.projectPath, 'tests/regressions'), { recursive: true })
+        writeFileSync(join(job.projectPath, 'tests/regressions/github-8.test.cjs'), "require('node:test')('addition', () => require('node:assert/strict').equal(require('../../add.cjs')(2, 3), 5))\n")
+      }
+      git(job.projectPath, ['add', '.']); git(job.projectPath, ['commit', '-m', `attempt ${index + 1}`])
+      return base
+    } })))
+    const client: GithubClient = { list: async () => [issue], issue: async () => issue, findPr: async () => undefined,
+      findLinkedPr: async () => undefined, createPr: async () => { throw new Error('publication forbidden') } }
+    const execute: typeof executeIssue = (c, s) => executeIssue(c, s, runtime => {
+      const app = assembleConfig(runtime)
+      app.deps.engines = { resolve: () => engine }
+      app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+      return app
+    })
+    for (let i = 1; i <= 3; i++) {
+      expect(await runGithub(cfg, { client, execute })).toBe('8: queued')
+      const state = readState(cfg, 8)!
+      expect(state.runs).toBe(i)
+      expect(Boolean(state.alternativeRetryPending)).toBe(i === 3)
+      expect(git(cwd, ['rev-parse', 'HEAD'])).toBe(initial)
+      state.nextRunAt = 0; saveState(cfg, state)
+    }
+    expect(await runGithub(cfg, { client, execute })).toBe('8: ready')
+    const final = readState(cfg, 8)!
+    expect(final.runs).toBe(4); expect(final.commit).not.toBe(initial)
+    assertPublishable(cfg, final)
+    expect(command(process.execPath, ['check.cjs'], cwd)).toBe('')
+    expect(await runGithub(cfg, { client, execute })).toBe('idle')
+    expect(engine.calls).toHaveLength(4)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}, 60_000)
+
 test('Issue → real scheduler/worktree → failing-to-passing test → evidence → local push → one PR', async () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-gh-flow-'))
   try {

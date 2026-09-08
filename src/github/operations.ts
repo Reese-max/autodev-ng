@@ -13,7 +13,7 @@ import { githubStopFile, loadGithubConfig, type GithubConfig } from './config.js
 import { command, githubClient, type GithubClient } from './client.js'
 import { eligibleForRun } from './repair.js'
 import { assertPublishable, checkoutDir, git, issueTask, prepareCheckout } from './job.js'
-import { branchFor, fingerprint, issueDir, runDir, readState, saveState, states, type IssueState } from './state.js'
+import { alternativeRunPending, branchFor, fingerprint, issueDir, runDir, readState, saveState, states, type IssueState } from './state.js'
 
 export async function repairDoctor(cfg: GithubConfig, live = false) {
   const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
@@ -103,7 +103,7 @@ export async function recoverIssue(file: string, number: number, reason: string,
       }
     } else if (state.baseSha && !state.revision) throw new Error('Checkout missing; preserving state')
     if (state.status !== 'ready') {
-      if (state.runs >= cfg.maxRuns) throw new Error('Attempt limit reached; counters will not be reset')
+      if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state)) throw new Error('Attempt limit reached; counters will not be reset')
       const backlog = join(runDir(cfg, state), 'BACKLOG.md')
       if (existsSync(backlog)) {
         const tasks = new BacklogStore(backlog).read()

@@ -1,4 +1,5 @@
 import { attemptAccounting } from './engines/attempt-accounting.js'
+import { alternativeRetryDue, alternativeRetryUsed, startAlternativeRetry, taskAttemptLimit } from './engines/alternative-retry.js'
 import { existsSync, writeFileSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
 import { localDay, type AttemptFailureClass, type RunDb } from './db.js'
@@ -12,7 +13,7 @@ import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetr
 import { enqueueMerge, enqueueTeamMerge } from './engines/merge-queue.js'
 import { nudgeNoCommit } from './engines/no-commit-nudge.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
-import { freeOnlyAttemptLimit, freeOnlyListExhausted, freeOnlyRetryCandidates } from './engines/free-only-retry.js'
+import { freeOnlyListExhausted, freeOnlyRetryCandidates } from './engines/free-only-retry.js'
 import { sequentialReadyTasks, tryFreeOnlySplit } from './engines/free-only-split.js'
 import { deniedFreeOnlyPin, pickCandidateTags } from './engines/pick-candidates.js'
 import { singleFlightPickRouting } from './engines/pick-ready-single-flight.js'
@@ -201,6 +202,10 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     const lastFail = db.lastFailureFor(task.id)
     if (lastFail) directive = `${directive ?? task.text}\n\n上一次嘗試失敗被驗收打回，原因：${lastFail.replace(/\s+/g, ' ').trim().slice(0, 400)}\n請針對打回原因修正；宣稱改動的檔案與範圍必須與實際 diff 一致，不得宣稱未完成的部分。`
   } catch { /* 回饋面故障不擋派工 */ }
+  if (cfg.alternativeRetry && alternativeRetryDue(cfg, db.taskFailCount(task.id))) {
+    try { directive = `${directive ?? task.text}\n\n${startAlternativeRetry(cfg, task.id, executionId, db.lastFailureFor(task.id))}` }
+    catch { return blockTask({ store, events }, task, 'verification-infra', '二次修復收據無法安全建立，保留現場等待介入') }
+  }
   // 幻影完成對策（run.db 四大失敗來源分析 2026-07-27）：自證硬指令恆附派工尾。
   directive = `${directive ?? task.text}\n\n完成的定義＝工作區改動完成，且最終由引擎或可信宿主產生新 git commit。若 sandbox 保護 Git metadata，不得繞過沙箱，保留改動讓宿主提交；否則結束前執行 git log -1 --oneline 自證。\n完成定義＝最終存在新 commit，無 commit 視為未完成。`
 
@@ -489,6 +494,7 @@ export async function pickReadyTask(
   const engineStats = loadEngineStatsForWeighting(db, events, cfg.dataDir, cfg.engineRotation)
   let supplyDeferred = false
   for (const cand of openTasks) {
+    if (cfg.alternativeRetry && (db.taskFailCount(cand.id) >= taskAttemptLimit(cfg) || alternativeRetryUsed(cfg, cand.id))) return blockTask({ store, events }, cand, 'max-attempts', '替代方案額度已用完，保留失敗紀錄等待人工介入')
     const deniedPin = deniedFreeOnlyPin(cand, cfg.tierMode)
     if (deniedPin) { const detail = `engine-not-allowed：tierMode=free-only，行內 [engine:${deniedPin}] 不在影子帳 free-tier 名單；不得降級或改派`; return blockTask({ store, events }, cand, 'engine-not-allowed', detail, detail) }
     const attempted = recentAttemptedEngineTags(db, cand.id, cfg.supplyRetryCooldownMs)
@@ -552,7 +558,8 @@ async function resolveFailure(
     await notifyTaskTerminal(deps, { outcome: 'failed', taskId: task.id, taskText: task.text, resultSummary: lastFailure, attempts: failures, ...quotaUsage })
     return result
   }
-  const maxAttempts = freeOnlyAttemptLimit(cfg); if (failures < maxAttempts) return base
+  if (alternativeRetryDue(cfg, failures)) quiet(() => events.append('alternative-retry-scheduled', { taskId: task.id, failures, strategy: 'test-first-root-cause' }))
+  const maxAttempts = taskAttemptLimit(cfg); if (failures < maxAttempts) return base
   const hint = lastFailure.replace(/\s+/g, ' ').trim().slice(0, 80) || '未知'
   const result = blockTask({ store, events }, task, 'max-attempts', `任務驗收連敗 ${maxAttempts} 次，人工介入（最後失敗：${hint}）`)
   await notifyTaskTerminal(deps, {
