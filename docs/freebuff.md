@@ -39,4 +39,4 @@ node scripts/check-freebuff.mjs --live
 - 真實 `node scripts/check-freebuff.mjs --live`：exit 0、`LIVE_ADAPTER_PASS`；Limited／`deepseek/deepseek-v4-flash`／max，測試由 exit 1 轉為 0，僅修改 `sum.cjs`，產生 commit `ef047249b3a7b2f610da57fcc05dbc4baadb0b53`。收據：`data/maintenance/freebuff/check-gSnN6v/receipt.json`。
 - 最終完整回歸 `npm.cmd test -- --reporter=dot`：181 個測試檔、1743 項測試全部通過，exit 0，耗時 572.41 秒；前一輪的兩項失敗均已排除。紀錄：`data/maintenance/freebuff/full-test-final.log`。
 - 本機專案設定及 GitHub Freebuff 範本均通過實際設定解析（`CONFIG_PASS`）；原預設引擎維持 `codex-sol`，GitHub 範本未啟用、未發布。
-- GitHub 修復測試使用真實本機 Git／排程／probe，MCP、GitHub 與 Reviewer 為測試替身；真實 GitHub Issue 交付尚未驗證。
+- 最初的 GitHub 整合測試使用模型與 API 替身；後續已完成真實 Issue #7、回歸重跑、獨立 reviewer 與 draft PR #8，見 [實機驗收及啟用設定](verification/github-freebuff-2026-09-08.md)。

@@ -52,7 +52,7 @@ export async function verifyRegression(cfg: GithubConfig, state: IssueState, cwd
   if (!failedAssertion(red)) throw new Error(`Regression must fail an assertion on the original code: ${red.stdout.slice(-1500)} ${red.stderr.slice(-500)}`)
   if (git(cwd, 'rev-parse', 'HEAD') !== commit || git(replay, 'rev-parse', 'HEAD') !== state.baseSha
     || git(cwd, 'status', '--porcelain', '--untracked-files=no') || git(replay, 'status', '--porcelain', '--untracked-files=no')
-    || hash(readFileSync(join(cwd, file), 'utf8').trimEnd()) !== hash(source.trimEnd())
+    || git(cwd, 'hash-object', `--path=${file}`, file) !== git(cwd, 'rev-parse', `${commit}:${file}`)
     || readFileSync(join(replay, file), 'utf8') !== source) throw new Error('Regression execution changed the tested source or commit')
   writeFileSync(receiptFile(cfg, state, commit), JSON.stringify({ base: state.baseSha, commit, testHash: hash(source), red, green }, null, 2))
 }

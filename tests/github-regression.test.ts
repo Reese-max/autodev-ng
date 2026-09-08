@@ -19,11 +19,11 @@ test.skipIf(process.platform !== 'win32')('single-repository watcher accepts abs
     expect(run.status, run.stderr).toBe(0)
   }
 })
-test.each(['valid', 'always-pass', 'missing-module', 'weakened-test'])('regression gate: %s', async mode => {
+test.each(['valid', 'crlf', 'always-pass', 'missing-module', 'weakened-test'])('regression gate: %s', async mode => {
   const root = mkdtempSync(join(tmpdir(), 'adng-regression-')); dirs.push(root)
   const cwd = join(root, 'issue-9/repo'); mkdirSync(cwd, { recursive: true })
   git(cwd, ['init', '-b', 'main']); git(cwd, ['config', 'user.name', 'Test']); git(cwd, ['config', 'user.email', 'test@example.invalid'])
-  git(cwd, ['config', 'core.autocrlf', 'false'])
+  git(cwd, ['config', 'core.autocrlf', mode === 'crlf' ? 'true' : 'false'])
   writeFileSync(join(cwd, 'add.cjs'), 'module.exports = (a,b) => a-b\n')
   writeFileSync(join(cwd, 'old.test.cjs'), '// preserve me\n')
   git(cwd, ['add', '.']); git(cwd, ['commit', '-qm', 'base'])
@@ -32,12 +32,13 @@ test.each(['valid', 'always-pass', 'missing-module', 'weakened-test'])('regressi
   writeFileSync(join(cwd, file), mode === 'missing-module' ? "require('missing-fixture-module')\n" :
     `require('node:test')('addition', () => require('node:assert/strict').equal(${mode === 'always-pass' ? '5' : "require('../../add.cjs')(2,3)"}, 5))\n`)
   writeFileSync(join(cwd, 'add.cjs'), 'module.exports = (a,b) => a+b\n')
+  if (mode === 'crlf') writeFileSync(join(cwd, file), readFileSync(join(cwd, file), 'utf8').replace(/\r?\n/g, '\r\n'))
   if (mode === 'weakened-test') writeFileSync(join(cwd, 'old.test.cjs'), '// changed\n')
   git(cwd, ['add', '.']); git(cwd, ['commit', '-qm', 'candidate'])
   const commit = git(cwd, ['rev-parse', 'HEAD'])
   const state = { baseSha, commit, issue: { number: 9 } } as IssueState
   const cfg = GithubConfigSchema.parse({ repo: 'owner/repo', sourceConfig: 'unused', dataDir: root, engine: 'unused', authors: ['owner'] })
-  if (mode !== 'valid') { await expect(verifyRegression(cfg, state, cwd, commit, 10_000)).rejects.toThrow(); return }
+  if (!['valid', 'crlf'].includes(mode)) { await expect(verifyRegression(cfg, state, cwd, commit, 10_000)).rejects.toThrow(); return }
   await verifyRegression(cfg, state, cwd, commit, 10_000); assertRegression(cfg, state, cwd)
   const path = join(root, 'issue-9', `regression-${commit}.json`), receipt = JSON.parse(readFileSync(path, 'utf8'))
   expect(receipt.red.exitCode).toBe(1); expect(receipt.green.exitCode).toBe(0)
