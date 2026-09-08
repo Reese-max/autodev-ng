@@ -22,3 +22,13 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:flaky-regression
+      - name: Run retained GitHub regression tests
+        shell: pwsh
+        run: |
+          if (Test-Path -LiteralPath tests/regressions) {
+            $regressionFiles = @(Get-ChildItem -LiteralPath tests/regressions -Filter '*.test.cjs' -File -ErrorAction Stop)
+            if ($regressionFiles.Count -gt 0) {
+              & node --test --test-reporter=tap @($regressionFiles.FullName)
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
