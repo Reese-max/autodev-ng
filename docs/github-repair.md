@@ -1,6 +1,6 @@
 # CLI 自動修復
 
-已核對的巡檢缺陷可由 CLI 自動接案，在隔離 checkout 重現問題，呼叫 Codex CLI 修復，再執行專案測試、獨立 Codex CLI 評審及原始檢查。成功會保存本地修復 commit 與驗收證據。
+已核對的巡檢缺陷可由 CLI 自動接案，在隔離 checkout 重現問題，呼叫本機設定選擇的 Codex CLI 或 Freebuff 修復，再執行專案測試、獨立 Codex CLI 評審及原始檢查。成功會保存本地修復 commit 與驗收證據。
 
 ```powershell
 npm.cmd run build
@@ -17,9 +17,9 @@ node dist/cli.js github repair-status --config configs/integrations/github-repai
 - `repair.reportConfig` 指向原通報設定；必須是同一 repo／sourceConfig。接案核對通報 ledger 的 Issue 編號與不可變發布快照、GitHub 作者、標籤及本地檢查命令。只信本地設定的 argv，Issue 文字不是命令授權。
 - 只有已發布、可重現的 runtime 缺陷能接案。外部靈感、靜態推論、缺少快照的舊案、`needs-validation`、`no-autofix`、移除標籤或被編輯的 Issue 都不自動修復。一般人工 Issue 仍使用原本的 `github run`。
 - 先 clone GitHub 的指定分支，執行 `prepareCommand`，再執行同一 probe 兩次；輸出與結束碼須一致且符合原始失敗。依賴或建置失敗、逾時、不同錯誤、已無法重現都保留現場，不能當成修復成功。
-- 修復沿用 scheduler、worktree 與宿主提交，保留 sourceConfig 的範圍約束。worker 不自行提交、推送或部署。主工作目錄的未提交內容不會被移動或覆寫。
-- worker 與獨立 reviewer 均使用 Codex CLI 及現有 ChatGPT 登入；忽略使用者 CLI 設定與 rules，不改寫登入或全域設定，不使用 API key／HTTP judge。Reviewer 不可執行工具；失效或拒絕不會退回自動通過。
-- 開始準備與改檔前，先以 worker 的相同權限政策執行無工具 PONG。登入或沙箱無法啟動時標為 `blocked`，不反覆重試；舊 read-only 探針的快取不能代替此檢查。Windows 須先完成 Codex `elevated` 沙箱設定；本入口不會退回較弱沙箱或取消工作區隔離。
+- 修復沿用 scheduler、worktree 與宿主驗收，保留 sourceConfig 的範圍約束。Codex worker 由宿主提交；Freebuff worker 在隔離 worktree 提交後仍須通過同一驗收閘。worker 不推送或部署。主工作目錄的未提交內容不會被移動或覆寫。
+- worker 可由本機設定選擇 Codex CLI 或 [Freebuff](freebuff.md)；獨立 reviewer 與語意驗證仍使用 Codex CLI 及現有 ChatGPT 登入。Codex 忽略使用者 CLI 設定與 rules，不改寫登入或全域設定，不使用 API key／HTTP judge。Reviewer 不可執行工具；失效或拒絕不會退回自動通過。Freebuff 的 MCP 路由檢查不等同 Codex 沙箱驗證，也不會在 Codex 失敗後自動切換。
+- Codex worker 在開始準備與改檔前，以相同權限政策執行無工具 PONG。登入或沙箱無法啟動時標為 `blocked`，不反覆重試；舊 read-only 探針的快取不能代替此檢查。Windows 須先完成 Codex `elevated` 沙箱設定。明確選用 Freebuff 時改驗證 MCP 路由與 session 可用性；這不是 Codex 故障時的自動降級，也沒有宣稱具備同等 OS 沙箱。
 - 必須有真實 CI exit 0、CLI review 通過、原始 probe 通過，以及同一候選 commit 的完整證據。大於 60,000 字元的 diff 停止自動評審，應拆成較小 Issue。原始 probe 的期望不能由模型放寬。
 
 準備與驗收命令是操作者提供的本機命令；目前設定使用 Windows 的 npm 命令串接。其他平台需提供可執行的命令或單一驗收腳本。CLI 使用現有訂閱額度，成本與 token 紀錄不代表免費。

@@ -88,7 +88,7 @@ export interface EngineResolver {
  * 可不設（opencode 的 zen NDJSON cost 為可信真值，設 0 會令 scheduler 的 fixedCost ?? 真值恆取 0 變死碼——
  * spec 矩陣定為不設），其餘 adapter 由 ConfigSchema 的 superRefine 強制必設（免費引擎明確寫 0）。 */
 export const EngineConfigSchema = z.object({
-  adapter: z.enum(['mock', 'claude-cli', 'codex', 'agy', 'copilot', 'qwen', 'grok', 'opencode', 'herdr', 'devin']),
+  adapter: z.enum(['mock', 'claude-cli', 'codex', 'agy', 'copilot', 'qwen', 'grok', 'opencode', 'herdr', 'devin', 'freebuff']),
   command: z.string().optional(), // CLI 執行檔覆寫（如 opencode.exe 不在 PATH 時指完整路徑）；Task 8 起 opencode 接線，其餘 adapter 按需跟進
   costPerRunUsd: z.number().nonnegative().optional(),
   subscription: z.boolean().optional(), // M9.9：訂閱制引擎（邊際成本≈0）——估值照記帳但不踩日頂
@@ -100,6 +100,7 @@ export const EngineConfigSchema = z.object({
   /** 單引擎每日 attempts 上限（可選）；未設＝不限。正整數，與 today-attempts 聚合對齊。 */
   dailyAttemptCap: z.number().int().positive().optional(),
 }).refine(ec => !((ec.timeoutMs === 0 || (ec.timeoutMs ?? 0) > 7_200_000) && !ec.idleTimeoutMs), { path: ['timeoutMs'], message: 'timeoutMs 為 0 或超過 7200000 時必須設定大於 0 的 idleTimeoutMs' })
+  .refine(ec => ec.adapter !== 'freebuff' || (ec.timeoutMs !== 0 && !ec.model && !ec.effort && !ec.env && !ec.provider && !ec.idleTimeoutMs), { message: 'Freebuff requires a wall timeout and MCP automatic model routing; model/effort/env/provider/idleTimeoutMs overrides are unsupported' })
 export type EngineConfig = z.infer<typeof EngineConfigSchema>
 // M10.6：timezoneOffsetHours 的 Zod 預設單一真相源——globalcost 讀 raw JSON 拿不到 Zod default，
 // 改從此常數鏡像（M10.5 缺欄低估事故的根因就是兩處預設不一致）。台灣 +8。

@@ -1,0 +1,11 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "sourceConfig": "../autodev-self.json",
+  "dataDir": "../../data/github-freebuff",
+  "engine": "freebuff",
+  "authors": ["Reese-max"],
+  "label": "autodev",
+  "enabled": false,
+  "publish": false,
+  "maxRuns": 3
+}

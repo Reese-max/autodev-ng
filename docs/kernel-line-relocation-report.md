@@ -91,3 +91,7 @@ kernel 薄殼邊界；`kernel-budget` 仍保留既有 ≤2700 工作上限守門
 主要實作在既有子目錄，頂層目前 **2217 行**，仍低於 2250 行；上限未調整。
 
 驗證：`npx vitest run tests/kernel-relocation-report.test.ts tests/cli-llm.test.ts tests/github-reports.test.ts`。
+
+## 2026-09-08 Freebuff 接線
+
+`src/types.ts` 擴充 adapter 枚舉並增加一行 Freebuff 設定驗證；其餘實作位於 `src/engines/` 與 `src/github/`。頂層共 **2218 行**，低於 2250 行；未調高上限。

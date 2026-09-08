@@ -19,6 +19,12 @@
     "codex-terra"
   ],
   "engines": {
+    "freebuff": {
+      "adapter": "freebuff",
+      "timeoutMs": 1800000,
+      "pingTimeoutMs": 30000,
+      "costPerRunUsd": 0
+    },
     "codex-sol": {
       "adapter": "codex",
       "model": "gpt-5.6-sol",

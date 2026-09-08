@@ -45,6 +45,7 @@
 - opencode/zen（免費）
 - devin（Cognition Devin CLI，swe-1.6，免費）
 - herdr（透過 `Start-Herdr-Autopilot.ps1` 執行受控 Herdr 工作）
+- freebuff（本機 MCP stdio、依 tier 自動路由；[使用方式與實測](docs/freebuff.md)）
 
 尚未實作 adapter（目前不在 registry）：
 - gemini（Google Gemini CLI）

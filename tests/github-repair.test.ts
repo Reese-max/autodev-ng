@@ -15,8 +15,10 @@ import * as proc from '../src/engines/proc.js'
 import { githubCli } from '../src/github/cli.js'
 import * as github from '../src/github/client.js'
 import * as runner from '../src/github/runner.js'
-import { delivery, recoverIssue } from '../src/github/operations.js'
+import { delivery, recoverIssue, repairDoctor } from '../src/github/operations.js'
 import * as incident from '../src/guardian/incident.js'
+import { FreebuffEngine } from '../src/engines/freebuff.js'
+import { PreflightCache } from '../src/preflight.js'
 
 const dirs: string[] = []
 afterEach(() => { vi.restoreAllMocks(); process.exitCode = undefined; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
@@ -83,6 +85,19 @@ test('CLI-only runtime preserves source constraints and removes HTTP judge; no m
   expect(() => runtimeConfig(f.cfg, f.state)).toThrow('Codex CLI')
 })
 
+test('explicit Freebuff configuration supports normal intake and repair doctor without a Codex worker', async () => {
+  const f = await setup(), source = JSON.parse(readFileSync(f.cfg.sourceConfig, 'utf8'))
+  source.engines.writer = { adapter: 'freebuff', timeoutMs: 10_000, costPerRunUsd: 0 }
+  writeFileSync(f.cfg.sourceConfig, JSON.stringify(source))
+  expect(runtimeConfig({ ...f.cfg, repair: undefined }, f.state).engines.writer?.adapter).toBe('freebuff')
+  vi.spyOn(proc, 'runProcess').mockResolvedValue({ stdout: 'true', stderr: '', exitCode: 0, timedOut: false, durationMs: 1 })
+  const probe = vi.spyOn(FreebuffEngine.prototype, 'preflight').mockResolvedValue({ ok: true, detail: 'Freebuff limited route available' })
+  const doctor = await repairDoctor(f.cfg, true)
+  expect(doctor.ready).toBe(true); expect(probe).toHaveBeenCalledTimes(1)
+  expect(doctor.checks.codex).toBe('pass') // The independent reviewer still needs Codex.
+  expect(doctor.isolation).toContain('not an OS sandbox')
+})
+
 test('repair baseline rejects timeout and a different failure without launching a worker', async () => {
   const f = await setup(), run = proc.runProcess
   vi.spyOn(proc, 'runProcess').mockImplementation(opts => opts.args.includes('probe.cjs')
@@ -93,9 +108,19 @@ test('repair baseline rejects timeout and a different failure without launching 
   await expect(prepareRepair(f.cfg, f.state, f.cwd, 10_000)).rejects.toThrow('does not reproduce')
 })
 
-test('real Git/scheduler/CLI adapter repairs red to green with independent CLI review, exact evidence and no API or push', async () => {
+test.each(['codex', 'freebuff'])('%s: real Git/scheduler repairs red to green with independent CLI review, exact evidence and no API or push', async adapter => {
   const f = await setup(), realRun = proc.runProcess
   const cliCalls: string[] = []
+  if (adapter === 'freebuff') {
+    const source = JSON.parse(readFileSync(f.cfg.sourceConfig, 'utf8'))
+    source.engines.writer = { adapter: 'freebuff', timeoutMs: 10_000, costPerRunUsd: 0 }
+    writeFileSync(f.cfg.sourceConfig, JSON.stringify(source))
+    const engine = new FreebuffEngine({ command: process.execPath, baseArgs: [join(import.meta.dirname, 'fixtures/fake-freebuff.mjs'), 'repair'],
+      timeoutMs: 10_000, cache: new PreflightCache(join(f.dir, 'fake-preflight.json')), lockDir: join(f.dir, 'freebuff.lock') })
+    const preflight = FreebuffEngine.prototype.preflight, run = FreebuffEngine.prototype.run
+    vi.spyOn(FreebuffEngine.prototype, 'preflight').mockImplementation(() => { cliCalls.push('ping'); return preflight.call(engine) })
+    vi.spyOn(FreebuffEngine.prototype, 'run').mockImplementation(job => { cliCalls.push('worker'); return run.call(engine, job) })
+  }
   const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('HTTP model call forbidden'))
   vi.spyOn(proc, 'runProcess').mockImplementation(async opts => {
     if (opts.command !== 'codex') return realRun(opts)
@@ -117,15 +142,16 @@ test('real Git/scheduler/CLI adapter repairs red to green with independent CLI r
   const state = readState(f.cfg, 4)!
   expect(state.commit).not.toBe(state.baseSha); assertPublishable(f.cfg, state)
   expect(command(process.execPath, ['check.cjs'], f.cwd)).toBe('')
-  expect(cliCalls).toEqual(['ping', 'worker', 'judge', 'review']); expect(fetch).not.toHaveBeenCalled()
+  const expectedCalls = adapter === 'freebuff' ? ['ping', 'ping', 'worker', 'judge', 'review'] : ['ping', 'worker', 'judge', 'review']
+  expect(cliCalls).toEqual(expectedCalls); expect(fetch).not.toHaveBeenCalled()
   expect(f.client.createPr).not.toHaveBeenCalled()
-  expect(await runGithub(f.cfg, { client: f.client })).toBe('idle'); expect(cliCalls).toHaveLength(4)
+  expect(await runGithub(f.cfg, { client: f.client })).toBe('idle'); expect(cliCalls).toEqual(expectedCalls)
   // A crash after merge but before the state transition recovers exact evidence without another worker run.
   saveState(f.cfg, { ...state, status: 'running', commit: undefined })
   const doctor = vi.fn().mockRejectedValue(new Error('Completed recovery must not need a model'))
   const recovered = await recoverIssue(f.configPath, 4, 'Recover the completed verified merge', false, { client: f.client, doctor })
   expect(recovered.status).toBe('ready'); expect(recovered.runs).toBe(state.runs); expect(recovered.commit).toBe(state.commit)
-  expect(doctor).not.toHaveBeenCalled(); expect(cliCalls).toHaveLength(4)
+  expect(doctor).not.toHaveBeenCalled(); expect(cliCalls).toEqual(expectedCalls)
   const receipt = join(f.dir, 'issue-4', `repair-probe-${state.commit}.json`)
   const changed = JSON.parse(readFileSync(receipt, 'utf8')); changed.probe = {}
   writeFileSync(receipt, JSON.stringify(changed))

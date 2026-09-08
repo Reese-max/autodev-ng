@@ -6,8 +6,7 @@ import { BacklogStore } from '../backlog.js'
 import { ConfigSchema } from '../types.js'
 import { expandConfigPaths } from '../cli/assemble.js'
 import { acquireLock, releaseLock } from '../lock.js'
-import { CodexEngine } from '../engines/codex.js'
-import { PreflightCache } from '../preflight.js'
+import { makeEngineRegistry } from '../engines/registry.js'
 import { runProcess } from '../engines/proc.js'
 import { writeJsonAtomic } from '../guardian/incident.js'
 import { githubStopFile, loadGithubConfig, type GithubConfig } from './config.js'
@@ -19,7 +18,7 @@ import { branchFor, fingerprint, issueDir, readState, saveState, states, type Is
 export async function repairDoctor(cfg: GithubConfig, live = false) {
   const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
   const engine = source.engines[cfg.engine]
-  if (!cfg.repair || engine?.adapter !== 'codex' || engine.timeoutMs === 0) throw new Error('Requires a bounded Codex repair policy')
+  if (!cfg.repair || !engine || !['codex', 'freebuff'].includes(engine.adapter) || engine.timeoutMs === 0) throw new Error('Requires a bounded Codex CLI or Freebuff repair policy')
   const checks: Record<string, string> = {}
   for (const [name, cmd, args] of [['git', 'git', ['--version']], ['codex', 'codex', ['--version']], ['login', 'codex', ['login', 'status']], ['github', 'gh', ['api', '--hostname', 'github.com', `repos/${cfg.repo}`, '--jq', '.permissions.push']]] as const) {
     try {
@@ -30,12 +29,13 @@ export async function repairDoctor(cfg: GithubConfig, live = false) {
   let sandbox = { ok: false, detail: 'not tested; use repair-doctor --live (same worker permissions)' }
   if (live && Object.values(checks).every(c => c === 'pass')) {
     mkdirSync(cfg.dataDir, { recursive: true })
-    const worker = new CodexEngine({ ...engine, useUserLogin: true, homeDir: join(cfg.dataDir, 'codex-home'),
-      cache: new PreflightCache(join(cfg.dataDir, 'doctor-preflight.json'), 0, 0) })
+    const worker = makeEngineRegistry({ ...source, dataDir: cfg.dataDir, llmTransport: 'cli' }).resolve(cfg.engine)
+    worker.invalidatePreflight?.()
     sandbox = await worker.preflight()
   }
   const result = { repo: cfg.repo, at: new Date().toISOString(), live, ready: live && sandbox.ok && Object.values(checks).every(c => c === 'pass'),
-    paused: !cfg.enabled || existsSync(githubStopFile(cfg)), stopFile: githubStopFile(cfg), checks, sandbox }
+    paused: !cfg.enabled || existsSync(githubStopFile(cfg)), stopFile: githubStopFile(cfg), checks, sandbox,
+    isolation: engine.adapter === 'freebuff' ? 'worktree and prompt scope; MCP preflight is not an OS sandbox test' : 'Codex sandbox' }
   if (live) writeFileSync(join(cfg.dataDir, 'doctor.json'), JSON.stringify(result, null, 2) + '\n')
   return result
 }

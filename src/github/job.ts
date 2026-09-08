@@ -9,8 +9,7 @@ import { command } from './client.js'
 import { githubStopFile, type GithubConfig } from './config.js'
 import { branchFor, issueDir, saveState, type IssueState } from './state.js'
 import { assertRepairEvidence, prepareRepair, reviewRepair, verifyRepairProbe } from './repair.js'
-import { CodexEngine } from '../engines/codex.js'
-import { PreflightCache } from '../preflight.js'
+import { makeEngineRegistry } from '../engines/registry.js'
 import { KernelVerifier } from '../verifier.js'
 
 export const git = (cwd: string, args: string[]): string => command('git', ['-c', `safe.directory=${cwd.replace(/\\/g, '/')}`, ...args], cwd)
@@ -30,9 +29,9 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
   if (cfg.verifyCommand) source.verifyCommand = cfg.verifyCommand
   else if (cfg.template) source.verifyCommand = detectVerification(checkoutDir(cfg, state))
   const engine = source.engines[cfg.engine]
-  if (!engine || ['freebuff', 'herdr', 'mock'].includes(engine.adapter)) throw new Error('GitHub runner requires an explicitly selected regular engine')
+  if (!engine || ['herdr', 'mock'].includes(engine.adapter)) throw new Error('GitHub runner requires an explicitly selected regular engine')
   if (engine.timeoutMs === 0) throw new Error('GitHub runner requires a bounded engine wall timeout')
-  if (cfg.repair && engine.adapter !== 'codex') throw new Error('Automatic report repairs require the Codex CLI engine')
+  if (cfg.repair && !['codex', 'freebuff'].includes(engine.adapter)) throw new Error('Automatic report repairs require the Codex CLI or Freebuff engine')
   if (!source.verifyCommand?.trim() || !(source.reviewEngine ?? source.auditModel)) throw new Error('GitHub runner requires verifyCommand and reviewer configuration')
   const dir = issueDir(cfg, state.issue.number)
   return ConfigSchema.parse({ ...source,
@@ -63,8 +62,7 @@ export function prepareCheckout(cfg: GithubConfig, state: IssueState): void {
 export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string }> {
   prepareCheckout(cfg, state)
   const runtime = runtimeConfig(cfg, state)
-  const worker = cfg.repair ? new CodexEngine({ ...runtime.engines[cfg.engine]!, useUserLogin: true,
-    homeDir: join(runtime.dataDir, 'codex-home'), cache: new PreflightCache(join(runtime.dataDir, 'preflight-cli.json')) }) : undefined
+  const worker = cfg.repair ? makeEngineRegistry(runtime).resolve(cfg.engine) : undefined
   if (worker) {
     const preflight = await worker.preflight()
     if (!preflight.ok) throw new Error(`Repair CLI preflight failed: ${preflight.detail}; repair CLI login/sandbox before retry`)

@@ -9,7 +9,7 @@
 `github-owner.example.json` 為整個 GitHub 個人帳號範例。兩者預設停用且不發布。
 複製成自己的設定檔後，指定 `sourceConfig`、`engine`、`authors` 與資料目錄。
 範例的 `codex-sol` 對應目前版本的 sourceConfig；實際引擎、模型登入與成本政策須依使用環境設定。
-Freebuff、Herdr、mock 及無 wall timeout 的引擎不可用於此入口。
+Freebuff 可由本機設定明確選用，見 [Freebuff 使用方式](freebuff.md)；Herdr、mock 及無 wall timeout 的引擎仍不可用於此入口。
 
 `sourceConfig`、`dataDir` 與 projects 的路徑相對於 integration 設定檔。
 `enabled=true` 允許接單與執行，`publish=true` 允許推送修復分支與建立草稿 PR。

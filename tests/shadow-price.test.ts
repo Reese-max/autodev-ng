@@ -1,5 +1,13 @@
 import { expect, test } from 'vitest'
-import { shadowCostUsd, shadowTotals } from '../src/engines/shadow-price.js'
+import { isShadowFreeTierEngine, shadowCostUsd, shadowTotals } from '../src/engines/shadow-price.js'
+import { deniedFreeOnlyPin, pickCandidateTags } from '../src/engines/pick-candidates.js'
+
+test('Freebuff can be selected in free-only mode without a fabricated shadow price', () => {
+  expect(isShadowFreeTierEngine('freebuff')).toBe(true)
+  expect(deniedFreeOnlyPin({ engineTag: 'freebuff' }, 'free-only')).toBeUndefined()
+  expect(pickCandidateTags({ task: { id: 'abcd' }, rotation: ['freebuff', 'codex-sol'], defaultEngine: 'freebuff', failCount: 0, tierMode: 'free-only' })).toEqual(['freebuff'])
+  expect(shadowCostUsd('freebuff', 1000, 1000)).toBeNull()
+})
 
 test('shadowCostUsd：free 層檔位（devin 同門超額、oc flash）', () => {
   expect(shadowCostUsd('devin', 2_000_000, 20_000)).toEqual({ usd: expect.closeTo(2 * 0.5 + 0.02 * 2), tier: 'free' })

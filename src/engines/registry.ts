@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { homedir } from 'node:os'
 import { PreflightCache } from '../preflight.js'
 import { MockEngine } from './mock.js'
 import { ClaudeCliEngine } from './claude-cli.js'
@@ -10,6 +11,7 @@ import { QwenEngine } from './qwen.js'
 import { OpencodeEngine } from './opencode.js'
 import { DevinEngine } from './devin.js'
 import { HerdrEngine } from './herdr.js'
+import { FreebuffEngine } from './freebuff.js'
 import type { Config, Engine, EngineConfig, EngineResolver } from '../types.js'
 
 /** M5 Task 1：`{env:VAR}` 展開（assemble 層）——config 只寫變數引用，真值從進程環境取，
@@ -113,6 +115,13 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           command: ec.command, verifyCommand: cfg.verifyCommand,
           provider: ec.provider,
           timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs,
+        })
+      case 'freebuff':
+        return new FreebuffEngine({
+          id: tag === 'freebuff' ? tag : `freebuff:${tag}`, command: ec.command,
+          cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
+          timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs,
+          lockDir: join(homedir(), '.autodev-ng', 'freebuff.lock'),
         })
       case 'devin':
         // M5 Task 9：Devin CLI（原生 .exe 直呼；prompt/export 走 tmp 檔；固定鎖 swe-1.6 免費模型）。
