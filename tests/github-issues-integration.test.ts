@@ -36,6 +36,8 @@ test('三次真實驗收紅燈後，runner 接續一次替代方案並通過原�
       expect(job.directive?.includes('二次解決：')).toBe(index === 3)
       writeFileSync(join(job.projectPath, 'add.cjs'), `module.exports = (a, b) => a ${index === 3 ? '+' : '-'} b // attempt ${index + 1}\n`)
       if (index === 3) {
+        expect(job.directive).toContain('先建立子問題清單')
+        expect(job.directive).toContain('重新執行原始完整驗收')
         mkdirSync(join(job.projectPath, 'tests/regressions'), { recursive: true })
         writeFileSync(join(job.projectPath, 'tests/regressions/github-8.test.cjs'), "require('node:test')('addition', () => require('node:assert/strict').equal(require('../../add.cjs')(2, 3), 5))\n")
       }
