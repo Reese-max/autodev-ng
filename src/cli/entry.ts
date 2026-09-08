@@ -70,11 +70,6 @@ export async function runCli(argv: string[], cliPath: string): Promise<void> {
     await githubCli(argv.slice(1))
     return
   }
-  if (argv.includes('--help')) {
-    process.exitCode = 0
-    printCliHelp()
-    return
-  }
   const { command, configPath, configsDir, guardianMode } = parseArgv(argv)
 
   if (command === 'supervise') {

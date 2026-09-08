@@ -101,7 +101,7 @@ export class FreebuffEngine implements Engine {
       if (!output.trim()) return { ok: false, output: tail(r.stderr), costUsd: 0, failureReason: 'empty-output：MCP 成功但無文字' }
       const after = this.getCommitHash(job.projectPath)
       if (!after || after === before) return { ok: false, output, costUsd: 0, failureReason: 'no-commit(phantom completion?)' }
-      return { ok: true, output, costUsd: 0, commitHash: after, baseCommitHash: before }
+      return { ok: true, output, costUsd: 0, costUnknown: true, actualModel: /^\[Freebuff 路由：(Full|Limited) → ([^；]+)/.exec(text)?.[2]?.trim(), commitHash: after, baseCommitHash: before }
     } finally {
       releaseLockIfOwned(this.lockDir, process.pid, releaseLock)
     }

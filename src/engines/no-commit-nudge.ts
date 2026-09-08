@@ -38,6 +38,7 @@ export async function nudgeNoCommit(
 function combineRuns(first: RunResult, second: RunResult): RunResult {
   return {
     ...second,
+    actualModel: first.actualModel === second.actualModel ? first.actualModel : 'multiple/unknown',
     output: joinOutput(first.output, second.output),
     costUsd: first.costUsd + second.costUsd,
     costUnknown: first.costUnknown || second.costUnknown || undefined,
@@ -48,4 +49,4 @@ function combineRuns(first: RunResult, second: RunResult): RunResult {
 }
 
 function joinOutput(first: string, second: string): string { return [first, second].filter(Boolean).join('\n') }
-function add(a?: number, b?: number): number | undefined { return a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0) }
+function add(a?: number, b?: number): number | undefined { return a === undefined || b === undefined ? undefined : a + b }

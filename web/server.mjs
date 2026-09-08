@@ -135,6 +135,7 @@ export function buildStatusPayload({ cfg, store, db, dbPath, localDayFn }) {
     heartbeat: readHeartbeat(cfg.dataDir),
     backlog, backlogError,
     cost: { today: todayCostUsd, soft: cfg.dailySoftUsd, hard: cfg.dailyHardUsd },
+    accounting: db.accountingForDay?.(day, cfg.timezoneOffsetHours) ?? null,
     attempts: readRecentAttempts(dbPath, 10),
     events: readEventsTail(cfg.dataDir, 50),
     dlqCount: readDlqCount(cfg.dataDir),

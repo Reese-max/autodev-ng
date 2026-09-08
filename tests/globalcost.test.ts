@@ -16,11 +16,11 @@ function seedDb(dataDir: string, rows: { ts: string; cost: number; engine: strin
     ok INTEGER NOT NULL,
     cost_usd REAL NOT NULL,
     detail TEXT NOT NULL,
-    engine TEXT NOT NULL DEFAULT ''
+    engine TEXT NOT NULL DEFAULT '', accounting_json TEXT
   )`)
   for (const r of rows) {
-    db.prepare('INSERT INTO attempts (task_id, ts, ok, cost_usd, detail, engine) VALUES (?,?,?,?,?,?)')
-      .run('t', r.ts, 1, r.cost, '', r.engine)
+    db.prepare('INSERT INTO attempts (task_id, ts, ok, cost_usd, detail, engine, accounting_json) VALUES (?,?,?,?,?,?,?)')
+      .run('t', r.ts, 1, r.cost, '', r.engine, JSON.stringify({version:1,costSource:'provider-reported'}))
   }
   db.close()
 }
@@ -47,15 +47,15 @@ describe('globalBilledToday', () => {
     expect(globalBilledToday(a, '2026-07-14T03:00:00Z')).toBe(8)
   })
 
-  test('壞鄰居跳過：壞 JSON／缺 run.db 都不影響加總、不 throw', () => {
+  test('壞 JSON／缺 run.db 不得低估放行', () => {
     const a = writeCfg('a'); seedDb(join(root, 'data/a'), [{ ts: '2026-07-14T01:00:00Z', cost: 2, engine: 'claude' }])
     writeFileSync(join(root, 'configs', 'broken.json'), '{{{')
     writeCfg('nodb')  // 有 config 沒 db
-    expect(globalBilledToday(a, '2026-07-14T03:00:00Z')).toBe(2)
+    expect(() => globalBilledToday(a, '2026-07-14T03:00:00Z')).toThrow('incomplete')
   })
 
-  test('整體故障回 0（fail-open）：configs 目錄不存在', () => {
-    expect(globalBilledToday(join(root, 'nowhere', 'x.json'), '2026-07-14T03:00:00Z')).toBe(0)
+  test('configs 目錄不存在時回報不完整', () => {
+    expect(() => globalBilledToday(join(root, 'nowhere', 'x.json'), '2026-07-14T03:00:00Z')).toThrow('incomplete')
   })
 
   test('engine 空欄（歷史列）在非空訂閱清單下仍計入真金（fail-safe）', () => {
