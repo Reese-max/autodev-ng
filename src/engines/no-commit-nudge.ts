@@ -22,6 +22,10 @@ export async function nudgeNoCommit(
       ...initial,
       output: joinOutput(initial.output, `[nudge engine error] ${String(err)}`),
       costUnknown: true,
+      actualModel: 'multiple/unknown',
+      tokensIn: undefined,
+      tokensOut: undefined,
+      tokensCached: undefined,
       baseCommitHash,
       failureReason: `${initial.failureReason} [nudged]`,
     }

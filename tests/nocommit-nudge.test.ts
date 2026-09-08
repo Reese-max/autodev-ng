@@ -8,10 +8,25 @@ import { RunDb, type AttemptRecord } from '../src/db.js'
 import { EventLog } from '../src/events.js'
 import { MockEngine } from '../src/engines/mock.js'
 import { nudgeNoCommit } from '../src/engines/no-commit-nudge.js'
+import { attemptAccounting } from '../src/engines/attempt-accounting.js'
 import { runOnce, type Deps } from '../src/scheduler.js'
 import { ConfigSchema, type Engine, type Job, type RunResult } from '../src/types.js'
 
 const openDbs: RunDb[] = []
+
+test('nudge 拋錯時首輪用量不可冒充完整用量或影子帳', async () => {
+  const engine = new MockEngine([{ throw: 'nudge exploded' }])
+  const result = await nudgeNoCommit(engine, {
+    task: { id: 'task-1', text: 'nudge accounting', line: 1, status: 'open' },
+    projectPath: 'unused',
+  }, {
+    ok: false, output: 'first run', costUsd: 0.1, failureReason: 'no-commit',
+    actualModel: 'gpt-5.6-terra', tokensIn: 100, tokensOut: 10, tokensCached: 50,
+  }, 'base', () => 'base')
+  expect(result).toMatchObject({ ok: false, costUsd: 0.1, costUnknown: true })
+  expect([result.tokensIn, result.tokensOut, result.tokensCached]).toEqual([undefined, undefined, undefined])
+  expect(attemptAccounting(result, {})).toMatchObject({ usageKnown: false, cacheKnown: false, shadow: null, costSource: 'unknown' })
+})
 
 afterEach(() => {
   for (const db of openDbs.splice(0)) db.close()
