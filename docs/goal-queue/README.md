@@ -1,6 +1,14 @@
 # GOAL 規格與驗收索引
 
-2026-09-07 依目前原始碼與測試重新盤點。這裡保存歷史規格，不代表 daemon 正在執行，也不會因更新本表而派工。完整回歸結果見 [專案清理驗收](../verification/project-cleanup-2026-09-07.md)。
+2026-09-08 更新索引：共 19 份規格，包含 12 項已有實作／測試、6 份歷史草稿，以及 1 份待完整驗收的 CLI 自主開發契約。這裡記錄規格與驗收入口，不代表 daemon 正在執行，也不會因更新本表而派工。2026-09-07 的完整回歸結果見 [專案清理驗收](../verification/project-cleanup-2026-09-07.md)。
+
+## 最新契約：待完整驗收
+
+| 規格 | 現況與驗收入口 |
+|---|---|
+| [GOAL-cli-autonomy.md](GOAL-cli-autonomy.md) | 六項 CLI 自主開發驗收；[使用方式](../cli-autonomy.md)、[2026-09-08 驗收紀錄](../verification/cli-autonomy-2026-09-08.md)。離線旅程檢查為 `node scripts/check-cli-journey.mjs`；最終 `verify-autonomy.mjs` 另要求真實 Codex worker 與交付證據，不能用 mock 測試替代 |
+
+該次驗收紀錄仍缺真實修復成功證據；後續恢復須重新核對沙箱、Issue 與精確提交。整理索引不會切換 GOAL 或恢復執行。
 
 ## 已有實作與對應測試
 
@@ -13,7 +21,7 @@
 | [GOAL-survey.md](GOAL-survey.md) | 多來源 survey；`tests/survey-sources*.test.ts` |
 | [GOAL-author.md](GOAL-author.md) | 自動 GOAL 驗收品質閘；`tests/author-gate.test.ts` |
 | [GOAL-roi.md](GOAL-roi.md) | 問題帳本成本／結果與 ROI；`tests/ledger-roi*.test.ts` |
-| [GOAL-kernel-slim.md](GOAL-kernel-slim.md) | **已實作** CLI 薄殼與模組搬移；頂層 **2215／2250 行**，餘裕 35 行；`tests/kernel-slim.test.ts` |
+| [GOAL-kernel-slim.md](GOAL-kernel-slim.md) | **已實作** CLI 薄殼與模組搬移；2026-09-08 頂層 **2217／2250 行**，餘裕 33 行；`tests/kernel-slim.test.ts` |
 | [GOAL-visibility.md](GOAL-visibility.md) | 立案與 digest 通知；`tests/visibility-*.test.ts` |
 | [GOAL-verifyfail-detail.md](GOAL-verifyfail-detail.md) | 驗收失敗詳情；`tests/verifyfail-detail.test.ts` |
 | [GOAL-nocommit-nudge.md](GOAL-nocommit-nudge.md) | 無 commit 時補救一次；`tests/nocommit-nudge.test.ts` |
@@ -56,4 +64,4 @@
 
 - 第一行為 `# GOAL`，objective 寫在標題之後、第一個 `##` 之前。
 - 驗收使用 `sh`／`bash` 程式碼圍欄，內容為實際可執行的機械指令。
-- 明示 `連續無進展上限：N`；本次 18 份規格均能解析出 objective 與驗收指令。
+- 明示 `連續無進展上限：N`；規格更新後使用 `parseGoal` 核對 objective 與驗收指令。
