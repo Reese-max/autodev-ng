@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 // vi.mock('node:fs') 影響整個模組，故此檔獨立於 tests/lock.test.ts，避免污染其他測試的真實 fs 行為。
-const { mkdirSync, statSync, renameSync, rmSync } = vi.hoisted(() => ({
+const { mkdirSync, statSync, renameSync, rmSync, existsSync } = vi.hoisted(() => ({
   mkdirSync: vi.fn(),
   statSync: vi.fn(),
   renameSync: vi.fn(),
   rmSync: vi.fn(),
+  existsSync: vi.fn(),
 }))
 
 vi.mock('node:fs', () => ({
@@ -13,6 +14,7 @@ vi.mock('node:fs', () => ({
   statSync,
   renameSync,
   rmSync,
+  existsSync,
 }))
 
 const { acquireLock } = await import('../src/lock.js')
@@ -44,9 +46,19 @@ beforeEach(() => {
   statSync.mockReset()
   renameSync.mockReset()
   rmSync.mockReset()
+  existsSync.mockReset().mockReturnValue(false)
 })
 
 describe('acquireLock 錯誤分類：ENOENT/EEXIST 讓步，其他 infra 故障 rethrow', () => {
+  test('recovery marker prevents stale takeover before checking owner or age', () => {
+    mkdirSync.mockImplementationOnce(() => { throw errWithCode('EEXIST') })
+    existsSync.mockReturnValue(true)
+    expect(acquireLock(DIR, STALE_MS)).toBe(false)
+    expect(statSync).not.toHaveBeenCalled()
+    expect(renameSync).not.toHaveBeenCalled()
+    expect(rmSync).not.toHaveBeenCalled()
+  })
+
   test('renameSync ENOENT（競爭者已搶先接管）→ return false，不繼續清理', () => {
     mkdirSync.mockImplementationOnce(() => {
       throw errWithCode('EEXIST')

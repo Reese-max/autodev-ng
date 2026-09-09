@@ -51,6 +51,14 @@ function acceptedOptions(f: ReturnType<typeof fixture>) {
   }
 }
 
+test('missing config never starts Guardian or creates a diagnostic home', async () => {
+  const f = fixture(), fleetDataDir = join(f.root, 'missing-config-guardian')
+  const runner = vi.fn(async () => { throw new Error('must not call a provider') })
+  expect(await runFleetGuardian([{ configPath: join(f.root, 'missing.json'), error: 'missing config' }], { fleetDataDir, runProcessFn: runner })).toEqual([])
+  expect(runner).not.toHaveBeenCalled()
+  expect(existsSync(fleetDataDir)).toBe(false)
+})
+
 test.each(['healthy', 'diagnose', 'malicious', 'stale', 'timeout'] as const)('active worker Guardian is read-only, bounded and advisory: %s', async mode => {
   const f = fixture()
   const observation = createExecutionObservation({ dataDir: f.dataDir, adapter: 'codex', job: {

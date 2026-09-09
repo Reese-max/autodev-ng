@@ -1,10 +1,52 @@
 import type { Config, Job, RunResult, Task } from '../types.js'
 import type { VerifierCheck } from '../verifier.js'
+import { runVerify } from '../verify.js'
+import { mergeBack, type MergeBackResult, type WorktreeHandle } from '../worktree.js'
 import { defaultCommitHash } from './commit-hash.js'
 import type { EvidenceReceipt, EvidenceStore } from './evidence-chain.js'
 import { classifyTaskRisk, verifyRequired } from './risk-policy.js'
 
 export interface CandidateGateResult extends VerifierCheck { receipt?: EvidenceReceipt }
+
+/** rebase 成功後仍在 merge queue 內驗收；只有非紅燈才允許唯一一次 merge 重試。 */
+export async function mergeAfterRebaseVerify(
+  cfg: Config, wt: WorktreeHandle, task: Task, result: RunResult,
+  verifier: Parameters<typeof runCandidateGate>[0]['verifier'], evidence: EvidenceStore | undefined, executionId: string, writerIdentity: string,
+): Promise<MergeBackResult> {
+  const timeouts = { gitTimeoutMs: cfg.gitTimeoutMs, worktreeAddTimeoutMs: cfg.worktreeAddTimeoutMs }
+  const first = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
+    ...timeouts,
+    deferAfterRebase: true,
+  })
+  if (!first.rebased || first.failureStage !== 'verify') {
+    return first
+  }
+
+  const risk = classifyTaskRisk(cfg, task)
+  if (verifier || evidence) {
+    const baseCommitHash = defaultCommitHash(cfg.projectPath)
+    const commitHash = defaultCommitHash(wt.cwd)
+    if (!baseCommitHash || !commitHash) return { ...first, reason: 'verification-infra', failureStage: 'verify' }
+    const gate = await runCandidateGate({
+      cfg, task, cwd: wt.cwd, verifier, evidence, executionId, writerIdentity,
+      result: { ...result, baseCommitHash, commitHash }, preserveOnReject: true,
+    })
+    if (!gate.pass) return { ...first, reason: gate.paused ? 'paused' : (gate.blockedReason ?? 'merge-conflict'), failureStage: 'verify' }
+  } else {
+    const verification = await runVerify({ command: cfg.verifyCommand, cwd: wt.cwd, timeoutMs: cfg.verifyTimeoutMs })
+    if (verification.status === 'blocked' || (verification.status === 'skip' && verifyRequired(risk))) {
+      return { ...first, reason: 'verification-infra', failureStage: 'verify' }
+    }
+    if (verification.status === 'fail') return { ...first, failureStage: 'verify' }
+  }
+
+  const merged = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
+    ...timeouts,
+    allowRebase: false,
+    rebaseAttempted: true,
+  })
+  return merged
+}
 
 /** 單一候選 commit 的 CI／Reviewer／Release 閘；CLI assemble 接 EvidenceStore 時，缺證據即 fail-closed。 */
 export async function runCandidateGate(opts: {

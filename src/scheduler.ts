@@ -21,11 +21,11 @@ import { quiet, type EventLog } from './events.js'
 import { globalBilledToday } from './globalcost.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
 import type { VerifierCheck } from './verifier.js'
-import { cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError, type MergeBackResult, type WorktreeHandle } from './worktree.js'
+import { cleanupWorktree, prepareWorktree, WorktreeCleanupPartialError, type WorktreeHandle } from './worktree.js'
 import { runVerify } from './verify.js'
 import { classifyTaskRisk, verifyRequired } from './engines/risk-policy.js'
 import { defaultCommitHash } from './engines/commit-hash.js'
-import { runCandidateGate } from './engines/candidate-gate.js'
+import { mergeAfterRebaseVerify, runCandidateGate } from './engines/candidate-gate.js'
 import { newExecutionId, type EvidenceStore } from './engines/evidence-chain.js'
 import { checkOwnership, compatibleTasks } from './engines/ownership.js'
 import type { TeamState } from './engines/team-state.js'
@@ -438,46 +438,6 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     if (claimHeartbeat) clearInterval(claimHeartbeat)
     releaseClaim()
   }
-}
-
-/** rebase 成功後仍在 merge queue 內驗收；只有非紅燈才允許唯一一次 merge 重試。 */
-async function mergeAfterRebaseVerify(
-  cfg: Config, wt: WorktreeHandle, task: Task, result: RunResult,
-  verifier: Deps['verifier'], evidence: EvidenceStore | undefined, executionId: string, writerIdentity: string,
-): Promise<MergeBackResult> {
-  const timeouts = { gitTimeoutMs: cfg.gitTimeoutMs, worktreeAddTimeoutMs: cfg.worktreeAddTimeoutMs }
-  const first = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
-    ...timeouts,
-    deferAfterRebase: true,
-  })
-  if (!first.rebased || first.failureStage !== 'verify') {
-    return first
-  }
-
-  const risk = classifyTaskRisk(cfg, task)
-  if (verifier || evidence) {
-    const baseCommitHash = defaultCommitHash(cfg.projectPath)
-    const commitHash = defaultCommitHash(wt.cwd)
-    if (!baseCommitHash || !commitHash) return { ...first, reason: 'verification-infra', failureStage: 'verify' }
-    const gate = await runCandidateGate({
-      cfg, task, cwd: wt.cwd, verifier, evidence, executionId, writerIdentity,
-      result: { ...result, baseCommitHash, commitHash }, preserveOnReject: true,
-    })
-    if (!gate.pass) return { ...first, reason: gate.paused ? 'paused' : (gate.blockedReason ?? 'merge-conflict'), failureStage: 'verify' }
-  } else {
-    const verification = await runVerify({ command: cfg.verifyCommand, cwd: wt.cwd, timeoutMs: cfg.verifyTimeoutMs })
-    if (verification.status === 'blocked' || (verification.status === 'skip' && verifyRequired(risk))) {
-      return { ...first, reason: 'verification-infra', failureStage: 'verify' }
-    }
-    if (verification.status === 'fail') return { ...first, failureStage: 'verify' }
-  }
-
-  const merged = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
-    ...timeouts,
-    allowRebase: false,
-    rebaseAttempted: true,
-  })
-  return merged
 }
 
 /** 環境級 blocked：不計 maxAttempts；store.report 失敗只記事件。 */

@@ -371,6 +371,8 @@ function executionIncident(inventory: ExecutionInventory): ReturnType<typeof inc
 
 /** 一次性 fleet 巡檢：健康專案零 LLM；同一事故指紋只在成功處理後去重。 */
 export async function runFleetGuardian(results: SuperviseDirectoryResult[], options: FleetGuardianOptions = {}): Promise<GuardianReport[]> {
+  results = results.filter(result => existsSync(result.configPath))
+  if (results.length === 0) return [] // No configured project means no authorized diagnostic workspace.
   const isPaused = (result: SuperviseDirectoryResult) =>
     (!isErrorResult(result) && result.paused === true) || guardianStopFiles(result).some(file => existsSync(file))
   if (results.length > 0 && results.every(isPaused)) return results.map(result => ({ configPath: result.configPath, kind: 'skipped', reason: 'paused' }))
