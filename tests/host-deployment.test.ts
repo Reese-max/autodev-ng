@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 // @ts-expect-error operator scripts intentionally expose plain JavaScript
-import { initHost, loadHost, doctor, health, assertIdleData, writeJson, inside, switchRuntime } from '../scripts/host.mjs'
+import { initHost, loadHost, doctor, health, assertIdleData, writeJson, inside, switchRuntime, handoffStatus, pauseForHandoff } from '../scripts/host.mjs'
 // @ts-expect-error operator scripts intentionally expose plain JavaScript
 import { backupState, restoreState } from '../scripts/host-state.mjs'
 // @ts-expect-error operator scripts intentionally expose plain JavaScript
@@ -41,6 +41,7 @@ test('backup/restore preserves SQLite and issue evidence, rejects corruption and
   fs.mkdirSync(data)
   const db = new Database(join(data, 'run.db')); db.exec("CREATE TABLE proof (runs INTEGER); INSERT INTO proof VALUES (7)"); db.close()
   fs.writeFileSync(join(data, 'auth.json'), '{"access_token":"fixture-not-a-real-token"}')
+  fs.writeFileSync(join(data, 'web-console.token'), 'fixture-console-token')
   const iData = join(f.home, 'data/integration'); fs.mkdirSync(iData)
   fs.writeFileSync(join(iData, '.adng.stop'), 'preserve original pause reason')
   writeJson(join(iData, 'state.json'), { issue: 7, runs: 1, status: 'published' })
@@ -48,6 +49,7 @@ test('backup/restore preserves SQLite and issue evidence, rejects corruption and
   const backup = join(f.root, 'snapshot')
   expect((await backupState(f.config, backup)).gate).toBe('HOST_BACKUP_PASS')
   expect(fs.existsSync(join(backup, 'data/auth.json'))).toBe(false)
+  expect(fs.existsSync(join(backup, 'data/web-console.token'))).toBe(false)
   expect((await restoreState(backup, join(f.root, 'restored'), loadHost(f.home).runtime)).paused).toBe(true)
   const restoredHome = join(f.root, 'restored/host'), restoredDb = new Database(join(restoredHome, 'data/project/run.db'), { readonly: true })
   expect(restoredDb.prepare('SELECT runs FROM proof').pluck().get()).toBe(7); restoredDb.close()
@@ -117,4 +119,30 @@ test('state inventory access errors abort backup instead of treating the directo
   }) as typeof fs.lstatSync)
   try { await expect(backupState(f.config, out)).rejects.toThrow('access denied'); expect(fs.existsSync(out)).toBe(false) }
   finally { spy.mockRestore() }
+})
+
+test('project handoff pauses only matching sources, keeps existing reasons and reports active/dirty state', async () => {
+  const f = fixture(), cfg = JSON.parse(fs.readFileSync(f.config, 'utf8')), base = join(f.home, 'configs')
+  try {
+    fs.unlinkSync(join(base, '.adng.stop'))
+    writeJson(join(base, 'other.json'), { ...cfg, dataDir: '../data/other' })
+    await expect(pauseForHandoff(f.config)).rejects.toThrow('Shared pause flag')
+    expect(fs.existsSync(join(base, '.adng.stop'))).toBe(false)
+    writeJson(f.config, { ...cfg, stopFile: 'project.stop' })
+    const data = join(f.home, 'data/integration'), stop = join(data, '.adng.stop')
+    fs.mkdirSync(data); fs.writeFileSync(stop, 'Keep original reason')
+    writeJson(join(base, 'integrations/repair.json'), { sourceConfig: '../project.json', dataDir: '../../data/integration' })
+    writeJson(join(base, 'integrations/other.json'), { sourceConfig: '../other.json', dataDir: '../../data/other-repair' })
+    expect(handoffStatus(f.config)).toMatchObject({ readyForBackup: false, entries: [{ paused: false }, { paused: true }] })
+    const paused = await pauseForHandoff(f.config)
+    expect(paused).toMatchObject({ readyForBackup: true, backupVerified: false })
+    expect(fs.readFileSync(stop, 'utf8')).toBe('Keep original reason')
+    expect(fs.existsSync(join(base, '.adng.stop'))).toBe(false)
+    expect(fs.existsSync(join(f.home, 'data/other-repair/.adng.stop'))).toBe(false)
+    writeJson(join(data, 'pid.json'), { pid: process.pid })
+    expect(handoffStatus(f.config)).toMatchObject({ readyForBackup: false, entries: [{ idle: true }, { idle: false }] })
+    fs.unlinkSync(join(data, 'pid.json')); fs.writeFileSync(join(f.project, 'dirty'), 'Keep changes')
+    expect(handoffStatus(f.config).readyForBackup).toBe(false)
+    expect(fs.readFileSync(join(f.project, 'dirty'), 'utf8')).toBe('Keep changes')
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }) }
 })

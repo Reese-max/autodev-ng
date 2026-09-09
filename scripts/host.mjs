@@ -39,6 +39,7 @@ export function inside(root, path) {
   return rel !== '..' && !rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(rel)
 }
 export function revision(runtime) { return command('git', ['rev-parse', 'HEAD'], runtime) }
+const samePath = (a, b) => inside(a, b) && inside(b, a)
 export function loadHost(home) {
   home = resolve(home)
   const h = readJson(join(home, 'host.json'))
@@ -119,6 +120,65 @@ export function assertIdleData(data) {
   }
   visit(data)
 }
+export function matchingIntegrations(config) {
+  config = resolve(config)
+  const dir = join(dirname(config), 'integrations'), integrations = []
+  if (!exists(dir)) return integrations
+  for (const name of fs.readdirSync(dir).filter(n => n.endsWith('.json') && !n.endsWith('.example.json'))) {
+    const originalConfig = join(dir, name), cfg = readJson(originalConfig)
+    if (!cfg.sourceConfig || !samePath(resolve(dir, cfg.sourceConfig), config)) continue
+    const data = resolve(dir, cfg.dataDir), stop = cfg.stopFile ? resolve(dir, cfg.stopFile) : join(data, '.adng.stop')
+    integrations.push({ name, cfg, data, stop, originalConfig })
+  }
+  return integrations
+}
+export function handoffStatus(config) {
+  config = resolve(config)
+  const raw = readJson(config), base = dirname(config), project = resolve(base, raw.projectPath)
+  const sources = [{ config, data: resolve(base, raw.dataDir), stop: resolve(base, raw.stopFile || '.adng.stop') },
+    ...matchingIntegrations(config).map(i => ({ config: i.originalConfig, data: i.data, stop: i.stop }))]
+  const entries = sources.map(s => {
+    let idle = true, error = ''
+    try { assertIdleData(s.data) } catch (e) { idle = false; error = e.message }
+    return { ...s, paused: exists(s.stop), idle, error }
+  })
+  const checks = []
+  const check = (name, fn) => { try { fn(); checks.push({ name, ok: true }) } catch (e) { checks.push({ name, ok: false, error: e.message }) } }
+  check('worktrees-clean', () => {
+    for (const row of command('git', ['worktree', 'list', '--porcelain'], project).split('\n').filter(l => l.startsWith('worktree ')))
+      if (command('git', ['status', '--porcelain'], row.slice(9))) throw new Error('Dirty worktree preserved; commit or preserve changes before backup')
+  })
+  check('team-claims-idle', () => {
+    const common = resolve(project, command('git', ['rev-parse', '--git-common-dir'], project)), file = join(common, 'autodev-ng/team.db')
+    if (!exists(file)) return
+    const db = new Database(file, { readonly: true, fileMustExist: true })
+    try { if (db.prepare('SELECT 1 FROM team_claims WHERE active=1 LIMIT 1').get()) throw new Error('Active team claims require inspection') } finally { db.close() }
+  })
+  return { config, project, at: new Date().toISOString(), entries, checks,
+    readyForBackup: entries.every(e => e.paused && e.idle) && checks.every(c => c.ok), backupVerified: false }
+}
+export async function pauseForHandoff(config) {
+  config = resolve(config)
+  const raw = readJson(config), base = dirname(config), integrations = matchingIntegrations(config)
+  const stop = resolve(base, raw.stopFile || '.adng.stop'), stops = [stop, ...integrations.map(i => i.stop)]
+  // A project action must not pause another project through a shared flag.
+  for (const dir of [base, join(base, 'integrations')]) if (exists(dir)) {
+    for (const name of fs.readdirSync(dir).filter(n => n.endsWith('.json') && !n.endsWith('.example.json'))) {
+      const file = join(dir, name), other = readJson(file)
+      if (samePath(file, config) || integrations.some(i => samePath(i.originalConfig, file)) || !other.dataDir || (!other.projectPath && !other.sourceConfig)) continue
+      const otherStop = resolve(dir, other.stopFile || (other.sourceConfig ? join(other.dataDir, '.adng.stop') : '.adng.stop'))
+      if (stops.some(s => samePath(s, otherStop))) throw new Error('Shared pause flag; configure a project-specific stopFile before handoff')
+    }
+  }
+  const inputs = [config, ...integrations.map(i => i.originalConfig)].map(path => [path, fs.readFileSync(path, 'utf8')])
+  const { withPauseGate } = await import('../dist/supervisor/pause-gate.js')
+  for (const file of stops) fs.mkdirSync(dirname(file), { recursive: true })
+  withPauseGate(stops, () => {
+    if (inputs.some(([path, text]) => fs.readFileSync(path, 'utf8') !== text)) throw new Error('Configuration changed before pause')
+    for (const file of stops) if (!exists(file)) { fs.mkdirSync(dirname(file), { recursive: true }); fs.writeFileSync(file, 'Operator requested project handoff; existing attempts and artifacts preserved.\n', { flag: 'wx' }) }
+  })
+  return handoffStatus(config)
+}
 export function switchRuntime(home, runtime) {
   const h = loadHost(home)
   assertQuiescent(h.config)
@@ -155,10 +215,11 @@ export async function runHost(home, role) {
 async function main() {
   const { values: v, positionals } = parseArgs({ allowPositionals: true, options: { home: { type: 'string' }, project: { type: 'string' }, runtime: { type: 'string' }, config: { type: 'string' }, out: { type: 'string' }, from: { type: 'string' }, live: { type: 'boolean' }, role: { type: 'string' }, help: { type: 'boolean' } } })
   const action = positionals[0]
-  if (v.help || !action) { console.log('host: init --home NEW --project GIT | doctor|health --home DIR [--live] | backup --config FILE --out NEW | restore --from SNAPSHOT --home NEW | switch --home DIR --runtime RELEASE | rollback --home DIR | run --home DIR --role worker|bot'); return }
+  if (v.help || !action) { console.log('host: init --home NEW --project GIT | doctor|health --home DIR [--live] | handoff|pause --config FILE | backup --config FILE --out NEW | restore --from SNAPSHOT --home NEW | switch --home DIR --runtime RELEASE | rollback --home DIR | run --home DIR --role worker|bot'); return }
   const need = key => { if (!v[key]) throw new Error(`--${key} required`); return v[key] }
   let result
   if (action === 'init') result = initHost(need('home'), need('project'), v.runtime)
+  else if (action === 'handoff' || action === 'pause') { result = action === 'pause' ? await pauseForHandoff(need('config')) : handoffStatus(need('config')); if (!result.readyForBackup) process.exitCode = 2 }
   else if (action === 'doctor') { result = await doctor(need('home'), v.live); if (!result.ok) process.exitCode = 2 }
   else if (action === 'health') { result = await health(need('home')); if (v.out) writeJson(resolve(v.out), result); if (!result.ok) process.exitCode = 2 }
   else if (action === 'switch') result = switchRuntime(need('home'), need('runtime'))

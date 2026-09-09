@@ -2,6 +2,7 @@
   "projectPath": "..",
   "backlogFile": "../data/autodev-self/BACKLOG.md",
   "dataDir": "../data/autodev-self",
+  "stopFile": "../data/autodev-self/.adng.stop",
   "goalFile": "../data/autodev-self/GOAL.md",
   "maxAttempts": 3,
   "alternativeRetry": true,

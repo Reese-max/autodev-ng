@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { join, resolve, dirname, relative } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import Database from 'better-sqlite3'
-import { assertQuiescent, assertIdleData, command, initHost, inside, readJson, writeJson, exists } from './host.mjs'
+import { assertQuiescent, assertIdleData, command, initHost, inside, readJson, writeJson, exists, matchingIntegrations } from './host.mjs'
 
 const hash = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex')
 function assertNoInlineSecrets(value) {
@@ -12,7 +12,7 @@ function assertNoInlineSecrets(value) {
     assertNoInlineSecrets(v)
   }
 }
-const excluded = name => name === 'node_modules' || name === 'pid.json' || name.endsWith('.pid') || name.endsWith('.lock') || name.endsWith('.lockdir') || name.endsWith('-wal') || name.endsWith('-shm') || name === 'heartbeat.json' || name === 'auth.json' || /^\.env($|\.)/.test(name) || /^(credentials|cookies|tokens)(\.|$)/i.test(name)
+const excluded = name => name === 'node_modules' || name === 'pid.json' || name.endsWith('.pid') || name.endsWith('.lock') || name.endsWith('.lockdir') || name.endsWith('-wal') || name.endsWith('-shm') || name === 'heartbeat.json' || name === 'auth.json' || name === 'web-console.token' || /^\.env($|\.)/.test(name) || /^(credentials|cookies|tokens)(\.|$)/i.test(name)
 async function copyTree(src, dst, excludedFiles) {
   const stat = fs.lstatSync(src)
   if (stat.isSymbolicLink()) throw new Error('Backup does not follow links')
@@ -53,16 +53,12 @@ export async function backupState(config, out) {
   if ([source.data, source.project].some(p => inside(p, out))) throw new Error('Backup must be outside source data and project')
   const worktrees = command('git', ['worktree', 'list', '--porcelain'], source.project).split('\n').filter(l => l.startsWith('worktree ')).map(l => l.slice(9))
   for (const worktree of worktrees) if (command('git', ['status', '--porcelain'], worktree)) throw new Error('Commit or preserve dirty worktrees before backup')
-  const integrationsDir = join(source.base, 'integrations'), integrations = []
-  if (exists(integrationsDir)) for (const name of fs.readdirSync(integrationsDir).filter(n => n.endsWith('.json') && !n.endsWith('.example.json'))) {
-    const file = join(integrationsDir, name), cfg = readJson(file)
-    if (!cfg.sourceConfig || resolve(integrationsDir, cfg.sourceConfig) !== config) continue
-    assertNoInlineSecrets(cfg)
-    const data = resolve(integrationsDir, cfg.dataDir), stop = cfg.stopFile ? resolve(integrationsDir, cfg.stopFile) : join(data, '.adng.stop')
-    if (!exists(stop)) throw new Error('Pause every matching GitHub integration before backup')
+  const integrations = matchingIntegrations(config)
+  for (const i of integrations) {
+    assertNoInlineSecrets(i.cfg)
+    if (!exists(i.stop)) throw new Error('Pause every matching GitHub integration before backup')
     // Use the same PID checks without touching the original integration config.
-    assertIdleData(data)
-    integrations.push({ name, cfg, data, stop, originalConfig: file })
+    assertIdleData(i.data)
   }
   const temp = `${out}.partial-${randomUUID()}`
   fs.mkdirSync(temp, { recursive: true })
