@@ -22,6 +22,10 @@ export type PullRequest = z.infer<typeof PrSchema>
 function makeGithubClient(cfg: GithubConfig) {
   const root = `repos/${cfg.repo}`
   return {
+    async inspectPr(number: number) {
+      return PrSchema.extend({ merged: z.boolean(), merge_commit_sha: z.string().regex(/^[a-f0-9]{40,64}$/).nullable() })
+        .parse(api(`${root}/pulls/${number}`))
+    },
     async feedback(branch: string) {
       const result = JSON.parse(command('gh', ['pr', 'view', branch, '--repo', cfg.repo, '--json', 'number,url,state,headRefOid,baseRefName,statusCheckRollup']))
       const data = z.object({ number: z.number().int().positive(), url: z.string().url(), state: z.enum(['OPEN', 'CLOSED', 'MERGED']), headRefOid: z.string().regex(/^[a-f0-9]{40,64}$/), baseRefName: z.string(),
@@ -69,5 +73,5 @@ function makeGithubClient(cfg: GithubConfig) {
     },
   }
 }
-export type GithubClient = Omit<ReturnType<typeof makeGithubClient>, 'feedback'> & Partial<Pick<ReturnType<typeof makeGithubClient>, 'feedback'>>
+export type GithubClient = Omit<ReturnType<typeof makeGithubClient>, 'feedback' | 'inspectPr'> & Partial<Pick<ReturnType<typeof makeGithubClient>, 'feedback' | 'inspectPr'>>
 export function githubClient(cfg: GithubConfig): GithubClient { return makeGithubClient(cfg) }

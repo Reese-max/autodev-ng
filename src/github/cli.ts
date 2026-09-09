@@ -24,6 +24,7 @@ export const GITHUB_HELP = [
   '  owner-status 顯示 owner repositories 狀態',
   '',
   '  doctor [--live]、retry/resume --issue N --reason TEXT：診斷與恢復',
+  '  reconcile --issue N [--apply --reason TEXT]：對帳；預設唯讀，套用僅結束過期的本機佇列',
   '  delivery、metrics、accept --issue N --commit SHA --reason EVIDENCE：交付與驗收',
   '  report/report-collect/report-status、repair/repair-status/repair-batch：通報與修復',
   '  proposal-review/proposal-status/proposal-feedback：提案審查',
@@ -42,6 +43,9 @@ export async function githubCli(argv: string[]): Promise<void> {
     return
   }
   const [mode, flag, file, ...extra] = argv
+  if (mode === 'reconcile' || mode === 'repair-reconcile') {
+    await (await import('./reconcile.js')).reconciliationCli(argv.slice(1)); return
+  }
   if (['proposal-review', 'proposal-status', 'proposal-feedback'].includes(mode ?? '')) {
     await (await import('./proposals.js')).proposalCli(mode!, argv.slice(1)); return
   }
