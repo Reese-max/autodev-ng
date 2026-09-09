@@ -33,6 +33,13 @@ test('JSONL 正常流＋有新 commit → ok、premiumRequests/codeChanges 記�
   expect(r.costUnknown).toBe(true) // scheduler 依 config costPerRunUsd 入帳，此 0 只是佔位
 })
 
+test('current SDK data.content is retained with the flat result event', async () => {
+  const r = await engine('sdk', ['aaa', 'bbb']).run({ task: T, projectPath: process.cwd() })
+  expect(r.ok).toBe(true)
+  expect(r.output).toContain('SDK task completed')
+  expect(r.output).toContain('premiumRequests=1')
+})
+
 test('JSONL 毒行容錯（專屬，Task 3 LOW-1 教訓）：非 JSON/截斷殘行/空白行混雜 → 照樣解析 result、ok', async () => {
   const e = engine('poison', ['aaa', 'bbb'])
   const r = await e.run({ task: T, projectPath: process.cwd() })

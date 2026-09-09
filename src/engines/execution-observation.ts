@@ -60,8 +60,8 @@ export function requestExecutionCancel(dataDir: string, id: string): void {
   })
 }
 
-const PROGRESS_EVENTS = new Set(['item.completed:command_execution', 'item.completed:file_change', 'item.completed:mcp_tool_call', 'tool_result', 'tool_execution_complete', 'step_finish'])
-const ACTIVITY_EVENTS = new Set(['thread.started', 'turn.started', 'turn.completed', 'turn.failed', 'item.started', 'item.completed', 'tool_use', 'tool_result', 'tool_execution_start', 'tool_execution_complete', 'step_start', 'step_finish', 'permission_request', 'user_input_request'])
+const PROGRESS_EVENTS = new Set(['item.completed:command_execution', 'item.completed:file_change', 'item.completed:mcp_tool_call', 'tool_result', 'tool_execution_complete', 'tool.execution_complete', 'step_finish'])
+const ACTIVITY_EVENTS = new Set(['thread.started', 'turn.started', 'turn.completed', 'turn.failed', 'item.started', 'item.completed', 'tool_use', 'tool_result', 'tool_execution_start', 'tool_execution_complete', 'tool.execution_start', 'tool.execution_complete', 'assistant.turn_start', 'assistant.turn_end', 'step_start', 'step_finish', 'permission_request', 'user_input_request'])
 
 export function createExecutionObservation(args: { dataDir: string; job: Job; adapter: string; supervised?: boolean; intervalMs?: number }) {
   const id = args.job.executionId

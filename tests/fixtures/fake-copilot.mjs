@@ -10,6 +10,12 @@ function main() {
   if (mode === 'fail') { process.stderr.write('error: copilot quota exhausted (simulated)\n'); process.exitCode = 1; return }
   if (mode === 'empty') { return } // silent-fail 形貌 1：exit 0 零輸出
   const emit = obj => process.stdout.write(JSON.stringify(obj) + '\n')
+  if (mode === 'sdk') {
+    emit(null)
+    emit({ type: 'assistant.message', data: { content: 'SDK task completed' } })
+    emit({ type: 'result', exitCode: 0, usage: { premiumRequests: 1 } })
+    return
+  }
   emit({ type: 'session.started', sessionId: 's-fake' })
   if (mode === 'no-result') { // silent-fail 形貌 2：有事件但無 result 尾事件
     emit({ type: 'assistant.message', text: 'working...' })

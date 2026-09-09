@@ -119,6 +119,14 @@ function inlineEngine(script: string, opts: { env?: Record<string, string>; mode
   })
 }
 
+test('nonzero exit retains API errors emitted only in stdout JSON', async () => {
+  const e = inlineEngine('process.stdin.resume(); process.stdin.on("end", () => { console.log(JSON.stringify({is_error:true,result:"ConnectionRefused"})); process.exitCode=1 })')
+  const r = await e.run({ task: T, projectPath: process.cwd() })
+  expect(r.ok).toBe(false)
+  expect(r.failureReason).toContain('ConnectionRefused')
+  expect(r.costUnknown).toBe(true)
+})
+
 test('M5：opts.env 透傳到 CLI 子進程（值只進子進程環境，不經 argv/log）', async () => {
   const script = 'process.stdin.resume(); process.stdin.on("end", () => console.log(JSON.stringify({ total_cost_usd: 0.01, envSeen: process.env.ADNG_FAKE_TOKEN ?? "(unset)" })))'
   const e = inlineEngine(script, { env: { ADNG_FAKE_TOKEN: 'sk-fake-not-a-real-key' } })

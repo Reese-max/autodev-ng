@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
-import { resolve } from 'node:path'
+import { statSync } from 'node:fs'
+import { extname, resolve } from 'node:path'
 import { observeRun, type RunControl } from './run-control.js'
 
 export interface ProcResult {
@@ -77,8 +78,8 @@ export function runProcess(opts: {
   }
   return new Promise(resolve => {
     const t0 = Date.now()
-    const { cmd, args } = resolveSpawnTarget(opts.command, opts.args)
     const baseEnv = opts.replaceEnv ? (opts.env ?? {}) : { ...process.env, ...opts.env }
+    const { cmd, args } = resolveSpawnTarget(opts.command, opts.args, opts.cwd, baseEnv)
     const childEnv = withGitSafeDirectory(baseEnv, opts.cwd)
     const child = spawn(cmd, args, {
       cwd: opts.cwd,
@@ -209,10 +210,16 @@ export function runProcess(opts: {
   })
 }
 
-/** win32 對 bare-name（非 .exe 結尾，如 npm .cmd shim）spawn(shell:false) 必 ENOENT；
- *  改經 cmd.exe /c 執行以命中 PATHEXT 解析。.exe 結尾（如 process.execPath）維持直接 spawn。 */
-function resolveSpawnTarget(command: string, args: string[]): { cmd: string; args: string[] } {
+/** 依子程序的 PATH/PATHEXT 找到原生執行檔，避免 cmd.exe 截斷多行 argv。 */
+function resolveSpawnTarget(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): { cmd: string; args: string[] } {
   if (process.platform === 'win32' && !/\.exe$/i.test(command)) {
+    const dirs = /[\\/]/.test(command) ? [cwd] : [cwd, ...(env.PATH ?? env.Path ?? '').split(';')]
+    const extensions = extname(command) ? [''] : (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';')
+    const target = dirs.flatMap(dir => extensions.map(ext => resolve(dir.replace(/^"|"$/g, ''), command + ext)))
+      .find(file => statSync(file, { throwIfNoEntry: false })?.isFile())
+    if (target && /\.(exe|com)$/i.test(target)) return { cmd: target, args }
+    // ponytail: batch shims cannot carry multiline argv; use stdin or a native executable for those calls.
+    if (args.some(arg => /[\r\n]/.test(arg))) throw new Error('Windows batch command cannot preserve multiline arguments; use stdin or a native executable')
     return { cmd: 'cmd.exe', args: ['/c', command, ...args] }
   }
   return { cmd: command, args }

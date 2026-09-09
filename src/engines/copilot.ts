@@ -130,15 +130,17 @@ function parseJsonl(stdout: string): ParsedJsonl {
     if (line.trim() === '' || line.length > LINE_MAX) continue
     let obj: Record<string, unknown>
     try { obj = JSON.parse(line) as Record<string, unknown> } catch { continue }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) continue
+    const data = typeof obj.data === 'object' && obj.data !== null ? obj.data as Record<string, unknown> : obj
     if (obj.type === 'result') {
-      const u = (typeof obj.usage === 'object' && obj.usage !== null ? obj.usage : {}) as Record<string, unknown>
+      const u = (typeof data.usage === 'object' && data.usage !== null ? data.usage : {}) as Record<string, unknown>
       out.result = {
-        exitCode: typeof obj.exitCode === 'number' ? obj.exitCode : undefined,
+        exitCode: typeof data.exitCode === 'number' ? data.exitCode : undefined,
         premiumRequests: typeof u.premiumRequests === 'number' ? u.premiumRequests : undefined,
         codeChanges: (typeof u.codeChanges === 'object' && u.codeChanges !== null ? u.codeChanges : undefined) as CopilotResult['codeChanges']
       }
     } else if (obj.type === 'assistant.message') {
-      const t = obj.text ?? obj.content
+      const t = data.text ?? data.content
       if (typeof t === 'string' && t.trim() !== '') out.message = t
     }
   }

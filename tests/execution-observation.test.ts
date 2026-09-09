@@ -56,6 +56,18 @@ test('manual cancel is bound to execution and host identity, and keeps an unconf
   expect(readExecutions(f.root).records[0]).toMatchObject({ phase: 'unknown', outcome: 'unconfirmed', cancelRequested: true })
   expect(() => requestExecutionCancel(f.root, '../outside')).toThrow()
 })
+
+test('Copilot SDK tool completion is progress, and replay is not new progress', () => {
+  vi.useFakeTimers()
+  const f = fixture(), text = JSON.stringify({ type: 'tool.execution_complete', id: 'event-one', data: { success: true } }) + '\n'
+  f.observer.control.onEvent!({ type: 'output', stream: 'stdout', text })
+  const progress = f.observer.snapshot().lastProgressAt
+  expect(progress).toBeTypeOf('number')
+  vi.advanceTimersByTime(1000)
+  f.observer.control.onEvent!({ type: 'output', stream: 'stdout', text })
+  expect(f.observer.snapshot().lastProgressAt).toBe(progress)
+  f.observer.finish('completed')
+})
 test('observer write failure leaves the previous active receipt; no worker cancellation', () => {
   const f = fixture()
   mkdirSync(`${f.file}.tmp`)

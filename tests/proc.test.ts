@@ -39,6 +39,16 @@ test('ok：stdin 進、stdout 出、exit 0', async () => {
   expect(r.stdout).toContain('done: hello')
 })
 
+test('bare native command preserves multiline argv and shell metacharacters', async () => {
+  const value = 'first line\n最後一行 "quoted" & echo unexpected | %PATH%'
+  const r = await runProcess({ command: 'node', args: ['-e', 'console.log(JSON.stringify(process.argv.slice(1)))', value],
+    cwd: process.cwd(), stdinText: '', timeoutMs: 10_000 })
+  expect(r.exitCode).toBe(0)
+  expect(JSON.parse(r.stdout)).toEqual([value])
+  if (process.platform === 'win32') await expect(runProcess({ command: 'missing-shim.cmd', args: [value],
+    cwd: process.cwd(), stdinText: '', timeoutMs: 10_000 })).rejects.toThrow('cannot preserve multiline')
+})
+
 test('fail：非零 exit、stderr 不被吞', async () => {
   process.env.FAKE_MODE = 'fail'
   const r = await runProcess({ ...base, stdinText: 'x' })

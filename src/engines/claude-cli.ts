@@ -94,9 +94,11 @@ export class ClaudeCliEngine implements Engine {
     if (r.aborted || job.control?.signal?.aborted) return cancelledRun(r.stderr)
     if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
+      const error = parseResultJson(r.stdout)?.result
+      const detail = typeof error === 'string' ? error : r.stderr
       return {
-        ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true,
-        failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}`
+        ok: false, output: tail(detail), costUsd: 0, costUnknown: true,
+        failureReason: `exit ${r.exitCode}: ${detail.slice(0, 200)}`
       }
     }
 
