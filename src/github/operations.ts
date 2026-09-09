@@ -152,7 +152,8 @@ export function repairMetrics(cfg: GithubConfig) {
   const paused = !cfg.enabled || existsSync(githubStopFile(cfg))
   const failed = (s: Pick<IssueState, 'status' | 'runs' | 'detail'>) => s.runs > 0 && ['queued', 'blocked'].includes(s.status) && s.detail === 'failed'
   const failures = rows.map(s => {
-    const runs = new Set((s.history ?? []).filter(e => e.runs > 0 && ['queued', 'blocked'].includes(e.status) && !e.detail?.startsWith('Recovery:')).map(e => e.runs))
+    const runs = new Set((s.history ?? []).filter((e, i, history) => e.runs > 0 && ['queued', 'blocked'].includes(e.status)
+      && !e.detail?.startsWith('Recovery:') && (e.detail === 'failed' || (history[i - 1]?.status === 'running' && history[i - 1]?.runs === e.runs))).map(e => e.runs))
     if (failed(s)) runs.add(s.runs) // A legacy snapshot is evidence of this failure, not every earlier attempt.
     return runs.size
   })

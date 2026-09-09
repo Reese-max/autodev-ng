@@ -7,15 +7,15 @@ import { ReportConfigSchema } from '../src/github/report-config.js'
 import { readReportState, reportBody, saveReportState } from '../src/github/report.js'
 import { eligibleForRun, prepareRepair, reviewRepair } from '../src/github/repair.js'
 import { command, type GithubClient } from '../src/github/client.js'
-import { assertPublishable, git, runtimeConfig } from '../src/github/job.js'
-import { runGithub } from '../src/github/runner.js'
+import { assertPublishable, checkoutDir, git, runtimeConfig } from '../src/github/job.js'
+import { publishIssue, runGithub } from '../src/github/runner.js'
 import { branchFor, fingerprint, readState, saveState, type IssueState } from '../src/github/state.js'
 import { observeProject, reportFingerprint } from '../src/autopilot/report-research.js'
 import * as proc from '../src/engines/proc.js'
 import { githubCli } from '../src/github/cli.js'
 import * as github from '../src/github/client.js'
 import * as runner from '../src/github/runner.js'
-import { delivery, recoverIssue, repairDoctor } from '../src/github/operations.js'
+import { delivery, recoverIssue, repairDoctor, repairMetrics } from '../src/github/operations.js'
 import * as incident from '../src/guardian/incident.js'
 import { FreebuffEngine } from '../src/engines/freebuff.js'
 import { PreflightCache } from '../src/preflight.js'
@@ -159,6 +159,57 @@ test.each(['codex', 'freebuff'])('%s: real Git/scheduler repairs red to green wi
   writeFileSync(receipt, JSON.stringify(changed))
   expect(() => assertPublishable(f.cfg, state)).toThrow('Missing original probe pass')
 }, 30_000)
+
+test('report repair follow-up preserves the original fix, proves a new regression and updates the same PR within its lifetime cap', async () => {
+  const f = await setup(), realRun = proc.runProcess
+  f.cfg.publish = true; f.cfg.followup = true; f.cfg.maxRuns = 2
+  f.cfg.acceptance = { command: 'node', args: ['check.cjs'] }
+  let writes = 0, remoteHead = '', feedback = '', created = false
+  const pr = () => ({ number: 5, html_url: 'https://github.com/owner/project/pull/5', head: { sha: remoteHead, ref: branchFor(4) }, base: { ref: f.cfg.base }, state: 'open' as const })
+  f.client.findPr = async () => created ? pr() : undefined
+  f.client.createPr = vi.fn(async () => { created = true; return pr() })
+  f.client.feedback = async () => ({ number: 5, url: pr().html_url, base: f.cfg.base, head: remoteHead, state: 'open', checks: feedback ? 'fail' : 'pass', feedback })
+  const publish: typeof publishIssue = (cfg, state, client, check, _push, active) => publishIssue(cfg, state, client, check,
+    () => remoteHead = state.commit!, active)
+  vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network forbidden'))
+  vi.spyOn(proc, 'runProcess').mockImplementation(async opts => {
+    if (opts.command !== 'codex') return realRun(opts)
+    const review = opts.args.includes('--output-schema'), ping = opts.stdinText.includes('exactly: PONG')
+    if (review) {
+      const judge = Boolean(JSON.parse(readFileSync(opts.args[opts.args.indexOf('--output-schema') + 1]!, 'utf8')).properties?.text)
+      writeFileSync(opts.args[opts.args.indexOf('--output-last-message') + 1]!, JSON.stringify(judge ? { text: 'MATCH' } : { approved: true, rationale: 'The bounded change fixes the requested addition behavior.' }))
+    } else if (!ping) {
+      writes++
+      writeFileSync(join(opts.cwd, 'add.cjs'), writes === 1 ? 'module.exports = (a, b) => a < 0 ? b : a + b\n' : 'module.exports = (a, b) => a + b\n')
+      mkdirSync(join(opts.cwd, 'tests/regressions'), { recursive: true })
+      writeFileSync(join(opts.cwd, `tests/regressions/github-4${writes === 1 ? '' : '-r1'}.test.cjs`),
+        `require('node:test')('addition', () => require('node:assert/strict').equal(require('../../add.cjs')(${writes === 1 ? '2, 3), 5' : '-2, 3), 1'}))\n`)
+    }
+    return { stdout: JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: ping ? 'PONG' : 'Repaired addition.' } }) + '\n' + JSON.stringify({ type: 'turn.completed' }), stderr: '', exitCode: 0, timedOut: false, durationMs: 1 }
+  })
+  const options = { client: f.client, publish }
+  expect(await runGithub(f.cfg, options), readState(f.cfg, 4)?.detail).toBe('4: published')
+  const first = readState(f.cfg, 4)!, firstProbe = readFileSync(join(f.dir, 'issue-4', `repair-probe-${first.commit}.json`), 'utf8')
+  feedback = 'Negative addition must return the sum: -2 + 3 is 1.'
+  expect(await runGithub(f.cfg, options)).toBe('idle')
+  const queued = readState(f.cfg, 4)!
+  expect(queued.status).toBe('queued'); expect(queued.revision?.baseCommit).toBe(first.commit)
+  expect(repairMetrics(f.cfg).recordedFailedAttempts).toBe(0)
+  queued.nextRunAt = 0; saveState(f.cfg, queued)
+  expect(await runGithub(f.cfg, options), readState(f.cfg, 4)?.detail).toBe('4: published')
+  const second = readState(f.cfg, 4)!
+  assertPublishable(f.cfg, second)
+  expect(second.runs).toBe(2); expect(second.pr).toBe(first.pr); expect(second.commit).not.toBe(first.commit)
+  expect(f.client.createPr).toHaveBeenCalledTimes(1); expect(writes).toBe(2)
+  expect(readFileSync(join(f.dir, 'issue-4', `repair-probe-${first.commit}.json`), 'utf8')).toBe(firstProbe)
+  expect(delivery(f.cfg, second).projectAcceptance).toBe('passed for candidate')
+  feedback = 'Another requested change must wait for human review.'
+  expect(await runGithub(f.cfg, options)).toBe('idle')
+  expect(readState(f.cfg, 4)?.detail).toContain('attempt limit'); expect(writes).toBe(2)
+  expect(repairMetrics(f.cfg)).toMatchObject({ failedAttempts: 0, recordedFailedAttempts: 0 })
+  writeFileSync(join(checkoutDir(f.cfg, second), 'add.cjs'), 'module.exports = () => 0\n')
+  await expect(prepareRepair(f.cfg, second, checkoutDir(f.cfg, second), 10_000)).rejects.toThrow('does not preserve')
+}, 60_000)
 
 test('recovery retains attempt counts and pause until a fresh same-policy doctor passes; dirty and changed contracts stay blocked', async () => {
   const f = await setup(), pause = join(f.dir, 'repair.pause')

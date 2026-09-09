@@ -10,6 +10,11 @@
   "engine": "codex-astra",
   "enabled": true,
   "publish": false,
+  "followup": true,
+  "acceptance": {
+    "command": "node",
+    "args": ["scripts/check-cli-journey.mjs"]
+  },
   "maxRuns": 3,
   "retryMs": 900000,
   "verifyCommand": "npm --userconfig C:/Users/Administrator/autodev-ng/configs/integrations/github-repair.npmrc ci --no-audit --no-fund && npm run build && npm test",

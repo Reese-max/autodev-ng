@@ -6,7 +6,7 @@ import { eligibleForRun } from './repair.js'
 import { branchFor, fingerprint, saveState, type IssueState } from './state.js'
 import { assertPublishable } from './job.js'
 
-// ponytail: reuse the runner lock and lifetime attempt cap; report/probe repairs remain manual after publication.
+// ponytail: reuse the runner lock and lifetime attempt cap for every revision.
 export async function observePr(cfg: GithubConfig, state: IssueState, client: GithubClient, active = () => true, check = assertPublishable): Promise<void> {
   if (!client.feedback || !state.pr || !state.commit) return
   const remote = await client.feedback(branchFor(state.issue.number))
@@ -15,7 +15,7 @@ export async function observePr(cfg: GithubConfig, state: IssueState, client: Gi
   const key = createHash('sha256').update(JSON.stringify([remote.head, remote.feedback])).digest('hex')
   state.remote = { ...remote, at: new Date().toISOString(), key }
   saveState(cfg, state)
-  if (remote.state !== 'open' || remote.checks === 'pending' || !remote.feedback || !cfg.followup || !cfg.publish || cfg.repair || state.revision?.key === key) return
+  if (remote.state !== 'open' || remote.checks === 'pending' || !remote.feedback || !cfg.followup || !cfg.publish || state.revision?.key === key) return
   if (state.runs >= cfg.maxRuns) { state.detail = 'PR follow-up attempt limit reached; human review required'; saveState(cfg, state); return }
   const issue = await client.issue(state.issue.number)
   if (!active() || existsSync(githubStopFile(cfg))) return

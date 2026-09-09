@@ -6,7 +6,8 @@ import { runVerify } from '../verify.js'
 import { eligible, loadGithubConfig, type GithubConfig, type Issue } from './config.js'
 import { loadReportConfig } from './report-config.js'
 import { readReportState, reportMarker, stopped } from './report.js'
-import { fingerprint, issueDir, type IssueState } from './state.js'
+import { fingerprint, runDir, type IssueState } from './state.js'
+import { command } from './client.js'
 
 export function repairFinding(issue: Issue, cfg: GithubConfig) {
   if (!cfg.repair || cfg.template) return undefined
@@ -37,11 +38,18 @@ function contract(cfg: GithubConfig, state: IssueState) {
 export async function prepareRepair(cfg: GithubConfig, state: IssueState, cwd: string, timeoutMs: number): Promise<void> {
   const { finding, probe } = contract(cfg, state)
   const prepared = await runVerify({ command: cfg.repair!.prepareCommand, cwd, timeoutMs })
-  writeFileSync(join(issueDir(cfg, state.issue.number), `repair-prepare-${state.runs}.json`), JSON.stringify(prepared, null, 2))
+  writeFileSync(join(runDir(cfg, state), `repair-prepare-${state.runs}.json`), JSON.stringify(prepared, null, 2))
   if (prepared.status !== 'pass') throw new Error(`Repair setup failed: ${prepared.detail}`)
   contract(cfg, state)
   const first = await runReportProbe(probe, cwd), second = await runReportProbe(probe, cwd)
-  writeFileSync(join(issueDir(cfg, state.issue.number), `repair-baseline-${state.runs}.json`), JSON.stringify({ base: state.baseSha, probe, first, second }, null, 2))
+  writeFileSync(join(runDir(cfg, state), `repair-baseline-${state.runs}.json`), JSON.stringify({ base: state.baseSha, kind: state.revision ? 'prior-fix-preserved' : 'reported-failure', probe, first, second }, null, 2))
+  if (state.revision) {
+    if (command('git', ['rev-parse', 'HEAD'], cwd) !== state.revision.baseCommit
+      || ![first, second].every(r => probePasses(probe, r))
+      || first.exitCode !== second.exitCode || first.stdout !== second.stdout || first.stderr !== second.stderr)
+      throw new Error('Repair revision baseline does not preserve the previously verified fix')
+    return
+  }
   const actual = `Two identical observations: exit=${first.exitCode}\n${first.stdout}\n${first.stderr}`.trim()
   if ([first, second].some(r => r.timedOut || r.exitCode === null || probePasses(probe, r))
     || first.exitCode !== second.exitCode || first.stdout !== second.stdout || first.stderr !== second.stderr || actual !== finding.actual)
@@ -52,7 +60,7 @@ export async function verifyRepairProbe(cfg: GithubConfig, state: IssueState, cw
   const { probe } = contract(cfg, state)
   const result = await runReportProbe(probe, cwd)
   const pass = probePasses(probe, result)
-  writeFileSync(join(issueDir(cfg, state.issue.number), `repair-probe-${commit}.json`), JSON.stringify({ commit, probe, pass, result }, null, 2))
+  writeFileSync(join(runDir(cfg, state), `repair-probe-${commit}.json`), JSON.stringify({ commit, probe, pass, result }, null, 2))
   return pass
 }
 
@@ -60,7 +68,7 @@ export function assertRepairEvidence(cfg: GithubConfig, state: IssueState): void
   const { probe } = contract(cfg, state)
   const receipt = z.object({ commit: z.string(), pass: z.boolean(), probe: z.unknown(), result: z.object({
     exitCode: z.number().int().nullable(), timedOut: z.boolean(), stdout: z.string(), stderr: z.string(), durationMs: z.number().nonnegative(),
-  }) }).parse(JSON.parse(readFileSync(join(issueDir(cfg, state.issue.number), `repair-probe-${state.commit}.json`), 'utf8')))
+  }) }).parse(JSON.parse(readFileSync(join(runDir(cfg, state), `repair-probe-${state.commit}.json`), 'utf8')))
   if (receipt.commit !== state.commit || receipt.pass !== true || JSON.stringify(receipt.probe) !== JSON.stringify(probe)
     || !probePasses(probe, receipt.result)) throw new Error('Missing original probe pass for exact repair commit')
 }
