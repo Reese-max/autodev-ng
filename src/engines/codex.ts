@@ -142,7 +142,7 @@ export class CodexEngine implements Engine {
       return result
     }
 
-    if (r.aborted) return finish(cancelledRun(r.stderr))
+    if (r.aborted || job.control?.signal?.aborted) return finish(cancelledRun(r.stderr))
     if (r.timedOut) return finish({ ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' })
     if (r.exitCode !== 0) {
       return finish({

@@ -91,7 +91,7 @@ export class ClaudeCliEngine implements Engine {
     // M4 Task 3（真花錢前必修）：以下三種路徑 costUsd 記 0 只是「沒能力解出真值」的佔位，
     // 不代表真的沒花錢（CLI 進程極可能已實際呼叫並燒 token）——costUnknown:true 讓 scheduler
     // 記帳層知道該改記 cfg.failureCostEstimateUsd，而非把這個 0 當真值入帳。
-    if (r.aborted) return cancelledRun(r.stderr)
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(r.stderr)
     if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
       return {

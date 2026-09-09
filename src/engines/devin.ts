@@ -73,7 +73,7 @@ export class DevinEngine implements Engine {
         command: this.command, args: [...this.baseArgs, '--prompt-file', promptFile, '--export', exportFile],
         cwd, stdinText: '', timeoutMs, ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }), env: this.env, control
       })
-      retainFiles = !!(r.aborted || r.timedOut)
+      retainFiles = !!(r.aborted || r.timedOut || control?.signal?.aborted)
       let exp: DevinExport | undefined
       try { exp = JSON.parse(readFileSync(exportFile, 'utf8')) as DevinExport } catch { /* 未產出/損毀 → undefined，交給 silent-fail 判定 */ }
       return { r, exp }
@@ -113,7 +113,7 @@ export class DevinEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const { r, exp } = await this.runWithFiles(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs, job.control)
 
-    if (r.aborted) return cancelledRun(tailErr(r))
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(tailErr(r))
     if (r.timedOut) return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
       return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}` }

@@ -104,7 +104,7 @@ export class HerdrEngine implements Engine {
       ],
     })
     const output = tail(`${r.stdout}\n${r.stderr}`.trim())
-    if (r.aborted) return cancelledRun(output)
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(output)
     if (r.timedOut) return { ...failure('timeout', output), recoveryRequired: true }
     if (r.exitCode !== 0) return { ...failure(`herdr-blocked：exit ${r.exitCode} ${tail(r.stderr, 300)}`, output), recoveryRequired: true }
     if (!r.stdout.includes('AUTOPILOT_WAIT_OK')) return { ...failure('silent-fail：缺少 AUTOPILOT_WAIT_OK', output), recoveryRequired: true }

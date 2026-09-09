@@ -155,6 +155,7 @@ export function createExecutionObservation(args: { dataDir: string; job: Job; ad
     get recoveryRequired() { return state.degraded || state.cancelRequested || signal.aborted || (!!state.exit && state.exit.reason !== 'exit') },
     finish(outcome: 'completed' | 'failed' | 'unconfirmed') {
       clearInterval(timer); finished = true; state.observedAt = Date.now(); state.sequence++
+      state.cancelRequested ||= signal.aborted
       state.outcome = this.recoveryRequired ? 'unconfirmed' : outcome
       state.phase = state.outcome === 'unconfirmed' ? 'unknown' : 'terminal'; persist()
     },

@@ -26,9 +26,9 @@ const adapters = ['claude-cli', 'codex', 'agy', 'copilot', 'qwen', 'grok', 'open
 test('control contract covers every real schema adapter', () => {
   expect([...adapters].sort()).toEqual(EngineConfigSchema.shape.adapter.options.filter(a => a !== 'mock').sort())
 })
-test.each(adapters)('%s forwards cancel and keeps an uncertain result out of completion', async adapter => {
+test.each(adapters.flatMap(adapter => (['spawn', 'exit'] as const).map(at => [adapter, at] as const)))('%s cancellation at %s keeps an uncertain result out of completion', async (adapter, at) => {
   const root = mkdtempSync(join(tmpdir(), 'adng-control-')); roots.push(root)
-  const fake = join(root, 'hang.cjs'); writeFileSync(fake, 'process.stdin.resume(); setInterval(() => {}, 1000)\n')
+  const fake = join(root, 'hang.cjs'); writeFileSync(fake, at === 'spawn' ? 'process.stdin.resume(); setInterval(() => {}, 1000)\n' : 'process.stdin.resume()\n')
   const getCommitHash = vi.fn(() => 'abc123'), commitChanges = vi.fn(() => 'forbidden')
   const opts = { command: process.execPath, baseArgs: [fake], cache: new PreflightCache(join(root, 'cache.json')), timeoutMs: 2000, getCommitHash }
   let engine: Engine
@@ -36,7 +36,7 @@ test.each(adapters)('%s forwards cancel and keeps an uncertain result out of com
     case 'claude-cli': engine = new ClaudeCliEngine(opts); break
     case 'codex': engine = new CodexEngine({ ...opts, homeDir: join(root, 'codex'), useUserLogin: false, commitChanges }); break
     case 'agy':
-      vi.stubEnv('FAKE_MODE', 'hang'); vi.stubEnv('FAKE_WSL_LOG', '')
+      vi.stubEnv('FAKE_MODE', at === 'spawn' ? 'hang' : 'ok'); vi.stubEnv('FAKE_WSL_LOG', '')
       engine = new AgyEngine({ ...opts, argvPrefix: [join(fixtures, 'fake-wsl.mjs')] }); break
     case 'copilot': engine = new CopilotEngine(opts); break
     case 'qwen': engine = new QwenEngine(opts); break
@@ -49,19 +49,19 @@ test.each(adapters)('%s forwards cancel and keeps an uncertain result out of com
         expect(options.args).toContain('-RequestId')
         return runProcess({ ...options, command: process.execPath, args: [fake] })
       } }); break
-    case 'freebuff': engine = new FreebuffEngine({ ...opts, baseArgs: [join(fixtures, 'fake-freebuff.mjs'), 'hang'], lockDir: join(root, 'session.lock') }); break
+    case 'freebuff': engine = new FreebuffEngine({ ...opts, baseArgs: [join(fixtures, 'fake-freebuff.mjs'), at === 'spawn' ? 'hang' : 'ok'], lockDir: join(root, 'session.lock') }); break
   }
   const controller = new AbortController(), events: RunEvent[] = []
   const task: Task = { id: 'ab12cd34', text: 'cancel fixture', status: 'open', line: 0 }
   const job = { task, projectPath: root, executionId: 'control-test', control: {
-    signal: controller.signal, onEvent: event => { events.push(event); if (event.type === 'spawn') controller.abort() },
+    signal: controller.signal, onEvent: event => { events.push(event); if (event.type === at) controller.abort() },
   } } satisfies import('../src/types.js').Job
   const observation = createExecutionObservation({ dataDir: root, adapter, job })
   const result = await engine.run({ ...job, control: observation.control })
   observation.finish('failed')
   expect(result).toMatchObject({ ok: false, cancelled: true, recoveryRequired: true, costUnknown: true })
-  expect(events.map(event => event.type)).toContain('cancel-requested')
-  expect(events.at(-1)).toMatchObject({ type: 'exit', reason: 'cancelled' })
+  if (at === 'spawn') expect(events.map(event => event.type)).toContain('cancel-requested')
+  expect(events.at(-1)).toMatchObject({ type: 'exit', reason: at === 'spawn' ? 'cancelled' : 'exit' })
   expect(getCommitHash).toHaveBeenCalledTimes(1)
   expect(commitChanges).not.toHaveBeenCalled()
   expect(readExecutions(root).records).toMatchObject([{ adapter, phase: 'unknown', outcome: 'unconfirmed' }])

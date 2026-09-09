@@ -80,7 +80,7 @@ export class OpencodeEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const r = await this.exec(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs, job.control)
     const p = parseNdjson(r.stdout)
-    if (r.aborted) return cancelledRun(tailErr(r))
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(tailErr(r))
     if (r.timedOut) return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
       return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true,
@@ -110,7 +110,7 @@ export class OpencodeEngine implements Engine {
     const r = await runProcess({ command: this.command, args: this.args, cwd, stdinText, timeoutMs,
       ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }),
       env: { ...this.env, ...xdg }, control })
-    if (!r.aborted && !r.timedOut) try { rmSync(join(xdg.XDG_DATA_HOME, 'opencode', 'snapshot'), { recursive: true, force: true }) } catch { /* 盡力而為 */ }
+    if (!r.aborted && !r.timedOut && !control?.signal?.aborted) try { rmSync(join(xdg.XDG_DATA_HOME, 'opencode', 'snapshot'), { recursive: true, force: true }) } catch { /* 盡力而為 */ }
     return r
   }
 

@@ -78,7 +78,7 @@ export class CopilotEngine implements Engine {
       cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, maxOutputChars: OUTPUT_CAP, env: this.env, control: job.control
     })
 
-    if (r.aborted) return cancelledRun(r.stderr)
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(r.stderr)
     if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
       return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}` }

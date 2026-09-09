@@ -165,15 +165,15 @@ export class AgyEngine implements Engine {
           args: this.wslArgs(job.projectPath, ['--add-dir', toWslPath(job.projectPath), ...this.agyFlags(this.timeoutMs - 30_000, prompt)]),
           cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, control: job.control
         })
-        repairAllowed = !result.timedOut && !result.aborted && !/print[- ]timeout|timeout waiting for response|partial output/i.test(result.stderr)
-        if (result.timedOut || result.aborted) await this.killByMarker(marker)
+        repairAllowed = !result.timedOut && !result.aborted && !job.control?.signal?.aborted && !/print[- ]timeout|timeout waiting for response|partial output/i.test(result.stderr)
+        if (result.timedOut || result.aborted || job.control?.signal?.aborted) await this.killByMarker(marker)
         return result
       } finally {
         if (commonDir && repairAllowed) await this.repairForWindows(job.projectPath, commonDir)
       }
     })()
 
-    if (r.aborted) return cancelledRun(r.stderr || r.stdout)
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(r.stderr || r.stdout)
     if (r.timedOut) {
       return { ok: false, output: tail(r.stderr || r.stdout), costUsd: 0, costUnknown: true, failureReason: 'timeout', recoveryRequired: true }
     }

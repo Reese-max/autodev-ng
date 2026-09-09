@@ -67,7 +67,7 @@ export class GrokEngine implements Engine {
         command: this.command, args: [...this.baseArgs, '--prompt-file', file],
         cwd, stdinText: '', timeoutMs, ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }), env: this.env, control
       })
-      retainFiles = !!(result.aborted || result.timedOut)
+      retainFiles = !!(result.aborted || result.timedOut || control?.signal?.aborted)
       return result
     } finally {
       if (!retainFiles) try { rmSync(dir, { recursive: true, force: true }) } catch { /* tmp 刪失敗不反殺結果 */ }
@@ -109,7 +109,7 @@ export class GrokEngine implements Engine {
     const r = await this.runWithPromptFile(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs, job.control)
 
     // 失敗路徑才附 stderr（先濾 telemetry 雜訊）；成功路徑不附（規格卡：stderr 有例行雜訊）。
-    if (r.aborted) return cancelledRun(filterTelemetry(r.stderr))
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(filterTelemetry(r.stderr))
     if (r.timedOut) return { ok: false, output: tail(filterTelemetry(r.stderr)), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
       const err = filterTelemetry(r.stderr)

@@ -102,10 +102,10 @@ export class FreebuffEngine implements Engine {
           max_agent_steps: 20, take_over_active_session: false,
         } },
       ], job.projectPath, this.timeoutMs, job.control)
-      retainLock = !!(r.aborted || r.timedOut || r.recoveryRequired)
+      retainLock = !!(r.aborted || job.control?.signal?.aborted || r.timedOut || r.recoveryRequired)
       const text = r.texts.at(-1) ?? ''
       const output = text.length > 2000 ? `${text.split('\n')[0]}\n${tail(text)}` : text
-      if (r.aborted) return cancelledRun(`${output}\n${r.stderr}`)
+      if (r.aborted || job.control?.signal?.aborted) return cancelledRun(`${output}\n${r.stderr}`)
       if (!r.ok) return { ok: false, output: tail(`${output}\n${r.stderr}`), costUsd: 0, costUnknown: true, recoveryRequired: retainLock || undefined, failureReason: r.timedOut ? 'timeout' : `freebuff-mcp: ${tail(r.error ?? 'tool failed', 200)}` }
       if (!output.trim()) return { ok: false, output: tail(r.stderr), costUsd: 0, failureReason: 'empty-output：MCP 成功但無文字' }
       const after = this.getCommitHash(job.projectPath)

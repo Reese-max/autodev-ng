@@ -85,7 +85,7 @@ export class QwenEngine implements Engine {
       stdinText: prompt, timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, env: this.env, control: job.control
     })
 
-    if (r.aborted) return cancelledRun(r.stderr)
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(r.stderr)
     if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     const p = parseResult(r.stdout)
     const fail = (failureReason: string, output = tail(r.stdout)): RunResult => ({ ok: false, output, costUsd: 0, costUnknown: true, failureReason })
