@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process'
-import { statSync } from 'node:fs'
+import { lstatSync } from 'node:fs'
 import { extname, resolve } from 'node:path'
 import { observeRun, type RunControl } from './run-control.js'
 
@@ -216,7 +216,11 @@ function resolveSpawnTarget(command: string, args: string[], cwd: string, env: N
     const dirs = /[\\/]/.test(command) ? [cwd] : [cwd, ...(env.PATH ?? env.Path ?? '').split(';')]
     const extensions = extname(command) ? [''] : (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';')
     const target = dirs.flatMap(dir => extensions.map(ext => resolve(dir.replace(/^"|"$/g, ''), command + ext)))
-      .find(file => statSync(file, { throwIfNoEntry: false })?.isFile())
+      .find(file => {
+        const entry = lstatSync(file, { throwIfNoEntry: false })
+        // Windows App Execution Aliases launch normally but reject target stat with EACCES.
+        return entry?.isFile() || entry?.isSymbolicLink()
+      })
     if (target && /\.(exe|com)$/i.test(target)) return { cmd: target, args }
     // ponytail: batch shims cannot carry multiline argv; use stdin or a native executable for those calls.
     if (args.some(arg => /[\r\n]/.test(arg))) throw new Error('Windows batch command cannot preserve multiline arguments; use stdin or a native executable')
