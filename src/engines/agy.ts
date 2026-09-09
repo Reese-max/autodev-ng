@@ -3,6 +3,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
+import { cancelledRun } from './run-control.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -72,6 +73,7 @@ export class AgyEngine implements Engine {
     this.agyBin = opts.agyBin ?? '/usr/local/bin/agy'
     this.model = opts.model
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
+    if (this.timeoutMs === 0) throw new Error('agy zero timeout is unsupported; native unlimited sentinel is unverified')
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 120 * 1000 // WSL 跨界＋冷啟，比 claude-cli 再寬
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
     this.cache = opts.cache
@@ -153,23 +155,32 @@ export class AgyEngine implements Engine {
     }
     const before = this.getCommitHash(job.projectPath)
     const commonDir = linkedWorktreeCommonDir(job.projectPath)
+    let repairAllowed = true
     // --add-dir 必帶（真探針實證）：agy print 模式不把 cwd 當 workspace，缺它會跑去自家 scratch 自嗨。
     const r = await (async () => {
       try {
         if (commonDir) await this.repairForWsl(job.projectPath, commonDir)
-        return await runProcess({
+        const result = await runProcess({
           command: this.command,
           args: this.wslArgs(job.projectPath, ['--add-dir', toWslPath(job.projectPath), ...this.agyFlags(this.timeoutMs - 30_000, prompt)]),
-          cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs
+          cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, control: job.control
         })
+        repairAllowed = !result.timedOut && !result.aborted && !/print[- ]timeout|timeout waiting for response|partial output/i.test(result.stderr)
+        if (result.timedOut || result.aborted) await this.killByMarker(marker)
+        return result
       } finally {
-        if (commonDir) await this.repairForWindows(job.projectPath, commonDir)
+        if (commonDir && repairAllowed) await this.repairForWindows(job.projectPath, commonDir)
       }
     })()
 
+    if (r.aborted) return cancelledRun(r.stderr || r.stdout)
     if (r.timedOut) {
-      await this.killByMarker(marker) // 跨界補刀：Linux 側孤兒以 run-id 精準收屍
-      return { ok: false, output: tail(r.stderr || r.stdout), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
+      return { ok: false, output: tail(r.stderr || r.stdout), costUsd: 0, costUnknown: true, failureReason: 'timeout', recoveryRequired: true }
+    }
+    // 1.1.28 may return partial output with exit 0 when the print wait expires.
+    if (/print[- ]timeout|timeout waiting for response|partial output/i.test(r.stderr)) {
+      return { ok: false, output: tail(r.stdout), costUsd: 0, costUnknown: true,
+        failureReason: 'partial-result: agy print wait ended before completion', recoveryRequired: true }
     }
     if (r.exitCode !== 0) {
       return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}` }

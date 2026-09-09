@@ -9,6 +9,7 @@ import { runProcess, type ProcResult } from '../src/engines/proc.js'
 import type { SuperviseResult } from '../src/supervisor/supervise.js'
 import { parseArgv } from '../src/cli/entry.js'
 import type { VerifyOutcome } from '../src/verify.js'
+import { createExecutionObservation, readExecutions } from '../src/engines/execution-observation.js'
 
 function fixture(): { root: string; projectPath: string; dataDir: string; configPath: string } {
   const root = mkdtempSync(join(tmpdir(), 'adng-guardian-'))
@@ -49,6 +50,40 @@ function acceptedOptions(f: ReturnType<typeof fixture>) {
     sleepFn: vi.fn(async () => undefined),
   }
 }
+
+test.each(['healthy', 'diagnose', 'malicious', 'stale', 'timeout'] as const)('active worker Guardian is read-only, bounded and advisory: %s', async mode => {
+  const f = fixture()
+  const observation = createExecutionObservation({ dataDir: f.dataDir, adapter: 'codex', job: {
+    projectPath: f.projectPath, executionId: 'active-worker', task: { id: 'ab12cd34', text: 'keep working', line: 0, status: 'open' },
+  } })
+  if (mode !== 'healthy') for (let i = 0; i < 5; i++) observation.sample()
+  const verifyFn = vi.fn(), superviseFn = vi.fn(), reapDaemonFn = vi.fn(), notifyFn = vi.fn()
+  const runner = vi.fn(async (call: Parameters<typeof runProcess>[0]): Promise<ProcResult> => {
+    expect(call.args).toEqual(expect.arrayContaining(['default_permissions=":read-only"', '--disable', 'shell_tool', 'unified_exec', 'code_mode', 'apps', 'plugins']))
+    expect(call.args).not.toContain('default_permissions="workspace-only"')
+    expect(call.timeoutMs).toBe(120_000)
+    if (mode === 'stale') observation.control.onEvent!({ type: 'output', stream: 'stdout', text: '{"type":"step_finish"}\n' })
+    return { exitCode: 0, stderr: '', timedOut: mode === 'timeout', durationMs: 1,
+      stdout: JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({
+        status: 'needs_attention', summary: 'need backend evidence', actions: [], evidence: [], followUp: 'inspect session',
+        restartRequired: mode === 'malicious', forceRestart: mode === 'malicious',
+      }) } }) + '\n' + JSON.stringify({ type: 'turn.completed' }),
+    }
+  })
+  const options = { fleetDataDir: join(f.root, 'guardian'), runProcessFn: runner, verifyFn, superviseFn, reapDaemonFn, notifyFn }
+  try {
+    const reports = await runFleetGuardian([superviseResult(f)], options)
+    expect(verifyFn).not.toHaveBeenCalled(); expect(superviseFn).not.toHaveBeenCalled(); expect(reapDaemonFn).not.toHaveBeenCalled(); expect(notifyFn).not.toHaveBeenCalled()
+    expect(existsSync(join(f.dataDir, 'restart.request'))).toBe(false)
+    expect(readExecutions(f.dataDir).protected).toBe(true)
+    if (mode === 'healthy') { expect(runner).not.toHaveBeenCalled(); expect(reports[0]).toMatchObject({ kind: 'skipped', reason: 'healthy' }) }
+    else {
+      expect(reports[0]).toMatchObject(mode === 'diagnose' ? { kind: 'completed' } : mode === 'stale' ? { kind: 'skipped' } : { kind: 'failed' })
+      await runFleetGuardian([superviseResult(f)], options)
+      expect(runner).toHaveBeenCalledTimes(1)
+    }
+  } finally { observation.finish('unconfirmed') }
+})
 
 test('Guardian：hard-cap 或新失敗事件才呼叫固定 gpt-5.6-luna/max，並落結構化稽核', async () => {
   const f = fixture()

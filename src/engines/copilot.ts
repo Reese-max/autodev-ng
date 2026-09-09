@@ -1,5 +1,6 @@
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
+import { cancelledRun } from './run-control.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -74,9 +75,10 @@ export class CopilotEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const r = await runProcess({
       command: this.command, args: [...this.baseArgs, '-p', buildPrompt(job)],
-      cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, maxOutputChars: OUTPUT_CAP, env: this.env
+      cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, maxOutputChars: OUTPUT_CAP, env: this.env, control: job.control
     })
 
+    if (r.aborted) return cancelledRun(r.stderr)
     if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
       return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}` }

@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, statSync, renameSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, statSync, renameSync, readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
@@ -88,6 +88,9 @@ export function acquireLock(dir: string, staleMs = 30 * 60 * 1000): boolean {
     return true
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+
+    // An uncertain backend survives its local owner; elapsed time cannot release it.
+    if (existsSync(join(dir, 'recovery-required.json'))) return false
 
     // (1) pid.json 指向存活進程 → 直接讓步，不看 mtime（修「假 stale」：長任務不更新 mtime 被誤搶）。
     const owner = checkLockOwner(dir)

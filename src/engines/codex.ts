@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess, withGitSafeDirectory } from './proc.js'
+import { cancelledRun } from './run-control.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -125,7 +126,7 @@ export class CodexEngine implements Engine {
     const r = await runProcess({
       command: this.command, args: this.baseArgs, cwd: job.projectPath,
       stdinText: prompt, timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs,
-      env: this.runtimeEnv(), replaceEnv: true
+      env: this.runtimeEnv(), replaceEnv: true, control: job.control
     })
     const p = parseJsonl(r.stdout)
     const finish = (result: RunResult): RunResult => {
@@ -141,6 +142,7 @@ export class CodexEngine implements Engine {
       return result
     }
 
+    if (r.aborted) return finish(cancelledRun(r.stderr))
     if (r.timedOut) return finish({ ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' })
     if (r.exitCode !== 0) {
       return finish({

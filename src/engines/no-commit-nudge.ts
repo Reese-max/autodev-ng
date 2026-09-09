@@ -12,7 +12,7 @@ export async function nudgeNoCommit(
   getCommitHash: (cwd: string) => string | undefined = defaultCommitHash,
 ): Promise<RunResult> {
   const baseCommitHash = initial.baseCommitHash ?? fallbackBaseCommit
-  if (!initial.failureReason?.startsWith('no-commit') || getCommitHash(job.projectPath) !== baseCommitHash) return initial
+  if (initial.recoveryRequired || initial.cancelled || job.control?.signal?.aborted || !initial.failureReason?.startsWith('no-commit') || getCommitHash(job.projectPath) !== baseCommitHash) return initial
 
   let nudged: RunResult
   try {
@@ -32,6 +32,7 @@ export async function nudgeNoCommit(
   }
 
   const combined = combineRuns(initial, nudged)
+  if (nudged.recoveryRequired || nudged.cancelled) return { ...combined, ok: false, commitHash: undefined, baseCommitHash }
   const commitHash = getCommitHash(job.projectPath)
   if (!nudged.ok || !commitHash || commitHash === baseCommitHash) {
     return { ...combined, ok: false, commitHash: undefined, baseCommitHash, failureReason: `${initial.failureReason} [nudged]` }

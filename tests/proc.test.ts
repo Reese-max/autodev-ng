@@ -1,8 +1,9 @@
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { killTree, runProcess, withGitSafeDirectory } from '../src/engines/proc.js'
+import type { RunEvent } from '../src/engines/run-control.js'
 
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-cli.mjs')
 const base = { command: process.execPath, args: [FAKE], cwd: process.cwd(), timeoutMs: 10_000 }
@@ -73,6 +74,57 @@ test('timeoutMs=0：停用 wall timeout，不會立刻斬掉程序', async () =>
   expect(r.timedOut).toBe(false)
   expect(r.exitCode).toBe(0)
 })
+
+test('受監督的安靜工作只報 idle；觀測錯誤不終止工作，截斷後仍能觀測終態輸出', async () => {
+  const events: RunEvent[] = []
+  const r = await runProcess({
+    command: process.execPath, args: ['-e', 'process.stdout.write("0123456789");setTimeout(()=>console.log("終態"),500)'],
+    cwd: process.cwd(), stdinText: '', timeoutMs: 0, idleTimeoutMs: 200, maxOutputChars: 5,
+    control: { idleAction: 'report', onEvent: event => { events.push(event); if (event.type === 'idle') throw new Error('observer offline') } },
+  })
+  expect(r.exitCode).toBe(0)
+  expect(r.timedOut).toBe(false)
+  expect(events.some(e => e.type === 'idle')).toBe(true)
+  expect(events.some(e => e.type === 'output' && e.text.includes('終態'))).toBe(true)
+  expect(events.at(-1)).toMatchObject({ type: 'exit', reason: 'exit', code: 0 })
+})
+
+test('a silent real child survives three virtual hours with no wall limit, then accepts targeted cancellation', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+  let spawned!: () => void
+  const ready = new Promise<void>(resolve => { spawned = resolve })
+  const controller = new AbortController(), events: RunEvent[] = []
+  const pending = runProcess({ command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'], cwd: process.cwd(), stdinText: '', timeoutMs: 0, idleTimeoutMs: 60_000,
+    control: { signal: controller.signal, idleAction: 'report', onEvent: event => { events.push(event); if (event.type === 'spawn') spawned() } } })
+  try {
+    await ready
+    await vi.advanceTimersByTimeAsync(3 * 60 * 60_000)
+    expect(events.some(event => event.type === 'idle')).toBe(true)
+    expect(events.some(event => event.type === 'exit')).toBe(false)
+    const worker = events.find(event => event.type === 'spawn')!
+    expect(worker.type === 'spawn' && isPidAlive(worker.pid)).toBe(true)
+  } finally { vi.useRealTimers(); controller.abort() }
+  expect(await pending).toMatchObject({ aborted: true, timedOut: false })
+}, 20_000)
+
+test('取消只作用在指定子程序；預先取消不 spawn，也不算 wall timeout', async () => {
+  const already = new AbortController(); already.abort()
+  const events: RunEvent[] = []
+  const options = { command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'], cwd: process.cwd(), stdinText: '', timeoutMs: 0 }
+  const skipped = await runProcess({ ...options, control: { signal: already.signal, onEvent: e => events.push(e) } })
+  expect(skipped.aborted).toBe(true)
+  expect(events).toHaveLength(0)
+  const controller = new AbortController()
+  const r = await runProcess({ ...options, control: { signal: controller.signal, onEvent: e => {
+    events.push(e)
+    if (e.type === 'spawn') controller.abort()
+  } } })
+  expect(r.aborted).toBe(true)
+  expect(r.timedOut).toBe(false)
+  expect(events.at(-1)).toMatchObject({ type: 'exit', reason: 'cancelled' })
+  const spawned = events.find(e => e.type === 'spawn')
+  expect(spawned?.type === 'spawn' && isPidAlive(spawned.pid)).toBe(false)
+}, 20_000)
 
 test('idleTimeoutMs：無輸出進度才斬樹，不能把 wall timeout 偷加回來', async () => {
   const activity: number[] = []

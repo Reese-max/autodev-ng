@@ -60,12 +60,12 @@ export class TeamState {
       this.reapExpired(Date.now())
       const quarantined = this.db.prepare("SELECT 1 FROM team_claims WHERE task_id=? AND state='QUARANTINED' UNION ALL SELECT 1 FROM merge_queue WHERE task_id=? AND state IN ('QUARANTINED','PAUSED_READY') LIMIT 1").get(args.task.id, args.task.id)
       if (quarantined) return { ok: false, reason: 'quarantined', detail: 'previous execution expired; worktree requires manual recovery' } as const
-      const active = this.db.prepare('SELECT execution_id, task_id, manifest_json FROM team_claims WHERE active=1').all() as ActiveClaim[]
+      const active = this.db.prepare("SELECT execution_id, task_id, manifest_json FROM team_claims WHERE active=1 OR state='QUARANTINED'").all() as ActiveClaim[]
       for (const row of active) {
         const other = JSON.parse(row.manifest_json) as OwnershipManifest
         if (ownershipConflicts(manifest, other)) return { ok: false, reason: 'ownership-conflict', detail: `conflicts with ${row.task_id}` } as const
       }
-      const reserved = (this.db.prepare('SELECT COALESCE(SUM(reserved_cost_usd),0) AS n FROM team_claims WHERE active=1').get() as { n: number }).n
+      const reserved = (this.db.prepare("SELECT COALESCE(SUM(reserved_cost_usd),0) AS n FROM team_claims WHERE active=1 OR state='QUARANTINED'").get() as { n: number }).n
       if (args.dailyHardUsd > 0 && args.spentUsd + reserved + args.reservedCostUsd > args.dailyHardUsd) {
         return { ok: false, reason: 'cost-reserved', detail: `spent ${args.spentUsd} + reserved ${reserved + args.reservedCostUsd} > hard ${args.dailyHardUsd}` } as const
       }
@@ -93,6 +93,10 @@ export class TeamState {
 
   release(executionId: string, token: string): void {
     this.db.prepare("UPDATE team_claims SET active=0,state='RELEASED',updated_at=? WHERE execution_id=? AND lease_token=? AND active=1").run(new Date().toISOString(), executionId, token)
+  }
+
+  quarantine(executionId: string, token: string): void {
+    this.db.prepare("UPDATE team_claims SET state='QUARANTINED',updated_at=? WHERE execution_id=? AND lease_token=? AND active=1").run(new Date().toISOString(), executionId, token)
   }
 
   enqueue(args: { executionId: string; token: string; taskId: string; candidateHead: string; branch: string; worktreePath: string }): void {

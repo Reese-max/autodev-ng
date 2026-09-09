@@ -8,6 +8,7 @@ import { releaseLock } from '../lock.js'
 import { ConfigSchema, DEFAULT_REAP_GRACE_MS, DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
 import { classifyDaemon, hasEngineProcess, type DaemonAction } from './health.js'
 import { withPauseGate } from './pause-gate.js'
+import { readExecutions, type ExecutionInventory } from '../engines/execution-observation.js'
 
 export { DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
 export const HEARTBEAT_WATCHDOG_MS = 30 * 60_000
@@ -18,6 +19,7 @@ export type LaunchDaemon = (configPath: string, dataDir: string) => number | und
 export type ReapDaemon = (pid: number) => void
 
 export interface SuperviseOptions {
+  observeOnly?: boolean
   nowMs?: number
   staleThresholdMs?: number
   wedgeHardCapMs?: number
@@ -28,6 +30,8 @@ export interface SuperviseOptions {
 }
 
 export interface SuperviseResult {
+  observationOnly?: boolean
+  executions?: ExecutionInventory
   configPath: string
   dataDir: string
   lockPresent: boolean
@@ -61,7 +65,7 @@ function isEnoent(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'ENOENT'
 }
 
-function configDataDir(configPath: string): { dataDir: string; stopFiles: string[]; staleThresholdMs: number; wedgeHardCapMs: number; reapGraceMs?: number } {
+function configDataDir(configPath: string): { dataDir: string; stopFiles: string[]; staleThresholdMs: number; wedgeHardCapMs: number; reapGraceMs?: number; observedExecutions: boolean } {
   const absolutePath = resolve(configPath)
   const cfg = ConfigSchema.parse(JSON.parse(readFileSync(absolutePath, 'utf8')))
   const baseDir = dirname(absolutePath)
@@ -71,6 +75,7 @@ function configDataDir(configPath: string): { dataDir: string; stopFiles: string
     staleThresholdMs: cfg.staleThresholdMs,
     wedgeHardCapMs: cfg.wedgeHardCapMs,
     reapGraceMs: cfg.reapGraceMs,
+    observedExecutions: Object.values(cfg.engines).some(ec => ec.executionMode === 'observed' || ec.executionMode === 'supervised'),
   }
 }
 
@@ -352,6 +357,7 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
   }
 
   const watchdogExpired = pidProbeSucceeded && pidAlive && heartbeatAgeMs != null && heartbeatAgeMs > HEARTBEAT_WATCHDOG_MS
+  const executions = readExecutions(dataDir)
   let action: DaemonAction = watchdogExpired
     ? 'reap'
     : probeFailed
@@ -384,28 +390,32 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
     }
   }
 
+  // Observe before destructive decisions. Stale or corrupt evidence cannot grant a new writer.
+  if (executions.protected || (config.observedExecutions && (action === 'reap' || (lockPresent && executions.records.length === 0)))) action = 'keep'
+  const executionProtected = () => readExecutions(dataDir).protected
+  const interventionsBlocked = () => isPaused() || executionProtected()
   let paused = isPaused()
   if (paused) action = 'keep'
 
   let launchedPid: number | undefined
   let daemonReaped = false
-  if (action !== 'keep') {
+  if (action !== 'keep' && !options.observeOnly) {
     const launch = options.launch ?? ((cfgPath, dir) => {
       const cliPath = options.cliPath ?? process.argv[1]
       if (!cliPath) throw new Error('無法判定 CLI 路徑')
-      return launchDaemon(cfgPath, dir, cliPath, isPaused)
+      return launchDaemon(cfgPath, dir, cliPath, interventionsBlocked)
     })
     if (action === 'reap') {
       if (pid === null) throw new Error('reap 決策缺少 PID')
       const reaped = withPauseGate(config.stopFiles, () => {
-        if (isPaused()) return false
+        if (interventionsBlocked()) return false
         if (options.reap) { options.reap(pid); return true }
-        return reapDaemonTree(pid, runCommand, isPaused)
+        return reapDaemonTree(pid, runCommand, interventionsBlocked)
       })
       daemonReaped = reaped
       if (!reaped || isPaused()) { paused = true; action = 'keep' }
     }
-    if (pid !== null && (daemonReaped || !paused)) {
+    if (pid !== null && (daemonReaped || !paused) && !executionProtected()) {
       releaseLock(join(dataDir, 'daemon.lock'))
     }
     if (daemonReaped && watchdogExpired && heartbeatAgeMs != null) {
@@ -418,7 +428,7 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
       }
     }
     if (!paused && isPaused()) { paused = true; action = 'keep' }
-    if (!paused) launchedPid = withPauseGate(config.stopFiles, () => isPaused() ? undefined : launch(absolutePath, dataDir))
+    if (!paused) launchedPid = withPauseGate(config.stopFiles, () => interventionsBlocked() ? undefined : launch(absolutePath, dataDir))
     if (launchedPid === undefined && isPaused()) { paused = true; action = 'keep' }
     // openSync share-busy → launchDaemon returns undefined (batch-parity silent skip)
     if (launchedPid === undefined && !paused) {
@@ -440,6 +450,8 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
     ...(paused ? { paused: true } : {}),
     ...(launchedPid === undefined ? {} : { launchedPid }),
     probeErrors,
+    ...(executions.records.length || executions.errors.length ? { executions } : {}),
+    ...(options.observeOnly ? { observationOnly: true } : {}),
   }
 }
 

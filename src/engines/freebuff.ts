@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import type { PreflightCache } from '../preflight.js'
@@ -8,6 +8,7 @@ import { acquireLock, releaseLock } from '../lock.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { releaseLockIfOwned } from './daemon-fence.js'
 import { killTree } from './proc.js'
+import { cancelledRun, observeRun, type RunControl } from './run-control.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
 
 export interface FreebuffOpts {
@@ -24,7 +25,7 @@ export interface FreebuffOpts {
 
 interface ToolCall { name: 'get_freebuff_route' | 'delegate_to_freebuff'; arguments: Record<string, unknown> }
 interface RouteSnapshot { accessTier: 'full' | 'limited'; primaryModel: string; primaryReasoning: 'max' | 'native'; fallbackModel: string; fallbackReasoning: 'max' | 'native' }
-interface McpResult { ok: boolean; texts: string[]; stderr: string; durationMs: number; timedOut?: boolean; error?: string; route?: RouteSnapshot }
+interface McpResult { ok: boolean; texts: string[]; stderr: string; durationMs: number; timedOut?: boolean; aborted?: boolean; recoveryRequired?: boolean; error?: string; route?: RouteSnapshot }
 
 /** Freebuff adapter：只走本機 freebuff-mcp stdio；不呼叫互動式 Freebuff TUI。 */
 export class FreebuffEngine implements Engine {
@@ -66,6 +67,7 @@ export class FreebuffEngine implements Engine {
   }
 
   async run(job: Job): Promise<RunResult> {
+    if (job.control?.signal?.aborted) return cancelledRun()
     const before = this.getCommitHash(job.projectPath)
     if (!before || !isAbsolute(job.projectPath)) {
       return { ok: false, output: '', costUsd: 0, failureReason: 'freebuff-invalid-worktree' }
@@ -78,7 +80,12 @@ export class FreebuffEngine implements Engine {
       return { ok: false, output: '', costUsd: 0, failureReason: 'freebuff-session-busy' }
     }
 
+    let retainLock = true
     try {
+      writeFileSync(join(this.lockDir, 'recovery-required.json'), JSON.stringify({
+        taskId: job.task.id, executionId: job.executionId, projectPath: job.projectPath,
+        startedAt: new Date().toISOString(), reason: 'backend terminal result not yet confirmed',
+      }))
       const prompt = [
         '你是自動開發工人。完成以下這一項任務。',
         WORKER_GUARDS,
@@ -94,20 +101,23 @@ export class FreebuffEngine implements Engine {
           prompt, cwd: job.projectPath, switch_model: false,
           max_agent_steps: 20, take_over_active_session: false,
         } },
-      ], job.projectPath, this.timeoutMs)
+      ], job.projectPath, this.timeoutMs, job.control)
+      retainLock = !!(r.aborted || r.timedOut || r.recoveryRequired)
       const text = r.texts.at(-1) ?? ''
       const output = text.length > 2000 ? `${text.split('\n')[0]}\n${tail(text)}` : text
-      if (!r.ok) return { ok: false, output: tail(`${output}\n${r.stderr}`), costUsd: 0, failureReason: r.timedOut ? 'timeout' : `freebuff-mcp: ${tail(r.error ?? 'tool failed', 200)}` }
+      if (r.aborted) return cancelledRun(`${output}\n${r.stderr}`)
+      if (!r.ok) return { ok: false, output: tail(`${output}\n${r.stderr}`), costUsd: 0, costUnknown: true, recoveryRequired: retainLock || undefined, failureReason: r.timedOut ? 'timeout' : `freebuff-mcp: ${tail(r.error ?? 'tool failed', 200)}` }
       if (!output.trim()) return { ok: false, output: tail(r.stderr), costUsd: 0, failureReason: 'empty-output：MCP 成功但無文字' }
       const after = this.getCommitHash(job.projectPath)
       if (!after || after === before) return { ok: false, output, costUsd: 0, failureReason: 'no-commit(phantom completion?)' }
       return { ok: true, output, costUsd: 0, costUnknown: true, actualModel: /^\[Freebuff 路由：(Full|Limited) → ([^；]+)/.exec(text)?.[2]?.trim(), commitHash: after, baseCommitHash: before }
     } finally {
-      releaseLockIfOwned(this.lockDir, process.pid, releaseLock)
+      if (!retainLock) releaseLockIfOwned(this.lockDir, process.pid, releaseLock)
     }
   }
 
-  private mcp(calls: ToolCall[], cwd: string, timeoutMs: number): Promise<McpResult> {
+  private mcp(calls: ToolCall[], cwd: string, timeoutMs: number, control?: RunControl): Promise<McpResult> {
+    if (control?.signal?.aborted) return Promise.resolve({ ok: false, texts: [], stderr: '', durationMs: 0, aborted: true, error: 'cancel-requested' })
     return new Promise(resolve => {
       const started = Date.now()
       const child = spawn(this.command, this.baseArgs, {
@@ -115,7 +125,7 @@ export class FreebuffEngine implements Engine {
       })
       child.stdout.setEncoding('utf8')
       child.stderr.setEncoding('utf8')
-      let buffer = '', stderr = '', outputChars = 0, callIndex = 0, currentId = 1, settled = false, route: RouteSnapshot | undefined
+      let buffer = '', stderr = '', outputChars = 0, callIndex = 0, currentId = 1, settled = false, delegated = false, route: RouteSnapshot | undefined
       let wallTimer: ReturnType<typeof setTimeout> | undefined
       const texts: string[] = []
 
@@ -128,14 +138,25 @@ export class FreebuffEngine implements Engine {
         if (settled) return
         settled = true
         if (wallTimer) clearTimeout(wallTimer)
-        void shutdown().finally(() => resolve({ ...result, stderr: tail(stderr), durationMs: Date.now() - started }))
+        control?.signal?.removeEventListener('abort', cancel)
+        void shutdown().finally(() => {
+          observeRun(control, { type: 'exit', code: child.exitCode, reason: result.aborted ? 'cancelled' : result.timedOut ? 'wall' : 'exit' })
+          resolve({ ...result, recoveryRequired: delegated && !result.ok, stderr: tail(stderr), durationMs: Date.now() - started })
+        })
       }
       const send = (message: Record<string, unknown>): void => {
         try { child.stdin.write(`${JSON.stringify(message)}\n`) } catch (err) { finish({ ok: false, texts, error: String(err) }) }
       }
+      const cancel = (): void => {
+        if (settled) return
+        observeRun(control, { type: 'cancel-requested' })
+        send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: currentId, reason: 'operator cancellation' } })
+        finish({ ok: false, texts, aborted: true, error: 'cancel-requested' })
+      }
       const sendTool = (): void => {
         currentId = callIndex + 2
         const call = calls[callIndex]!
+        if (call.name === 'delegate_to_freebuff') delegated = true
         send({ jsonrpc: '2.0', id: currentId, method: 'tools/call', params: { name: call.name, arguments: call.arguments } })
       }
       const acceptToolResult = (message: Record<string, unknown>): void => {
@@ -178,6 +199,7 @@ export class FreebuffEngine implements Engine {
       }
 
       child.stdout.on('data', (chunk: string) => {
+        observeRun(control, { type: 'output', stream: 'stdout', text: chunk })
         outputChars += chunk.length
         if (outputChars > 2_000_000) return finish({ ok: false, texts, error: 'MCP output exceeded 2MB' })
         buffer += chunk
@@ -190,19 +212,24 @@ export class FreebuffEngine implements Engine {
           if (settled) break
         }
       })
-      child.stderr.on('data', (chunk: string) => { stderr = tail(stderr + chunk, 20_000) })
+      child.stderr.on('data', (chunk: string) => { observeRun(control, { type: 'output', stream: 'stderr', text: chunk }); stderr = tail(stderr + chunk, 20_000) })
       child.stdin.on('error', err => finish({ ok: false, texts, error: String(err), route }))
       child.on('error', err => finish({ ok: false, texts, error: String(err) }))
       child.on('close', code => { if (!settled) finish({ ok: false, texts, error: `MCP server early exit ${code ?? 'null'}` }) })
-      child.on('spawn', () => send({
-        jsonrpc: '2.0', id: 1, method: 'initialize', params: {
-          protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'autodev-ng', version: '0.1.0' },
-        },
-      }))
+      child.on('spawn', () => {
+        if (child.pid !== undefined) observeRun(control, { type: 'spawn', pid: child.pid, startedAt: Date.now() })
+        if (!settled) send({
+          jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+            protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'autodev-ng', version: '0.1.0' },
+          },
+        })
+      })
       if (timeoutMs > 0) wallTimer = setTimeout(() => {
         send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: currentId, reason: 'timeout' } })
         finish({ ok: false, texts, timedOut: true, error: 'timeout' })
       }, timeoutMs)
+      control?.signal?.addEventListener('abort', cancel, { once: true })
+      if (control?.signal?.aborted) cancel()
     })
   }
 }

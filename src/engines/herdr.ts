@@ -5,6 +5,7 @@ import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { commitCodexWorktree } from './codex.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { runProcess } from './proc.js'
+import { cancelledRun } from './run-control.js'
 
 interface HerdrOpts {
   id?: string
@@ -91,7 +92,7 @@ export class HerdrEngine implements Engine {
     ].join('\n')
     const requestId = `adng-${safeId(job.task.id)}-${before.slice(0, 8)}`
     const r = await this.runner({
-      command: 'pwsh.exe', cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs,
+      command: 'pwsh.exe', cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, control: job.control,
       args: [
         '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', this.command,
         '-ProjectPath', job.projectPath, '-Goal', goal, '-Mode', 'Auto',
@@ -103,9 +104,10 @@ export class HerdrEngine implements Engine {
       ],
     })
     const output = tail(`${r.stdout}\n${r.stderr}`.trim())
-    if (r.timedOut) return failure('timeout', output)
-    if (r.exitCode !== 0) return failure(`herdr-blocked：exit ${r.exitCode} ${tail(r.stderr, 300)}`, output)
-    if (!r.stdout.includes('AUTOPILOT_WAIT_OK')) return failure('silent-fail：缺少 AUTOPILOT_WAIT_OK', output)
+    if (r.aborted) return cancelledRun(output)
+    if (r.timedOut) return { ...failure('timeout', output), recoveryRequired: true }
+    if (r.exitCode !== 0) return { ...failure(`herdr-blocked：exit ${r.exitCode} ${tail(r.stderr, 300)}`, output), recoveryRequired: true }
+    if (!r.stdout.includes('AUTOPILOT_WAIT_OK')) return { ...failure('silent-fail：缺少 AUTOPILOT_WAIT_OK', output), recoveryRequired: true }
 
     const agentHead = this.getCommitHash(job.projectPath)
     if (agentHead !== before) return failure('unexpected-commit：Herdr 越過 AutoDev 宿主提交邊界', output)

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, existsSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -91,12 +91,15 @@ test('共用鎖 busy 時不啟動 delegate、成本仍為真 0', async () => {
   } finally { releaseLock(lockDir) }
 })
 
-test('timeout 後 MCP tree 收斂且 finally 釋放鎖', async () => {
+test('timeout 後保留 backend 隔離；宿主死亡也不能搶 session', async () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-fb-'))
   const { e, lockDir } = engine('hang', ['aaa', 'aaa'], 1_000, root)
   const r = await e.run({ task: T, projectPath: process.cwd() })
-  expect(r).toMatchObject({ ok: false, failureReason: 'timeout', costUsd: 0 })
-  expect(acquireLock(lockDir)).toBe(true)
+  expect(r).toMatchObject({ ok: false, failureReason: 'timeout', costUsd: 0, costUnknown: true, recoveryRequired: true })
+  expect(existsSync(join(lockDir, 'recovery-required.json'))).toBe(true)
+  writeFileSync(join(lockDir, 'pid.json'), JSON.stringify({ pid: 2147483647, startedAt: '2000-01-01T00:00:00.000Z' }))
+  expect(acquireLock(lockDir, 1)).toBe(false)
+  expect((await e.run({ task: T, projectPath: process.cwd() })).failureReason).toBe('freebuff-session-busy')
   releaseLock(lockDir)
 }, 20_000)
 

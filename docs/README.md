@@ -10,6 +10,7 @@ AutoDev NG 將使用者授權的 backlog／GOAL 交給引擎，在隔離工作�
 | 相依套件、路徑與歷史檔案整理紀錄 | [2026-09-07 清理驗收](verification/project-cleanup-2026-09-07.md) |
 | Discord bot 設定與維運 | [bot-ops.md](bot-ops.md) |
 | Fleet 健康、保活與事故處理 | [supervision-playbook.md](supervision-playbook.md) |
+| 所有 AI CLI 的長任務與按需 Guardian 監督 | [全接頭監督計畫](plans/2026-09-09-unbounded-task-supervision-plan.md) |
 | GitHub Issue 自動接單 | [github-issues.md](github-issues.md) |
 | 巡檢自動立案、外部靈感與使用者情境 | [github-reports.md](github-reports.md) |
 | 有證據的缺陷交由 CLI 自動修復 | [github-repair.md](github-repair.md) |

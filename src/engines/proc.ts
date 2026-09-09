@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { resolve } from 'node:path'
+import { observeRun, type RunControl } from './run-control.js'
 
 export interface ProcResult {
   exitCode: number | null
@@ -7,6 +8,7 @@ export interface ProcResult {
   stderr: string
   timedOut: boolean
   timeoutReason?: 'wall' | 'idle'
+  aborted?: boolean
   durationMs: number
 }
 
@@ -61,6 +63,7 @@ export function runProcess(opts: {
   idleTimeoutMs?: number
   /** 子進程有輸出時通知呼叫端續租；觀測 callback 失敗不可反殺子進程。 */
   onActivity?: () => void
+  control?: RunControl
   maxOutputChars?: number
   /** M5 Task 1：附加環境變數（疊在 process.env 上），供相容端點設定。 */
   env?: Record<string, string>
@@ -69,6 +72,9 @@ export function runProcess(opts: {
   /** 無法回收的 Windows 子進程事件；未提供時只做終止，不讓觀測故障影響主流程。 */
   events?: ProcEventSink
 }): Promise<ProcResult> {
+  if (opts.control?.signal?.aborted) {
+    return Promise.resolve({ exitCode: null, stdout: '', stderr: '', timedOut: false, aborted: true, durationMs: 0 })
+  }
   return new Promise(resolve => {
     const t0 = Date.now()
     const { cmd, args } = resolveSpawnTarget(opts.command, opts.args)
@@ -88,6 +94,7 @@ export function runProcess(opts: {
     let stdout = ''
     let stderr = ''
     let timedOut = false
+    let aborted = false
     let timeoutReason: ProcResult['timeoutReason']
     let settled = false
     let wallTimer: ReturnType<typeof setTimeout> | undefined
@@ -104,17 +111,22 @@ export function runProcess(opts: {
       settled = true
       if (wallTimer) clearTimeout(wallTimer)
       if (idleTimer) clearTimeout(idleTimer)
+      opts.control?.signal?.removeEventListener('abort', cancel)
+      observeRun(opts.control, { type: 'exit', code: exitCode, reason: aborted ? 'cancelled' : timeoutReason ?? 'exit' })
       resolve({
         exitCode, stdout, stderr, timedOut,
+        ...(aborted ? { aborted: true } : {}),
         ...(timeoutReason ? { timeoutReason } : {}),
         durationMs: Date.now() - t0,
       })
     }
 
-    const triggerTimeout = (reason: 'wall' | 'idle'): void => {
-      if (settled) return
-      timedOut = true
-      timeoutReason = reason
+    const stop = (reason: 'wall' | 'idle' | 'cancelled'): void => {
+      if (settled || reaping) return
+      aborted = reason === 'cancelled'
+      timedOut = !aborted
+      if (reason !== 'cancelled') timeoutReason = reason
+      else observeRun(opts.control, { type: 'cancel-requested' })
       // 不可 fire-and-forget：根程序先 close 時，後續 worktree 清理會搶在補殺輪前，
       // 讓剛脫離 taskkill 的孫代繼續持鎖。收斂／驗屍完成才交還 timeout 結果。
       reaping = killTree(child.pid, { command: opts.command, events: opts.events })
@@ -124,10 +136,14 @@ export function runProcess(opts: {
         finish(closeCode ?? null)
       })
     }
+    const cancel = (): void => stop('cancelled')
     const renewIdleTimer = (): void => {
       if (!opts.idleTimeoutMs || opts.idleTimeoutMs <= 0 || settled) return
       if (idleTimer) clearTimeout(idleTimer)
-      idleTimer = setTimeout(() => triggerTimeout('idle'), opts.idleTimeoutMs)
+      idleTimer = setTimeout(() => {
+        if (opts.control?.idleAction === 'report') observeRun(opts.control, { type: 'idle' })
+        else stop('idle')
+      }, opts.idleTimeoutMs)
       idleTimer.unref()
     }
     const activity = (): void => {
@@ -135,12 +151,13 @@ export function runProcess(opts: {
       renewIdleTimer()
     }
 
-    wallTimer = opts.timeoutMs > 0 ? setTimeout(() => triggerTimeout('wall'), opts.timeoutMs) : undefined
+    wallTimer = opts.timeoutMs > 0 ? setTimeout(() => stop('wall'), opts.timeoutMs) : undefined
     wallTimer?.unref()
     renewIdleTimer()
 
     child.stdout.on('data', d => {
       activity()
+      observeRun(opts.control, { type: 'output', stream: 'stdout', text: d })
       if (stdout.length >= cap) {
         if (!stdoutTruncated) { stdout += '\n[adng: output truncated]'; stdoutTruncated = true }
         return
@@ -156,6 +173,7 @@ export function runProcess(opts: {
     })
     child.stderr.on('data', d => {
       activity()
+      observeRun(opts.control, { type: 'output', stream: 'stderr', text: d })
       if (stderr.length >= cap) {
         if (!stderrTruncated) { stderr += '\n[adng: output truncated]'; stderrTruncated = true }
         return
@@ -179,6 +197,11 @@ export function runProcess(opts: {
       settleFromChild(null)
     })
     child.on('close', settleFromChild)
+    child.on('spawn', () => {
+      if (child.pid !== undefined) observeRun(opts.control, { type: 'spawn', pid: child.pid, startedAt: Date.now() })
+    })
+    opts.control?.signal?.addEventListener('abort', cancel, { once: true })
+    if (opts.control?.signal?.aborted) cancel()
 
     child.stdin.on('error', () => { /* 子進程提早退出時 EPIPE，可忽略 */ })
     child.stdin.write(opts.stdinText)

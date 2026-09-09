@@ -15,6 +15,7 @@ import { regressionFile, verifyRegression, assertRegression } from './regression
 import { verifyAcceptance, assertAcceptance } from './acceptance.js'
 import { TeamState } from '../engines/team-state.js'
 import { alternativeRetryDue, alternativeRetryUsed } from '../engines/alternative-retry.js'
+import { assertExecutionMode } from '../engines/capabilities.js'
 
 export const git = (cwd: string, args: string[]): string => command('git', ['-c', `safe.directory=${cwd.replace(/\\/g, '/')}`, ...args], cwd)
 export const checkoutDir = (cfg: GithubConfig, state: IssueState): string => join(runDir(cfg, state), 'repo')
@@ -34,7 +35,8 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
   else if (cfg.template) source.verifyCommand = detectVerification(checkoutDir(cfg, state))
   const engine = source.engines[cfg.engine]
   if (!engine || ['herdr', 'mock'].includes(engine.adapter)) throw new Error('GitHub runner requires an explicitly selected regular engine')
-  if (engine.timeoutMs === 0) throw new Error('GitHub runner requires a bounded engine wall timeout')
+  assertExecutionMode(engine)
+  if (engine.timeoutMs === 0 && engine.executionMode !== 'supervised') throw new Error('GitHub runner requires a bounded engine wall timeout or accepted supervised execution')
   if (cfg.repair && !['codex', 'freebuff'].includes(engine.adapter)) throw new Error('Automatic report repairs require the Codex CLI or Freebuff engine')
   if (!source.verifyCommand?.trim() || !(source.reviewEngine ?? source.auditModel)) throw new Error('GitHub runner requires verifyCommand and reviewer configuration')
   const dir = runDir(cfg, state)
@@ -71,7 +73,7 @@ export function prepareCheckout(cfg: GithubConfig, state: IssueState): void {
   if (git(cwd, ['status', '--porcelain'])) throw new Error('Issue checkout is dirty; preserving changes for review')
   if (git(cwd, ['remote', 'get-url', 'origin']) !== `https://github.com/${cfg.repo}.git`) throw new Error('Issue checkout origin changed')
 }
-export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string; attempted?: boolean; alternativeRetryPending?: boolean }> {
+export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string; attempted?: boolean; recoveryRequired?: boolean; alternativeRetryPending?: boolean }> {
   if (cfg.repair) {
     const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
     const cap = source.engines[cfg.engine]?.dailyAttemptCap
@@ -137,7 +139,7 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     const commit = done ? git(runtime.projectPath, ['rev-parse', 'HEAD']) : undefined
     if (done) assertPublishable(cfg, { ...state, commit })
     const alternativeRetryPending = runtime.alternativeRetry && result === 'failed' && alternativeRetryDue(runtime, app.deps.db.taskFailCount(tasks[0]!.id)) && !alternativeRetryUsed(runtime, tasks[0]!.id) && app.deps.store.read()[0]?.status === 'open'
-    return { done, detail: typeof result === 'string' ? result : result.reason, ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
+    return { done, detail: typeof result === 'string' ? result : result.reason, ...(typeof result === 'object' && result.reason === 'team-state-quarantined' ? { recoveryRequired: true } : {}), ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
   } finally { app.deps.db.close(); app.deps.team?.close() }
 }
 export function detectVerification(cwd: string): string {

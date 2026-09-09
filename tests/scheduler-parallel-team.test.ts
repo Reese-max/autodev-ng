@@ -6,6 +6,8 @@ import { afterEach, expect, test } from 'vitest'
 import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { TeamState } from '../src/engines/team-state.js'
+import { cancelledRun } from '../src/engines/run-control.js'
+import { readExecutions } from '../src/engines/execution-observation.js'
 import { EventLog } from '../src/events.js'
 import { runOnce, type Deps } from '../src/scheduler.js'
 import { ConfigSchema, type Engine, type Job, type RunResult } from '../src/types.js'
@@ -35,6 +37,28 @@ function fixture(lines: string, concurrency: number): { deps: Deps; repo: string
   const db = new RunDb(join(root, 'run.db')), team = new TeamState(repo)
   return { repo, backlog, db, team, deps: { cfg, store: new BacklogStore(backlog), db, team, engines: {} as never, events: new EventLog(dataDir) } }
 }
+
+test.each([false, true])('uncertain stop (after nudge=%s) keeps ownership and never retries or charges a task failure', async (afterNudge) => {
+  const f = fixture('- [ ] cancelled writer\n', 1)
+  let calls = 0, cwd = ''
+  f.deps.engines = { resolve: () => ({ id: 'mock', preflight: async () => ({ ok: true, detail: 'fake' }), run: async job => {
+    cwd = job.projectPath
+    if (++calls === 1 && afterNudge) return { ok: false, costUsd: 0, output: '', failureReason: 'no-commit' }
+    writeFileSync(join(cwd, 'checkpoint.txt'), 'keep me')
+    return cancelledRun('signal 15')
+  } }) }
+  const task = f.deps.store.read()[0]!
+  try {
+    expect(await runOnce(f.deps)).toMatchObject({ kind: 'blocked', reason: 'team-state-quarantined' })
+    expect(calls).toBe(afterNudge ? 2 : 1)
+    expect(f.db.taskFailCount(task.id)).toBe(0)
+    expect(readFileSync(join(cwd, 'checkpoint.txt'), 'utf8')).toBe('keep me')
+    expect(f.team.snapshot().claims).toMatchObject([{ state: 'QUARANTINED' }])
+    expect(f.team.claim({ executionId: 'another', task: { ...task, id: 'other-task' }, workerId: 'mock', reservedCostUsd: 0, spentUsd: 0, dailyHardUsd: 0, leaseMs: 1000 })).toMatchObject({ ok: false, reason: 'ownership-conflict' })
+    expect(await runOnce(f.deps)).toBe('idle')
+    expect(calls).toBe(afterNudge ? 2 : 1)
+  } finally { f.db.close(); f.team.close() }
+})
 
 class BarrierEngine implements Engine {
   readonly id = 'parallel-engine'
@@ -72,6 +96,21 @@ class StopAfterCommitEngine implements Engine {
     return { ok: true, output: 'candidate ready', costUsd: 0, baseCommitHash: before, commitHash: git(job.projectPath, ['rev-parse', 'HEAD']) }
   }
 }
+
+test('observed scheduler keeps its receipt through verification and closes it after the merged result', async () => {
+  const f = fixture('- [ ] observed work\n', 1)
+  try {
+  f.deps.cfg.engines[f.deps.cfg.defaultEngine]!.executionMode = 'observed'
+  const engine = new BarrierEngine(true)
+  f.deps.engines = { resolve: () => engine }
+  f.deps.verifier = { check: async job => {
+    expect(readExecutions(f.deps.cfg.dataDir).records).toMatchObject([{ executionId: job.executionId, phase: 'running' }])
+    return { pass: true, alerts: [] }
+  } }
+    expect(await runOnce(f.deps)).toBe('done')
+    expect(readExecutions(f.deps.cfg.dataDir)).toMatchObject({ protected: false, records: [{ phase: 'terminal', outcome: 'completed' }] })
+  } finally { f.db.close(); f.team.close() }
+})
 
 test('concurrency=2：兩個 disjoint ownership Engineer 真正重疊，merge queue 仍依序完成', async () => {
   const metaA = '<!-- adng:ownership {"write":["a.txt"],"resources":[],"risk":"low"} -->'

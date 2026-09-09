@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { basename, dirname, resolve } from 'node:path'
 import { runOutputZeroPatrol } from '../engines/output-zero-alert.js'
 import { patrolAlertFile } from '../engines/patrol-alerts.js'
@@ -23,7 +24,7 @@ export function printSuperviseResults(results: SuperviseDirectoryResult[]): void
       continue
     }
     const launched = result.launchedPid === undefined ? '' : ` launchedPid=${result.launchedPid}`
-    console.log(`supervise ${name}: ${result.action} pid=${result.pid ?? '-'} heartbeatAgeMs=${result.heartbeatAgeMs ?? '-'} childCount=${result.childCount}${launched}`)
+    console.log(`supervise ${name}: ${result.observationOnly ? 'observe-only decision=' : ''}${result.action} pid=${result.pid ?? '-'} heartbeatAgeMs=${result.heartbeatAgeMs ?? '-'} childCount=${result.childCount}${launched}`)
     result.probeErrors.forEach(error => console.error(`supervise ${name}: 探測降級（${error}）`))
   }
 }
@@ -50,6 +51,15 @@ async function sendGuardianNotification(configPath: string, text: string): Promi
   } catch { return false }
 }
 
+function dispatchDiagnosis(cliPath: string, scope: string[]): void {
+  // Separate process keeps mechanical patrols responsive while the existing Guardian lock deduplicates.
+  const child = spawn(process.execPath, [cliPath, 'supervise', ...scope, '--guardian', 'only'], {
+    detached: true, windowsHide: true, stdio: 'ignore',
+  })
+  child.on('error', () => console.error('guardian：獨立診斷啟動失敗，工作保留'))
+  child.unref()
+}
+
 export async function cmdSupervise(
   cliPath: string, configPath?: string, configsDir?: string, guardianMode: GuardianMode = 'inline',
 ): Promise<void> {
@@ -61,25 +71,26 @@ export async function cmdSupervise(
   const startedAtMs = Date.now()
   const logPath = superviseRunLogPath(configPath, configsDir)
   let results: SuperviseDirectoryResult[] = []
-  const options = { cliPath }
+  const options = { cliPath, observeOnly: guardianMode === 'only' }
   try {
     if (configsDir) {
       results = superviseDirectory(configsDir, options)
       printSuperviseResults(results)
       if (!existsSync(resolve(configsDir, '.adng.stop'))) {
-        const alerts = await runOutputZeroPatrol(results.map(result => result.configPath), {
+        const alerts = guardianMode === 'only' ? [] : await runOutputZeroPatrol(results.map(result => result.configPath), {
           alertFile: patrolAlertFile(configsDir),
           notify: sendGuardianNotification,
         })
         for (const alert of alerts) console.warn(`patrol ${alert.fleet}: ${alert.message}`)
         if (guardianMode !== 'off') {
-          printGuardianReports(await runFleetGuardian(results, {
+          if (guardianMode === 'inline' && results.some(result => !('error' in result) && result.executions?.protected)) dispatchDiagnosis(cliPath, ['--configs-dir', resolve(configsDir)])
+          else printGuardianReports(await runFleetGuardian(results, {
             cliPath,
             fleetDataDir: resolve(configsDir, '..', 'data', 'guardian'),
             notifyFn: sendGuardianNotification,
           }))
         }
-        await (await import('../github/report.js')).reportFromPatrol(configsDir)
+        if (guardianMode !== 'only') await (await import('../github/report.js')).reportFromPatrol(configsDir)
       }
     } else {
       try {
@@ -88,6 +99,10 @@ export async function cmdSupervise(
         results = [{ configPath: resolve(configPath!), error: err instanceof Error ? err.message : String(err) }]
       }
       printSuperviseResults(results)
+      if (guardianMode === 'inline' && results.some(result => !('error' in result) && result.executions?.protected)) dispatchDiagnosis(cliPath, ['--config', resolve(configPath!)])
+      else if (guardianMode !== 'off') printGuardianReports(await runFleetGuardian(results, {
+        cliPath, fleetDataDir: resolve(dirname(configPath!), '..', 'data', 'guardian'),
+      }))
     }
     appendSuperviseRun(logPath, startedAtMs, results)
   } catch (err) {

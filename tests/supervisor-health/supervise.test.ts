@@ -2,6 +2,7 @@ import { expect, test } from 'vitest'
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
+import { createExecutionObservation } from '../../src/engines/execution-observation.js'
 import {
   countChildProcesses,
   isDaemonConsoleLogBusyError,
@@ -41,6 +42,41 @@ function aliveRunner(pid: number, childCount = 0, calls: string[] = []): Command
     throw new Error(`unexpected command: ${command}`)
   }
 }
+
+test('active or corrupt execution evidence prevents wall-based reap and relaunch, including a dead host', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-execution-'))
+  const { configPath, dataDir } = writeConfig(root)
+  const observer = createExecutionObservation({ dataDir, adapter: 'agy', job: {
+    projectPath: root, executionId: 'long-task', task: { id: 'ab12cd34', text: 'long', status: 'open', line: 0 },
+  } })
+  writePid(dataDir, 123)
+  writeFileSync(join(dataDir, 'heartbeat.json'), '{}')
+  utimesSync(join(dataDir, 'heartbeat.json'), new Date(0), new Date(0))
+  const effects: string[] = []
+  const options = { reap: () => { effects.push('reap') }, launch: () => { effects.push('launch'); return 456 } }
+  for (const age of [15, 30, 90, 120, 180]) {
+    expect(superviseConfig(configPath, { ...options, nowMs: age * 60_000, runCommand: aliveRunner(123) }).action).toBe('keep')
+    expect(superviseConfig(configPath, { ...options, nowMs: age * 60_000, runCommand: () => '' }).action).toBe('keep')
+  }
+  observer.finish('unconfirmed')
+  writeFileSync(join(dataDir, 'executions', 'long-task.json'), '{broken')
+  expect(superviseConfig(configPath, { ...options, runCommand: aliveRunner(123) })).toMatchObject({ action: 'keep', executions: { protected: true, diagnosisDue: true } })
+  expect(effects).toEqual([])
+})
+
+test('guardian-only observation never performs a proposed launch', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-readonly-')), { configPath } = writeConfig(root)
+  const result = superviseConfig(configPath, { observeOnly: true, launch: () => { throw new Error('must not launch') } })
+  expect(result).toMatchObject({ action: 'launch', observationOnly: true })
+})
+
+test('observed mode never reaps by age even when the execution snapshot has not arrived', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-supervise-missing-observation-'))
+  const { configPath, dataDir } = writeConfig(root, 'observed.json', { engines: { mock: { adapter: 'mock', executionMode: 'observed' } }, defaultEngine: 'mock' })
+  writePid(dataDir, 123); writeFileSync(join(dataDir, 'heartbeat.json'), '{}')
+  utimesSync(join(dataDir, 'heartbeat.json'), new Date(0), new Date(0))
+  expect(superviseConfig(configPath, { runCommand: aliveRunner(123), reap: () => { throw new Error('must not reap') } }).action).toBe('keep')
+})
 
 test('核心 supervisor 在 stop 存在時不探測、不回收也不啟動', () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-supervise-paused-'))

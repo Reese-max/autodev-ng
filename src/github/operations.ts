@@ -14,6 +14,7 @@ import { command, githubClient, type GithubClient } from './client.js'
 import { eligibleForRun } from './repair.js'
 import { assertPublishable, checkoutDir, git, issueTask, prepareCheckout } from './job.js'
 import { alternativeRunPending, branchFor, fingerprint, issueDir, runDir, readState, saveState, states, type IssueState } from './state.js'
+import { readExecutions } from '../engines/execution-observation.js'
 
 export async function repairDoctor(cfg: GithubConfig, live = false) {
   const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
@@ -74,6 +75,7 @@ export async function recoverIssue(file: string, number: number, reason: string,
   try {
     const state = readState(cfg, number)
     if (!state || !['blocked', 'running', 'queued', 'ready'].includes(state.status)) throw new Error('State cannot be recovered')
+    if (readExecutions(runDir(cfg, state)).protected) throw new Error('Execution stop remains unconfirmed; preserve ownership and verify the backend before recovery')
     const client = options.client ?? githubClient(cfg)
     const current = async () => {
       const issue = await client.issue(number)
@@ -153,7 +155,7 @@ export function repairMetrics(cfg: GithubConfig) {
   const failed = (s: Pick<IssueState, 'status' | 'runs' | 'detail'>) => s.runs > 0 && ['queued', 'blocked'].includes(s.status) && s.detail === 'failed'
   const failures = rows.map(s => {
     const runs = new Set((s.history ?? []).filter((e, i, history) => e.runs > 0 && ['queued', 'blocked'].includes(e.status)
-      && !e.detail?.startsWith('Recovery:') && (e.detail === 'failed' || (history[i - 1]?.status === 'running' && history[i - 1]?.runs === e.runs))).map(e => e.runs))
+      && !e.detail?.startsWith('Recovery:') && !e.detail?.startsWith('Execution recovery required:') && (e.detail === 'failed' || (history[i - 1]?.status === 'running' && history[i - 1]?.runs === e.runs))).map(e => e.runs))
     if (failed(s)) runs.add(s.runs) // A legacy snapshot is evidence of this failure, not every earlier attempt.
     return runs.size
   })

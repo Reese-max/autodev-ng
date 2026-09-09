@@ -102,6 +102,10 @@ export async function runGithub(cfg: GithubConfig, options: {
         state.alternativeRetryPending = false
         state.status = 'running'; state.runs++; saveState(cfg, state)
         const result = await (options.execute ?? executeIssue)(cfg, state)
+        if (result.recoveryRequired) {
+          state.status = 'blocked'; state.detail = `Execution recovery required: ${result.detail}`
+          saveState(cfg, state); return 'blocked'
+        }
         if (result.attempted === false) { state.runs--; state.alternativeRetryPending = pending } // Capacity deferral never consumes the alternative attempt.
         if (!active() || !currentIssue(cfg, state, await client.issue(state.issue.number))) {
           state.status = 'cancelled'; state.detail = 'Issue or configuration changed during execution; candidate preserved'

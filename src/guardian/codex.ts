@@ -35,12 +35,16 @@ export const DECISION_JSON_SCHEMA = {
   additionalProperties: false,
 } as const
 
-export function guardianCodexArgs(schemaPath: string): string[] {
+export function guardianCodexArgs(schemaPath: string, diagnosisOnly = false): string[] {
   return [
     'exec', '--json', '--model', GUARDIAN_MODEL,
     '-c', `model_reasoning_effort=${GUARDIAN_EFFORT}`,
     '-c', 'approval_policy=never',
-    ...FLEET_CODEX_PERMISSION_ARGS, '-c', 'windows.sandbox="elevated"',
+    ...(diagnosisOnly ? [
+      '-c', 'default_permissions=":read-only"', '-c', 'web_search="disabled"',
+      '--disable', 'shell_tool', '--disable', 'unified_exec', '--disable', 'code_mode', '--disable', 'code_mode_host',
+      '--disable', 'apps', '--disable', 'plugins', '--disable', 'hooks', '--disable', 'browser_use', '--disable', 'computer_use',
+    ] : FLEET_CODEX_PERMISSION_ARGS), '-c', 'windows.sandbox="elevated"',
     '--disable', 'multi_agent', '--disable', 'multi_agent_v2',
     '--ephemeral', '--ignore-user-config', '--skip-git-repo-check', '--output-schema', schemaPath,
   ]

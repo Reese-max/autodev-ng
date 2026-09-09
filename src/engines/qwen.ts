@@ -1,5 +1,6 @@
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
+import { cancelledRun } from './run-control.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -81,9 +82,10 @@ export class QwenEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const r = await runProcess({
       command: this.command, args: this.args, cwd: job.projectPath,
-      stdinText: prompt, timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, env: this.env
+      stdinText: prompt, timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, env: this.env, control: job.control
     })
 
+    if (r.aborted) return cancelledRun(r.stderr)
     if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     const p = parseResult(r.stdout)
     const fail = (failureReason: string, output = tail(r.stdout)): RunResult => ({ ok: false, output, costUsd: 0, costUnknown: true, failureReason })

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { RunControl } from './engines/run-control.js'
 
 export type TaskRisk = 'low' | 'medium' | 'high'
 export interface TaskOwnership {
@@ -38,6 +39,8 @@ export interface Job {
   /** 同一次 Engineer attempt 與唯讀 Reviewer receipt 的關聯鍵。 */
   executionId?: string
   writerIdentity?: string
+  /** Host-owned cancellation and observations; never supplied by worker output. */
+  control?: RunControl
   /** rebase 後終審拒收時保留候選分支，不 reset 掉可人工處理的成果。 */
   preserveOnReject?: boolean
   /** M4 Task 6（worktree 接線）：cfg.extraDirective 附加在任務文字尾的專案特規指示
@@ -54,6 +57,9 @@ export interface RunResult {
   costUsd: number
   commitHash?: string
   failureReason?: string
+  cancelled?: boolean
+  /** Do not nudge, retry, merge, release ownership or clean up while work may still exist. */
+  recoveryRequired?: boolean
   baseCommitHash?: string
   /** M4 Task 3（真花錢前必修）：true 表示 costUsd 是「引擎沒能力回報真值」時的佔位 0
    * （timeout / exit≠0 / 輸出不可解析——CLI 進程極可能已實際呼叫並燒錢，只是沒能力回報
@@ -92,6 +98,8 @@ export interface EngineResolver {
 export const EngineConfigSchema = z.object({
   adapter: z.enum(['mock', 'claude-cli', 'codex', 'agy', 'copilot', 'qwen', 'grok', 'opencode', 'herdr', 'devin', 'freebuff']),
   command: z.string().optional(), // CLI 執行檔覆寫（如 opencode.exe 不在 PATH 時指完整路徑）；Task 8 起 opencode 接線，其餘 adapter 按需跟進
+  /** observed records evidence with existing limits; supervised requires native acceptance. */
+  executionMode: z.enum(['bounded', 'observed', 'supervised']).optional(),
   costPerRunUsd: z.number().nonnegative().optional(),
   subscription: z.boolean().optional(), // M9.9：訂閱制引擎（邊際成本≈0）——估值照記帳但不踩日頂
   env: z.record(z.string(), z.string()).optional(),
@@ -102,6 +110,8 @@ export const EngineConfigSchema = z.object({
   /** 單引擎每日 attempts 上限（可選）；未設＝不限。正整數，與 today-attempts 聚合對齊。 */
   dailyAttemptCap: z.number().int().positive().optional(),
 }).refine(ec => !((ec.timeoutMs === 0 || (ec.timeoutMs ?? 0) > 7_200_000) && !ec.idleTimeoutMs), { path: ['timeoutMs'], message: 'timeoutMs 為 0 或超過 7200000 時必須設定大於 0 的 idleTimeoutMs' })
+  .refine(ec => ec.executionMode !== 'supervised' || (ec.adapter === 'mock' && ec.timeoutMs === 0), { message: 'supervised requires verified native unlimited/cancel/real-flow acceptance; only mock is accepted for offline tests' })
+  .refine(ec => ec.adapter !== 'agy' || ec.timeoutMs !== 0, { message: 'agy zero timeout is unsupported: native --print-timeout has no verified unlimited sentinel' })
   .refine(ec => ec.adapter !== 'freebuff' || (ec.timeoutMs !== 0 && !ec.model && !ec.effort && !ec.env && !ec.provider && !ec.idleTimeoutMs), { message: 'Freebuff requires a wall timeout and MCP automatic model routing; model/effort/env/provider/idleTimeoutMs overrides are unsupported' })
 export type EngineConfig = z.infer<typeof EngineConfigSchema>
 // M10.6：timezoneOffsetHours 的 Zod 預設單一真相源——globalcost 讀 raw JSON 拿不到 Zod default，

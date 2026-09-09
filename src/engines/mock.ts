@@ -1,4 +1,5 @@
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
+import { cancelledRun } from './run-control.js'
 
 // beforeResult 回傳字串時視為 baseCommitHash（M4 Task 6 修復輪 MEDIUM 2）：測試在鉤子內於
 // engine「弄髒」worktree 之前先 rev-parse HEAD 拿到 base，回傳後由 run() 塞進 RunResult，
@@ -25,6 +26,7 @@ export class MockEngine implements Engine {
   }
 
   async run(job: Job): Promise<RunResult> {
+    if (job.control?.signal?.aborted) return cancelledRun()
     this.calls.push(job)
     const step = this.script.shift() ?? { ok: true as const }
     if ('throw' in step) throw new Error(step.throw)

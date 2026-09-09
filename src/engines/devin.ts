@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
+import { cancelledRun } from './run-control.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { ensureNoMcpImport } from './devin-config-isolation.js'
@@ -61,21 +62,23 @@ export class DevinEngine implements Engine {
   }
 
   /** prompt／export 都走 tmp 檔（比照 grok 做法）：用後（同一 tmp 目錄）皆刪，不殘留內容或側檔。 */
-  private async runWithFiles(prompt: string, cwd: string, timeoutMs: number, idleTimeoutMs?: number) {
+  private async runWithFiles(prompt: string, cwd: string, timeoutMs: number, idleTimeoutMs?: number, control?: Job['control']) {
     const dir = mkdtempSync(join(tmpdir(), 'adng-devin-'))
     const promptFile = join(dir, 'prompt.txt')
     const exportFile = join(dir, 'export.json')
+    let retainFiles = false
     try {
       writeFileSync(promptFile, prompt.replace(/\r\n/g, '\n'), 'utf8') // Node utf8 不寫 BOM；CRLF 正規化為 LF
       const r = await runProcess({
         command: this.command, args: [...this.baseArgs, '--prompt-file', promptFile, '--export', exportFile],
-        cwd, stdinText: '', timeoutMs, ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }), env: this.env
+        cwd, stdinText: '', timeoutMs, ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }), env: this.env, control
       })
+      retainFiles = !!(r.aborted || r.timedOut)
       let exp: DevinExport | undefined
       try { exp = JSON.parse(readFileSync(exportFile, 'utf8')) as DevinExport } catch { /* 未產出/損毀 → undefined，交給 silent-fail 判定 */ }
       return { r, exp }
     } finally {
-      try { rmSync(dir, { recursive: true, force: true }) } catch { /* tmp 刪失敗不反殺結果 */ }
+      if (!retainFiles) try { rmSync(dir, { recursive: true, force: true }) } catch { /* tmp 刪失敗不反殺結果 */ }
     }
   }
 
@@ -108,8 +111,9 @@ export class DevinEngine implements Engine {
 
     ensureNoMcpImport(job.projectPath) // 關 MCP 匯入——從源頭消除 serena 孤兒＋.serena 污染
     const before = this.getCommitHash(job.projectPath)
-    const { r, exp } = await this.runWithFiles(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs)
+    const { r, exp } = await this.runWithFiles(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs, job.control)
 
+    if (r.aborted) return cancelledRun(tailErr(r))
     if (r.timedOut) return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
       return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}` }

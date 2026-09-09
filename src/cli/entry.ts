@@ -17,6 +17,8 @@ export const CLI_HELP = [
   '  adng status --config <path>       唯讀狀態、成本、backlog 與 DLQ',
   '  adng monitor --config <path> [--json] [--check]  心跳、PID、暫停與積壓監控',
   '  adng monitor --configs-dir <dir> [--json]       多專案監控',
+  '  adng execution list|capabilities --config <path>  執行觀測／全接頭能力契約',
+  '  adng execution cancel --config <path> --id <executionId>  要求指定執行停止（仍須核對後端）',
   '  adng pause|resume --config <path> [--json]      暫停／恢復單一專案派工',
   '  adng cost|backlog|log --config <path> [--json]  查看成本、任務與事件',
   '  adng bot (--config <path> | --configs-dir <dir>)  啟動 Discord 控制與監控',
@@ -70,6 +72,7 @@ export function parseArgv(argv: string[]): ParsedArgv {
 export async function runCli(argv: string[], cliPath: string): Promise<void> {
   if (argv[0] !== 'github' && (argv.includes('--help') || (argv.length === 1 && ['-h', 'help'].includes(argv[0]!)))) { process.exitCode = 0; printCliHelp(); return }
   if (argv[0] === 'task') { await (await import('./tasks.js')).taskCli(argv.slice(1)); return }
+  if (argv[0] === 'execution') { (await import('./executions.js')).executionCli(argv.slice(1)); return }
   if (argv[0] === 'bot') { await (await import('../bot/index.js')).runBotCli(argv.slice(1)); return }
   if (['monitor', 'pause', 'resume', 'cost', 'backlog', 'log'].includes(argv[0] ?? '') || (argv[0] === 'status' && argv.includes('--json'))) {
     await (await import('./control.js')).controlCli(argv[0]!, argv.slice(1)); return
@@ -83,7 +86,7 @@ export async function runCli(argv: string[], cliPath: string): Promise<void> {
 
   if (command === 'supervise') {
     const validGuardianMode = guardianMode === undefined || ['inline', 'off', 'only'].includes(guardianMode)
-    if ((!configPath && !configsDir) || (configPath && configsDir) || !validGuardianMode || (guardianMode === 'only' && !configsDir)) {
+    if ((!configPath && !configsDir) || (configPath && configsDir) || !validGuardianMode) {
       console.error('用法：adng supervise (--config <path> | --configs-dir <dir>)')
       process.exitCode = 1
       return

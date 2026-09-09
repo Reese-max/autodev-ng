@@ -12,6 +12,7 @@ import { OpencodeEngine } from './opencode.js'
 import { DevinEngine } from './devin.js'
 import { HerdrEngine } from './herdr.js'
 import { FreebuffEngine } from './freebuff.js'
+import { assertExecutionMode } from './capabilities.js'
 import type { Config, Engine, EngineConfig, EngineResolver } from '../types.js'
 
 /** M5 Task 1：`{env:VAR}` 展開（assemble 層）——config 只寫變數引用，真值從進程環境取，
@@ -35,6 +36,7 @@ function expandEnvMap(env: Record<string, string> | undefined): Record<string, s
 export function makeEngineRegistry(cfg: Config): EngineResolver {
   const cache = new Map<string, Engine>()
   const build = (tag: string, ec: EngineConfig): Engine => {
+    assertExecutionMode(ec)
     switch (ec.adapter) {
       case 'mock':
         return new MockEngine()

@@ -4,6 +4,7 @@ import { hostname } from 'node:os'
 import { parseBacklog } from '../backlog.js'
 import { githubConsole } from '../github/console.js'
 import { ConfigSchema, type Config } from '../types.js'
+import { readExecutions } from '../engines/execution-observation.js'
 
 export function loadMonitorConfig(file: string): Config {
   const cfg = ConfigSchema.parse(JSON.parse(readFileSync(file, 'utf8')))
@@ -72,13 +73,15 @@ export function readMonitor(cfg: Config, cfgPath: string, now = Date.now()) {
   const dlqText = read(join(cfg.dataDir, 'notify-dlq.jsonl'), true)
   const dlqCount = errors.some(e => e.startsWith('notify-dlq.jsonl')) ? null : (dlqText?.split(/\r?\n/).filter(Boolean).length ?? 0)
   const paused = flag(cfg.stopFile), fleetPaused = flag(resolve(dirname(cfgPath), '.adng.stop'))
+  const executions = readExecutions(cfg.dataDir, now)
+  errors.push(...executions.errors)
   const health = paused || fleetPaused ? 'paused'
     : errors.length || processState === 'unknown' ? 'unknown'
     : processState === 'absent' ? 'not-running'
     : !heartbeat ? 'unknown' : heartbeat.stale ? 'stale'
     : ['cost-stopped', 'preflight-failed', 'stopped'].includes(heartbeat.state) ? 'blocked' : 'observed'
   return { project: basename(cfgPath, '.json'), checkedAt: new Date(now).toISOString(), health, paused, fleetPaused,
-    process: { pid, state: processState, identityVerified: false }, heartbeat, backlog, dlqCount, errors }
+    process: { pid, state: processState, identityVerified: false }, heartbeat, backlog, dlqCount, errors, executions }
 }
 
 export function monitorRuntimeLines(m: ReturnType<typeof readMonitor>): string[] {
@@ -87,6 +90,7 @@ export function monitorRuntimeLines(m: ReturnType<typeof readMonitor>): string[]
     `監控：${m.health}｜${m.checkedAt}`,
     hb ? `heartbeat：${hb.ts}｜state=${hb.state}｜${Math.floor(hb.ageMs / 1000)} 秒前${hb.stale ? '（心跳過期，請檢查）' : ''}${hb.currentTask ? `｜任務=${hb.currentTask}` : ''}` : '尚無 heartbeat 紀錄或資料無效',
     `daemon 進程：${m.process.state === 'present' ? 'PID 存在（未核對程序身分）' : m.process.state === 'absent' ? '未偵測到' : '未知'}`,
+    ...(m.executions.protected ? [`執行觀測：${m.executions.records.filter(r => r.phase !== 'terminal').length} 項待收斂｜${m.executions.diagnosisDue ? '需要診斷，保留寫入權' : '持續觀測'} `] : []),
     `派工：${m.paused || m.fleetPaused ? `已暫停${m.fleetPaused ? '（車隊旗標）' : ''}` : m.paused === null || m.fleetPaused === null ? '未知' : '未暫停'}`,
   ]
 }

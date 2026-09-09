@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from 'vitest'
+import { afterAll, expect, test, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -66,6 +66,11 @@ function loggedCalls(logFile: string): string[][] {
   return readFileSync(logFile, 'utf8').trim().split('\n').map(l => JSON.parse(l) as string[])
 }
 
+test('agy partial exit 0 with a new commit cannot complete the task', async () => {
+  const { e } = makeEngine('partial', ['aaa', 'bbb'])
+  expect(await e.run({ task: T, projectPath: PLAIN_PROJECT })).toMatchObject({ ok: false, recoveryRequired: true })
+})
+
 test('args 組裝：wsl.exe --cd <mnt路徑> -d Ubuntu -u root -- agy 旗標齊全＋marker 進 argv', async () => {
   const { e, logFile } = makeEngine('ok', ['aaa', 'bbb'])
   const cwd = PLAIN_PROJECT // 不依賴測試 runner 本身是否位於 linked worktree
@@ -124,7 +129,7 @@ test('成功＋commit hash 前進 → ok:true、costUsd 0、costUnknown 恆真�
   expect(r.costUnknown).toBe(true)
 })
 
-test('linked worktree：agy 前切成 WSL gitdir，結束後交回 Windows Git 驗收', async () => {
+test.each(['ok', 'partial'])('linked worktree：only a complete result may restore Windows gitdir (%s)', async mode => {
   const root = mkdtempSync(join(tmpdir(), 'adng-agy-worktree-'))
   const repo = join(root, 'repo')
   const worktree = join(root, 'worktree')
@@ -138,8 +143,10 @@ test('linked worktree：agy 前切成 WSL gitdir，結束後交回 Windows Git �
     execFileSync('git', ['commit', '-m', 'chore: init'], { cwd: repo, stdio: 'ignore' })
     execFileSync('git', ['worktree', 'add', '-b', 'adng/agy-probe', worktree], { cwd: repo, stdio: 'ignore' })
 
-    const { e, logFile } = makeEngine('ok', ['aaa', 'bbb'])
-    expect((await e.run({ task: T, projectPath: worktree })).ok).toBe(true)
+    const { e, logFile } = makeEngine(mode, ['aaa', 'bbb'])
+    const repair = vi.spyOn(e as unknown as { repairForWindows(projectPath: string, commonDir: string): Promise<void> }, 'repairForWindows')
+    expect((await e.run({ task: T, projectPath: worktree })).ok).toBe(mode === 'ok')
+    expect(repair).toHaveBeenCalledTimes(mode === 'ok' ? 1 : 0)
 
     const calls = loggedCalls(logFile)
     expect(calls).toHaveLength(2)

@@ -11,6 +11,8 @@ import { type GithubClient } from '../src/github/client.js'
 import { git } from '../src/github/job.js'
 import { assertRegression, verifyRegression } from '../src/github/regression.js'
 import { assertAcceptance, verifyAcceptance } from '../src/github/acceptance.js'
+import { runGithub } from '../src/github/runner.js'
+import { repairMetrics } from '../src/github/operations.js'
 
 const dirs: string[] = []
 afterEach(() => { vi.restoreAllMocks(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
@@ -27,6 +29,20 @@ function setup() {
   const client: GithubClient = { issue: async () => issue, list: async () => [issue], findPr: async () => undefined, findLinkedPr: async () => undefined, createPr: vi.fn() }
   return { root, source, file, cfg, issue, state, client }
 }
+
+test('unconfirmed worker blocks the Issue without a retry, publication or false failed-attempt metric', async () => {
+  const f = setup()
+  f.state.status = 'queued'; f.state.runs = 0; saveState(f.cfg, f.state)
+  const execute = vi.fn(async () => ({ done: false, detail: 'team-state-quarantined', recoveryRequired: true }))
+  const publish = vi.fn()
+  expect(await runGithub(f.cfg, { client: f.client, execute, publish })).toBe('blocked')
+  const saved = readState(f.cfg, 7)!
+  expect(saved).toMatchObject({ status: 'blocked', runs: 1 })
+  expect(saved.detail).toContain('Execution recovery required:')
+  await runGithub(f.cfg, { client: f.client, execute, publish })
+  expect(execute).toHaveBeenCalledTimes(1); expect(publish).not.toHaveBeenCalled()
+  expect(repairMetrics(f.cfg).recordedFailedAttempts).toBe(0)
+})
 test('normal Issue recovery survives reload, keeps budget, and cannot resume a changed contract', async () => {
   const f = setup(), doctor = vi.fn().mockResolvedValue({ ready: true })
   const resumed = await recoverIssue(f.file, 7, 'CLI environment fixed and verified', false, { client: f.client, doctor })

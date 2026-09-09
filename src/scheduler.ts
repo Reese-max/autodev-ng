@@ -31,6 +31,8 @@ import { checkOwnership, compatibleTasks } from './engines/ownership.js'
 import type { TeamState } from './engines/team-state.js'
 import { trackedDirtyFiles } from './engines/main-admission.js'
 import { observeLearning } from './learn/outcomes.js'
+import { createExecutionObservation, readExecutions } from './engines/execution-observation.js'
+import type { RunControl } from './engines/run-control.js'
 
 /** M7：教訓注入/反思 port（Task 2 makeLessonsPort 的輸出型別）。inject() 供 scheduler
  * 附進 job.directive；reflect() 留給 Task 4/5 接線（本 task 只注入 inject）。 */
@@ -40,6 +42,7 @@ export interface LessonsPort {
 }
 
 export interface Deps {
+  runControl?: RunControl
   cfg: Config
   store: BacklogStore
   db: RunDb
@@ -90,6 +93,7 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
 
 async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleResult> {
   const { cfg, store, db, engines, events, verifier, notify } = deps
+  if (deps.runControl?.signal?.aborted) return 'stopped'
   if (existsSync(cfg.stopFile)) {
     writeHeartbeat(events, cfg, { state: 'stopped', todayCostUsd: todayCost(db, cfg) })
     return 'stopped'
@@ -132,6 +136,9 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     return picked
   }
   const { task, engine, engineTag, fixedCost } = picked
+  const priorExecutions = readExecutions(cfg.dataDir)
+  if (priorExecutions.errors.length || priorExecutions.records.some(record => record.phase !== 'terminal' && (record.taskId === task.id || record.phase === 'unknown')))
+    return blockTask({ store, events }, task, 'team-state-quarantined', '既有執行尚未確認結束；保留工作區，需先核對後端狀態')
   const executionId = newExecutionId()
   const mainDirty = trackedDirtyFiles(cfg.projectPath, cfg.gitTimeoutMs)
   if (mainDirty?.length) {
@@ -159,15 +166,16 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
       return blockTask({ store, events }, task, 'team-state-quarantined', `team coordination unavailable：${String(err)}`)
     }
   }
-  let claimReleased = false
+  let claimReleased = false, recoveryRequired = false
   const releaseClaim = (): void => {
-    if (!teamClaim || claimReleased) return
+    if (!teamClaim || claimReleased || recoveryRequired) return
     claimReleased = true
     try { deps.team?.release(executionId, teamClaim.token) } catch { /* DB 狀態保留，逾期後 quarantine */ }
   }
   const claimHeartbeat = teamClaim ? setInterval(() => { try { deps.team?.heartbeat(executionId, teamClaim!.token, leaseMs) } catch { /* merge admission 仍會 fail-closed */ } }, Math.max(10_000, Math.floor(leaseMs / 3))) : undefined
   claimHeartbeat?.unref?.()
   let finishLearning: ReturnType<typeof observeLearning> | undefined, learningResult: { accepted: boolean; commit?: string } = { accepted: false }
+  let observation: ReturnType<typeof createExecutionObservation> | undefined
 
   try {
 
@@ -211,9 +219,23 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
 
   // try 只包 engine.run：下游 I/O 故障不該被誤判成引擎錯誤而污染 failCount。
   let res: RunResult
+  const job: Job = { task, projectPath: wt.cwd, directive, executionId, writerIdentity: engineTag, control: deps.runControl }
+  const quarantineRun = (reason?: string): CycleResult => {
+    recoveryRequired = true
+    if (!observation) try { observation = createExecutionObservation({ dataDir: cfg.dataDir, job, adapter: cfg.engines[engineTag]?.adapter ?? engineTag }) } catch { /* Team/backlog fences remain. */ }
+    if (teamClaim) try { deps.team?.quarantine(executionId, teamClaim.token) } catch { /* Expired claims also remain quarantined. */ }
+    quiet(() => events.append('execution-unconfirmed', { executionId, taskId: task.id, worktreePath: wt.cwd, reason }))
+    return blockTask({ store, events }, task, 'team-state-quarantined', `執行 ${executionId} 的後端停止尚未確認；保留工作區與寫入權：${reason ?? 'unknown'}`)
+  }
   try {
-    res = await engine.run({ task, projectPath: wt.cwd, directive, executionId, writerIdentity: engineTag })
+    const mode = cfg.engines[engineTag]?.executionMode
+    if (mode === 'observed' || mode === 'supervised') {
+      observation = createExecutionObservation({ dataDir: cfg.dataDir, job, adapter: cfg.engines[engineTag]!.adapter, supervised: mode === 'supervised' })
+      job.control = observation.control
+    }
+    res = await engine.run(job)
   } catch (err) {
+    if (observation?.snapshot().worker) return quarantineRun('worker transport failed before a verified terminal result')
     if (isExternalEngineTermination(err)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${String(err)}`) }
     // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
     db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, accounting: attemptAccounting({ ok: false, output: '', costUsd: 0, costUnknown: true }, cfg.engines?.[engineTag] ?? {}), durationMs: Date.now() - runStartMs, failureClass: 'supply' })
@@ -222,8 +244,10 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
     return resolveFailure(deps, task, 'engine-error', String(err), 'supply', { costUsd: fixedCost ?? 0 })
   }
+  if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
   if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`) }
-  res = await nudgeNoCommit(engine, { task, projectPath: wt.cwd, directive }, res, wt.baseHead)
+  res = await nudgeNoCommit(engine, job, res, wt.baseHead)
+  if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默。失敗成本估計（M4 Task 3）：costUnknown===true
   // （timeout/exit≠0/輸出不可解析）改記 cfg.failureCostEstimateUsd，detail 帶 cost-estimated 標記；
   // 引擎解析出真值（含 is_error、真值恰好 0）照記真值。M5 Task 1：fixedCost 有設（非真值引擎）
@@ -284,18 +308,21 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     }
   }
 
+  if (observation?.recoveryRequired) return quarantineRun('observation or cancellation requires recovery before merge')
+
   if (res.ok && existsSync(cfg.stopFile)) { pauseReady(); return 'stopped' }
 
   if (res.ok) {
     // engine 成功 + verify 通過（或未設 verifier）→ 嘗試把任務分支 ff-only 合回主 repo。
     // merge queue（併發基建）：合併一次一個；串行下等價直呼，併發池（GOAL B）沿用同一入口。
-    const mergeFn = () => existsSync(cfg.stopFile)
+    const mergeFn = () => existsSync(cfg.stopFile) || observation?.recoveryRequired
       ? ({ merged: false, reason: 'paused' } as const)
       : mergeAfterRebaseVerify(cfg, wt, task, res, verifier, deps.evidence, executionId, engineTag)
     const candidateHead = defaultCommitHash(wt.cwd) ?? res.commitHash ?? 'unknown'
     const merge = teamClaim && deps.team
       ? await enqueueTeamMerge(cfg.projectPath, deps.team, { executionId, token: teamClaim.token, taskId: task.id, candidateHead, branch: wt.branch, worktreePath: wt.cwd }, Math.max(cfg.wedgeHardCapMs, cfg.verifyTimeoutMs), mergeFn)
       : await enqueueMerge(cfg.projectPath, mergeFn)
+    if (observation?.recoveryRequired) return quarantineRun('cancellation or observation changed while awaiting merge')
     if (merge.rebaseAttempted) quiet(() => events.append('rebase-attempted', {
       task: task.text,
       branch: wt.branch,
@@ -406,7 +433,8 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
   return resolveFailure(deps, task, 'failed', res.failureReason ?? '未知', failureClass, quotaUsage)
   } finally {
-    if (finishLearning) quiet(() => finishLearning!({ ...learningResult, failure: learningResult.accepted ? undefined : db.lastFailureFor(task.id) ?? undefined }))
+    observation?.finish(recoveryRequired ? 'unconfirmed' : learningResult.accepted ? 'completed' : 'failed')
+    if (finishLearning && !recoveryRequired) quiet(() => finishLearning!({ ...learningResult, failure: learningResult.accepted ? undefined : db.lastFailureFor(task.id) ?? undefined }))
     if (claimHeartbeat) clearInterval(claimHeartbeat)
     releaseClaim()
   }

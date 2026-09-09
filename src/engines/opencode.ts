@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
+import { cancelledRun } from './run-control.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -77,8 +78,9 @@ export class OpencodeEngine implements Engine {
       `任務：${job.directive ?? job.task.text}`
     ].join('\n')
     const before = this.getCommitHash(job.projectPath)
-    const r = await this.exec(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs)
+    const r = await this.exec(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs, job.control)
     const p = parseNdjson(r.stdout)
+    if (r.aborted) return cancelledRun(tailErr(r))
     if (r.timedOut) return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
       return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true,
@@ -103,12 +105,12 @@ export class OpencodeEngine implements Engine {
   }
 
   /** 確保隔離 profile 存在 → XDG 重導向 spawn → 事後保守清 snapshot（吞錯，不影響結果）。 */
-  private async exec(stdinText: string, cwd: string, timeoutMs: number, idleTimeoutMs?: number): ReturnType<typeof runProcess> {
+  private async exec(stdinText: string, cwd: string, timeoutMs: number, idleTimeoutMs?: number, control?: Job['control']): ReturnType<typeof runProcess> {
     const xdg = this.ensureProfile()
     const r = await runProcess({ command: this.command, args: this.args, cwd, stdinText, timeoutMs,
       ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }),
-      env: { ...this.env, ...xdg } })
-    try { rmSync(join(xdg.XDG_DATA_HOME, 'opencode', 'snapshot'), { recursive: true, force: true }) } catch { /* 盡力而為 */ }
+      env: { ...this.env, ...xdg }, control })
+    if (!r.aborted && !r.timedOut) try { rmSync(join(xdg.XDG_DATA_HOME, 'opencode', 'snapshot'), { recursive: true, force: true }) } catch { /* 盡力而為 */ }
     return r
   }
 
