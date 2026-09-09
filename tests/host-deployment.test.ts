@@ -146,3 +146,18 @@ test('project handoff pauses only matching sources, keeps existing reasons and r
     expect(fs.readFileSync(join(f.project, 'dirty'), 'utf8')).toBe('Keep changes')
   } finally { fs.rmSync(f.root, { recursive: true, force: true }) }
 })
+
+test('restore supports long Windows tracked paths with only repository-local Git configuration', async () => {
+  const f = fixture()
+  try {
+    const backup = join(f.root, 'snapshot'), destination = join(f.root, 'restored'), name = `${'long-'.repeat(32)}file.txt`
+    fs.writeFileSync(join(f.project, name), 'long path fixture\n')
+    f.git('-c', 'core.longpaths=true', 'add', '.')
+    f.git('-c', 'core.longpaths=true', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'long path')
+    await backupState(f.config, backup)
+    expect((await restoreState(backup, destination, loadHost(f.home).runtime)).paused).toBe(true)
+    expect(fs.readFileSync(join(destination, 'project/README.md'), 'utf8')).toBe('fixture\n')
+    expect(fs.readFileSync(join(destination, 'project', name), 'utf8')).toBe('long path fixture\n')
+    expect(execFileSync('git', ['config', '--local', '--get', 'core.longpaths'], { cwd: join(destination, 'project'), encoding: 'utf8', windowsHide: true }).trim()).toBe('true')
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }) }
+})

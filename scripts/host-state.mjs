@@ -109,7 +109,7 @@ export async function restoreState(from, home, runtime) {
   try {
     const gitEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null' }
     const hooks = `core.hooksPath=${join(staging, 'disabled-hooks')}`
-    command('git', ['-c', hooks, 'clone', '--no-checkout', '--', join(from, 'project.bundle'), project], undefined, gitEnv)
+    command('git', ['-c', hooks, '-c', 'core.longpaths=true', 'clone', '--config', 'core.longpaths=true', '--no-checkout', '--', join(from, 'project.bundle'), project], undefined, gitEnv)
     command('git', ['check-ref-format', `refs/heads/${m.branch}`], project, gitEnv)
     command('git', ['-c', hooks, 'checkout', m.branch, '--'], project, gitEnv)
     const hostDir = join(staging, 'host')
