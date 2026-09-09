@@ -146,6 +146,30 @@ export async function acceptDelivery(file: string, number: number, commit: strin
   } finally { releaseLock(lock) }
 }
 
+export function repairMetrics(cfg: GithubConfig) {
+  const rows = states(cfg), attempted = rows.filter(s => s.runs > 0), completed = rows.filter(s => ['ready', 'published'].includes(s.status))
+  const verified = completed.filter(s => { try { delivery(cfg, s); return true } catch { return false } })
+  const paused = !cfg.enabled || existsSync(githubStopFile(cfg))
+  const failed = (s: Pick<IssueState, 'status' | 'runs' | 'detail'>) => s.runs > 0 && ['queued', 'blocked'].includes(s.status) && s.detail === 'failed'
+  const failures = rows.map(s => {
+    const runs = new Set((s.history ?? []).filter(e => e.runs > 0 && ['queued', 'blocked'].includes(e.status) && !e.detail?.startsWith('Recovery:')).map(e => e.runs))
+    if (failed(s)) runs.add(s.runs) // A legacy snapshot is evidence of this failure, not every earlier attempt.
+    return runs.size
+  })
+  const incomplete = attempted.filter(s => new Set((s.history ?? []).filter(e => e.status === 'running' && e.runs > 0 && e.runs <= s.runs).map(e => e.runs)).size < s.runs)
+  const recordedFailedAttempts = failures.reduce((n, v) => n + v, 0)
+  return { repo: cfg.repo, at: new Date().toISOString(), paused, recordedFailedAttempts,
+    failedAttempts: incomplete.length ? null : recordedFailedAttempts, failureHistoryIncompleteIssues: incomplete.length,
+    repeatedFailureIssues: failures.filter(n => n > 1).length, observedIssues: rows.length, attemptedIssues: attempted.length, attempts: rows.reduce((n, s) => n + s.runs, 0),
+    verifiedCompletions: verified.length, issueCompletionRate: attempted.length ? verified.length / attempted.length : null,
+    retriedIssues: rows.filter(s => s.runs > 1).length, needsAttention: rows.filter(s => ['blocked', 'cancelled'].includes(s.status) || (paused && s.status === 'queued' && s.runs > 0)).length,
+    recoveries: rows.reduce((n, s) => n + (s.history ?? []).filter(e => e.detail?.startsWith('Recovery:')).length, 0),
+    journeyCompletions: { verifiedCandidates: verified.length, automatedRepairProbe: cfg.repair ? verified.length : null,
+      merged: rows.filter(s => s.remote?.state === 'merged' && s.remote.head === s.commit).length,
+      humanAcceptance: rows.filter(s => s.acceptance && s.acceptance.commit === s.commit).length },
+    userOutcome: 'explicit acceptance only; candidate verification is not human acceptance', issues: rows.map(s => ({ number: s.issue.number, status: s.status, runs: s.runs, detail: s.detail })) }
+}
+
 export async function operationsCli(mode: string, argv: string[]): Promise<void> {
   if (!mode.startsWith('repair-')) mode = `repair-${mode}` // Shared recovery and diagnosis for both intake paths.
   const { values } = parseArgs({ args: argv, options: { config: { type: 'string' }, issue: { type: 'string' }, reason: { type: 'string' }, commit: { type: 'string' }, live: { type: 'boolean' } } })
@@ -154,19 +178,8 @@ export async function operationsCli(mode: string, argv: string[]): Promise<void>
   let result: unknown
   if (mode === 'repair-accept') result = await acceptDelivery(values.config, Number(values.issue), values.commit ?? '', values.reason ?? '')
   else if (mode === 'repair-doctor') { const doctor = await repairDoctor(cfg, values.live); result = doctor; if (!doctor.ready) process.exitCode = 1 }
-  else if (mode === 'repair-metrics') {
-    const rows = states(cfg), attempted = rows.filter(s => s.runs > 0), completed = rows.filter(s => ['ready', 'published'].includes(s.status))
-    const verified = completed.filter(s => { try { delivery(cfg, s); return true } catch { return false } })
-    const failures = rows.map(s => new Set((s.history ?? []).filter(e => e.runs > 0 && ['queued', 'blocked'].includes(e.status) && !e.detail?.startsWith('Recovery:')).map(e => e.runs)).size)
-    result = { repo: cfg.repo, at: new Date().toISOString(), paused: !cfg.enabled || existsSync(githubStopFile(cfg)), recordedFailedAttempts: failures.reduce((n, v) => n + v, 0), repeatedFailureIssues: failures.filter(n => n > 1).length, observedIssues: rows.length, attemptedIssues: attempted.length, attempts: rows.reduce((n, s) => n + s.runs, 0),
-      verifiedCompletions: verified.length, issueCompletionRate: attempted.length ? verified.length / attempted.length : null,
-      retriedIssues: rows.filter(s => s.runs > 1).length, needsAttention: rows.filter(s => ['blocked', 'cancelled'].includes(s.status)).length,
-      recoveries: rows.reduce((n, s) => n + (s.history ?? []).filter(e => e.detail?.startsWith('Recovery:')).length, 0),
-      journeyCompletions: { verifiedCandidates: verified.length, automatedRepairProbe: cfg.repair ? verified.length : null,
-        merged: rows.filter(s => s.remote?.state === 'merged' && s.remote.head === s.commit).length,
-        humanAcceptance: rows.filter(s => s.acceptance && s.acceptance.commit === s.commit).length },
-      userOutcome: 'explicit acceptance only; candidate verification is not human acceptance', issues: rows.map(s => ({ number: s.issue.number, status: s.status, runs: s.runs, detail: s.detail })) }
-  } else if (mode === 'repair-delivery') {
+  else if (mode === 'repair-metrics') result = repairMetrics(cfg)
+  else if (mode === 'repair-delivery') {
     const state = readState(cfg, Number(values.issue)); if (!state) throw new Error('Issue state not found'); result = delivery(cfg, state)
   } else result = await recoverIssue(values.config, Number(values.issue), values.reason ?? '', mode === 'repair-resume')
   console.log(JSON.stringify(result, null, 2))
