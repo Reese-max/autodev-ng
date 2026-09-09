@@ -60,7 +60,8 @@ export function summarizeLearning(events: string) {
       acceptanceRateDelta: sufficient ? row.acceptanceRate - baseline!.acceptanceRate : null,
       meanDurationMsDelta: sufficient ? row.meanDurationMs - baseline!.meanDurationMs : null }
   })
-  return { observed: completed.size, pendingOrInterrupted: [...started].filter(id => !completed.has(id)).length,
+  return { measurementStatus: malformed || conflicts ? 'invalid-evidence' : completed.size ? 'observed' : started.size ? 'pending-or-interrupted' : 'no-observations',
+    observed: completed.size, pendingOrInterrupted: [...started].filter(id => !completed.has(id)).length,
     malformed, conflicts, rows, comparisons, causalImprovement: null,
     interpretation: 'Only matched task, model and base commit are compared; observation is not proof of causation or user acceptance.' }
 }

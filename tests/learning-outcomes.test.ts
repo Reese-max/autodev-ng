@@ -30,6 +30,8 @@ test('教訓內容指紋不依賴編號/日期；損壞紀錄明確呈現', () =
   expect(lessonFingerprints('- L001 [2026-01-01] same lesson')).toEqual(lessonFingerprints('- L008 [2026-09-08] same   lesson'))
   expect(summarizeLearning('{broken').malformed).toBe(1)
   expect(summarizeLearning('').comparisons).toEqual([])
+  expect(summarizeLearning('').measurementStatus).toBe('no-observations')
+  expect(summarizeLearning('{broken').measurementStatus).toBe('invalid-evidence')
 })
 
 test('報表納入同專案 Issue 紀錄，拒絕混入其他專案', () => {
@@ -43,8 +45,12 @@ test('報表納入同專案 Issue 紀錄，拒絕混入其他專案', () => {
     saveState(cfg, { repo: cfg.repo, base: cfg.base, status: 'queued', runs: 1, nextRunAt: 0, fingerprint: 'a'.repeat(64),
       issue: { number: 1, title: 'fixture', body: '', state: 'open', user: { login: 'fixture' }, labels: [] } })
     const log = join(cfg.dataDir, 'issue-1', 'events.jsonl')
-    writeFileSync(log, JSON.stringify({ type: 'learning-outcome', executionId: 'fixture-only', taskId: 'fixture', model: 'fixture', baseCommit: 'a'.repeat(40), lessons: [], accepted: true, commit: 'b'.repeat(40), durationMs: 1 }) + '\n')
     const run = () => spawnSync(process.execPath, [resolve('scripts/learning-report.mjs'), '--config', file, '--repair-config', repairFile], { encoding: 'utf8', windowsHide: true })
+    const empty = run()
+    expect(empty.status).toBe(2)
+    expect(JSON.parse(empty.stdout)).toMatchObject({ measurementStatus: 'no-observations', userOutcomes: { humanAccepted: 0 } })
+    expect(JSON.parse(empty.stdout).sources.every((s: { present: boolean }) => !s.present)).toBe(true)
+    writeFileSync(log, JSON.stringify({ type: 'learning-outcome', executionId: 'fixture-only', taskId: 'fixture', model: 'fixture', baseCommit: 'a'.repeat(40), lessons: [], accepted: true, commit: 'b'.repeat(40), durationMs: 1 }) + '\n')
     const result = run()
     expect(result.status).toBe(0); expect(JSON.parse(result.stdout)).toMatchObject({ observed: 1, causalImprovement: null })
     writeFileSync(repairFile, JSON.stringify({ ...cfg, sourceConfig: join(dir, 'another.json') }))
