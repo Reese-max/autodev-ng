@@ -59,6 +59,15 @@ test('missing config never starts Guardian or creates a diagnostic home', async 
   expect(existsSync(fleetDataDir)).toBe(false)
 })
 
+test('free-only projects keep monitoring evidence but never start the uncontrolled Guardian model', async () => {
+  const f = fixture(), raw = JSON.parse(readFileSync(f.configPath, 'utf8'))
+  writeFileSync(f.configPath, JSON.stringify({ ...raw, tierMode: 'free-only' }))
+  const runner = vi.fn(async () => { throw new Error('paid Guardian forbidden') })
+  expect(await runFleetGuardian([superviseResult(f)], { fleetDataDir: join(f.root, 'fleet'), runProcessFn: runner }))
+    .toEqual([{ configPath: f.configPath, kind: 'skipped', reason: 'free-policy' }])
+  expect(runner).not.toHaveBeenCalled(); expect(existsSync(join(f.dataDir, 'codex-home'))).toBe(false)
+})
+
 test.each(['healthy', 'diagnose', 'malicious', 'stale', 'timeout'] as const)('active worker Guardian is read-only, bounded and advisory: %s', async mode => {
   const f = fixture()
   const observation = createExecutionObservation({ dataDir: f.dataDir, adapter: 'codex', job: {

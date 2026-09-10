@@ -4,10 +4,11 @@ import { existsSync } from 'node:fs'
 import type { Config, Job, RunResult, TaskRisk } from '../types.js'
 import { runVerify } from '../verify.js'
 import { judgeCommit } from '../judge.js'
-import { runReviewGate } from './review-gate.js'
+import { runReviewGate, type ReviewRunArgs } from './review-gate.js'
 import { defaultRollback, defaultGetDiff, defaultGetNameStatus, composeJudgeDiff, tail } from './verify-helpers.js'
 import { classifyTaskRisk, reviewRequired, verifyRequired } from './risk-policy.js'
 import type { VerificationEvidence } from './evidence-chain.js'
+import { modelIdentity } from './free-model-policy.js'
 
 export interface VerifierCheck {
   pass: boolean
@@ -15,6 +16,7 @@ export interface VerifierCheck {
   reason?: string
   blockedReason?: 'verification-infra' | 'review-unavailable' | 'release-approval'
   paused?: boolean
+  retryAt?: number
   alerts: string[]
   evidence?: VerificationEvidence
 }
@@ -25,7 +27,7 @@ export interface KernelVerifierOpts {
   getDiff?: (cwd: string, baseCommitHash?: string) => string
   getNameStatus?: (cwd: string, baseCommitHash?: string) => string
   judgeFetchFn?: typeof fetch
-  reviewRun?: (args: { diff: string; taskText: string }) => Promise<string>
+  reviewRun?: (args: ReviewRunArgs) => Promise<string>
 }
 
 export class KernelVerifier {
@@ -34,7 +36,7 @@ export class KernelVerifier {
   private readonly getDiff: (cwd: string, baseCommitHash?: string) => string
   private readonly getNameStatus: (cwd: string, baseCommitHash?: string) => string
   private readonly judgeFetchFn?: typeof fetch
-  private readonly reviewRun?: (args: { diff: string; taskText: string }) => Promise<string>
+  private readonly reviewRun?: (args: ReviewRunArgs) => Promise<string>
 
   constructor(opts: KernelVerifierOpts) {
     this.cfg = opts.cfg
@@ -51,6 +53,7 @@ export class KernelVerifier {
     const nameStatus = this.getNameStatus(job.projectPath, res.baseCommitHash)
     const risk = classifyTaskRisk(this.cfg, job.task, nameStatus)
     const reviewerModel = this.cfg.reviewEngine ?? this.cfg.auditModel
+    const requiredReview = this.cfg.tierMode === 'free-only' || reviewRequired(risk)
     const vOut = await runVerify({ command: this.cfg.verifyCommand, cwd: job.projectPath, timeoutMs: this.cfg.verifyTimeoutMs })
     const evidence: VerificationEvidence = {
       candidateCommit: res.commitHash ?? 'unknown',
@@ -70,7 +73,7 @@ export class KernelVerifier {
     if (existsSync(this.cfg.stopFile)) return done({ pass: false, risk, paused: true, reason: 'paused after CI', alerts })
 
     if (!res.baseCommitHash || !diff) {
-      if (reviewRequired(risk)) {
+      if (requiredReview) {
         evidence.reviewer = { status: 'blocked', detail: 'no baseCommitHash/empty diff' }
         return done({ pass: false, risk, blockedReason: 'review-unavailable', reason: 'review-blocked: no baseCommitHash/empty diff', alerts })
       }
@@ -87,30 +90,37 @@ export class KernelVerifier {
       if (!job.preserveOnReject) this.tryRollback(job.projectPath, res.baseCommitHash, alerts)
       return done({ pass: false, risk, reason: `judge-mismatch: ${jOut.detail}`, alerts })
     }
+    if (jOut.verdict === 'SKIP' && this.cfg.tierMode === 'free-only') return done({ pass: false, risk, blockedReason: 'review-unavailable', reason: jOut.detail, retryAt: jOut.retryAt, alerts })
     if (jOut.verdict === 'SKIP') alerts.push(`judge-skip: ${jOut.detail}`)
     if (existsSync(this.cfg.stopFile)) return done({ pass: false, risk, paused: true, reason: 'paused before Reviewer', alerts })
 
-    if (reviewRequired(risk) && !reviewerModel) {
+    const excludedModels = [this.cfg.judgeModel, res.actualModel ?? this.cfg.engines[job.writerIdentity ?? this.cfg.defaultEngine]?.model ?? '']
+    if (this.cfg.tierMode === 'free-only' && reviewerModel && [reviewerModel, ...(this.cfg.freeReviewFallbacks ?? [])].some(reviewer => excludedModels.some(model => modelIdentity(model) === modelIdentity(reviewer))))
+      return done({ pass: false, risk, blockedReason: 'review-unavailable', reason: 'free-policy: an independent reviewer model is required', alerts })
+    if (requiredReview && !reviewerModel) {
       evidence.reviewer = { status: 'blocked', detail: `${risk} risk requires reviewEngine or auditModel` }
       return done({ pass: false, risk, blockedReason: 'review-unavailable', reason: `review-blocked: ${risk} risk requires reviewEngine or auditModel`, alerts })
     }
     if (reviewerModel) {
       const reviewerExecutionId = randomUUID()
       const rv = await runReviewGate(this.reviewRun, { diff, taskText: job.task.text })
+      const identity = `review:${rv.actualModel ?? reviewerModel}`
+      if (this.cfg.tierMode === 'free-only' && rv.actualModel && excludedModels.some(model => modelIdentity(model) === modelIdentity(rv.actualModel!)))
+        return done({ pass: false, risk, blockedReason: 'review-unavailable', reason: 'free-policy: reported reviewer is not independent', alerts })
       if (rv.kind === 'reject') {
-        evidence.reviewer = { status: 'fail', identity: `review:${reviewerModel}`, executionId: reviewerExecutionId, detail: rv.reason }
+        evidence.reviewer = { status: 'fail', identity, executionId: reviewerExecutionId, detail: rv.reason }
         if (!job.preserveOnReject) this.tryRollback(job.projectPath, res.baseCommitHash, alerts)
         return done({ pass: false, risk, reason: `review-reject:${rv.reason}`, alerts })
       }
-      if (rv.kind === 'skip' && reviewRequired(risk)) {
-        evidence.reviewer = { status: 'blocked', identity: `review:${reviewerModel}`, executionId: reviewerExecutionId, detail: rv.alert }
-        return done({ pass: false, risk, blockedReason: 'review-unavailable', reason: `review-blocked: ${rv.alert}`, alerts })
+      if (rv.kind === 'skip' && requiredReview) {
+        evidence.reviewer = { status: 'blocked', identity, executionId: reviewerExecutionId, detail: rv.alert }
+        return done({ pass: false, risk, blockedReason: 'review-unavailable', reason: `review-blocked: ${rv.alert}`, retryAt: rv.retryAt, alerts })
       }
       if (rv.kind === 'skip') {
-        evidence.reviewer = { status: 'skip', identity: `review:${reviewerModel}`, executionId: reviewerExecutionId, detail: rv.alert }
+        evidence.reviewer = { status: 'skip', identity, executionId: reviewerExecutionId, detail: rv.alert }
         alerts.push(rv.alert)
       } else {
-        evidence.reviewer = { status: 'pass', identity: `review:${reviewerModel}`, executionId: reviewerExecutionId, detail: 'review contract passed' }
+        evidence.reviewer = { status: 'pass', identity, executionId: reviewerExecutionId, detail: 'review contract passed' }
       }
     } else evidence.reviewer = { status: 'not-applicable', detail: 'low-risk task has no review evidence requirement' }
     return done({ pass: true, risk, alerts })

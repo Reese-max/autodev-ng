@@ -171,6 +171,7 @@ export const ConfigSchema = z.object({
   // review gate：對 diff 對抗式審查的 review 模型名 + 端點（未設 reviewEngine＝關閉；未設 reviewUrl 沿用 judgeUrl，apiKey 沿用 judgeApiKey）
   reviewEngine: z.string().optional(),
   reviewUrl: z.string().optional(),
+  freeReviewFallbacks: z.array(z.string().regex(/^(?:openrouter\/)?[a-z0-9._-]+\/[a-z0-9._-]+:free$/).refine(model => !/minimax-m3/i.test(model), 'MiniMax-M3 cannot be a fallback')).max(2).optional(),
   // 發布型任務的人工核可 JSON；candidateCommit 必須精確相符，未設／不符即 BLOCKED。
   releaseApprovalFile: z.string().optional(),
   supplementLimit: z.number().int().positive().default(2),
@@ -189,7 +190,7 @@ export const ConfigSchema = z.object({
   engines: z.record(z.string(), EngineConfigSchema).optional(),
   defaultEngine: z.string().default('claude'),
   engineRotation: z.array(z.string()).optional(), // 無 tag 任務的輪替路由清單（src/engines/rotation.ts）；未設＝defaultEngine 舊行為
-  tierMode: z.literal('free-only').optional(), // 未設＝既有路由；free-only＝僅允許影子帳 free-tier 引擎
+  tierMode: z.literal('free-only').optional(), // 未設＝既有路由；free-only＝所有模型呼叫須核對免費路由與費率
   // M7：教訓庫檔路徑。learningsFile 未設時 cli.ts assemble 預設 join(dataDir,'learnings.md')
   // （功能零設定開啟）；globalLearningsFile 為跨專案共用教訓檔，未設即不注入全局段。
   learningsFile: z.string().optional(),

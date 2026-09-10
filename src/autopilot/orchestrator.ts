@@ -7,6 +7,7 @@ import type { ProgressSnapshot } from './evaluator.js'
 import type { RankedProblem } from './discover.js'
 import { applyDedupReopen } from './dedup-reopen.js'
 import type { GitWorkspaceBlockReason } from './git-workspace.js'
+import { hasPendingReview } from '../engines/pending-review.js'
 
 export type GoalOutcome =
   | { kind: 'achieved'; rounds: number }
@@ -58,6 +59,17 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
   for (;;) {
     if (!deps.isAlive()) return { kind: 'killed', rounds: round }
     round++
+    if (deps.kernelDeps.cfg.tierMode === 'free-only' && deps.kernelDeps.store.read().some(task => task.status === 'open' && hasPendingReview(deps.kernelDeps.cfg, task))) {
+      const resumed = await deps.runOnceFn(deps.kernelDeps)
+      if (resumed === 'deferred') return { kind: 'stuck', rounds: round, retryable: true, reason: 'candidate review deferred; worker output preserved' }
+      if (resumed === 'stopped') return { kind: 'killed', rounds: round }
+      if (typeof resumed === 'object') return { kind: 'stuck', rounds: round, reason: resumed.alertDetail ?? resumed.reason }
+      if (resumed === 'done') {
+        const snapshot = await deps.evalFn(deps.cwd)
+        if (snapshot.retryable) return { kind: 'stuck', rounds: round, retryable: true, reason: snapshot.detail }
+        if (snapshot.achieved) return { kind: 'achieved', rounds: round }
+      }
+    }
 
     const repoSummary = deps.discovered && deps.discovered.ranked.length
       ? [
@@ -73,6 +85,7 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
       // 驗收檔不存在仍記 achieved）——一律過 evalFn 機械驗收；紅燈把 verify 輸出餵回下一輪。
       const snap = await deps.evalFn(deps.cwd)
       deps.onRound?.({ round, plan: planResult, snapshot: snap })
+      if (snap.retryable) return { kind: 'stuck', rounds: round, retryable: true, reason: snap.detail }
       if (snap.achieved) return { kind: 'achieved', rounds: round }
       history.push(`round ${round}: planner 宣告 ACHIEVED 但機械驗收未過（${snap.detail}）——不採信，繼續`)
       noProgress++
@@ -117,9 +130,9 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
     for (;;) {
       if (!deps.isAlive()) return { kind: 'killed', rounds: round }
       const r = await deps.runOnceFn(deps.kernelDeps)
-      if (r === 'deferred') return {
+      if (r === 'deferred' || (r === 'preflight-failed' && deps.kernelDeps.cfg.tierMode === 'free-only')) return {
         kind: 'stuck', rounds: round, retryable: true,
-        reason: 'engine supply deferred：目前可用引擎已耗盡，任務保持 open，待冷卻後續跑',
+        reason: 'engine supply deferred：worker 或審查暫不可用，任務與候選提交保留，待冷卻後續跑',
       }
       // preflight-failed 不會標記 task done/blocked，task 仍是 open，
       // 若不中止，下一輪 runOnceFn 會重撿同一個 task、重複同一個 preflight
@@ -130,6 +143,7 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
 
     const snapshot = await deps.evalFn(deps.cwd)
     deps.onRound?.({ round, plan: planResult, snapshot })
+    if (snapshot.retryable) return { kind: 'stuck', rounds: round, retryable: true, reason: snapshot.detail }
     if (snapshot.achieved) return { kind: 'achieved', rounds: round }
 
     if (snapshot.score > lastScore) { lastScore = snapshot.score; noProgress = 0 }

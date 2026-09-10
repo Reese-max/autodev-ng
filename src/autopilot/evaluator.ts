@@ -4,7 +4,7 @@ import { resolve, sep } from 'node:path'
 import type { Goal } from './goal.js'
 import { callAgent, type LlmOpts } from './llm.js'
 
-export interface ProgressSnapshot { achieved: boolean; score: number; detail: string }
+export interface ProgressSnapshot { achieved: boolean; score: number; detail: string; retryable?: true }
 export interface GoalVerification { exitCode: number; passed: number; output?: string }
 export interface EvalDeps {
   llm: LlmOpts
@@ -38,8 +38,10 @@ export async function evaluate(deps: EvalDeps, goal: Goal, cwd: string): Promise
   // 無可量測條件的 LLM 判定。無佐證檔＝沿用原簡易判定（向後相容：行為與本功能前逐字一致，
   // 舊式品質目標不受新 SCORE 格式影響，score 仍為 achieved?1:0）。
   if (!goal.evidenceFiles?.length) {
-    const out = (await callAgent(deps.llm,
-      `目標：${goal.objective}\n判斷是否已達成，達成回 ACHIEVED，否則回 NOT-YET 並簡述缺口。`)).text.trim()
+    const reply = await callAgent(deps.llm,
+      `目標：${goal.objective}\n判斷是否已達成，達成回 ACHIEVED，否則回 NOT-YET 並簡述缺口。`)
+    if (reply.error && deps.llm.tierMode === 'free-only') return { achieved: false, score: 0, detail: reply.error, retryable: true }
+    const out = reply.text.trim()
     const achieved = /^ACHIEVED\b/i.test(out) && !/\bNOT[\s-]*(?:YET|ACHIEVED)\b/i.test(out)
     return { achieved, score: achieved ? 1 : 0, detail: out.slice(0, 200) || 'agent 無回應' }
   }
@@ -54,7 +56,9 @@ export async function evaluate(deps: EvalDeps, goal: Goal, cwd: string): Promise
     '<ACHIEVED 或 NOT-YET>',
     '<一句話說明缺口或已達成理由>'
   ].join('\n')
-  const out = (await callAgent(deps.llm, prompt)).text.trim()
+  const reply = await callAgent(deps.llm, prompt)
+  if (reply.error && deps.llm.tierMode === 'free-only') return { achieved: false, score: 0, detail: reply.error, retryable: true }
+  const out = reply.text.trim()
   const scoreM = out.match(/SCORE[：:]\s*(\d+)/i)
   const score = scoreM ? Math.min(10, Math.max(0, Number(scoreM[1]))) : 0
   // 保守判達成：出現 ACHIEVED 且無任何否定式（NOT-YET / NOT YET / NOT ACHIEVED …）。

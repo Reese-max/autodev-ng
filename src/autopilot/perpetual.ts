@@ -1,4 +1,4 @@
-import { llmFromConfig } from './llm.js'
+import { llmFromConfig, reviewLlmFromConfig } from './llm.js'
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
@@ -373,7 +373,7 @@ export async function maybeRunPerpetual(
       if (!cfg.surveyCommand && !hasSurveySources(cfg.dataDir)) return undefined
       return discoverProblems({
         finderLlm: judgeLlm,
-        criticLlm: llmFromConfig(cfg, cfg.auditModel ?? cfg.judgeModel, cfg.judgeUrl),
+        criticLlm: reviewLlmFromConfig(cfg, cfg.auditModel ?? cfg.judgeModel, cfg.judgeUrl),
         runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd, (type, data) => quiet(() => deps.events.append(type, data))) }),
         onEvent: (type, data) => quiet(() => deps.events.append(type, data)),
         readRoiSummary: () => readRecentGoalRoiSummary(join(cfg.dataDir, 'run.db')),

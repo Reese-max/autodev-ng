@@ -4,7 +4,7 @@ import type { Config, Task } from '../types.js'
 import type { SplitChild } from './backlog-split.js'
 
 export const FREE_ONLY_SPLIT_FAILURES = 2
-type JudgeOpts = Pick<Config, 'llmTransport' | 'dataDir' | 'judgeUrl' | 'judgeModel' | 'judgeApiKey' | 'judgeEffort' | 'judgeTimeoutMs'>
+type JudgeOpts = Pick<Config, 'tierMode' | 'llmTransport' | 'dataDir' | 'judgeUrl' | 'judgeModel' | 'judgeApiKey' | 'judgeEffort' | 'judgeTimeoutMs'>
 interface JudgePiece { task: string; acceptance: string }
 export interface FreeOnlySplitPlan { pieces: JudgePiece[] }
 export type FreeOnlySplitAttempt = { kind: 'not-eligible' | 'blocked'; detail?: string } | { kind: 'split'; pieces: number }

@@ -39,7 +39,7 @@ export interface SupplementDeps {
   isAlive: () => boolean
   supplementLimit: number
 }
-export interface SupplementResult { clean: boolean; rounds: number; supplemented: number; residualGaps: string[] }
+export interface SupplementResult { clean: boolean; rounds: number; supplemented: number; residualGaps: string[]; retryable?: true }
 
 export async function verifyAndSupplement(deps: SupplementDeps, goal: Goal, cwd: string): Promise<SupplementResult> {
   let rounds = 0
@@ -63,6 +63,7 @@ export async function verifyAndSupplement(deps: SupplementDeps, goal: Goal, cwd:
     let audit: AuditResult
     try {
       const reply = await callAgent(deps.auditLlm, buildAuditPrompt(goal, evidence, verifyOut))
+      if (reply.error && deps.auditLlm.tierMode === 'free-only') return { clean: false, rounds, supplemented, residualGaps: [reply.error], retryable: true }
       if (reply.error) throw new Error(reply.error)
       audit = parseAudit(reply.text)
     } catch (error) { return { clean: false, rounds, supplemented, residualGaps: [`audit error: ${String(error)}`] } }

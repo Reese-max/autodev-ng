@@ -26,6 +26,7 @@ import { MockEngine } from '../src/engines/mock.js'
 import { ConfigSchema, type Disposition, type Task } from '../src/types.js'
 import { acquireLock } from '../src/lock.js'
 import { shouldSendDigest } from '../src/digest.js'
+import { FREE_MODEL_CATALOG } from '../src/engines/free-model-policy.js'
 
 /** 獨立於 src/daemon.ts 實作的 UTC 日期算法（用 setUTCDate 而非 ms 相減），
  * 避免測試與生產碼共用同一套算法而失去回歸保護力。offset=-1 即「昨天」。 */
@@ -95,6 +96,24 @@ function baseOpts(d: Deps, notifier: Notifier, sleepCalls: number[], overrides: 
     ...overrides,
   }
 }
+
+test('free-only daemon refreshes the catalog once across active cycles and skips scans while stopped', async () => {
+  const d = deps(new MockEngine([]), ''), notifier = new FakeNotifier()
+  d.cfg.tierMode = 'free-only'
+  const fetch = vi.fn(async url => {
+    expect(url).toBe(FREE_MODEL_CATALOG)
+    return new Response(JSON.stringify({ data: [{ id: 'test/free:free', pricing: { prompt: '0', completion: '0' } }] }))
+  })
+  vi.stubGlobal('fetch', fetch)
+  try {
+    expect(await runDaemon(baseOpts(d, notifier, [], { maxCycles: 2 }))).toBe('max-cycles')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(notifier.sent.filter(text => text.startsWith('免費模型清單'))).toHaveLength(1)
+    writeFileSync(d.cfg.stopFile, 'paused')
+    expect(await runDaemon(baseOpts(d, notifier, [], { maxCycles: 1 }))).toBe('stopped')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  } finally { d.db.close(); vi.unstubAllGlobals() }
+})
 
 test('① lock 被占 → lock-busy，告警一次，runOnce 完全不執行', async () => {
   const engine = new MockEngine([{ ok: true }])

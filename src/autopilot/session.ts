@@ -1,4 +1,4 @@
-import { llmFromConfig } from './llm.js'
+import { llmFromConfig, reviewLlmFromConfig } from './llm.js'
 import { existsSync, appendFileSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
@@ -17,11 +17,13 @@ import { runGoalSession, type OrchestratorDeps, type GoalOutcome } from './orche
 import { collectSurvey, hasSurveySources } from './survey-sources.js'
 import { readRecentGoalRoiSummary, settleGoalRoi } from './roi.js'
 import { inspectGitWorkspace, persistGitWorkspaceBlock } from './git-workspace.js'
+import { hasPendingReview } from '../engines/pending-review.js'
+import { modelIdentity } from '../engines/free-model-policy.js'
 
 export interface SessionResult {
   goalId: string
   outcome: GoalOutcome
-  supplement?: { clean: boolean; rounds: number; supplemented: number; residualGaps: string[] }
+  supplement?: { clean: boolean; rounds: number; supplemented: number; residualGaps: string[]; retryable?: true }
 }
 
 // M10.5 補洞（2026-07-17 實證）：config-gone 檢查原本只在 daemon cycle 開頭，但 perpetual
@@ -94,8 +96,8 @@ export async function runGoalWithDeps(
     const kernelDeps = goal.engine
       ? { ...deps, cfg: pinGoalEngine(cfg, goal.engine) }
       : deps
-    if (cfg.llmTransport === 'cli' && (!cfg.auditModel || cfg.auditModel === cfg.judgeModel || cfg.auditModel === cfg.engines[kernelDeps.cfg.defaultEngine]?.model)) {
-      const outcome: GoalOutcome = { kind: 'stuck', rounds: 0, reason: 'CLI GOAL 需要不同模型的獨立審查，未派工' }
+    if ((cfg.llmTransport === 'cli' || cfg.tierMode === 'free-only') && (!cfg.auditModel || [cfg.judgeModel, cfg.engines[kernelDeps.cfg.defaultEngine]?.model ?? ''].some(model => modelIdentity(model) === modelIdentity(cfg.auditModel!)))) {
+      const outcome: GoalOutcome = { kind: 'stuck', rounds: 0, reason: 'CLI/free-only GOAL 需要不同模型的獨立審查，未派工' }
       appendFileSync(auditFile, JSON.stringify({ outcome }) + '\n')
       return { goalId, outcome }
     }
@@ -108,7 +110,7 @@ export async function runGoalWithDeps(
     let discovered: DiscoverResult | undefined
     if (opts?.discovered) {
       discovered = opts.discovered
-    } else if (cfg.surveyCommand || hasSurveySources(cfg.dataDir)) {
+    } else if (!deps.store.read().some(task => task.status === 'open' && hasPendingReview(cfg, task)) && (cfg.surveyCommand || hasSurveySources(cfg.dataDir))) {
       // spec：auditModel 未設時 critic 退用 judgeModel，獨立性降級——記一筆稽核事件提醒（fail-open，不擋 discovery 主流程）。
       if (!cfg.auditModel) {
         try { appendFileSync(auditFile, JSON.stringify({ discoveryNote: 'critic 用 judgeModel（auditModel 未設，獨立性降級）' }) + '\n') } catch { /* fail-open */ }
@@ -116,7 +118,7 @@ export async function runGoalWithDeps(
       try {
         discovered = await discoverProblems({
           finderLlm: llm,
-          criticLlm: llmFromConfig(cfg, cfg.auditModel ?? cfg.judgeModel, cfg.judgeUrl),
+          criticLlm: reviewLlmFromConfig(cfg, cfg.auditModel ?? cfg.judgeModel, cfg.judgeUrl),
           runSurvey: (_c, wd) => ({ output: collectSurvey(cfg, wd, (type, data) => quiet(() => deps.events.append(type, data))) }),
           onEvent: (type, data) => quiet(() => deps.events.append(type, data)),
           readRoiSummary: () => readRecentGoalRoiSummary(join(cfg.dataDir, 'run.db')),
@@ -145,7 +147,7 @@ export async function runGoalWithDeps(
     if (outcome.kind === 'achieved' && cfg.auditModel) {
       try {
         const sup = await verifyAndSupplement({
-          auditLlm: llmFromConfig(cfg, cfg.auditModel, cfg.judgeUrl),
+          auditLlm: reviewLlmFromConfig(cfg, cfg.auditModel, cfg.judgeUrl),
           runVerify: (cmd, wd) => runGoalVerify(cmd, wd, cfg.verifyTimeoutMs),
           runOnceFn: async () => { const r = await runOnce(kernelDeps); finalizeRunOnceHeartbeat(kernelDeps, r); try { await kernelDeps.lessons?.reflect(r) } catch { /* Preserve cycle outcome. */ } return r },
           appendTask: (t) => kernelDeps.store.append(t, { goalId, round: 0 }),
@@ -158,7 +160,7 @@ export async function runGoalWithDeps(
       } catch (e) {
         supplement = { clean: false, rounds: 0, supplemented: 0, residualGaps: [`audit error: ${String(e)}`] }
       }
-      if (!supplement?.clean) outcome = { kind: 'stuck', rounds: outcome.rounds, reason: `獨立審查未通過：${supplement?.residualGaps.join('；') || '審查未完成'}` }
+      if (!supplement?.clean) outcome = { kind: 'stuck', rounds: outcome.rounds, reason: `獨立審查未通過：${supplement?.residualGaps.join('；') || '審查未完成'}`, ...(supplement?.retryable ? { retryable: true } : {}) }
     }
     appendFileSync(auditFile, JSON.stringify({ outcome }) + '\n')
     console.log(`GOAL outcome: ${JSON.stringify(outcome)}`)

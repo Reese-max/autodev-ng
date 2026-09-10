@@ -47,12 +47,12 @@ export class TeamState {
 
   claim(args: {
     executionId: string; task: Task; workerId: string; reservedCostUsd: number
-    spentUsd: number; dailyHardUsd: number; leaseMs: number; dailyAttemptCap?: number
+    spentUsd: number; dailyHardUsd: number; leaseMs: number; dailyAttemptCap?: number; reviewOnly?: boolean
   }): ClaimResult {
     const manifest = ownershipManifest(args.task, this.projectPath)
     return this.db.transaction(() => {
       const day = new Date().toISOString().slice(0, 10)
-      if (args.dailyAttemptCap !== undefined) {
+      if (!args.reviewOnly && args.dailyAttemptCap !== undefined) {
         if (!Number.isSafeInteger(args.dailyAttemptCap) || args.dailyAttemptCap <= 0) throw new Error('Invalid dailyAttemptCap')
         const used = this.attemptsToday(args.workerId, day)
         if (used >= args.dailyAttemptCap) return { ok: false, reason: 'attempt-cap', detail: `UTC ${day}: ${args.workerId} admitted ${used}/${args.dailyAttemptCap}; wait for next day` } as const
@@ -70,7 +70,7 @@ export class TeamState {
         return { ok: false, reason: 'cost-reserved', detail: `spent ${args.spentUsd} + reserved ${reserved + args.reservedCostUsd} > hard ${args.dailyHardUsd}` } as const
       }
       const token = randomUUID(), now = new Date().toISOString()
-      this.db.prepare('INSERT INTO team_attempts(execution_id,worker_id,day) VALUES (?,?,?)').run(args.executionId, args.workerId, day)
+      if (!args.reviewOnly) this.db.prepare('INSERT INTO team_attempts(execution_id,worker_id,day) VALUES (?,?,?)').run(args.executionId, args.workerId, day)
       this.db.prepare(`INSERT INTO team_claims(
         execution_id,task_id,worker_id,lease_token,manifest_json,ownership_hash,reserved_cost_usd,active,state,lease_until,updated_at
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(

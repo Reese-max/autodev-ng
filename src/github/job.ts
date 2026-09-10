@@ -9,6 +9,7 @@ import { command } from './client.js'
 import { githubStopFile, type GithubConfig } from './config.js'
 import { branchFor, issueDir, runDir, saveState, type IssueState } from './state.js'
 import { assertRepairEvidence, prepareRepair, reviewRepair, verifyRepairProbe } from './repair.js'
+import { reviewLlmFromConfig } from '../autopilot/llm.js'
 import { makeEngineRegistry } from '../engines/registry.js'
 import { KernelVerifier } from '../verifier.js'
 import { regressionFile, verifyRegression, assertRegression } from './regression.js'
@@ -16,6 +17,7 @@ import { verifyAcceptance, assertAcceptance } from './acceptance.js'
 import { TeamState } from '../engines/team-state.js'
 import { alternativeRetryDue, alternativeRetryUsed } from '../engines/alternative-retry.js'
 import { assertExecutionMode } from '../engines/capabilities.js'
+import { hasPendingReview, reviewRetryDelay } from '../engines/pending-review.js'
 
 export const git = (cwd: string, args: string[]): string => command('git', ['-c', `safe.directory=${cwd.replace(/\\/g, '/')}`, ...args], cwd)
 export const checkoutDir = (cfg: GithubConfig, state: IssueState): string => join(runDir(cfg, state), 'repo')
@@ -37,7 +39,7 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
   if (!engine || ['herdr', 'mock'].includes(engine.adapter)) throw new Error('GitHub runner requires an explicitly selected regular engine')
   assertExecutionMode(engine)
   if (engine.timeoutMs === 0 && engine.executionMode !== 'supervised') throw new Error('GitHub runner requires a bounded engine wall timeout or accepted supervised execution')
-  if (cfg.repair && !['codex', 'freebuff'].includes(engine.adapter)) throw new Error('Automatic report repairs require the Codex CLI or Freebuff engine')
+  if (cfg.repair && !['codex', 'freebuff', ...(source.tierMode === 'free-only' ? ['opencode'] : [])].includes(engine.adapter)) throw new Error('Automatic report repairs require Codex CLI, Freebuff or a verified free-only OpenCode route')
   if (!source.verifyCommand?.trim() || !(source.reviewEngine ?? source.auditModel)) throw new Error('GitHub runner requires verifyCommand and reviewer configuration')
   const dir = runDir(cfg, state)
   return ConfigSchema.parse({ ...source,
@@ -46,7 +48,7 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
     maxAttempts: cfg.maxRuns, concurrency: 1, defaultRisk: 'medium', perpetual: false, goalFile: undefined,
     discordChannelId: undefined, telegramBotToken: undefined, telegramChatId: undefined,
     learningsFile: cfg.repair ? source.learningsFile ?? join(source.dataDir, 'learnings.md') : join(dir, 'learnings.md'), globalLearningsFile: undefined, releaseApprovalFile: undefined,
-    ...(cfg.repair ? { llmTransport: 'cli', judgeUrl: undefined, reviewUrl: undefined, judgeApiKey: '' } : {}),
+    ...(cfg.repair && source.tierMode !== 'free-only' ? { llmTransport: 'cli', judgeUrl: undefined, reviewUrl: undefined, judgeApiKey: '' } : {}),
     extraDirective: [source.extraDirective, `Add a self-contained regression file ${regressionFile(state.issue.number, cfg, state)}. ${cfg.regression ? `Use this trusted test command: ${JSON.stringify(cfg.regression)}.` : 'Use Node node:test and node:assert/strict.'} It must pass on the fix and fail an assertion on the original code when ONLY this test file is copied there. Use the repository root as cwd. Do not change existing tests. Do not branch on git state, paths or environment to manufacture a pass.`, 'Only implement the Issue in this checkout. Do not push, create PRs, send messages, deploy, change credentials, or operate other repositories. The host handles publication after verified completion.'].filter(Boolean).join('\n'),
   })
 }
@@ -73,8 +75,13 @@ export function prepareCheckout(cfg: GithubConfig, state: IssueState): void {
   if (git(cwd, ['status', '--porcelain'])) throw new Error('Issue checkout is dirty; preserving changes for review')
   if (git(cwd, ['remote', 'get-url', 'origin']) !== `https://github.com/${cfg.repo}.git`) throw new Error('Issue checkout origin changed')
 }
-export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string; attempted?: boolean; recoveryRequired?: boolean; alternativeRetryPending?: boolean }> {
-  if (cfg.repair) {
+export function issueReviewPending(cfg: GithubConfig, state: IssueState): boolean {
+  const dataDir = runDir(cfg, state), file = join(dataDir, 'BACKLOG.md')
+  return existsSync(file) && new BacklogStore(file).read().some(task => task.status === 'open' && hasPendingReview({ dataDir }, task))
+}
+export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string; attempted?: boolean; recoveryRequired?: boolean; alternativeRetryPending?: boolean; reviewPending?: boolean; retryAt?: number }> {
+  const resumingReview = issueReviewPending(cfg, state)
+  if (cfg.repair && !resumingReview) {
     const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
     const cap = source.engines[cfg.engine]?.dailyAttemptCap
     if (cap !== undefined) {
@@ -85,7 +92,7 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
   }
   prepareCheckout(cfg, state)
   const runtime = runtimeConfig(cfg, state)
-  const worker = cfg.repair ? makeEngineRegistry(runtime).resolve(cfg.engine) : undefined
+  const worker = cfg.repair && !resumingReview ? makeEngineRegistry(runtime).resolve(cfg.engine) : undefined
   if (worker) {
     const preflight = await worker.preflight()
     if (!preflight.ok) throw new Error(`Repair CLI preflight failed: ${preflight.detail}; repair CLI login/sandbox before retry`)
@@ -96,9 +103,9 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     new BacklogStore(runtime.backlogFile).append(issueTask(state), { goalId: `github-${state.issue.number}`, round: 1 })
   }
   const app = assemble(runtime)
-  if (worker) {
-    app.deps.engines = { resolve: () => worker }
-    const verifier = new KernelVerifier({ cfg: runtime, reviewRun: args => reviewRepair({ dataDir: runtime.dataDir,
+  if (worker) app.deps.engines = { resolve: () => worker }
+  if (cfg.repair) {
+    const verifier = new KernelVerifier({ cfg: runtime, reviewRun: args => reviewRepair({ ...reviewLlmFromConfig(runtime), onModel: args.onModel, dataDir: runtime.dataDir,
       model: runtime.reviewEngine ?? runtime.auditModel!, effort: runtime.judgeEffort, timeoutMs: runtime.judgeTimeoutMs }, args) })
     app.deps.verifier = { async check(job, res) {
       const checked = await verifier.check(job, res)
@@ -139,7 +146,9 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     const commit = done ? git(runtime.projectPath, ['rev-parse', 'HEAD']) : undefined
     if (done) assertPublishable(cfg, { ...state, commit })
     const alternativeRetryPending = runtime.alternativeRetry && result === 'failed' && alternativeRetryDue(runtime, app.deps.db.taskFailCount(tasks[0]!.id)) && !alternativeRetryUsed(runtime, tasks[0]!.id) && app.deps.store.read()[0]?.status === 'open'
-    return { done, detail: typeof result === 'string' ? result : result.reason, ...(typeof result === 'object' && result.reason === 'team-state-quarantined' ? { recoveryRequired: true } : {}), ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
+    return { done, detail: typeof result === 'string' ? result : result.reason, ...(resumingReview ? { attempted: false } : {}),
+      ...(result === 'deferred' && issueReviewPending(cfg, state) ? { reviewPending: true, retryAt: Date.now() + reviewRetryDelay(runtime) } : {}),
+      ...(typeof result === 'object' && result.reason === 'team-state-quarantined' ? { recoveryRequired: true } : {}), ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
   } finally { app.deps.db.close(); app.deps.team?.close() }
 }
 export function detectVerification(cwd: string): string {

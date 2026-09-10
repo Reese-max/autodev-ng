@@ -8,6 +8,8 @@ import { cancelledRun } from './run-control.js'
 import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
+import { admitFreeModel, FREE_MODEL_URL, freeModelId, freeModelReceipt, FreeModelUnavailable, quarantineFreeModel } from './free-model-policy.js'
+import { randomUUID } from 'node:crypto'
 
 export interface OpencodeOpts {
   id?: string
@@ -20,6 +22,7 @@ export interface OpencodeOpts {
   env?: Record<string, string>
   /** XDG 隔離 profile 根（<dataDir>/opencode-profile，gitignored）。 */
   profileDir: string
+  freeOnly?: boolean; policyDataDir?: string
 }
 
 /** M5 Task 8：opencode zen 引擎（規格卡 .superpowers/sdd/m5-opencode-research.md）。
@@ -34,12 +37,17 @@ export class OpencodeEngine implements Engine {
   private readonly cache: PreflightCache; private readonly env?: Record<string, string>
   private readonly getCommitHash: (cwd: string) => string | undefined
   private readonly profileDir: string
+  private readonly freeOnly: boolean; private readonly policyDataDir?: string
 
   constructor(opts: OpencodeOpts) {
     this.id = opts.id ?? 'opencode'
     this.command = opts.command ?? 'opencode.exe'
     this.model = opts.model ?? 'zen/big-pickle'
+    this.freeOnly = opts.freeOnly === true; this.policyDataDir = opts.policyDataDir
+    if (this.freeOnly && (!this.model.startsWith('openrouter/') || opts.baseArgs)) throw new Error('free-policy: explicit openrouter/provider/model:free and controlled CLI arguments required')
+    if (this.freeOnly) freeModelId(this.model)
     this.args = [...(opts.baseArgs ?? ['run', '--format', 'json', '--pure', '--dangerously-skip-permissions']), ...(opts.variant ? ['--variant', opts.variant] : []), '-m', this.model]
+    if (this.freeOnly) this.args = ['run', '--format', 'json', '--pure', '--auto', '--title', 'AutoDev free worker', ...(opts.variant ? ['--variant', opts.variant] : []), '-m', this.model]
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000; this.pingTimeoutMs = opts.pingTimeoutMs ?? 90 * 1000
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
     this.cache = opts.cache; this.env = opts.env; this.profileDir = opts.profileDir
@@ -51,6 +59,7 @@ export class OpencodeEngine implements Engine {
   private cacheKey(): string { return cliPreflightKey(this.command, [...this.args, this.profileDir], { ...this.env, ...this.ensureProfile() }, 'opencode') }
 
   async preflight(): Promise<PreflightResult> {
+    if (this.freeOnly) try { await this.admit() } catch (err) { return { ok: false, detail: String(err) } }
     const key = this.cacheKey()
     const admission = unknownAdmission('opencode', cliModel(this.args))
     const cached = this.cache.get(key)
@@ -111,12 +120,31 @@ export class OpencodeEngine implements Engine {
 
   /** 確保隔離 profile 存在 → XDG 重導向 spawn → 事後保守清 snapshot（吞錯，不影響結果）。 */
   private async exec(stdinText: string, cwd: string, timeoutMs: number, idleTimeoutMs?: number, control?: Job['control']): ReturnType<typeof runProcess> {
+    const policy = { dataDir: this.policyDataDir, model: this.model, callId: randomUUID() }
+    if (this.freeOnly) { const proof = await this.admit(); freeModelReceipt(policy, { phase: 'cli-start', ...proof, modelCalls: 'native-managed' }) }
     const xdg = this.ensureProfile()
     const r = await runProcess({ command: this.command, args: this.args, cwd, stdinText, timeoutMs,
       ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }),
-      env: { ...this.env, ...xdg }, control })
+      env: this.freeOnly ? { ...Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== undefined && /^(path|systemroot|windir|comspec|temp|tmp|pathext|userprofile)$/i.test(key))),
+        OPENROUTER_API_KEY: this.env?.OPENROUTER_API_KEY ?? '', ...xdg, OPENCODE_DISABLE_PROJECT_CONFIG: '1', OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
+        OPENCODE_CONFIG_CONTENT: JSON.stringify(this.freeProfile()) } : { ...this.env, ...xdg }, replaceEnv: this.freeOnly, control })
+    if (this.freeOnly) {
+      const parsed = parseNdjson(r.stdout)
+      freeModelReceipt(policy, { phase: 'cli-finished', requestedModel: this.model, actualModel: 'not reported by NDJSON', steps: parsed.steps,
+        reportedCost: parsed.steps > 0 && parsed.costReports === parsed.steps ? parsed.cost : undefined, exitCode: r.exitCode, timedOut: r.timedOut })
+      if (parsed.cost !== 0) { quarantineFreeModel(policy); throw new FreeModelUnavailable('CLI reported nonzero cost; inspect receipt before retry') }
+    }
     if (!r.aborted && !r.timedOut && !control?.signal?.aborted) try { rmSync(join(xdg.XDG_DATA_HOME, 'opencode', 'snapshot'), { recursive: true, force: true }) } catch { /* 盡力而為 */ }
     return r
+  }
+
+  private admit() {
+    if (!this.env?.OPENROUTER_API_KEY) throw new FreeModelUnavailable('worker OPENROUTER_API_KEY is unavailable')
+    return admitFreeModel({ dataDir: this.policyDataDir, url: FREE_MODEL_URL, model: this.model })
+  }
+  private freeProfile() {
+    return { model: this.model, small_model: this.model, enabled_providers: ['openrouter'], permission: { '*': 'allow', task: 'deny' },
+      provider: { openrouter: { whitelist: [freeModelId(this.model)], options: { baseURL: FREE_MODEL_URL, apiKey: '{env:OPENROUTER_API_KEY}' } } } }
   }
 
   /** profile 的 opencode.json 缺失或內容過期（如換 model）即重寫；zen 以外 provider 不代生設定。 */
@@ -125,7 +153,7 @@ export class OpencodeEngine implements Engine {
     const dataHome = join(this.profileDir, 'data')
     const file = join(cfgHome, 'opencode', 'opencode.json')
     const [prov, modelId] = this.model.split('/')
-    const want = JSON.stringify({
+    const want = JSON.stringify(this.freeOnly ? this.freeProfile() : {
       $schema: 'https://opencode.ai/config.json', model: this.model, permission: 'allow',
       ...(prov === 'zen' && modelId ? { provider: { zen: { npm: '@ai-sdk/openai-compatible', name: 'OpenCode Zen (adng isolated)',
         // timeout 30s 實測撞牆：big-pickle 吃 3 萬 token 上下文時單請求逾 27s 即 UnknownError
@@ -139,12 +167,12 @@ export class OpencodeEngine implements Engine {
   }
 }
 
-interface Parsed { text: string; cost: number; steps: number; errors: string[]; tokIn: number; tokOut: number; tokCached: number }
+interface Parsed { text: string; cost: number; costReports: number; steps: number; errors: string[]; tokIn: number; tokOut: number; tokCached: number }
 
 /** NDJSON 逐行 parse：毒行（opencode 會把 log 直印 stdout，實測壞 model 場景）靜默跳過；
  * 聚合 text 事件、計 step_finish 數並 Σ part.cost、收 error 事件的 name+message。 */
 function parseNdjson(stdout: string): Parsed {
-  const p: Parsed = { text: '', cost: 0, steps: 0, errors: [], tokIn: 0, tokOut: 0, tokCached: 0 }
+  const p: Parsed = { text: '', cost: 0, costReports: 0, steps: 0, errors: [], tokIn: 0, tokOut: 0, tokCached: 0 }
   for (const line of stdout.split(/\r?\n/)) {
     if (line.trim() === '') continue
     let obj: Record<string, unknown>
@@ -153,6 +181,7 @@ function parseNdjson(stdout: string): Parsed {
     if (obj.type === 'text' && typeof part?.text === 'string') p.text += (p.text === '' ? '' : '\n') + part.text
     else if (obj.type === 'step_finish') {
       p.steps++; if (typeof part?.cost === 'number') p.cost += part.cost
+      if (typeof part?.cost === 'number' && Number.isFinite(part.cost) && part.cost >= 0) p.costReports++
       // token 聚合（2026-07-29）：opencode step_finish 的 part.tokens（input/output/cache.read）——
       // 文字行 'tokens in=' 實測不存在於 NDJSON stdout，事件欄位才是真源。
       const tok = part?.tokens as { input?: number; output?: number; cache?: { read?: number } } | undefined

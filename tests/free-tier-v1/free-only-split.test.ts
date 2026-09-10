@@ -10,8 +10,17 @@ import { MockEngine } from '../../src/engines/mock.js'
 import { sequentialReadyTasks } from '../../src/engines/free-only-split.js'
 import { runOnce, type Deps } from '../../src/scheduler.js'
 import { ConfigSchema, type Task } from '../../src/types.js'
+import { FREE_MODEL_CATALOG, FREE_MODEL_URL } from '../../src/engines/free-model-policy.js'
 
 const ACCEPTANCE = 'npm run typecheck'
+class CommittingMock extends MockEngine {
+  override async run(job: Parameters<MockEngine['run']>[0]) {
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: job.projectPath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+    const baseCommitHash = git('rev-parse', 'HEAD'), result = await super.run(job)
+    writeFileSync(join(job.projectPath, 'candidate.txt'), `${this.calls.length}\n`); git('add', 'candidate.txt'); git('commit', '-m', 'candidate')
+    return { ...result, baseCommitHash, commitHash: git('rev-parse', 'HEAD') }
+  }
+}
 
 function initRepo(dir: string): void {
   execFileSync('git', ['init', '-b', 'main'], { cwd: dir, stdio: 'ignore' })
@@ -30,20 +39,22 @@ function fixture(backlog = '- [ ] 母任務：修復免費層失敗\n'): Deps {
   writeFileSync(backlogFile, backlog)
   const cfg = ConfigSchema.parse({
     projectPath: dir, backlogFile, dataDir: join(dir, 'data'), worktreesDir: join(dir, 'worktrees'),
-    stopFile: join(dir, '.adng.stop'), verifyCommand: ACCEPTANCE, judgeUrl: 'https://judge.test',
+    stopFile: join(dir, '.adng.stop'), verifyCommand: ACCEPTANCE, judgeUrl: FREE_MODEL_URL, judgeModel: 'test/split:free', judgeApiKey: 'test-credential',
     tierMode: 'free-only', defaultEngine: 'agy', engineRotation: ['agy', 'devin'],
     engines: { agy: { adapter: 'mock', costPerRunUsd: 0 }, devin: { adapter: 'mock', costPerRunUsd: 0 } },
   })
   return {
     cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')),
-    engines: { resolve: () => new MockEngine([{ ok: true }, { ok: true }]) },
+    engines: { resolve: () => new CommittingMock([{ ok: true }, { ok: true }]) },
     verifier: { check: async () => ({ pass: false, reason: '可靠驗收失敗', alerts: [] }) },
     events: new EventLog(cfg.dataDir),
   }
 }
 
 function judgeReply(pieces: unknown): void {
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ pieces }) } }] }))))
+  vi.stubGlobal('fetch', vi.fn(async url => new Response(JSON.stringify(url === FREE_MODEL_CATALOG
+    ? { data: [{ id: 'test/split:free', pricing: { prompt: '0', completion: '0' } }] }
+    : { model: 'test/split:free', choices: [{ message: { content: JSON.stringify({ pieces }) } }] }))))
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -55,7 +66,7 @@ test('合法 judge 拆解：母片 superseded、血緣／順序與整合驗收�
     { task: '修正共享邏輯', acceptance: 'npx vitest run tests/fix.test.ts' },
     { task: '整合驗收', acceptance: `npx vitest run tests/integration.test.ts && ${ACCEPTANCE}` },
   ])
-  const engine = new MockEngine([{ ok: true }, { ok: true }])
+  const engine = new CommittingMock([{ ok: true }, { ok: true }])
   d.engines = { resolve: () => engine }
 
   expect(await runOnce(d)).toBe('failed')
@@ -79,7 +90,7 @@ test('合法 judge 拆解：母片 superseded、血緣／順序與整合驗收�
 test('非法 judge 輸出：末片漏母驗收時回退一般 blocked，不寫入半套子片', async () => {
   const d = fixture()
   judgeReply([{ task: '先修', acceptance: 'npx vitest run tests/unit.test.ts' }, { task: '整合', acceptance: 'npx vitest run tests/integration.test.ts' }])
-  const engine = new MockEngine([{ ok: true }, { ok: true }])
+  const engine = new CommittingMock([{ ok: true }, { ok: true }])
   d.engines = { resolve: () => engine }
 
   expect(await runOnce(d)).toBe('failed')
@@ -94,7 +105,7 @@ test('拆解深度達二：再次達兩敗門檻時直接 blocked，judge 不得
   const d = fixture('- [ ] 深度二子片 <!-- adng:split {"parentId":"deadbeef","part":1,"depth":2,"shape":"sequential"} -->\n')
   const fetchSpy = vi.fn(async () => new Response('unexpected'))
   vi.stubGlobal('fetch', fetchSpy)
-  const engine = new MockEngine([{ ok: true }, { ok: true }])
+  const engine = new CommittingMock([{ ok: true }, { ok: true }])
   d.engines = { resolve: () => engine }
 
   expect(await runOnce(d)).toBe('failed')

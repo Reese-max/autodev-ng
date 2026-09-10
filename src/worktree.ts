@@ -10,7 +10,7 @@ export type MergeBackFailReason = 'branch-switched' | 'merge-conflict' | 'dirty-
 export type MergeBackFailureStage = 'rebase' | 'verify' | 'merge'
 export interface MergeBackResult {
   merged: boolean
-  commitHash?: string
+  commitHash?: string; retryAt?: number
   reason?: MergeBackFailReason
   rebased?: boolean
   rebaseAttempted?: boolean

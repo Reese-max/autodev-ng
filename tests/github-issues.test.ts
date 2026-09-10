@@ -1,10 +1,10 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GithubConfigSchema, eligible, type Issue } from '../src/github/config.js'
 import { type GithubClient } from '../src/github/client.js'
-import { branchFor, fingerprint, readState, saveState, states, type IssueState } from '../src/github/state.js'
+import { branchFor, fingerprint, readState, saveState, states, runDir, type IssueState } from '../src/github/state.js'
 import { issueTask } from '../src/github/job.js'
 import { publishIssue, runGithub } from '../src/github/runner.js'
 import { parseBacklog } from '../src/backlog.js'
@@ -116,6 +116,25 @@ test('capacity deferral before worker execution preserves the Issue retry budget
   expect(readState(cfg, 7)).toMatchObject({ status: 'queued', runs: 0, detail: 'daily cap' })
   expect(await runGithub(cfg, { client, execute })).toBe('idle')
   expect(execute).toHaveBeenCalledTimes(1)
+})
+
+test('review waiting stays queued at maxRuns and a resumed review does not spend a writer attempt', async () => {
+  const { cfg, client } = fixture(); cfg.maxRuns = 1
+  const until = Date.now() + 120_000
+  const first = vi.fn(async (_cfg, state: IssueState) => {
+    const dir = runDir(cfg, state); mkdirSync(join(dir, 'pending-review'), { recursive: true })
+    const body = `- [ ] ${issueTask(state)}\n`; writeFileSync(join(dir, 'BACKLOG.md'), body)
+    writeFileSync(join(dir, 'pending-review', `${parseBacklog(body)[0]!.id}.json`), '{"phase":"review"}')
+    return { done: false, detail: 'review waiting', reviewPending: true, retryAt: until }
+  })
+  expect(await runGithub(cfg, { client, execute: first })).toBe('7: queued')
+  let state = readState(cfg, 7)!
+  expect(state).toMatchObject({ runs: 1, status: 'queued', nextRunAt: until })
+  state.nextRunAt = 0; saveState(cfg, state)
+  const resumed = vi.fn(async () => ({ done: true, detail: 'review completed', attempted: false, commit: 'a'.repeat(40) }))
+  expect(await runGithub(cfg, { client, execute: resumed })).toBe('7: ready')
+  expect(readState(cfg, 7)).toMatchObject({ runs: 1, status: 'ready' })
+  expect(resumed).toHaveBeenCalledTimes(1); expect(client.createPr).not.toHaveBeenCalled()
 })
 
 test('只有明確二次修復待辦可多跑一次，重啟及容量延後不重置 runs', async () => {

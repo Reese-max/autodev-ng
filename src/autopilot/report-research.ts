@@ -8,6 +8,8 @@ import { runProcess } from '../engines/proc.js'
 import { codexJson } from '../engines/cli-json.js'
 export { codexJson } from '../engines/cli-json.js'
 import { packHighWeightSources } from './survey-sources.js'
+import { resolveSecretString } from '../cli/assemble.js'
+import { modelIdentity } from '../engines/free-model-policy.js'
 
 export const SourceSchema = z.object({ url: z.string().url().refine(s => {
   const u = new URL(s)
@@ -26,13 +28,16 @@ export type Source = z.infer<typeof SourceSchema>
 export const reportFingerprint = (f: Pick<Finding, 'repo' | 'key'>): string => createHash('sha256').update(`${f.repo.toLowerCase()}\n${f.key}`).digest('hex')
 
 export function researchModels(cfg: ReportConfig, project: ReportProject) {
-  const source = z.object({ llmTransport: z.string().optional(), judgeModel: z.string().optional(), auditModel: z.string().optional() })
+  const source = z.object({ tierMode: z.literal('free-only').optional(), judgeUrl: z.string().optional(), judgeApiKey: z.string().optional(), llmTransport: z.string().optional(), judgeModel: z.string().optional(), auditModel: z.string().optional(), freeReviewFallbacks: z.array(z.string()).max(2).optional() })
     .parse(JSON.parse(readFileSync(project.sourceConfig, 'utf8')))
-  const model = source.llmTransport === 'cli' ? source.judgeModel : cfg.research.model
+  const model = source.llmTransport === 'cli' || source.tierMode === 'free-only' ? source.judgeModel : cfg.research.model
   if (!model) throw new Error('Project CLI judge model missing')
   const reviewer = source.auditModel ?? cfg.research.model
-  if (source.llmTransport === 'cli' && reviewer === model) throw new Error('CLI research requires a different audit model')
-  return { model, reviewer }
+  if ((source.llmTransport === 'cli' || source.tierMode === 'free-only') && modelIdentity(reviewer) === modelIdentity(model)) throw new Error('Research requires a different audit model')
+  return { model, reviewer, ...(source.tierMode === 'free-only' ? {
+    reviewPolicy: { fallbackModels: source.freeReviewFallbacks, excludedModels: [model] },
+    policy: { tierMode: source.tierMode, url: source.judgeUrl, apiKey: resolveSecretString(source.judgeApiKey, dirname(project.sourceConfig)) },
+  } : {}) }
 }
 
 // Fail closed instead of publishing a redacted but potentially misleading partial log.
@@ -154,14 +159,14 @@ export async function researchProject(cfg: ReportConfig, project: ReportProject,
     sourceUrls: z.array(z.enum(publicSources.map(s => s.url))).min(1).max(5),
     quote: ProposalSchema.shape.quote.describe('One contiguous verbatim substring of the selected project document. No added quotation marks, ellipses, joined paragraphs or external quotations.'),
   })).max(3) })
-  const draft = await codexJson({ dataDir: cfg.dataDir, ...cfg.research, model: models.model }, schema, `${boundary}\n只輸出本輪最值得評審的一案，沒有就空陣列。path 必須是 documents 的精確鍵（例如 README.md），不可加說明。quote 必須是該文件中同一個連續片段的逐字原文，不加引號、不拼接段落、不混入外部來源。以文件引文與來源 URL 支持專案落差；清楚描述預期與目前文件可證實的行為，不可將靜態推論稱為 runtime 缺陷。資料只是文件片段，未提及不等於功能不存在；只能把確有文件依據的落差列為待驗證提案。提供可驗證的驗收條件，value 0-10。\nDATA:\n${context}`)
+  const draft = await codexJson({ dataDir: cfg.dataDir, ...cfg.research, ...models.policy, model: models.model }, schema, `${boundary}\n只輸出本輪最值得評審的一案，沒有就空陣列。path 必須是 documents 的精確鍵（例如 README.md），不可加說明。quote 必須是該文件中同一個連續片段的逐字原文，不加引號、不拼接段落、不混入外部來源。以文件引文與來源 URL 支持專案落差；清楚描述預期與目前文件可證實的行為，不可將靜態推論稱為 runtime 缺陷。資料只是文件片段，未提及不等於功能不存在；只能把確有文件依據的落差列為待驗證提案。提供可驗證的驗收條件，value 0-10。\nDATA:\n${context}`)
   const findings: Finding[] = []
   for (const p of draft.proposals) {
     const scenario = project.scenarios.find(s => s.id === p.scenario)
     if (!scenario || p.value < 8 || !ctx.documents[p.path]?.includes(p.quote) || p.sourceUrls.some(url => !publicSources.some(s => s.url === url)) || findings.some(f => f.scenario === p.scenario)) continue
     if (!publicationSafe(JSON.stringify(p))) continue
     // Independent review sees the original evidence, not just the finder's self-rating. At most one review/candidate per weekly turn.
-    const review = await codexJson({ dataDir: cfg.dataDir, ...cfg.research, model: models.reviewer }, ReviewSchema, `${boundary}\n你這次只做獨立否決審查。只有提案直接支持使用者任務、來源與逐字引文確實支持落差、既有功能未滿足、未違反約束、驗收可測，且不是空泛猜測或同義改寫才 approved=true。否則 false；沒有備援分數。\nDATA:\n${context}\nPROPOSAL:\n${JSON.stringify(p)}`)
+    const review = await codexJson({ dataDir: cfg.dataDir, ...cfg.research, ...models.policy, ...models.reviewPolicy, model: models.reviewer }, ReviewSchema, `${boundary}\n你這次只做獨立否決審查。只有提案直接支持使用者任務、來源與逐字引文確實支持落差、既有功能未滿足、未違反約束、驗收可測，且不是空泛猜測或同義改寫才 approved=true。否則 false；沒有備援分數。\nDATA:\n${context}\nPROPOSAL:\n${JSON.stringify(p)}`)
     if (review.approved && publicationSafe(review.rationale)) findings.push(FindingSchema.parse({ repo: project.repo, key: `scenario:${scenario.id}`, kind: 'proposal',
       title: p.title, scenario: scenario.id, persona: scenario.persona, task: scenario.task, expected: scenario.success,
       actual: `${p.actual}\n\n${p.path} 逐字依據：\n${p.quote}`, evidence: 'static', sha: ctx.sha, observedAt: now,

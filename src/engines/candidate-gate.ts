@@ -23,7 +23,7 @@ export async function mergeAfterRebaseVerify(
   }
 
   const risk = classifyTaskRisk(cfg, task)
-  if (verifier || evidence) {
+  if (verifier || evidence || cfg.tierMode === 'free-only') {
     const baseCommitHash = defaultCommitHash(cfg.projectPath)
     const commitHash = defaultCommitHash(wt.cwd)
     if (!baseCommitHash || !commitHash) return { ...first, reason: 'verification-infra', failureStage: 'verify' }
@@ -31,7 +31,7 @@ export async function mergeAfterRebaseVerify(
       cfg, task, cwd: wt.cwd, verifier, evidence, executionId, writerIdentity,
       result: { ...result, baseCommitHash, commitHash }, preserveOnReject: true,
     })
-    if (!gate.pass) return { ...first, reason: gate.paused ? 'paused' : (gate.blockedReason ?? 'merge-conflict'), failureStage: 'verify' }
+    if (!gate.pass) return { ...first, reason: gate.paused ? 'paused' : (gate.blockedReason ?? 'merge-conflict'), failureStage: 'verify', retryAt: gate.retryAt }
   } else {
     const verification = await runVerify({ command: cfg.verifyCommand, cwd: wt.cwd, timeoutMs: cfg.verifyTimeoutMs })
     if (verification.status === 'blocked' || (verification.status === 'skip' && verifyRequired(risk))) {
@@ -65,7 +65,7 @@ export async function runCandidateGate(opts: {
   const risk = classifyTaskRisk(opts.cfg, opts.task)
   let check: VerifierCheck
   if (!opts.verifier) {
-    check = verifyRequired(risk)
+    check = opts.cfg.tierMode === 'free-only' || verifyRequired(risk)
       ? { pass: false, risk, blockedReason: 'verification-infra', reason: 'verifier unavailable', alerts: [] }
       : { pass: true, risk, alerts: ['verifier unavailable for low-risk task'] }
   } else {
@@ -78,7 +78,7 @@ export async function runCandidateGate(opts: {
         preserveOnReject: opts.preserveOnReject,
       }, result)
     } catch (err) {
-      check = verifyRequired(risk)
+      check = opts.cfg.tierMode === 'free-only' || verifyRequired(risk)
         ? { pass: false, risk, blockedReason: 'verification-infra', reason: `verifier-exception: ${String(err)}`, alerts: [] }
         : { pass: true, risk, alerts: [`verifier-exception: ${String(err)}`] }
     }

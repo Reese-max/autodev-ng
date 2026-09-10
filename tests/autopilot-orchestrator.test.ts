@@ -104,6 +104,16 @@ describe('runGoalSession', () => {
     expect(deps.kernelDeps.store.nextTask()?.text).toBe('等待供應的任務')
   })
 
+  test('free-only 預檢缺額度不消耗 no-progress，也不進入 evaluator', async () => {
+    const deps = base({ objective: 'o', noProgressLimit: 1 }, {
+      planFn: async () => ({ kind: 'tasks', tasks: ['等待免費 worker'] }), runOnceFn: async () => 'preflight-failed',
+      evalFn: async () => { throw new Error('Supply wait must precede evaluation') },
+    })
+    deps.kernelDeps.cfg.tierMode = 'free-only'
+    expect(await runGoalSession(deps)).toMatchObject({ kind: 'stuck', retryable: true, rounds: 1 })
+    expect(deps.kernelDeps.store.nextTask()?.status).toBe('open')
+  })
+
   test('tasks 有被 append 進 backlog（帶 autopilot 標記）', async () => {
     const captured: string[] = []
     let done = false

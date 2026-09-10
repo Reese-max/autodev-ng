@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import { codexJson, probePasses, runReportProbe } from '../autopilot/report-research.js'
+import type { JsonModelOptions } from '../engines/cli-json.js'
 import { runVerify } from '../verify.js'
 import { eligible, loadGithubConfig, type GithubConfig, type Issue } from './config.js'
 import { loadReportConfig } from './report-config.js'
@@ -73,7 +74,7 @@ export function assertRepairEvidence(cfg: GithubConfig, state: IssueState): void
     || !probePasses(probe, receipt.result)) throw new Error('Missing original probe pass for exact repair commit')
 }
 
-export async function reviewRepair(cfg: { dataDir: string; model: string; effort: string; timeoutMs: number }, args: { diff: string; taskText: string }): Promise<string> {
+export async function reviewRepair(cfg: JsonModelOptions, args: { diff: string; taskText: string }): Promise<string> {
   // ponytail: review complete diffs up to 60k characters; split larger repairs instead of silently truncating review.
   if (args.diff.length > 60_000) throw new Error('Repair diff exceeds bounded CLI review; split the Issue')
   const review = await codexJson(cfg, z.object({ approved: z.boolean(), rationale: z.string().min(8).max(1500) }).strict(),

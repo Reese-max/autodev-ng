@@ -111,3 +111,15 @@ kernel 薄殼邊界；`kernel-budget` 仍保留既有 ≤2700 工作上限守門
 
 `src/types.ts` 在既有單行 `PreflightResult` 增加可選額度／模型證據；頂層行數不變。原生唯讀 RPC、錯誤保存與串流解析均位於 `src/engines/`。
 驗證：`npx vitest run tests/kernel-relocation-report.test.ts tests/kernel-slim.test.ts`。
+
+## 2026-09-10 全流程免費政策與續審
+
+`src/scheduler.ts` 接入候選提交保存與續審；既有選擎與 blocked 寫回函式搬到 `src/engines/pick-ready-task.ts`，保持原有匯出。價格核對、候選狀態與重試時間位於 `src/engines/`；頂層目前 **2184 行**，仍低於 2250 行，未調整上限。
+
+驗證：`npm run typecheck`、`npm run build`、`npx vitest run tests/kernel-relocation-report.test.ts tests/kernel-slim.test.ts tests/free-only-policy.test.ts tests/pending-review.test.ts`。
+
+## 2026-09-10 免費審查候補與每日目錄
+
+`src/types.ts` 增加有界候補清單，`src/daemon.ts` 接入每日刷新與完成後冷卻判定；實作仍留在 `src/engines/`。頂層共 **2187 行**，低於 2250 行。
+
+驗證：`npx vitest run tests/kernel-relocation-report.test.ts tests/kernel-slim.test.ts tests/free-review-fallback.test.ts tests/free-model-catalog.test.ts tests/pending-review.test.ts tests/daemon.test.ts`。

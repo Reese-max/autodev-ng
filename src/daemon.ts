@@ -1,3 +1,5 @@
+import { reviewRetryDelay } from './engines/pending-review.js'
+import { refreshFreeModelCatalog } from './engines/free-model-catalog.js'
 import { existsSync } from 'node:fs'
 import { fenceUsurped, releaseLockIfOwned } from './engines/daemon-fence.js'
 import { freemem, totalmem } from 'node:os'
@@ -153,6 +155,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
 
       // restart.request 哨兵（見 autopilot/restart-sentinel.ts）：cycle 邊界檢查優雅重啟，attempt 進行中不中斷。
       if (consumeRestartSentinel(deps.cfg.dataDir, deps.events, opts.unlinkFn)) return 'restart-requested'
+      try { await refreshFreeModelCatalog(deps.cfg, notifier) } catch { await alert('free-catalog-state', '免費模型清單狀態無法讀寫；保留現場，實際呼叫仍須即時驗價。') }
       quiet(() => recordWorktreeGc(deps.cfg, deps.events))
 
       // M7.5:OOM 閘——可用記憶體 <15% 跳過本輪派工(舊系統教訓:高壓下 spawn 只會雪崩)
@@ -191,7 +194,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       if (result === 'stopped') return 'stopped'
 
       if (isAlertableResult(result)) {
-        await alert(cooldownKeyFor(result), baseAlertMessage(result))
+        await alert(cooldownKeyFor(result), baseAlertMessage(result, deps.cfg))
       }
 
       // M7：失敗驅動 reflect——教訓面故障吞掉,絕不反殺主迴圈(鐵律 #4)
@@ -205,12 +208,12 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
         if (result === 'idle') {
           let acted = false
           try { acted = await maybeRunPerpetual(deps, notifier) } catch { /* fail-open：外環故障不反殺 daemon（鐵律 #4） */ }
-          if (acted) { await sleep(cooldownMs); continue }   // session 已耗時，短冷卻即回輪
+          if (acted) { await sleep(deps.cfg.tierMode === 'free-only' ? reviewRetryDelay(deps.cfg, cooldownMs) : cooldownMs); continue }
           await alert('idle', 'daemon 提醒:backlog 已耗盡,請補任務')
         }
         await sleep(idleSleepMs)
       } else {
-        await sleep(result === 'deferred' ? deps.cfg.supplyRetryCooldownMs : cooldownMs)
+        await sleep(result === 'deferred' ? reviewRetryDelay(deps.cfg) : deps.cfg.tierMode === 'free-only' ? reviewRetryDelay(deps.cfg, cooldownMs, result === 'done') : cooldownMs)
       }
     }
   } finally {

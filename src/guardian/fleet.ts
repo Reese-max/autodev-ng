@@ -43,7 +43,7 @@ type NotifyFn = (configPath: string, text: string) => Promise<boolean>
 export type GuardianReport =
   | { configPath: string; kind: 'completed'; decision: GuardianDecision }
   | { configPath: string; kind: 'failed'; error: string }
-  | { configPath: string; kind: 'skipped'; reason: 'healthy' | 'already-handled' | 'cooldown' | 'locked' | 'paused' }
+  | { configPath: string; kind: 'skipped'; reason: 'healthy' | 'already-handled' | 'cooldown' | 'locked' | 'paused' | 'free-policy' | 'policy-unavailable' }
 
 interface LockOwner {
   pid: number
@@ -417,6 +417,11 @@ export async function runFleetGuardian(results: SuperviseDirectoryResult[], opti
         reports.push({ configPath: result.configPath, kind: 'skipped', reason: 'paused' })
         continue
       }
+      try {
+        if (JSON.parse(readFileSync(result.configPath, 'utf8')).tierMode === 'free-only') {
+          reports.push({ configPath: result.configPath, kind: 'skipped', reason: 'free-policy' }); continue
+        }
+      } catch { reports.push({ configPath: result.configPath, kind: 'skipped', reason: 'policy-unavailable' }); continue }
       const dataDir = isErrorResult(result) ? fleetDataDir : result.dataDir
       const executions = readExecutions(dataDir, nowMs)
       let observedMode = false

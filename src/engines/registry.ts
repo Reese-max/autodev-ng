@@ -36,6 +36,7 @@ function expandEnvMap(env: Record<string, string> | undefined): Record<string, s
 export function makeEngineRegistry(cfg: Config): EngineResolver {
   const cache = new Map<string, Engine>()
   const build = (tag: string, ec: EngineConfig): Engine => {
+    if (cfg.tierMode === 'free-only' && !['opencode', 'mock'].includes(ec.adapter)) throw new Error('free-policy: this CLI has no verified free route; no preflight/model request sent')
     assertExecutionMode(ec)
     switch (ec.adapter) {
       case 'mock':
@@ -105,7 +106,8 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new OpencodeEngine({
           id: tag === 'opencode' ? 'opencode' : `opencode:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
-          command: ec.command, env: expandEnvMap(ec.env), profileDir: join(cfg.dataDir, 'opencode-profile'),
+          command: ec.command, env: expandEnvMap(ec.env), profileDir: join(cfg.dataDir, cfg.tierMode === 'free-only' ? `opencode-free-${tag}` : 'opencode-profile'),
+          freeOnly: cfg.tierMode === 'free-only', policyDataDir: cfg.dataDir,
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model), timeoutMs: ec.timeoutMs,
           variant: ec.effort, pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs
         })

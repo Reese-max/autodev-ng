@@ -1,11 +1,10 @@
+import { blockTask, pickReadyTask, recentAttemptedEngineTags, subscriptionTags } from './engines/pick-ready-task.js'
+export { pickReadyTask, subscriptionTags, zeroCostTags } from './engines/pick-ready-task.js'
 import { attemptAccounting } from './engines/attempt-accounting.js'
 import { alternativeRetryDue, alternativeRetryUsed, startAlternativeRetry, taskAttemptLimit } from './engines/alternative-retry.js'
 import { existsSync, writeFileSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
 import { localDay, type AttemptFailureClass, type RunDb } from './db.js'
-import { loadIsolatedTagsForPick } from './engines/apply-stats-isolation.js'
-import { loadDailyAttemptCapContext } from './engines/daily-attempt-cap-gate.js'
-import { loadEngineStatsForWeighting } from './engines/adaptive-rotation.js'
 import { firstMissingArtifact } from './engines/artifact-contract-git.js'
 import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
@@ -13,10 +12,8 @@ import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetr
 import { enqueueMerge, enqueueTeamMerge } from './engines/merge-queue.js'
 import { nudgeNoCommit } from './engines/no-commit-nudge.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
-import { freeOnlyListExhausted, freeOnlyRetryCandidates } from './engines/free-only-retry.js'
+import { freeOnlyListExhausted } from './engines/free-only-retry.js'
 import { sequentialReadyTasks, tryFreeOnlySplit } from './engines/free-only-split.js'
-import { deniedFreeOnlyPin, pickCandidateTags } from './engines/pick-candidates.js'
-import { singleFlightPickRouting } from './engines/pick-ready-single-flight.js'
 import { quiet, type EventLog } from './events.js'
 import { globalBilledToday } from './globalcost.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
@@ -33,6 +30,7 @@ import { trackedDirtyFiles } from './engines/main-admission.js'
 import { observeLearning } from './learn/outcomes.js'
 import { createExecutionObservation, readExecutions } from './engines/execution-observation.js'
 import type { RunControl } from './engines/run-control.js'
+import { assertPendingCandidate, readPendingReview, savePendingReview, closePendingReview, type PendingReview } from './engines/pending-review.js'
 
 /** M7：教訓注入/反思 port（Task 2 makeLessonsPort 的輸出型別）。inject() 供 scheduler
  * 附進 job.directive；reflect() 留給 Task 4/5 接線（本 task 只注入 inject）。 */
@@ -130,7 +128,14 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   if (dups.length > 0) quiet(() => events.appendOnce('duplicate-tasks', { ids: dups }))
 
   const candidates = retry.taskId ? openTasks.filter(task => task.id === retry.taskId) : openTasks; if (candidates.length === 0) return 'idle'
-  const picked = await pickReadyTask({ cfg, store, db, events, engines, notify, team: deps.team }, candidates)
+  let pending: PendingReview | undefined, pendingTask: Task | undefined
+  for (const candidate of candidates) {
+    try { pending = readPendingReview(cfg, candidate) } catch (err) { return blockTask({ store, events }, candidate, 'team-state-quarantined', String(err)) }
+    if (pending) { pendingTask = candidate; break }
+  }
+  if (pending && pending.retryAt > Date.now()) return 'deferred'
+  const picked = pending && pendingTask ? { task: pendingTask, engine: undefined, engineTag: pending.engineTag, fixedCost: 0 }
+    : await pickReadyTask({ cfg, store, db, events, engines, notify, team: deps.team }, candidates)
   if (typeof picked === 'string' || 'kind' in picked) {
     if (picked === 'preflight-failed') writeHeartbeat(events, cfg, { state: 'preflight-failed', todayCostUsd: spent })
     return picked
@@ -152,7 +157,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     try {
       const claimed = deps.team.claim({
         executionId, task, workerId: engineTag,
-        reservedCostUsd: cfg.engines[engineTag]?.subscription ? 0 : (fixedCost ?? cfg.failureCostEstimateUsd),
+        reservedCostUsd: pending || cfg.engines[engineTag]?.subscription ? 0 : (fixedCost ?? cfg.failureCostEstimateUsd), reviewOnly: Boolean(pending),
         spentUsd: spent, dailyHardUsd: cfg.dailyHardUsd, leaseMs, dailyAttemptCap: cfg.engines[engineTag]?.dailyAttemptCap,
       })
       if (!claimed.ok) {
@@ -166,7 +171,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
       return blockTask({ store, events }, task, 'team-state-quarantined', `team coordination unavailable：${String(err)}`)
     }
   }
-  let claimReleased = false, recoveryRequired = false
+  let claimReleased = false, recoveryRequired = false, reviewWaiting = false
   const releaseClaim = (): void => {
     if (!teamClaim || claimReleased || recoveryRequired) return
     claimReleased = true
@@ -186,7 +191,8 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   // fail-open 不炸 daemon，鐵律 #4）。
   let wt: WorktreeHandle
   try {
-    wt = prepareWorktree(cfg.projectPath, cfg.worktreesDir, task.id, cfg)
+    if (pending) assertPendingCandidate(cfg, task, pending)
+    wt = pending?.wt ?? prepareWorktree(cfg.projectPath, cfg.worktreesDir, task.id, cfg)
   } catch (err) {
     const reason: BlockedReason = worktreeFailureReason(err), detail = reason === 'infra:worktree-timeout' ? `infra:worktree-timeout：逾時 ${cfg.worktreeAddTimeoutMs}ms；可調整 config 欄位 worktreeAddTimeoutMs；${String(err)}` : `worktree 建立失敗：${String(err)}`
     quiet(() => events.append(reason === 'worktree-invalid' ? 'worktree-invalid' : 'worktree-prepare-failed', { task: task.text, error: String(err) }))
@@ -203,7 +209,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   let lessonsText = ''
   try { lessonsText = deps.lessons?.inject() ?? '' } catch { /* 教訓面故障不擋派工 */ }
   if (lessonsText) directive = `${directive ?? task.text}\n\n${lessonsText}`
-  finishLearning = observeLearning(events, { executionId, taskId: task.id, model: cfg.engines[engineTag]?.model ?? engineTag, baseCommit: wt.baseHead, lessonsText })
+  if (!pending) finishLearning = observeLearning(events, { executionId, taskId: task.id, model: cfg.engines[engineTag]?.model ?? engineTag, baseCommit: wt.baseHead, lessonsText })
   // 驗收回饋（judge 有效性分析 2026-07-28）：上一輪失敗原因餵回派工，終結同型連環打回
   // （491bd799 案例：引擎不知道打回原因，同款 claim 膨脹重複六輪）。fail-open 不擋派工。
   try {
@@ -227,26 +233,27 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     quiet(() => events.append('execution-unconfirmed', { executionId, taskId: task.id, worktreePath: wt.cwd, reason }))
     return blockTask({ store, events }, task, 'team-state-quarantined', `執行 ${executionId} 的後端停止尚未確認；保留工作區與寫入權：${reason ?? 'unknown'}`)
   }
-  try {
+  if (pending) res = pending.result
+  else try {
     const mode = cfg.engines[engineTag]?.executionMode
     if (mode === 'observed' || mode === 'supervised') {
       observation = createExecutionObservation({ dataDir: cfg.dataDir, job, adapter: cfg.engines[engineTag]!.adapter, supervised: mode === 'supervised' })
       job.control = observation.control
     }
-    res = await engine.run(job)
+    res = await engine!.run(job)
   } catch (err) {
     if (observation?.snapshot().worker) return quarantineRun('worker transport failed before a verified terminal result')
     if (isExternalEngineTermination(err)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${String(err)}`) }
     // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
     db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, accounting: attemptAccounting({ ok: false, output: '', costUsd: 0, costUnknown: true }, cfg.engines?.[engineTag] ?? {}), durationMs: Date.now() - runStartMs, failureClass: 'supply' })
-    engine.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
+    engine!.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
     quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
     return resolveFailure(deps, task, 'engine-error', String(err), 'supply', { costUsd: fixedCost ?? 0 })
   }
   if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
   if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`) }
-  res = await nudgeNoCommit(engine, job, res, wt.baseHead)
+  if (!pending) res = await nudgeNoCommit(engine!, job, res, wt.baseHead)
   if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默。失敗成本估計（M4 Task 3）：costUnknown===true
   // （timeout/exit≠0/輸出不可解析）改記 cfg.failureCostEstimateUsd，detail 帶 cost-estimated 標記；
@@ -257,14 +264,23 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   const baseDetail = res.failureReason ?? res.commitHash ?? ''
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
   const failureClass = res.failureReason?.startsWith('no-commit') ? 'task' as const : 'supply' as const
-  db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag, accounting: attemptAccounting(res, cfg.engines?.[engineTag] ?? {}, costEstimated), durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached, ...(!res.ok ? { failureClass } : {}) })
+  if (!pending) db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag, accounting: attemptAccounting(res, cfg.engines?.[engineTag] ?? {}, costEstimated), durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached, ...(!res.ok ? { failureClass } : {}) })
   const quotaUsage = { costUsd: recordedCostUsd, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached }
-  if (!res.ok) engine.invalidatePreflight?.() // timeout/exit≠0/no-commit：引擎健康存疑，下輪重探（verify 拒收不算）
+  if (!res.ok) engine?.invalidatePreflight?.() // timeout/exit≠0/no-commit：引擎健康存疑，下輪重探（verify 拒收不算）
 
   const validationAccounting = { ...attemptAccounting({ ok: false, output: '', costUsd: 0, costUnknown: true }, {}), stage: 'validation' as const }
+  const deferReview = (reason: string, retryAt?: number, verification?: VerifierCheck['evidence'], rebased = false): CycleResult => {
+    const result = { ...res, commitHash: defaultCommitHash(wt.cwd), ...(rebased ? { baseCommitHash: defaultCommitHash(cfg.projectPath) } : {}) }
+    try { savePendingReview(cfg, task, wt, result, engineTag, reason, retryAt ?? Date.now() + cfg.supplyRetryCooldownMs, verification) }
+    catch (err) { return blockTask({ store, events }, task, 'team-state-quarantined', `Pending review could not be preserved: ${String(err)}`) }
+    reviewWaiting = true
+    quiet(() => events.append('review-deferred', { taskId: task.id, candidateCommit: result.commitHash, reason, retryAt: retryAt ?? Date.now() + cfg.supplyRetryCooldownMs, workerCalls: 0 }))
+    return 'deferred'
+  }
   const pauseReady = (): void => {
     const candidateHead = defaultCommitHash(wt.cwd) ?? res.commitHash ?? 'unknown'
-    if (teamClaim && deps.team) try { deps.team.pauseCandidate({ executionId, token: teamClaim.token, taskId: task.id, candidateHead, branch: wt.branch, worktreePath: wt.cwd }) } catch (err) { quiet(() => events.append('pause-state-write-failed', { task: task.text, error: String(err) })) }
+    if (cfg.tierMode === 'free-only') deferReview('paused before review/merge', Date.now(), undefined, candidateHead !== res.commitHash)
+    else if (teamClaim && deps.team) try { deps.team.pauseCandidate({ executionId, token: teamClaim.token, taskId: task.id, candidateHead, branch: wt.branch, worktreePath: wt.cwd }) } catch (err) { quiet(() => events.append('pause-state-write-failed', { task: task.text, error: String(err) })) }
     quiet(() => events.append('task-paused-ready', { task: task.text, branch: wt.branch, candidateHead }))
     quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
   }
@@ -289,13 +305,16 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     return resolveFailure(deps, task, 'failed', reason, 'task', quotaUsage)
   }
 
-  if (res.ok && (verifier || deps.evidence)) {
+  if (res.ok && (verifier || deps.evidence || cfg.tierMode === 'free-only')) {
+    if (cfg.tierMode === 'free-only') try { savePendingReview(cfg, task, wt, res, engineTag, 'verification started') } catch (err) { return blockTask({ store, events }, task, 'team-state-quarantined', String(err)) }
     const vc = await runCandidateGate({ cfg, task, cwd: wt.cwd, result: res, verifier, evidence: deps.evidence, executionId, writerIdentity: engineTag })
     for (const a of vc.alerts) quiet(() => events.append('verify-alert', { task: task.text, detail: a }))
     const receipt = vc.receipt
     if (receipt) quiet(() => events.append('evidence-bundle', { task: task.text, commit: res.commitHash, path: receipt.path, hash: receipt.bundleHash }))
     if (vc.paused) { pauseReady(); return 'stopped' }
     if (!vc.pass) {
+      if (cfg.tierMode === 'free-only' && vc.blockedReason === 'review-unavailable') return deferReview(vc.reason ?? 'review unavailable', vc.retryAt, vc.evidence)
+      if (cfg.tierMode === 'free-only' && !vc.blockedReason) closePendingReview(cfg, task)
       // 引擎那筆已記 ok:true+真實 cost（成本不可造假）；這裡多記一筆 ok:false 讓失敗計數靠這筆走。
       db.record({ taskId: task.id, ok: false, costUsd: 0, detail: vc.reason ?? 'verify rejected', engine: engineTag, accounting: validationAccounting, durationMs: Date.now() - runStartMs, failureClass: vc.blockedReason ? 'infra' : 'task' })
       quiet(() => events.append('task-verify-failed', { task: task.text, reason: vc.reason }))
@@ -351,6 +370,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
         return blockTask({ store, events }, task, 'verification-infra', 'verification-infra：rebase 後必要 CI 驗收無法執行，成果未合回')
       }
       if (merge.reason === 'review-unavailable') {
+        if (cfg.tierMode === 'free-only') return deferReview('review unavailable after rebase', merge.retryAt, undefined, true)
         return blockTask({ store, events }, task, 'review-unavailable', 'review-unavailable：rebase 後必要 Reviewer 無法完成，成果未合回')
       }
       if (merge.reason === 'release-approval') {
@@ -397,6 +417,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
       return blockTask({ store, events }, task, 'verification-infra', '成果已合併但任務狀態寫入失敗，需先恢復狀態')
     }
     learningResult = { accepted: true, commit: merge.commitHash ?? res.commitHash }
+    closePendingReview(cfg, task)
     quiet(() => events.append('task-done', { task: task.text, cost: recordedCostUsd, commit: merge.commitHash }))
 
     try {
@@ -433,27 +454,11 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
   return resolveFailure(deps, task, 'failed', res.failureReason ?? '未知', failureClass, quotaUsage)
   } finally {
-    observation?.finish(recoveryRequired ? 'unconfirmed' : learningResult.accepted ? 'completed' : 'failed')
-    if (finishLearning && !recoveryRequired) quiet(() => finishLearning!({ ...learningResult, failure: learningResult.accepted ? undefined : db.lastFailureFor(task.id) ?? undefined }))
+    observation?.finish(recoveryRequired ? 'unconfirmed' : learningResult.accepted || reviewWaiting ? 'completed' : 'failed')
+    if (finishLearning && !recoveryRequired && !reviewWaiting) quiet(() => finishLearning!({ ...learningResult, failure: learningResult.accepted ? undefined : db.lastFailureFor(task.id) ?? undefined }))
     if (claimHeartbeat) clearInterval(claimHeartbeat)
     releaseClaim()
   }
-}
-
-/** 環境級 blocked：不計 maxAttempts；store.report 失敗只記事件。 */
-function blockTask(
-  { store, events }: Pick<Deps, 'store' | 'events'>,
-  task: Task,
-  reason: BlockedReason,
-  humanReason: string, eventDetail?: string
-): CycleResult {
-  try {
-    store.report(task.id, { kind: 'blocked', reason: humanReason })
-  } catch (err) {
-    quiet(() => events.append('report-failed', { task: task.text, kind: 'blocked', error: String(err), willRepick: true }))
-  }
-  quiet(() => events.append('task-blocked', { task: task.text, reason, ...(eventDetail ? { detail: eventDetail } : {}), ...(humanReason.includes('retried=1') ? { retried: 1 } : {}) }))
-  return { kind: 'blocked', taskId: task.id, taskText: task.text, reason, ...(['dirty-worktree', 'completion-gate', 'verification-infra', 'review-unavailable', 'release-approval', 'ownership-drift', 'merge-queue-recovery', 'team-state-quarantined'].includes(reason) ? { alertDetail: humanReason } : {}) }
 }
 
 async function retryInfrastructure(deps: Deps, task: Task, retry: InfraRetryState, reason: InfrastructureRetryReason, detail: string): Promise<CycleResult> {
@@ -463,59 +468,6 @@ async function retryInfrastructure(deps: Deps, task: Task, retry: InfraRetryStat
   return runOnce(deps, { taskId: task.id, retried: true, source: reason })
 }
 
-/** 戰績隔離→輪替候選→preflight；全壞→preflight-failed；白名單外/單候選 resolve 拋→blocked。 */
-export async function pickReadyTask(
-  { cfg, store, db, events, engines, notify, team }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines' | 'notify' | 'team'>,
-  openTasks: Task[]
-): Promise<{ task: Task; engine: Engine; engineTag: string; fixedCost: number | undefined } | CycleResult> {
-  const routingKey = JSON.stringify([cfg.dataDir, cfg.engineRotation, cfg.timezoneOffsetHours])
-  const isolatedTags = cfg.engineIsolation && cfg.engineRotation?.length ? await singleFlightPickRouting(routingKey, () => loadIsolatedTagsForPick(
-    { dataDir: cfg.dataDir, rotation: cfg.engineRotation, offsetHours: cfg.timezoneOffsetHours },
-    ev => { // 告警 fire-and-forget：notify 依契約自吞錯，絕不反殺派工（鐵律 #2）
-      quiet(() => events.append('engine-route-isolated', { ...ev }))
-      void notify?.(`⛔ 引擎隔離：${ev.engine} — ${ev.reason}（24h 後單次試探）`)
-    },
-  )) : [], subs = subscriptionTags(cfg)
-  // 日額度守門：無法確認計數或已達上限時延後派工。
-  const { dailyAttemptCaps, todayAttemptCounts } = loadDailyAttemptCapContext(cfg.engines, cfg.dataDir)
-  for (const tag of dailyAttemptCaps.keys()) { try { if (team) todayAttemptCounts.set(tag, Math.max(todayAttemptCounts.get(tag) ?? 0, team.attemptsToday(tag))) } catch { todayAttemptCounts.set(tag, Infinity) } }
-  const engineStats = loadEngineStatsForWeighting(db, events, cfg.dataDir, cfg.engineRotation)
-  let supplyDeferred = false
-  for (const cand of openTasks) {
-    if (cfg.alternativeRetry && (db.taskFailCount(cand.id) >= taskAttemptLimit(cfg) || alternativeRetryUsed(cfg, cand.id))) return blockTask({ store, events }, cand, 'max-attempts', '替代方案額度已用完，保留失敗紀錄等待人工介入')
-    const deniedPin = deniedFreeOnlyPin(cand, cfg.tierMode)
-    if (deniedPin) { const detail = `engine-not-allowed：tierMode=free-only，行內 [engine:${deniedPin}] 不在影子帳 free-tier 名單；不得降級或改派`; return blockTask({ store, events }, cand, 'engine-not-allowed', detail, detail) }
-    const attempted = recentAttemptedEngineTags(db, cand.id, cfg.supplyRetryCooldownMs)
-    if (!attempted) { supplyDeferred = true; quiet(() => events.appendOnce('task-deferred', { taskId: cand.id, task: cand.text, reason: 'engine-supply-history-unavailable', retryAfterMs: cfg.supplyRetryCooldownMs })); continue }
-    const candidates = pickCandidateTags({ rotation: cfg.engineRotation, defaultEngine: cfg.defaultEngine, task: cand, failCount: db.failCount(cand.id), isolatedTags, subscriptionTags: subs, dailyAttemptCaps, todayAttemptCounts, engineStats, zeroCostTags: zeroCostTags(cfg), tierMode: cfg.tierMode })
-    const tags = freeOnlyRetryCandidates(candidates, cfg.tierMode, attempted).filter(tag => !attempted.has(tag))
-    if (tags.length === 0) {
-      supplyDeferred = true
-      quiet(() => events.appendOnce('task-deferred', { taskId: cand.id, task: cand.text, reason: 'engine-supply-exhausted', retryAfterMs: cfg.supplyRetryCooldownMs }))
-      continue
-    }
-    for (const engineTag of tags) {
-      const engineCfg = cfg.engines[engineTag]
-      if (!engineCfg) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`)
-      let engine: Engine
-      try {
-        engine = engines.resolve(engineTag)
-      } catch (err) {
-        if (tags.length === 1) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：引擎 ${engineTag} 無法建立（${String(err)}）`)
-        quiet(() => events.appendOnce('engine-resolve-failed', { engine: engineTag, detail: String(err) })) // 輪替候選壞一個不堵任務，後退下一檔
-        continue
-      }
-      const pf = await engine.preflight()
-      if (!pf.ok) {
-        quiet(() => events.appendOnce('preflight-failed', { engine: engine.id, detail: pf.detail })) // appendOnce：持續故障不灌 log
-        continue
-      }
-      // costPerRunUsd 有設＝固定估計引擎；未設＝真值引擎（M4 Task 3 語意保留）
-      return { task: cand, engine, engineTag, fixedCost: engineCfg.costPerRunUsd }
-    }
-  }
-  return supplyDeferred ? 'deferred' : 'preflight-failed'
-}
 /** 供應失敗保留 open；只有任務／驗收失敗達 maxAttempts 才 blocked。 */
 async function resolveFailure(
   deps: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'taskTerminalNotify'>,
@@ -562,17 +514,6 @@ async function notifyTaskTerminal(
 ): Promise<void> {
   try { await taskTerminalNotify?.(notice) } catch { /* 通知面故障不得改寫任務終態。 */ }
 }
-/** 訂閱制引擎 tag 清單（邊際成本≈0，不踩日頂）。 */
-export function subscriptionTags(cfg: Config): string[] {
-  return Object.entries(cfg.engines ?? {}).filter(([, e]) => e.subscription).map(([t]) => t)
-}
-
-/** 免費起跑用：零邊際成本引擎（subscription 且 costPerRunUsd===0，即 devin、oc 系、agy 層；
- * codex 系記固定成本 1 反映 ChatGPT 額度機會成本，故排除）。 */
-export function zeroCostTags(cfg: Config): Set<string> {
-  return new Set(Object.entries(cfg.engines ?? {}).filter(([, e]) => e.subscription && (e.costPerRunUsd ?? 0) === 0).map(([t]) => t))
-}
-
 /** 本地日 billed 成本（排除訂閱引擎）。 */
 function todayCost(db: RunDb, cfg: Config): number {
   const offsetHours = cfg.timezoneOffsetHours
@@ -586,8 +527,4 @@ export function finalizeRunOnceHeartbeat(deps: Deps, result: CycleResult, now: D
     const day = localDay(now.toISOString(), deps.cfg.timezoneOffsetHours)
     writeHeartbeat(deps.events, deps.cfg, { state: 'idle', todayCostUsd: deps.db.billedCostForLocalDay(day, deps.cfg.timezoneOffsetHours, subscriptionTags(deps.cfg)) })
   } catch { /* 觀測面故障不可反殺 CLI（鐵律 #4） */ }
-}
-
-function recentAttemptedEngineTags(db: Pick<RunDb, 'attemptedEngineTags'>, taskId: string, cooldownMs: number): Set<string> | undefined {
-  try { return typeof db.attemptedEngineTags === 'function' ? new Set(db.attemptedEngineTags(taskId, new Date(Date.now() - cooldownMs).toISOString())) : new Set() } catch { return undefined }
 }

@@ -1,4 +1,4 @@
-import { llmFromConfig } from '../autopilot/llm.js'
+import { llmFromConfig, reviewLlmFromConfig } from '../autopilot/llm.js'
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { ZodError } from 'zod'
@@ -7,7 +7,7 @@ import { RunDb } from '../db.js'
 import { EventLog } from '../events.js'
 import { DiscordNotifier, formatTelegramTaskMessage, TelegramNotifier } from '../engines/notify.js'
 import { KernelVerifier } from '../verifier.js'
-import { reviewDiff } from '../engines/review-gate.js'
+import { reviewDiff, type ReviewRunArgs } from '../engines/review-gate.js'
 import { makeEngineRegistry } from '../engines/registry.js'
 import { ConfigSchema, type Config } from '../types.js'
 import type { Deps } from '../scheduler.js'
@@ -82,7 +82,7 @@ export function expandConfigPaths(baseDir: string, cfg: Config): Config {
     learningsFile: cfg.learningsFile ? resolve(baseDir, cfg.learningsFile) : undefined,
     globalLearningsFile: cfg.globalLearningsFile ? resolve(baseDir, cfg.globalLearningsFile) : undefined,
     releaseApprovalFile: cfg.releaseApprovalFile ? resolve(baseDir, cfg.releaseApprovalFile) : undefined,
-    judgeApiKey: cfg.llmTransport === 'cli' ? '' : resolveSecretString(cfg.judgeApiKey, baseDir) ?? 'sk-any',
+    judgeApiKey: cfg.llmTransport === 'cli' && cfg.tierMode !== 'free-only' ? '' : resolveSecretString(cfg.judgeApiKey, baseDir) ?? 'sk-any',
     telegramBotToken: resolveSecretString(cfg.telegramBotToken, baseDir),
   }
 }
@@ -100,7 +100,7 @@ export function assembleConfig(cfg: Config, absCfgPath?: string): { deps: Deps; 
   const engines = makeEngineRegistry(cfg)
   // review 的 effort/timeout 沿用 judge 檔次（驗收鏈同升降；要分開時再開獨立欄位）
   const reviewerModel = cfg.reviewEngine ?? cfg.auditModel
-  const reviewRun = reviewerModel ? (a: { diff: string; taskText: string }) => reviewDiff(llmFromConfig(cfg, reviewerModel, cfg.reviewUrl ?? cfg.judgeUrl), a.diff, a.taskText) : undefined
+  const reviewRun = reviewerModel ? (a: ReviewRunArgs) => reviewDiff({ ...reviewLlmFromConfig(cfg), onModel: a.onModel }, a.diff, a.taskText) : undefined
   const verifier = new KernelVerifier({ cfg, reviewRun })
   const notifier = new DiscordNotifier({
     channelId: cfg.discordChannelId,
@@ -112,7 +112,7 @@ export function assembleConfig(cfg: Config, absCfgPath?: string): { deps: Deps; 
   const lessonStore = new LessonStore(cfg.learningsFile ?? join(cfg.dataDir, 'learnings.md'), cfg.globalLearningsFile)
   const lessons = makeLessonsPort({
     lessons: lessonStore, db, backlog: store,
-    llm: llmFromConfig(cfg, cfg.judgeModel, cfg.judgeUrl), reviewLlm: cfg.auditModel ? llmFromConfig(cfg, cfg.auditModel) : undefined, events
+    llm: llmFromConfig(cfg, cfg.judgeModel, cfg.judgeUrl), reviewLlm: cfg.auditModel ? reviewLlmFromConfig(cfg, cfg.auditModel, cfg.judgeUrl) : undefined, events
   })
   let team: TeamState | undefined
   try { team = new TeamState(cfg.projectPath) } catch { /* 非 Git fixture；真正派工仍由 worktree gate 阻擋 */ }

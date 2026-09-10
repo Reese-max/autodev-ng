@@ -1,12 +1,17 @@
 import { z } from 'zod'
 import type { Config } from '../types.js'
 import { codexJson } from '../engines/cli-json.js'
+import { callFreeModel, FreeModelUnavailable, type FreeModelOptions } from '../engines/free-model-policy.js'
 
-export interface LlmOpts { transport?: 'http' | 'cli'; dataDir?: string; effort?: string; url?: string; model: string; apiKey: string; timeoutMs?: number; fetchFn?: typeof fetch }
+export interface LlmOpts extends FreeModelOptions { transport?: 'http' | 'cli'; apiKey: string }
 
-export interface LlmResult { text: string; totalTokens: number; error?: string }
+export interface LlmResult { text: string; totalTokens: number; error?: string; retryAt?: number; actualModel?: string }
 
 export async function callAgent(opts: LlmOpts, prompt: string): Promise<LlmResult> {
+  if (opts.tierMode === 'free-only') {
+    try { return await callFreeModel(opts, prompt) }
+    catch (error) { return { text: '', totalTokens: 0, error: String(error), ...(error instanceof FreeModelUnavailable ? { retryAt: error.retryAt } : {}) } }
+  }
   if (opts.transport === 'cli') {
     let totalTokens = 0
     try {
@@ -49,6 +54,12 @@ export async function callAgent(opts: LlmOpts, prompt: string): Promise<LlmResul
   }
 }
 
-export function llmFromConfig(cfg: Pick<Config, 'llmTransport' | 'dataDir' | 'judgeUrl' | 'judgeModel' | 'judgeApiKey' | 'judgeEffort' | 'judgeTimeoutMs'>, model = cfg.judgeModel, url = cfg.judgeUrl): LlmOpts {
-  return { transport: cfg.llmTransport, dataDir: cfg.dataDir, url, model, apiKey: cfg.judgeApiKey, effort: cfg.judgeEffort, timeoutMs: cfg.judgeTimeoutMs }
+export function llmFromConfig(cfg: Pick<Config, 'tierMode' | 'llmTransport' | 'dataDir' | 'judgeUrl' | 'judgeModel' | 'judgeApiKey' | 'judgeEffort' | 'judgeTimeoutMs'>, model = cfg.judgeModel, url = cfg.judgeUrl): LlmOpts {
+  return { tierMode: cfg.tierMode, transport: cfg.llmTransport, dataDir: cfg.dataDir, url, model, apiKey: cfg.judgeApiKey, effort: cfg.judgeEffort, timeoutMs: cfg.judgeTimeoutMs }
+}
+
+export function reviewLlmFromConfig(cfg: Config, model = cfg.reviewEngine ?? cfg.auditModel ?? '', url = cfg.reviewUrl ?? cfg.judgeUrl): LlmOpts {
+  return { ...llmFromConfig(cfg, model, url), ...(cfg.tierMode === 'free-only' ? {
+    fallbackModels: cfg.freeReviewFallbacks, excludedModels: [cfg.judgeModel, ...Object.values(cfg.engines).map(engine => engine.model ?? '')],
+  } : {}) }
 }

@@ -7,8 +7,15 @@ import { runProcess } from './proc.js'
 import { buildFleetCodexEnv } from './codex-runtime.js'
 import { nativeAdmission, admissionFailure } from './cli-admission.js'
 import { cliDiagnostic, cliError, cliEvents, redactCli } from './cli-diagnostics.js'
+import { callFreeModel, type FreeModelOptions } from './free-model-policy.js'
 
-export async function codexJson<T>(cfg: { dataDir: string; model: string; effort: string; timeoutMs: number; onUsage?: (totalTokens: number) => void }, schema: z.ZodType<T>, prompt: string): Promise<T> {
+export type JsonModelOptions = FreeModelOptions & { dataDir: string; effort: string; timeoutMs: number; onUsage?: (totalTokens: number) => void }
+export async function codexJson<T>(cfg: JsonModelOptions, schema: z.ZodType<T>, prompt: string): Promise<T> {
+  if (cfg.tierMode === 'free-only') {
+    const answer = await callFreeModel(cfg, `${prompt}\nReturn only JSON matching this schema; no markdown:\n${JSON.stringify(z.toJSONSchema(schema))}`)
+    cfg.onUsage?.(answer.totalTokens)
+    return schema.parse(JSON.parse(answer.text))
+  }
   // Resolve the run directory against the caller's cwd before the child process switches cwd to it;
   // otherwise a relative dataDir makes codex exec re-resolve schema/answer beneath the child directory (autodev-ng#7).
   const dir = resolve(join(cfg.dataDir, 'research', randomUUID())); mkdirSync(dir, { recursive: true })
