@@ -36,7 +36,7 @@ function expandEnvMap(env: Record<string, string> | undefined): Record<string, s
 export function makeEngineRegistry(cfg: Config): EngineResolver {
   const cache = new Map<string, Engine>()
   const build = (tag: string, ec: EngineConfig): Engine => {
-    if (cfg.tierMode === 'free-only' && !['opencode', 'mock'].includes(ec.adapter)) throw new Error('free-policy: this CLI has no verified free route; no preflight/model request sent')
+    if (cfg.tierMode === 'free-only' && !(cfg.llmTransport === 'devin-cli' ? ['devin', 'mock'] : ['opencode', 'mock']).includes(ec.adapter)) throw new Error('free-policy: this CLI has no verified free route; no preflight/model request sent')
     assertExecutionMode(ec)
     switch (ec.adapter) {
       case 'mock':
@@ -128,7 +128,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           lockDir: join(homedir(), '.autodev-ng', 'freebuff.lock'),
         })
       case 'devin':
-        // M5 Task 9：Devin CLI（原生 .exe 直呼；prompt/export 走 tmp 檔；固定鎖 swe-1.6 免費模型）。
+        // 原生 Devin CLI；嚴格模式每次檢查指定 UID 的 Free 標示與實際回報模型。
         // devin-serena-fix：profileDir 落 dataDir（preflight ping 隔離 cwd，關全域 MCP 匯入用）。
         return new DevinEngine({
           id: tag === 'devin' ? 'devin' : `devin:${tag}`,
@@ -136,7 +136,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           command: ec.command, env: expandEnvMap(ec.env),
           model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
           timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs, idleTimeoutMs: ec.idleTimeoutMs,
-          profileDir: join(cfg.dataDir, 'devin-profile')
+          profileDir: join(cfg.dataDir, 'devin-profile'), freeOnly: cfg.llmTransport === 'devin-cli'
         })
       default:
         throw new Error(`adapter ${ec.adapter} 尚未實作（M5 Task 3-8 逐一落地）`)

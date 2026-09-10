@@ -2,12 +2,21 @@ import { z } from 'zod'
 import type { Config } from '../types.js'
 import { codexJson } from '../engines/cli-json.js'
 import { callFreeModel, FreeModelUnavailable, type FreeModelOptions } from '../engines/free-model-policy.js'
+import { runDevinModel } from '../engines/devin-runtime.js'
 
-export interface LlmOpts extends FreeModelOptions { transport?: 'http' | 'cli'; apiKey: string }
+export interface LlmOpts extends FreeModelOptions { apiKey: string }
 
 export interface LlmResult { text: string; totalTokens: number; error?: string; retryAt?: number; actualModel?: string }
 
 export async function callAgent(opts: LlmOpts, prompt: string): Promise<LlmResult> {
+  if (opts.transport === 'devin-cli') {
+    try {
+      if (!opts.dataDir) throw new Error('Devin CLI requires dataDir for evidence')
+      const answer = await runDevinModel({ ...opts, dataDir: opts.dataDir, prompt, timeoutMs: opts.timeoutMs ?? 60_000 })
+      opts.onModel?.(answer.actualModel)
+      return { text: answer.answer, totalTokens: answer.tokensIn + answer.tokensOut, actualModel: answer.actualModel }
+    } catch (error) { return { text: '', totalTokens: 0, error: String(error), ...(error instanceof FreeModelUnavailable ? { retryAt: error.retryAt } : {}) } }
+  }
   if (opts.tierMode === 'free-only') {
     try { return await callFreeModel(opts, prompt) }
     catch (error) { return { text: '', totalTokens: 0, error: String(error), ...(error instanceof FreeModelUnavailable ? { retryAt: error.retryAt } : {}) } }
@@ -54,8 +63,9 @@ export async function callAgent(opts: LlmOpts, prompt: string): Promise<LlmResul
   }
 }
 
-export function llmFromConfig(cfg: Pick<Config, 'tierMode' | 'llmTransport' | 'dataDir' | 'judgeUrl' | 'judgeModel' | 'judgeApiKey' | 'judgeEffort' | 'judgeTimeoutMs'>, model = cfg.judgeModel, url = cfg.judgeUrl): LlmOpts {
-  return { tierMode: cfg.tierMode, transport: cfg.llmTransport, dataDir: cfg.dataDir, url, model, apiKey: cfg.judgeApiKey, effort: cfg.judgeEffort, timeoutMs: cfg.judgeTimeoutMs }
+export function llmFromConfig(cfg: Pick<Config, 'tierMode' | 'llmTransport' | 'dataDir' | 'judgeUrl' | 'judgeModel' | 'judgeApiKey' | 'judgeEffort' | 'judgeTimeoutMs'> & Partial<Pick<Config, 'engines' | 'defaultEngine'>>, model = cfg.judgeModel, url = cfg.judgeUrl): LlmOpts {
+  return { tierMode: cfg.tierMode, transport: cfg.llmTransport, dataDir: cfg.dataDir, url, model, apiKey: cfg.judgeApiKey, effort: cfg.judgeEffort, timeoutMs: cfg.judgeTimeoutMs,
+    ...(cfg.llmTransport === 'devin-cli' ? { command: cfg.engines?.[cfg.defaultEngine ?? '']?.command } : {}) }
 }
 
 export function reviewLlmFromConfig(cfg: Config, model = cfg.reviewEngine ?? cfg.auditModel ?? '', url = cfg.reviewUrl ?? cfg.judgeUrl): LlmOpts {

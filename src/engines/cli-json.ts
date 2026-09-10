@@ -8,9 +8,15 @@ import { buildFleetCodexEnv } from './codex-runtime.js'
 import { nativeAdmission, admissionFailure } from './cli-admission.js'
 import { cliDiagnostic, cliError, cliEvents, redactCli } from './cli-diagnostics.js'
 import { callFreeModel, type FreeModelOptions } from './free-model-policy.js'
+import { parseDevinJson, runDevinModel } from './devin-runtime.js'
 
 export type JsonModelOptions = FreeModelOptions & { dataDir: string; effort: string; timeoutMs: number; onUsage?: (totalTokens: number) => void }
 export async function codexJson<T>(cfg: JsonModelOptions, schema: z.ZodType<T>, prompt: string): Promise<T> {
+  if (cfg.transport === 'devin-cli') {
+    const reply = await runDevinModel({ ...cfg, prompt: `${prompt}\nReturn only JSON matching this schema; no markdown:\n${JSON.stringify(z.toJSONSchema(schema))}` })
+    cfg.onUsage?.(reply.tokensIn + reply.tokensOut); cfg.onModel?.(reply.actualModel)
+    return schema.parse(parseDevinJson(reply.answer))
+  }
   if (cfg.tierMode === 'free-only') {
     const answer = await callFreeModel(cfg, `${prompt}\nReturn only JSON matching this schema; no markdown:\n${JSON.stringify(z.toJSONSchema(schema))}`)
     cfg.onUsage?.(answer.totalTokens)

@@ -82,7 +82,7 @@ export function expandConfigPaths(baseDir: string, cfg: Config): Config {
     learningsFile: cfg.learningsFile ? resolve(baseDir, cfg.learningsFile) : undefined,
     globalLearningsFile: cfg.globalLearningsFile ? resolve(baseDir, cfg.globalLearningsFile) : undefined,
     releaseApprovalFile: cfg.releaseApprovalFile ? resolve(baseDir, cfg.releaseApprovalFile) : undefined,
-    judgeApiKey: cfg.llmTransport === 'cli' && cfg.tierMode !== 'free-only' ? '' : resolveSecretString(cfg.judgeApiKey, baseDir) ?? 'sk-any',
+    judgeApiKey: cfg.llmTransport === 'devin-cli' || cfg.llmTransport === 'cli' && cfg.tierMode !== 'free-only' ? '' : resolveSecretString(cfg.judgeApiKey, baseDir) ?? 'sk-any',
     telegramBotToken: resolveSecretString(cfg.telegramBotToken, baseDir),
   }
 }

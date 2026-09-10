@@ -7,7 +7,7 @@ type QuotaWindow = { name: string; remainingPercent: number; resetsAt?: string }
 export type CliAdmission = {
   checkedAt: string
   quota: { state: 'available' | 'exhausted' | 'unknown'; detail: string; windows?: QuotaWindow[] }
-  model: { state: 'listed' | 'verified' | 'unavailable' | 'unknown'; requested?: string; detail: string }
+  model: { state: 'listed' | 'verified' | 'unavailable' | 'unknown'; requested?: string; detail: string; listedId?: string; costTier?: string }
 }
 const obj = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {}
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
@@ -60,6 +60,19 @@ export function claudeQuota(stdout: string): CliAdmission['quota'] | undefined {
 }
 
 /** Reads current native metadata on every admission, before consulting the longer-lived inference cache. */
+export async function readDevinModelCatalog(opts: { command: string; args?: string[]; env?: NodeJS.ProcessEnv; replaceEnv?: boolean; timeoutMs?: number }) {
+  const config: string[] = []
+  for (let i = 0; i < (opts.args?.length ?? 0); i++) if (opts.args![i] === '--config' && opts.args![i + 1]) config.push('--config', opts.args![++i]!)
+  const r = await runProcess({ command: opts.command, args: [...config, 'models', 'list', '--format', 'json'],
+    env: opts.env as Record<string, string> | undefined, replaceEnv: opts.replaceEnv, cwd: process.cwd(), stdinText: '', timeoutMs: Math.min(opts.timeoutMs || 30_000, 30_000) })
+  if (r.timedOut || r.exitCode !== 0) throw new Error('models list failed: ' + cliDiagnostic(r, opts.env, opts.args))
+  const families = obj(JSON.parse(r.stdout)).families
+  if (!Array.isArray(families) || families.some(f => typeof obj(f).slug !== 'string' || !Array.isArray(obj(f).variants)
+    || (obj(f).variants as unknown[]).some(v => typeof obj(v).model_uid !== 'string'))) throw new Error('invalid Devin model catalog')
+  return families.map(f => ({ slug: String(f.slug), family: String(f.family_uid ?? f.slug), aliases: Array.isArray(f.aliases) ? f.aliases.filter((a: unknown): a is string => typeof a === 'string') : [],
+    variants: (f.variants as unknown[]).map(v => ({ id: String(obj(v).model_uid), costTier: typeof obj(v).cost_tier === 'string' ? String(obj(v).cost_tier) : undefined })) }))
+}
+
 export async function nativeAdmission(provider: 'codex' | 'copilot' | 'devin', opts: {
   command: string; args?: string[]; env?: NodeJS.ProcessEnv; replaceEnv?: boolean; model?: string; timeoutMs?: number
 }): Promise<CliAdmission> {
@@ -68,16 +81,11 @@ export async function nativeAdmission(provider: 'codex' | 'copilot' | 'devin', o
   const timeoutMs = opts.timeoutMs && opts.timeoutMs > 0 ? Math.min(opts.timeoutMs, 30_000) : 30_000
   if (provider === 'devin') {
     try {
-      const config: string[] = []
-      for (let i = 0; i < (opts.args?.length ?? 0); i++) if (opts.args![i] === '--config' && opts.args![i + 1]) config.push('--config', opts.args![++i]!)
-      const r = await runProcess({ command: opts.command, args: [...config, 'models', 'list', '--format', 'json'],
-        env: opts.env as Record<string, string> | undefined, cwd: process.cwd(), stdinText: '', timeoutMs })
-      if (r.timedOut || r.exitCode !== 0) throw new Error('models list failed: ' + cliDiagnostic(r, opts.env, opts.args))
-      const families = obj(JSON.parse(r.stdout)).families
-      if (!Array.isArray(families) || families.some(f => typeof obj(f).slug !== 'string' || !Array.isArray(obj(f).variants)
-        || (obj(f).variants as unknown[]).some(v => typeof obj(v).model_uid !== 'string'))) throw new Error('invalid Devin model catalog')
-      const models = families.flatMap(f => [f.slug, f.family_uid, ...(Array.isArray(f.aliases) ? f.aliases : []), ...f.variants.map((v: unknown) => obj(v).model_uid)])
+      const families = await readDevinModelCatalog({ ...opts, timeoutMs })
+      const models = families.flatMap(f => [f.slug, f.family, ...f.aliases, ...f.variants.map(v => v.id)])
+      const exact = families.flatMap(f => f.variants).find(v => v.id === opts.model)
       result.model = { ...result.model, state: opts.model ? models.includes(opts.model) ? 'listed' : 'unavailable' : 'unknown',
+        ...(exact ? { listedId: exact.id, ...(exact.costTier ? { costTier: exact.costTier } : {}) } : {}),
         detail: 'models list --format json: ' + families.length + ' families; catalog is not an inference receipt' }
     } catch (e) { result.model.detail = explain(e) }
     return result

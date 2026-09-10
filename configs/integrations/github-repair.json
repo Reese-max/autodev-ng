@@ -7,13 +7,15 @@
   ],
   "sourceConfig": "../autodev-self.json",
   "dataDir": "../../data/github-repairs/autodev-ng",
-  "engine": "codex-astra",
+  "engine": "devin",
   "enabled": true,
   "publish": false,
   "followup": true,
   "acceptance": {
     "command": "node",
-    "args": ["scripts/check-cli-journey.mjs"]
+    "args": [
+      "scripts/check-cli-journey.mjs"
+    ]
   },
   "maxRuns": 3,
   "retryMs": 900000,

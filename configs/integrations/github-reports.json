@@ -10,7 +10,7 @@
   "dailyAccountLimit": 10,
   "research": {
     "enabled": true,
-    "model": "gpt-5.6-luna",
+    "model": "swe-1-7",
     "effort": "max",
     "intervalMs": 604800000,
     "timeoutMs": 300000,

@@ -6,13 +6,11 @@
   "goalFile": "../data/neciken/GOAL.md",
   "verifyCommand": "python -m pytest -q",
   "verifyTimeoutMs": 300000,
-  "judgeUrl": "http://127.0.0.1:8317/v1",
-  "judgeModel": "gpt-5.6-terra",
-  "judgeApiKey": "{env:JUDGE_API_KEY}",
+  "judgeModel": "swe-1-7",
   "judgeEffort": "xhigh",
   "judgeTimeoutMs": 180000,
-  "reviewEngine": "gpt-5.6-terra",
-  "auditModel": "gpt-5.6-sol",
+  "reviewEngine": "glm-5-2",
+  "auditModel": "glm-5-2",
   "surveyCommand": "python -m pytest -q",
   "botTokenFile": "C:/Users/Administrator/.adng/bot.env",
   "botAllowedUserIds": [
@@ -23,85 +21,23 @@
   "dailyHardUsd": 30,
   "maxAttempts": 3,
   "perpetual": true,
-  "defaultEngine": "oc-deepseek",
+  "defaultEngine": "devin",
   "engineRotation": [
-    "oc-deepseek",
-    "oc-mimo",
-    "kilo",
-    "oc-deepseek",
-    "oc-mimo",
-    "kilo",
-    "oc-deepseek",
-    "oc-mimo",
-    "kilo",
-    "oc-deepseek",
-    "oc-mimo",
-    "kilo",
-    "oc-deepseek",
-    "oc-mimo",
-    "kilo",
-    "codex-luna",
-    "codex-terra"
+    "devin"
   ],
   "engines": {
     "devin": {
       "adapter": "devin",
-      "command": "C:/Users/Administrator/AppData/Local/devin/cli/bin/devin.exe",
-      "costPerRunUsd": 0,
+      "command": "devin.exe",
+      "model": "swe-1-7",
       "subscription": true,
-      "timeoutMs": 3600000
-    },
-    "oc-deepseek": {
-      "adapter": "opencode",
-      "model": "opencode/deepseek-v4-flash-free",
       "costPerRunUsd": 0,
-      "subscription": true,
       "timeoutMs": 4500000,
-      "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe"
-    },
-    "oc-mimo": {
-      "adapter": "opencode",
-      "model": "opencode/mimo-v2.5-free",
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "timeoutMs": 4500000,
-      "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe"
-    },
-    "kilo": {
-      "adapter": "opencode",
-      "command": "kilo",
-      "model": "kilo/kilo-auto/free",
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "timeoutMs": 4500000
-    },
-    "grok": {
-      "adapter": "grok",
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "timeoutMs": 3600000
-    },
-    "codex-sol": {
-      "adapter": "codex",
-      "model": "gpt-5.6-sol",
-      "costPerRunUsd": 1,
-      "subscription": true,
-      "timeoutMs": 3600000
-    },
-    "codex-luna": {
-      "adapter": "codex",
-      "model": "gpt-5.6-luna",
-      "costPerRunUsd": 1,
-      "subscription": true,
-      "timeoutMs": 3600000
-    },
-    "codex-terra": {
-      "adapter": "codex",
-      "model": "gpt-5.6-terra",
-      "costPerRunUsd": 1,
-      "subscription": true,
-      "timeoutMs": 3600000
+      "pingTimeoutMs": 90000,
+      "idleTimeoutMs": 300000
     }
   },
-  "engineIsolation": false
+  "engineIsolation": false,
+  "tierMode": "free-only",
+  "llmTransport": "devin-cli"
 }

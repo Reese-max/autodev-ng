@@ -10,6 +10,7 @@ import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { ensureNoMcpImport } from './devin-config-isolation.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
+import { devinEnv, runDevinModel } from './devin-runtime.js'
 
 export interface DevinOpts {
   id?: string // 觀測用引擎識別；registry 以 tag 帶入區分多檔位，未設維持 'devin'
@@ -21,15 +22,16 @@ export interface DevinOpts {
   cache: PreflightCache
   getCommitHash?: (cwd: string) => string | undefined
   env?: Record<string, string>
-  model?: string // 預設鎖 swe-1.6（credit_multiplier 0，官方保證真免費；不可用 adaptive，會燒配額）
+  model?: string // 舊路徑預設 swe-1.6；freeOnly 必須明確指定當次原生清單標為 Free 的 UID。
   profileDir: string // devin-serena-fix：preflight ping 隔離 cwd（<dataDir>/devin-profile，不需是 git repo）
+  freeOnly?: boolean
 }
 
 const HANDOFF_GUARD = `全部在本機當前目錄操作；嚴禁呼叫 handoff/cloud/remote 相關工具或語意，不做雲端交接。`
 
 /** M5 Task 9：Devin CLI 引擎（規格卡 .superpowers/sdd/devin-engine-research.md）。原生 .exe 本機
  * 執行；prompt 走 --prompt-file；`--permission-mode dangerous`（=Bypass）；`--model swe-1.6`
- * （鎖定，唯一官方保證 0 credit multiplier 的模型）；`--export <tmp>` 的 steps[] 解析是否有
+ * （歷史相容預設，不代表目前免費）；`--export <tmp>` 的 steps[] 解析是否有
  * exec 步驟含 git commit 當輔助訊號，真相來源仍是 commit hash 前進檢查＋silent-fail 防呆
  * （exit 0 無 export＝失敗）；無 USD 欄位 → costUsd 恆 0＋costUnknown:true；逾時全靠 runProcess
  * 外部 wall timer + 雙層樹斬。devin-serena-fix：run/preflight 前呼叫 `ensureNoMcpImport`
@@ -46,6 +48,7 @@ export class DevinEngine implements Engine {
   private readonly getCommitHash: (cwd: string) => string | undefined
   private readonly env?: Record<string, string>
   private readonly profileDir: string
+  private readonly freeOnly: boolean
 
   constructor(opts: DevinOpts) {
     this.id = opts.id ?? 'devin'
@@ -61,10 +64,16 @@ export class DevinEngine implements Engine {
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
     this.env = opts.env
     this.profileDir = opts.profileDir
+    this.freeOnly = opts.freeOnly === true
   }
 
   /** prompt／export 都走 tmp 檔（比照 grok 做法）：用後（同一 tmp 目錄）皆刪，不殘留內容或側檔。 */
   private async runWithFiles(prompt: string, cwd: string, timeoutMs: number, idleTimeoutMs?: number, control?: Job['control']) {
+    if (this.freeOnly) {
+      const reply = await runDevinModel({ dataDir: this.profileDir, command: this.command, model: cliModel(this.baseArgs)!, prompt,
+        cwd: idleTimeoutMs === undefined ? undefined : cwd, textOnly: idleTimeoutMs === undefined, timeoutMs, idleTimeoutMs, control })
+      return { r: { ...reply.r, stdout: reply.answer }, exp: { final_metrics: { total_prompt_tokens: reply.tokensIn, total_completion_tokens: reply.tokensOut, total_cached_tokens: reply.tokensCached } } as DevinExport, actualModel: reply.actualModel }
+    }
     const dir = mkdtempSync(join(tmpdir(), 'adng-devin-'))
     const promptFile = join(dir, 'prompt.txt')
     const exportFile = join(dir, 'export.json')
@@ -78,24 +87,25 @@ export class DevinEngine implements Engine {
       retainFiles = !!(r.aborted || r.timedOut || control?.signal?.aborted)
       let exp: DevinExport | undefined
       try { exp = JSON.parse(readFileSync(exportFile, 'utf8')) as DevinExport } catch { /* 未產出/損毀 → undefined，交給 silent-fail 判定 */ }
-      return { r, exp }
+      return { r, exp, actualModel: undefined }
     } finally {
       if (!retainFiles) try { rmSync(dir, { recursive: true, force: true }) } catch { /* tmp 刪失敗不反殺結果 */ }
     }
   }
 
   /** 先查帳戶模型清單；最小 PONG 好壞結果都 cache，不推測信用額度。 */
-  private cacheKey(): string { return cliPreflightKey(this.command, [...this.baseArgs, this.profileDir], this.env, 'devin') }
+  private cacheKey(): string { return cliPreflightKey(this.command, [...this.baseArgs, this.profileDir, String(this.freeOnly)], this.env, 'devin') }
 
   async preflight(): Promise<PreflightResult> {
-    const admission = await nativeAdmission('devin', { command: this.command, args: this.baseArgs, env: this.env, model: cliModel(this.baseArgs), timeoutMs: Math.min(this.pingTimeoutMs, 30_000) })
+    const admission = await nativeAdmission('devin', { command: this.command, args: this.baseArgs, env: this.freeOnly ? devinEnv() : this.env, replaceEnv: this.freeOnly, model: cliModel(this.baseArgs), timeoutMs: Math.min(this.pingTimeoutMs, 30_000) })
     const blocked = admissionFailure(admission)
     if (blocked) return blocked
+    if (this.freeOnly && (admission.model.listedId !== cliModel(this.baseArgs) || admission.model.costTier !== 'Free')) return { ok: false, admission, detail: 'free-policy: Devin model is not an exact variant marked Free' }
     const cached = this.cache.get(this.cacheKey())
     if (cached) return withAdmission(cached, admission, true)
     let result: PreflightResult
     try {
-      ensureNoMcpImport(this.profileDir) // 隔離 cwd，不用 process.cwd()（可能是 daemon 真專案，別讓 ping 也起 serena）
+      if (!this.freeOnly) ensureNoMcpImport(this.profileDir) // Strict native mode owns its isolated config.
       const { r, exp } = await this.runWithFiles('Reply with exactly: PONG', this.profileDir, this.pingTimeoutMs)
       result = r.exitCode === 0 && !r.timedOut && exp && /^PONG\r?$/m.test(r.stdout)
         ? { ok: true, detail: `PONG ${r.durationMs}ms` }
@@ -116,9 +126,12 @@ export class DevinEngine implements Engine {
       `任務：${job.directive ?? job.task.text}`
     ].join('\n')
 
-    ensureNoMcpImport(job.projectPath) // 關 MCP 匯入——從源頭消除 serena 孤兒＋.serena 污染
+    if (!this.freeOnly) ensureNoMcpImport(job.projectPath) // Strict native mode owns its isolated config.
     const before = this.getCommitHash(job.projectPath)
-    const { r, exp } = await this.runWithFiles(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs, job.control)
+    let result: Awaited<ReturnType<DevinEngine['runWithFiles']>>
+    try { result = await this.runWithFiles(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs, job.control) }
+    catch (error) { if (job.control?.signal?.aborted) return cancelledRun(); throw error }
+    const { r, exp, actualModel } = result
 
     if (r.aborted || job.control?.signal?.aborted) return cancelledRun(cliDiagnostic(r, this.env, this.baseArgs))
     if (r.timedOut) return { ok: false, output: cliDiagnostic(r, this.env, this.baseArgs), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
@@ -137,7 +150,7 @@ export class DevinEngine implements Engine {
       const hint = hasExecCommit(exp) ? '' : '；export 亦無 exec git commit 步驟'
       return { ok: false, output, costUsd: 0, costUnknown: true, failureReason: `no-commit(phantom completion?)${hint}`, tokensIn, tokensOut, tokensCached }
     }
-    return { ok: true, output, costUsd: 0, costUnknown: true, commitHash: after, baseCommitHash: before, tokensIn, tokensOut, tokensCached }
+    return { ok: true, output, costUsd: 0, costUnknown: true, commitHash: after, baseCommitHash: before, tokensIn, tokensOut, tokensCached, ...(actualModel ? { actualModel } : {}) }
   }
 }
 

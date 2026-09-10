@@ -6,10 +6,8 @@
   "worktreesDir": "../data/note-filler/worktrees",
   "verifyCommand": "python -X utf8 -m pytest -m \"not integration\" -q",
   "verifyTimeoutMs": 600000,
-  "judgeUrl": "http://127.0.0.1:8317/v1",
-  "judgeModel": "gpt-5.6-terra",
-  "judgeApiKey": "{env:JUDGE_API_KEY}",
-  "auditModel": "gpt-5.6-sol",
+  "judgeModel": "swe-1-7",
+  "auditModel": "glm-5-2",
   "surveyCommand": "python -X utf8 scripts/discovery_survey.py",
   "surveyTimeoutMs": 300000,
   "botAllowedUserIds": [
@@ -21,106 +19,21 @@
   "dailyHardUsd": 20,
   "maxAttempts": 3,
   "perpetual": true,
-  "defaultEngine": "oc-deepseek",
+  "defaultEngine": "devin",
   "engineRotation": [
-    "oc-deepseek",
-    "oc-mimo",
-    "kilo",
-    "oc-nvidia-glm52",
-    "oc-mimo",
-    "kilo",
-    "oc-deepseek",
-    "oc-mimo",
-    "kilo",
-    "oc-deepseek",
-    "oc-mimo",
-    "kilo",
-    "oc-laguna",
-    "oc-mimo",
-    "kilo",
-    "codex-luna",
-    "codex-terra"
+    "devin"
   ],
   "discordChannelId": "1492793288514863164",
   "engines": {
     "devin": {
       "adapter": "devin",
-      "command": "C:/Users/Administrator/AppData/Local/devin/cli/bin/devin.exe",
-      "costPerRunUsd": 0,
-      "timeoutMs": 3600000,
-      "subscription": true,
-      "model": "swe-1.6"
-    },
-    "codex-sol": {
-      "adapter": "codex",
-      "model": "gpt-5.6-sol",
-      "costPerRunUsd": 1,
-      "subscription": true,
-      "timeoutMs": 3600000
-    },
-    "codex-luna": {
-      "adapter": "codex",
-      "model": "gpt-5.6-luna",
-      "costPerRunUsd": 1,
-      "subscription": true,
-      "timeoutMs": 3600000
-    },
-    "codex-terra": {
-      "adapter": "codex",
-      "model": "gpt-5.6-terra",
-      "costPerRunUsd": 1,
-      "subscription": true,
-      "timeoutMs": 3600000,
-      "effort": "xhigh"
-    },
-    "oc-deepseek": {
-      "adapter": "opencode",
-      "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe",
-      "model": "opencode/deepseek-v4-flash-free",
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "timeoutMs": 4500000
-    },
-    "oc-mimo": {
-      "adapter": "opencode",
-      "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe",
-      "model": "opencode/mimo-v2.5-free",
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "timeoutMs": 4500000
-    },
-    "oc-laguna": {
-      "adapter": "opencode",
-      "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe",
-      "model": "opencode/laguna-s-2.1-free",
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "timeoutMs": 4500000
-    },
-    "oc-nvidia-glm52": {
-      "adapter": "opencode",
-      "command": "C:/Users/Administrator/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe",
-      "model": "nvidia/z-ai/glm-5.2",
-      "effort": "max",
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "pingTimeoutMs": 120000,
-      "timeoutMs": 4500000
-    },
-    "grok": {
-      "adapter": "grok",
-      "command": "C:/Users/Administrator/.grok/bin/grok.exe",
-      "costPerRunUsd": 0,
-      "subscription": true,
-      "timeoutMs": 3600000
-    },
-    "kilo": {
-      "adapter": "opencode",
-      "command": "kilo",
-      "model": "kilo/kilo-auto/free",
+      "command": "devin.exe",
+      "model": "swe-1-7",
       "subscription": true,
       "costPerRunUsd": 0,
-      "timeoutMs": 4500000
+      "timeoutMs": 4500000,
+      "pingTimeoutMs": 90000,
+      "idleTimeoutMs": 300000
     }
   },
   "extraDirective": "本任務可平行化：若你的工具支援子 agent／平行工具呼叫，請把彼此獨立的部分（例如各檔案的調查、多筆資料的處理、測試撰寫與實作）拆給子 agent 同時進行，最後由你彙整成單一一致的改動並自行 commit。若拆解會讓改動失去一致性（例如同一檔案的相依修改），就不要拆。",
@@ -133,7 +46,8 @@
   ],
   "judgeEffort": "xhigh",
   "judgeTimeoutMs": 180000,
-  "reviewEngine": "gpt-5.6-terra",
+  "reviewEngine": "glm-5-2",
   "engineIsolation": false,
-  "tierMode": "free-only"
+  "tierMode": "free-only",
+  "llmTransport": "devin-cli"
 }

@@ -39,7 +39,7 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
   if (!engine || ['herdr', 'mock'].includes(engine.adapter)) throw new Error('GitHub runner requires an explicitly selected regular engine')
   assertExecutionMode(engine)
   if (engine.timeoutMs === 0 && engine.executionMode !== 'supervised') throw new Error('GitHub runner requires a bounded engine wall timeout or accepted supervised execution')
-  if (cfg.repair && !['codex', 'freebuff', ...(source.tierMode === 'free-only' ? ['opencode'] : [])].includes(engine.adapter)) throw new Error('Automatic report repairs require Codex CLI, Freebuff or a verified free-only OpenCode route')
+  if (cfg.repair && !['codex', 'freebuff', ...(source.tierMode === 'free-only' ? [source.llmTransport === 'devin-cli' ? 'devin' : 'opencode'] : [])].includes(engine.adapter)) throw new Error('Automatic report repairs require Codex CLI, Freebuff or a verified free-only route')
   if (!source.verifyCommand?.trim() || !(source.reviewEngine ?? source.auditModel)) throw new Error('GitHub runner requires verifyCommand and reviewer configuration')
   const dir = runDir(cfg, state)
   return ConfigSchema.parse({ ...source,

@@ -159,7 +159,7 @@ export const ConfigSchema = z.object({
   defaultRisk: z.enum(['low', 'medium', 'high']).default('medium'),
   // 併發基建骨架（GOAL A 2026-07-28）：>1 的併發池屬 GOAL B，骨架僅收設定並防呆。
   concurrency: z.number().int().positive().default(1),
-  llmTransport: z.enum(['http', 'cli']).default('http'),
+  llmTransport: z.enum(['http', 'cli', 'devin-cli']).default('http'),
   judgeUrl: z.string().optional(),
   judgeModel: z.string().default('gpt-5.4-mini'),
   judgeApiKey: z.string().default('sk-any'),
@@ -201,6 +201,9 @@ export const ConfigSchema = z.object({
   perpetualValueThreshold: z.number().int().min(0).max(10).default(6)
 })
   .superRefine((c, ctx) => {
+    if (c.llmTransport === 'devin-cli' && (c.tierMode !== 'free-only' || !c.auditModel || c.freeReviewFallbacks?.length || !c.engines
+      || Object.values(c.engines).some(e => !['devin', 'mock'].includes(e.adapter) || e.env || !e.model)))
+      ctx.addIssue({ code: 'custom', path: ['llmTransport'], message: 'devin-cli requires free-only, an audit model and only explicit Devin models; external env/providers/fallbacks are forbidden' })
     if (!c.engines && !c.engine) ctx.addIssue({ code: 'custom', path: ['engine'], message: 'engines map 與 legacy engine 欄位至少須設一個' })
     if (c.wedgeHardCapMs <= c.staleThresholdMs)
       ctx.addIssue({ code: 'custom', path: ['wedgeHardCapMs'], message: 'wedgeHardCapMs 必須大於 staleThresholdMs' })

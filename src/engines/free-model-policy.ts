@@ -6,7 +6,7 @@ import type { EngineConfig } from '../types.js'
 export const FREE_MODEL_URL = 'https://openrouter.ai/api/v1'
 export const FREE_MODEL_CATALOG = `${FREE_MODEL_URL}/models`
 export const FREE_MODEL_COOLDOWN_MS = 30 * 60_000
-export interface FreeModelOptions { tierMode?: 'free-only'; dataDir?: string; url?: string; model: string; apiKey?: string; effort?: string; timeoutMs?: number; fetchFn?: typeof fetch; callId?: string;
+export interface FreeModelOptions { tierMode?: 'free-only'; transport?: 'http' | 'cli' | 'devin-cli'; command?: string; dataDir?: string; url?: string; model: string; apiKey?: string; effort?: string; timeoutMs?: number; fetchFn?: typeof fetch; callId?: string;
   fallbackModels?: string[]; excludedModels?: string[]; onModel?: (model: string) => void }
 export class FreeModelUnavailable extends Error {
   constructor(message: string, readonly retryAt = Date.now() + FREE_MODEL_COOLDOWN_MS, readonly fallbackAllowed = false) { super(`free-policy: ${message}`) }
@@ -18,8 +18,9 @@ export function freeModelId(model: string): string {
   if (!/^[a-z0-9._-]+\/[a-z0-9._-]+:free$/.test(id)) throw new FreeModelUnavailable('an explicit OpenRouter :free model is required')
   return id
 }
-export function assertFreeWorker(engine: EngineConfig): void {
+export function assertFreeWorker(engine: EngineConfig, transport?: string): void {
   if (engine.adapter === 'mock') return // This adapter cannot issue model requests.
+  if (transport === 'devin-cli' && engine.adapter === 'devin' && engine.model && !engine.env) return // Native catalog and generation identity are checked on every inference.
   if (engine.adapter !== 'opencode' || !engine.model?.startsWith('openrouter/')) throw new FreeModelUnavailable('worker CLI route is not verified; no preflight/model request sent')
   freeModelId(engine.model)
 }
@@ -41,7 +42,7 @@ export function retryAt(headers: Headers, now = Date.now()): number {
 function cooldownFile(opts: FreeModelOptions, kind = 'wait'): string | undefined {
   return opts.dataDir ? join(opts.dataDir, `free-model-${kind}-${createHash('sha256').update(opts.model.replace(/^openrouter\//, '')).digest('hex').slice(0, 20)}.json`) : undefined
 }
-function checkCooldown(opts: FreeModelOptions): void {
+export function checkCooldown(opts: FreeModelOptions): void {
   const quarantine = cooldownFile(opts, 'quarantine')
   if (quarantine && existsSync(quarantine)) throw new FreeModelUnavailable('route quarantined; inspect the cost/identity receipt before retry')
   const file = cooldownFile(opts)

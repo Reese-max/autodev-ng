@@ -37,7 +37,7 @@ export async function repairDoctor(cfg: GithubConfig, live = false) {
   let sandbox = { ok: false, detail: 'not tested; use repair-doctor --live (same worker permissions)' }
   if (live && Object.values(checks).every(c => c === 'pass')) {
     mkdirSync(cfg.dataDir, { recursive: true })
-    const worker = makeEngineRegistry({ ...source, dataDir: cfg.dataDir, ...(cfg.repair ? { llmTransport: 'cli' as const } : {}) }).resolve(cfg.engine)
+    const worker = makeEngineRegistry({ ...source, dataDir: cfg.dataDir, ...(cfg.repair && source.tierMode !== 'free-only' ? { llmTransport: 'cli' as const } : {}) }).resolve(cfg.engine)
     worker.invalidatePreflight?.()
     sandbox = await worker.preflight()
   }

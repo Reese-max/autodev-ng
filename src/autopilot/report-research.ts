@@ -28,12 +28,17 @@ export type Source = z.infer<typeof SourceSchema>
 export const reportFingerprint = (f: Pick<Finding, 'repo' | 'key'>): string => createHash('sha256').update(`${f.repo.toLowerCase()}\n${f.key}`).digest('hex')
 
 export function researchModels(cfg: ReportConfig, project: ReportProject) {
-  const source = z.object({ tierMode: z.literal('free-only').optional(), judgeUrl: z.string().optional(), judgeApiKey: z.string().optional(), llmTransport: z.string().optional(), judgeModel: z.string().optional(), auditModel: z.string().optional(), freeReviewFallbacks: z.array(z.string()).max(2).optional() })
+  const source = z.object({ tierMode: z.literal('free-only').optional(), judgeUrl: z.string().optional(), judgeApiKey: z.string().optional(), llmTransport: z.string().optional(), judgeModel: z.string().optional(), auditModel: z.string().optional(), freeReviewFallbacks: z.array(z.string()).max(2).optional(),
+    defaultEngine: z.string().optional(), engines: z.record(z.string(), z.object({ command: z.string().optional() })).optional() })
     .parse(JSON.parse(readFileSync(project.sourceConfig, 'utf8')))
   const model = source.llmTransport === 'cli' || source.tierMode === 'free-only' ? source.judgeModel : cfg.research.model
   if (!model) throw new Error('Project CLI judge model missing')
   const reviewer = source.auditModel ?? cfg.research.model
   if ((source.llmTransport === 'cli' || source.tierMode === 'free-only') && modelIdentity(reviewer) === modelIdentity(model)) throw new Error('Research requires a different audit model')
+  if (source.llmTransport === 'devin-cli') {
+    if (source.tierMode !== 'free-only' || source.freeReviewFallbacks?.length) throw new Error('Invalid Devin research policy')
+    return { model, reviewer, reviewPolicy: { excludedModels: [model] }, policy: { tierMode: source.tierMode, transport: 'devin-cli' as const, command: source.engines?.[source.defaultEngine ?? '']?.command } }
+  }
   return { model, reviewer, ...(source.tierMode === 'free-only' ? {
     reviewPolicy: { fallbackModels: source.freeReviewFallbacks, excludedModels: [model] },
     policy: { tierMode: source.tierMode, url: source.judgeUrl, apiKey: resolveSecretString(source.judgeApiKey, dirname(project.sourceConfig)) },

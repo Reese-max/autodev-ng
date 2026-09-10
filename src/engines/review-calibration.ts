@@ -222,7 +222,7 @@ export async function maybeRunWeeklyReviewCalibration(opts: { cfg: Config; now?:
   const outputDir = opts.outputDir ?? reviewCalibrationDir()
   if (existsSync(join(outputDir, `${week}.md`))) return 'already-run'
   const url = opts.cfg.reviewUrl ?? opts.cfg.judgeUrl
-  if (!url && opts.cfg.llmTransport !== 'cli') return 'not-configured'
+  if (!url && !['cli', 'devin-cli'].includes(opts.cfg.llmTransport)) return 'not-configured'
   const model = opts.cfg.reviewEngine ?? opts.cfg.judgeModel
   const result = await runReviewCalibration(loadReviewCalibrationSamples(), async sample =>
     parseReviewVerdict(await reviewDiff(llmFromConfig(opts.cfg, model, url), sample.diff, sample.taskText)),

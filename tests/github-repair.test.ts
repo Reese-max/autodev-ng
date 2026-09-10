@@ -23,6 +23,15 @@ import { PreflightCache } from '../src/preflight.js'
 const dirs: string[] = []
 afterEach(() => { vi.restoreAllMocks(); process.exitCode = undefined; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
+test('Devin automatic repairs preserve the native free transport and independent reviewer', async () => {
+  const f = await setup(), source = JSON.parse(readFileSync(f.cfg.sourceConfig, 'utf8'))
+  Object.assign(source, { tierMode: 'free-only', llmTransport: 'devin-cli', judgeModel: 'swe-1-7', auditModel: 'glm-5-2',
+    engines: { writer: { adapter: 'devin', model: 'swe-1-7', timeoutMs: 10_000, costPerRunUsd: 0 } } })
+  writeFileSync(f.cfg.sourceConfig, JSON.stringify(source))
+  expect(runtimeConfig(f.cfg, f.state)).toMatchObject({ llmTransport: 'devin-cli', tierMode: 'free-only', auditModel: 'glm-5-2',
+    engines: { writer: { adapter: 'devin', model: 'swe-1-7' } } })
+})
+
 async function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'adng-repair-')); dirs.push(dir)
   const cwd = join(dir, 'issue-4', 'repo'); mkdirSync(cwd, { recursive: true })

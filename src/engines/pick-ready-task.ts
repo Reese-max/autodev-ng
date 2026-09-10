@@ -63,7 +63,7 @@ export async function pickReadyTask(
       if (!engineCfg) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：tag [engine:${engineTag}] 不在本專案 engines 白名單，需人工修 tag 或補 config`)
       let engine: Engine
       try {
-        if (cfg.tierMode === 'free-only') assertFreeWorker(engineCfg)
+        if (cfg.tierMode === 'free-only') assertFreeWorker(engineCfg, cfg.llmTransport)
         engine = engines.resolve(engineTag)
       } catch (err) {
         if (tags.length === 1) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：引擎 ${engineTag} 無法建立（${String(err)}）`)

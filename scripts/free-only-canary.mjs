@@ -19,11 +19,14 @@ import { EventLog } from '../dist/events.js'
 import { runOnce } from '../dist/scheduler.js'
 
 const { values } = parseArgs({ options: { run: { type: 'boolean' }, 'key-env': { type: 'string', default: 'OPENROUTER_API_KEY' },
+  transport: { type: 'string', default: 'http' },
   command: { type: 'string', default: 'opencode.exe' }, model: { type: 'string', default: 'nex-agi/nex-n2.5-mini:free' },
   reviewer: { type: 'string', default: 'poolside/laguna-s-2.1:free' }, 'review-fallback': { type: 'string', multiple: true } } })
 if (!values.run) throw new Error('Explicit --run required: one bounded synthetic task using the selected existing free API credential')
-const apiKey = process.env[values['key-env']]
-if (!apiKey) throw new Error('Selected API credential environment variable is missing')
+assert.ok(['http', 'devin-cli'].includes(values.transport))
+const devin = values.transport === 'devin-cli', tag = devin ? 'devin' : 'oc-free'
+const apiKey = devin ? '' : process.env[values['key-env']]
+if (!devin && !apiKey) throw new Error('Selected API credential environment variable is missing')
 const parent = resolve('data/free-only-validation'); mkdirSync(parent, { recursive: true })
 const root = mkdtempSync(join(parent, 'canary-')), projectPath = join(root, 'repo'), dataDir = join(root, 'runtime')
 mkdirSync(projectPath); mkdirSync(dataDir)
@@ -36,12 +39,12 @@ writeFileSync(join(projectPath, 'test.cjs'), testSource); git('add', '.'); git('
 const test = () => spawnSync(process.execPath, ['test.cjs'], { cwd: projectPath, encoding: 'utf8', windowsHide: true, timeout: 10_000 })
 assert.equal(test().status, 1)
 const cfg = ConfigSchema.parse({ projectPath, dataDir, backlogFile: join(dataDir, 'BACKLOG.md'), worktreesDir: join(root, 'worktrees'), stopFile: join(root, 'STOP'),
-  tierMode: 'free-only', llmTransport: 'http', judgeUrl: FREE_MODEL_URL, judgeModel: values.model, judgeApiKey: apiKey,
+  tierMode: 'free-only', llmTransport: values.transport, judgeUrl: devin ? undefined : FREE_MODEL_URL, judgeModel: values.model, judgeApiKey: apiKey,
   auditModel: values.reviewer, freeReviewFallbacks: values['review-fallback'], judgeTimeoutMs: 60_000, verifyCommand: 'node test.cjs', defaultRisk: 'medium',
-  defaultEngine: 'oc-free', engineRotation: ['oc-free'], engines: { 'oc-free': { adapter: 'opencode', command: values.command,
-    model: `openrouter/${values.model}`, env: { OPENROUTER_API_KEY: `{env:${values['key-env']}}` }, timeoutMs: 180_000, pingTimeoutMs: 45_000, idleTimeoutMs: 60_000, dailyAttemptCap: 1, costPerRunUsd: 0, subscription: true } },
+  defaultEngine: tag, engineRotation: [tag], engines: { [tag]: { adapter: devin ? 'devin' : 'opencode', command: values.command,
+    model: devin ? values.model : `openrouter/${values.model}`, env: devin ? undefined : { OPENROUTER_API_KEY: `{env:${values['key-env']}}` }, timeoutMs: 180_000, pingTimeoutMs: 45_000, idleTimeoutMs: 60_000, dailyAttemptCap: 1, costPerRunUsd: 0, subscription: true } },
 })
-writeFileSync(join(root, 'config.json'), JSON.stringify({ ...cfg, judgeApiKey: `{env:${values['key-env']}}` }, null, 2))
+writeFileSync(join(root, 'config.json'), JSON.stringify({ ...cfg, judgeApiKey: devin ? undefined : `{env:${values['key-env']}}` }, null, 2))
 const report = { startedAt: new Date().toISOString(), root, model: values.model, reviewer: values.reviewer, baselineExit: 1, stage: 'planning', accepted: false,
   billingEvidence: 'Provider pricing and response usage only; account invoice not verified', soak24Hours: 'not run' }
 let db, team
@@ -57,14 +60,14 @@ try {
     const store = new BacklogStore(cfg.backlogFile), evidence = new EvidenceStore(dataDir)
     const result = await runOnce({ cfg, store, db, team, evidence, engines: makeEngineRegistry(cfg), events: new EventLog(dataDir),
       verifier: new KernelVerifier({ cfg, reviewRun: args => reviewDiff({ ...reviewLlmFromConfig(cfg), onModel: args.onModel }, args.diff, args.taskText) }) })
-    report.cycle = result; report.workerAdmissions = team.attemptsToday('oc-free')
+    report.cycle = result; report.workerAdmissions = team.attemptsToday(tag)
     const task = store.read()[0]
     report.stage = 'cycle-finished'; report.commit = evidence.verifiedTaskCommit(task.id, task.text)
     report.verifyExit = test().status; report.testUnchanged = readFileSync(join(projectPath, 'test.cjs'), 'utf8') === testSource
     report.accepted = result === 'done' && Boolean(report.commit) && report.verifyExit === 0 && report.testUnchanged
     process.exitCode = report.accepted ? 0 : 2
   }
-} catch (error) { report.stage = 'blocked'; report.error = String(error).split(apiKey).join('[REDACTED]'); process.exitCode = 2 }
+} catch (error) { report.stage = 'blocked'; report.error = apiKey ? String(error).split(apiKey).join('[REDACTED]') : String(error); process.exitCode = 2 }
 finally {
   db?.close(); team?.close(); report.finishedAt = new Date().toISOString()
   writeFileSync(join(root, 'report.json'), JSON.stringify(report, null, 2))

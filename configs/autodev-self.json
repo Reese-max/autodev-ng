@@ -9,36 +9,36 @@
   "timezoneOffsetHours": 8,
   "dailySoftUsd": 5,
   "dailyHardUsd": 10,
-  "judgeUrl": "http://127.0.0.1:8317/v1",
-  "judgeModel": "gpt-6-astra",
-  "auditModel": "gpt-5.6-sol",
+  "judgeModel": "swe-1-7",
+  "auditModel": "glm-5-2",
   "verifyCommand": "npm install --no-audit --no-fund && npm run build && node scripts/verify-incremental.mjs",
   "verifyTimeoutMs": 1500000,
-  "defaultEngine": "codex-astra",
+  "defaultEngine": "devin",
   "engineRotation": [
-    "codex-astra"
+    "devin"
   ],
   "engines": {
-    "codex-astra": {
-      "adapter": "codex",
-      "model": "gpt-6-astra",
-      "costPerRunUsd": 0,
+    "devin": {
+      "adapter": "devin",
+      "command": "devin.exe",
+      "model": "swe-1-7",
       "subscription": true,
+      "costPerRunUsd": 0,
       "timeoutMs": 5400000,
-      "effort": "max"
+      "pingTimeoutMs": 90000,
+      "idleTimeoutMs": 300000
     }
   },
   "discordChannelId": "1492793288514863164",
   "perpetual": true,
   "perpetualValueThreshold": 7,
   "extraDirective": "本專案就是 autodev-ng 自身（TypeScript）。鐵律：嚴禁修改 configs/ 目錄、scripts/ 目錄、data/ 目錄內任何檔案；嚴禁動任何 daemon/node 進程；kernel 行數預算測試（tests/kernel-slim.test.ts 與 tests/kernel-relocation-report.test.ts，src/*.ts 頂層 ≤2250 行）必須維持綠燈——新邏輯優先放 src/engines/ 等子目錄；所有變更需附單元測試。 【kernel 帳本鐵律】改動 src/ 頂層任何 *.ts 時，必須在同一 commit 更新 docs/kernel-line-relocation-report.md 的變更沿革，並通過 tests/kernel-relocation-report.test.ts 的即時計數；不得調高 2250 行上限，逼近時先把邏輯外移 src/engines/ 再交付。",
-  "judgeApiKey": "{env:JUDGE_API_KEY}",
   "worktreesDir": "../data/autodev-self/worktrees",
   "perpetualCooldownMs": 3600000,
   "judgeEffort": "xhigh",
   "judgeTimeoutMs": 180000,
   "engineIsolation": false,
-  "llmTransport": "cli",
+  "llmTransport": "devin-cli",
   "botTokenFile": "C:/Users/Administrator/.adng/bot.env",
   "botAllowedUserIds": [
     "844236700611379200"
@@ -46,5 +46,7 @@
   "botTestPeer": {
     "botId": "1494777289676685433",
     "channelId": "1494779722314285179"
-  }
+  },
+  "tierMode": "free-only",
+  "reviewEngine": "glm-5-2"
 }

@@ -10,6 +10,7 @@ import type { SuperviseResult } from '../src/supervisor/supervise.js'
 import { parseArgv } from '../src/cli/entry.js'
 import type { VerifyOutcome } from '../src/verify.js'
 import { createExecutionObservation, readExecutions } from '../src/engines/execution-observation.js'
+import * as devinRuntime from '../src/engines/devin-runtime.js'
 
 function fixture(): { root: string; projectPath: string; dataDir: string; configPath: string } {
   const root = mkdtempSync(join(tmpdir(), 'adng-guardian-'))
@@ -66,6 +67,27 @@ test('free-only projects keep monitoring evidence but never start the uncontroll
   expect(await runFleetGuardian([superviseResult(f)], { fleetDataDir: join(f.root, 'fleet'), runProcessFn: runner }))
     .toEqual([{ configPath: f.configPath, kind: 'skipped', reason: 'free-policy' }])
   expect(runner).not.toHaveBeenCalled(); expect(existsSync(join(f.dataDir, 'codex-home'))).toBe(false)
+})
+
+test.each(['repair', 'diagnosis', 'unauthorized'] as const)('Devin Guardian preserves independent acceptance and diagnosis permissions: %s', async mode => {
+  const f = fixture()
+  writeFileSync(f.configPath, JSON.stringify({ projectPath: f.projectPath, dataDir: f.dataDir, backlogFile: join(f.dataDir, 'BACKLOG.md'),
+    tierMode: 'free-only', llmTransport: 'devin-cli', judgeModel: 'swe-1-7', auditModel: 'glm-5-2', defaultEngine: 'devin',
+    engines: { devin: { adapter: 'devin', model: 'swe-1-7', costPerRunUsd: 0, ...(mode === 'repair' ? {} : { executionMode: 'observed' }) } } }))
+  const decision = { status: 'needs_attention', summary: 'Host must inspect the incident', actions: [], evidence: [], followUp: 'Inspect evidence', restartRequired: mode === 'unauthorized', forceRestart: false }
+  const native = vi.spyOn(devinRuntime, 'runDevinModel').mockResolvedValue({ r: { exitCode: 0, stdout: '', stderr: '', timedOut: false, durationMs: 1 },
+    answer: JSON.stringify(decision), actualModel: 'swe-1-7', tokensIn: 10, tokensOut: 3, tokensCached: 1 } as Awaited<ReturnType<typeof devinRuntime.runDevinModel>>)
+  const codex = vi.fn(async () => { throw new Error('Codex forbidden') }), options = acceptedOptions(f)
+  try {
+    const report = await runFleetGuardian([superviseResult(f)], { ...options, fleetDataDir: join(f.root, 'fleet'), runProcessFn: codex })
+    expect(report[0]?.kind).toBe(mode === 'unauthorized' ? 'failed' : 'completed')
+    expect(native).toHaveBeenCalledTimes(1); expect(codex).not.toHaveBeenCalled()
+    expect(native.mock.calls[0]?.[0]).toMatchObject({ model: 'swe-1-7', textOnly: mode !== 'repair' })
+    expect(native.mock.calls[0]?.[0].timeoutMs).toBeGreaterThan(0)
+    expect(existsSync(join(f.dataDir, 'codex-home'))).toBe(false)
+    if (mode !== 'repair') { expect(options.verifyFn).not.toHaveBeenCalled(); expect(options.superviseFn).not.toHaveBeenCalled() }
+    else expect(options.superviseFn).toHaveBeenCalled()
+  } finally { native.mockRestore() }
 })
 
 test.each(['healthy', 'diagnose', 'malicious', 'stale', 'timeout'] as const)('active worker Guardian is read-only, bounded and advisory: %s', async mode => {

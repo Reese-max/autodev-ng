@@ -4,7 +4,7 @@ import { FLEET_CODEX_PERMISSION_ARGS } from '../engines/codex-runtime.js'
 export const GUARDIAN_MODEL = 'gpt-5.6-luna'
 export const GUARDIAN_EFFORT = 'max'
 
-const DecisionSchema = z.object({
+export const DecisionSchema = z.object({
   status: z.enum(['resolved', 'stable', 'needs_attention']),
   summary: z.string().min(1).max(2_000),
   actions: z.array(z.string().max(1_000)).max(20),
