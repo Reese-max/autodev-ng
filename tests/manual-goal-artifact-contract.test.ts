@@ -169,6 +169,29 @@ test('firstMissingArtifact：變更檔只取 baseCommitHash..commitHash，不誤
     .toBe('tests/manual-goal-quality-metrics.py')
 })
 
+test('firstMissingArtifact：實際存在且被忽略的日期備份不要求提交，其餘缺件仍拒收', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-artifact-backup-'))
+  tempDirs.push(dir)
+  initRepo(dir)
+  writeFileSync(join(dir, '.gitignore'), '*.bak-*\nignored.ts\n')
+  git(dir, ['add', '.gitignore'])
+  git(dir, ['commit', '-m', 'chore: ignore local files'])
+  const base = git(dir, ['rev-parse', 'HEAD'])
+  writeFileSync(join(dir, 'README.md'), '# changed\n')
+  git(dir, ['commit', '-am', 'fix: change'])
+  const candidate = git(dir, ['rev-parse', 'HEAD'])
+  mkdirSync(join(dir, 'configs'))
+  const backup = 'configs/settings.json.bak-2026-09-11'
+  const claim = `編輯前已建立備份 ${backup}（已被 .gitignore 忽略，未提交）。`
+  expect(firstMissingArtifact(dir, claim, base, candidate)).toBe(backup)
+  writeFileSync(join(dir, backup), '{}\n')
+  expect(firstMissingArtifact(dir, claim, base, candidate)).toBeUndefined()
+  writeFileSync(join(dir, 'configs/ignored.ts'), 'source\n')
+  expect(firstMissingArtifact(dir, '建立 configs/ignored.ts', base, candidate)).toBe('configs/ignored.ts')
+  git(dir, ['add', '-f', backup])
+  expect(firstMissingArtifact(dir, claim, base, candidate)).toBe(backup)
+})
+
 test('scheduler：缺件記 FAIL、跳過驗收、未 done 並保留 backlog', { timeout: 60_000 }, async () => {
   const engine = new MockArtifactEngine('tests/manual-goal-quality-metrics.py', false)
   const d = deps(engine)

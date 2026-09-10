@@ -21,7 +21,10 @@ export function firstMissingArtifact(
   try {
     const existed = gitList(cwd, ['ls-tree', '-r', '-z', '--name-only', baseCommitHash, '--'])
     const changed = gitList(cwd, ['diff', '--name-only', '-z', `${baseCommitHash}..${commitHash}`, '--'])
-    return missingArtifacts(claimed, existed, changed)[0]
+    // Local dated backups must exist, but ignored backups are intentionally not committed.
+    const backups = claimed.filter(path => /\.bak-(?:\d{8}|\d{4}-\d{2}-\d{2})(?:-\d{6})?$/.test(path))
+    const ignoredBackups = backups.length ? gitList(cwd, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--', ...backups]) : []
+    return missingArtifacts(claimed, existed, [...changed, ...ignoredBackups])[0]
   } catch {
     return undefined
   }
