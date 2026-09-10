@@ -1,7 +1,7 @@
 import { stripVTControlCharacters } from 'node:util'
 
 const MAX_VERIFY_FAILURE_DETAIL_LENGTH = 1000
-const FAILURE_LINE_RE = /FAIL|✗|×|AssertionError/
+const FAILURE_LINE_RE = /FAIL|✗|×|AssertionError|^\[flaky-regression\]/
 const TEST_SUMMARY_RE = /^\s*(Test Files|Tests)\b/
 
 /** 將 verify 紅燈輸出收斂為可讀、可回饋給下一輪的 detail。 */

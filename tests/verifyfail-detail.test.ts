@@ -3,6 +3,13 @@ import { formatVerifyFailureDetail } from '../src/engines/verify-detail.js'
 
 const ansi = (code: string, text: string) => `\u001B[${code}m${text}\u001B[0m`
 
+test('雙輪回歸的退出碼與逾時摘要不會被 dot 進度與 npm 輸出擠掉', () => {
+  const rounds = [1, 2].map(round => `[flaky-regression] round=${round}/2 spec="(process)" target=process exit=1 timedOut=true`)
+  const detail = formatVerifyFailureDetail(rounds.map(line => `${line}\n${'·'.repeat(2000)}`).join('\n'), 'npm run build\n> tsc')
+  for (const line of rounds) expect(detail).toContain(line)
+  expect(detail.length).toBeLessThanOrEqual(1000)
+})
+
 test('ANSI 移除：Vitest 輸出保留失敗名稱、AssertionError 鄰近內容與末尾統計', () => {
   const passed = Array.from({ length: 80 }, (_, i) => ansi('32', ` ✓ tests/passed-${i}.test.ts`)).join('\n')
   const detail = formatVerifyFailureDetail('', [
