@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, expect, test, vi } from 'vitest'
 import { ConfigSchema } from '../src/types.js'
 import type { Deps } from '../src/scheduler.js'
+import { BacklogStore } from '../src/backlog.js'
 import { runGoalSession } from '../src/autopilot/orchestrator.js'
 import { verifyAndSupplement } from '../src/autopilot/supplement.js'
 import { runGoalWithDeps } from '../src/autopilot/session.js'
@@ -22,7 +23,8 @@ function setup(verify = true) {
   const cfg = ConfigSchema.parse({ projectPath: dir, dataDir, backlogFile: join(dataDir, 'BACKLOG.md'), goalFile, stopFile: join(dir, 'stop'),
     defaultEngine: 'astra', engines: { astra: { adapter: 'codex', model: 'gpt-6-astra', costPerRunUsd: 0 } },
     llmTransport: 'cli', judgeModel: 'gpt-6-astra', auditModel: 'gpt-5.6-sol' })
-  const reflect = vi.fn(async () => {}), deps = { cfg, lessons: { inject: () => '', reflect }, events: { append: vi.fn() } } as unknown as Deps
+  writeFileSync(cfg.backlogFile, '')
+  const reflect = vi.fn(async () => {}), deps = { cfg, store: new BacklogStore(cfg.backlogFile), lessons: { inject: () => '', reflect }, events: { append: vi.fn() } } as unknown as Deps
   return { cfg, deps, reflect, notifier: { send: vi.fn(async () => true) } }
 }
 

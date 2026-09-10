@@ -11,6 +11,8 @@
 
 六份專案設定、Devin 專用模式與 GitHub repair/research 設定已使用以上路由。原有 GOAL、驗收指令、任務紀錄與暫停旗標繼續生效；切換模型不代表恢復暫停中的案件或取得發布授權。Bot 的模型問答也共用此 transport。
 
+`configs/modes/autodev-self.devin-only.json` 沿用既有模式範本契約：先複製至 `configs/autodev-self.json` 再使用，其相對路徑以 `configs/` 為基準。
+
 每次推論前，宿主執行 `devin models list --format json`，只接受精確 UID 當時標為 `Free` 的變體。無標示、非 Free、別名或模型不可用均停止；不切其他供應商。每次匯出中所有 agent generation model 都必須吻合，發現不符會隔離路由。SWE-1.7 Lightning Max 與 GLM-5.2 Max 並非此次選用的免費變體。
 
 純文字角色從原生 export 取得回答，沿用各角色的文字協定；研究、修復審查與 Guardian 另驗證 JSON schema。純文字角色禁用工具；worker 保留本機讀寫、執行及提交能力。共用執行器停用 MCP 匯入、subagents、cloud handoff，移除其他供應商的環境金鑰。Windows 上這些是 CLI 權限與宿主驗證，並非作業系統沙箱。
