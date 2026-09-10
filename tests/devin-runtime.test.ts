@@ -48,7 +48,7 @@ test('native text roles use the isolated native login and validated export; neve
   expect(fetchFn).not.toHaveBeenCalled(); expect(runner).toHaveBeenCalledTimes(3)
   const call = runner.mock.calls[2]![0], isolated = JSON.parse(readFileSync(call.args[1]!, 'utf8'))
   expect(isolated).toMatchObject({ subagents_enabled: false, auto_update: false })
-  expect(isolated.permissions.deny).toEqual(expect.arrayContaining(['exec', 'read', 'mcp__*']))
+  expect(isolated.permissions.deny).toEqual(expect.arrayContaining(['exec', 'read', 'Write(**)', 'mcp__*']))
   expect(isolated.permissions.allow).toEqual([])
   expect(isolated.disabled_tools).toEqual(expect.arrayContaining(['ask_user_question', 'web_search', 'webfetch', 'mcp_call_tool', 'exec', 'apply_patch']))
   expect(JSON.parse(readFileSync(join(call.cwd, 'telemetry.json'), 'utf8'))).toMatchObject({ actualModel: 'swe-1-7', costUsd: null, modelCalls: 1 })
@@ -97,6 +97,9 @@ test('a quiet print worker survives idle reporting while retaining the finite wa
   runner.mockImplementation(async call => {
     if (!call.args.includes('--export')) return fallback(call)
     expect(call.timeoutMs).toBe(5000)
+    const isolated = JSON.parse(readFileSync(call.args[1]!, 'utf8'))
+    expect(isolated.permissions.allow).toContain('Write(**)')
+    expect(isolated.permissions.deny).toContain('Write(.devin/**)')
     const exportFile = call.args[call.args.indexOf('--export') + 1]!
     const payload = JSON.stringify({ steps: [{ source: 'agent', message: 'QUIET_DONE', extra: { generation_model: 'swe-1-7' } }] })
     return realRun({ ...call, command: process.execPath, args: ['--input-type=module', '-e',

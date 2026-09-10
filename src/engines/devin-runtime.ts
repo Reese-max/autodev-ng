@@ -18,8 +18,8 @@ export const devinEnv = (): Record<string, string> => Object.fromEntries(Object.
   && /^(path|systemroot|windir|comspec|temp|tmp|pathext|userprofile|appdata|localappdata|homedrive|homepath|home|xdg_data_home|http_proxy|https_proxy|all_proxy|no_proxy)$/i.test(key))) as Record<string, string>
 
 function configure(cwd: string, dir: string, model: string, textOnly: boolean): string {
-  const deny = [...denied, ...(textOnly ? ['read', 'edit', 'write', 'grep', 'glob', 'exec'] : ['Exec(codex)', 'Exec(claude)', 'Exec(opencode)', 'Exec(grok)', 'Exec(qwen)', 'Exec(devin)', 'Write(.devin/**)'])]
-  const permissions = { allow: textOnly ? [] : ['read', 'grep', 'glob', 'edit', 'write', 'exec'], deny }
+  const deny = [...denied, ...(textOnly ? ['read', 'edit', 'Write(**)', 'grep', 'glob', 'exec'] : ['Exec(codex)', 'Exec(claude)', 'Exec(opencode)', 'Exec(grok)', 'Exec(qwen)', 'Exec(devin)', 'Write(.devin/**)'])]
+  const permissions = { allow: textOnly ? [] : ['read', 'grep', 'glob', 'edit', 'Write(**)', 'exec'], deny }
   const file = join(dir, 'user-config.json')
   writeFileSync(file, JSON.stringify({ agent: { model }, subagents_enabled: false, auto_update: false, notify: 'never', attribution: false,
     disabled_tools: [...disabledTools, ...(textOnly ? localTools : [])], read_config_from: importsOff, permissions }))
