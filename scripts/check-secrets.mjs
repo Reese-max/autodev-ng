@@ -5,6 +5,7 @@ import { join } from 'node:path'
 const SECRET_PATTERNS = [
   /sk-proxypilot-[a-zA-Z0-9]+/i,
   /sk-[a-zA-Z0-9]{20,}/,
+  /cog_[a-zA-Z0-9_-]{20,}/,
   /bot[0-9]{8,10}:[a-zA-Z0-9_-]{35}/,
 ]
 

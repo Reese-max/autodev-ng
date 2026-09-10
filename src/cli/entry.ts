@@ -27,6 +27,7 @@ export const CLI_HELP = [
   '  adng notify-test --config <path>  測試 Discord 告警通道',
   '  adng supervise --configs-dir <dir>  管理多專案 daemon',
   '  adng github --help                GitHub Issue intake/status/owner 操作',
+  '  adng devin-api status [--config <path>]  驗證 Devin API 憑證與組織（唯讀）',
   '',
   '安全起步（使用 synthetic/mock 專案，不會呼叫 provider）：',
   '  config.json：',
@@ -72,6 +73,7 @@ export function parseArgv(argv: string[]): ParsedArgv {
 export async function runCli(argv: string[], cliPath: string): Promise<void> {
   if (argv[0] !== 'github' && (argv.includes('--help') || (argv.length === 1 && ['-h', 'help'].includes(argv[0]!)))) { process.exitCode = 0; printCliHelp(); return }
   if (argv[0] === 'task') { await (await import('./tasks.js')).taskCli(argv.slice(1)); return }
+  if (argv[0] === 'devin-api') { await (await import('./devin-api.js')).devinApiCli(argv.slice(1)); return }
   if (argv[0] === 'execution') { (await import('./executions.js')).executionCli(argv.slice(1)); return }
   if (argv[0] === 'bot') { await (await import('../bot/index.js')).runBotCli(argv.slice(1)); return }
   if (['monitor', 'pause', 'resume', 'cost', 'backlog', 'log'].includes(argv[0] ?? '') || (argv[0] === 'status' && argv.includes('--json'))) {
