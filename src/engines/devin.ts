@@ -10,7 +10,7 @@ import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { ensureNoMcpImport } from './devin-config-isolation.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
-import { devinEnv, runDevinModel } from './devin-runtime.js'
+import { DevinRunError, devinEnv, runDevinModel } from './devin-runtime.js'
 
 export interface DevinOpts {
   id?: string // 觀測用引擎識別；registry 以 tag 帶入區分多檔位，未設維持 'devin'
@@ -130,7 +130,11 @@ export class DevinEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     let result: Awaited<ReturnType<DevinEngine['runWithFiles']>>
     try { result = await this.runWithFiles(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs, job.control) }
-    catch (error) { if (job.control?.signal?.aborted) return cancelledRun(); throw error }
+    catch (error) {
+      if (job.control?.signal?.aborted || (error instanceof DevinRunError && error.result.aborted)) return cancelledRun()
+      if (error instanceof DevinRunError) return { ok: false, output: error.message, costUsd: 0, costUnknown: true, failureReason: error.reason }
+      throw error
+    }
     const { r, exp, actualModel } = result
 
     if (r.aborted || job.control?.signal?.aborted) return cancelledRun(cliDiagnostic(r, this.env, this.baseArgs))
