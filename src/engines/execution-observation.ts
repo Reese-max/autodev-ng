@@ -86,6 +86,27 @@ export function createExecutionObservation(args: { dataDir: string; job: Job; ad
   const acceptObject = (value: unknown) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return
     const event = value as Record<string, unknown>
+    // Claude/Qwen Messages streams wrap tool use/results; only metadata reaches the receipt.
+    if (event.type === 'assistant' || event.type === 'user') {
+      const message = event.message as { content?: unknown[] } | undefined
+      if (Array.isArray(message?.content)) for (const block of message.content.slice(0, 256)) {
+        if (block && typeof block === 'object' && ['tool_use', 'tool_result'].includes(String((block as Record<string, unknown>).type))) {
+          acceptObject({ ...block, session_id: event.session_id, uuid: event.uuid })
+        }
+      }
+      return
+    }
+    if (event.type === 'stream_event') {
+      const inner = event.event as { type?: string } | undefined
+      if (inner?.type === 'content_block_start' || inner?.type === 'content_block_delta') {
+        acceptObject({ type: 'item.started', stream: event.event, uuid: event.uuid })
+      }
+      return
+    }
+    if (event.type === 'tool_call' || event.type === 'tool_call_update') {
+      acceptObject({ ...event, type: event.status === 'completed' || event.status === 'failed' ? 'tool_result' : 'tool_use' })
+      return
+    }
     if (typeof event.type !== 'string' || !ACTIVITY_EVENTS.has(event.type)) return
     const item = event.item as Record<string, unknown> | undefined
     const itemType = item && typeof item.type === 'string' ? item.type : ''

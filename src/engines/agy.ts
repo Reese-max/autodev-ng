@@ -1,3 +1,5 @@
+import { unknownAdmission, withAdmission } from './cli-admission.js'
+import { cliDiagnostic, cliPreflightKey, redactCli } from './cli-diagnostics.js'
 import { randomBytes } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -101,7 +103,7 @@ export class AgyEngine implements Engine {
       args: [...this.argvPrefix, '-d', this.distro, '-u', 'root', '--', 'git', '--git-dir', toWslPath(commonDir), 'worktree', 'repair', toWslPath(projectPath)],
       cwd: projectPath, stdinText: '', timeoutMs: 30_000,
     })
-    if (r.timedOut || r.exitCode !== 0) throw new Error(`agy WSL worktree repair 失敗：${tail(r.stderr || r.stdout)}`)
+    if (r.timedOut || r.exitCode !== 0) throw new Error(`agy WSL worktree repair 失敗：${cliDiagnostic(r, undefined, [...this.argvPrefix, this.distro, this.agyBin, this.model ?? ""])}`)
   }
 
   private async repairForWindows(projectPath: string, commonDir: string): Promise<void> {
@@ -109,30 +111,33 @@ export class AgyEngine implements Engine {
       command: 'git', args: ['--git-dir', commonDir, 'worktree', 'repair', projectPath],
       cwd: projectPath, stdinText: '', timeoutMs: 30_000,
     })
-    if (r.timedOut || r.exitCode !== 0) throw new Error(`agy Windows worktree repair 失敗：${tail(r.stderr || r.stdout)}`)
+    if (r.timedOut || r.exitCode !== 0) throw new Error(`agy Windows worktree repair 失敗：${cliDiagnostic(r, undefined, [...this.argvPrefix, this.distro, this.agyBin, this.model ?? ""])}`)
   }
 
+  private cacheKey(): string { return cliPreflightKey(this.command, [...this.argvPrefix, this.distro, this.agyBin, this.model ?? ""]) }
+
   async preflight(): Promise<PreflightResult> {
-    const key = `${this.distro}:${this.agyBin}`
+    const key = this.cacheKey()
+    const admission = unknownAdmission('agy', this.model)
     const cached = this.cache.get(key)
-    if (cached) return cached
+    if (cached) return withAdmission(cached, admission, true)
     let result: PreflightResult
     try {
       const r = await runProcess({
         command: this.command, args: this.wslArgs(process.cwd(), this.agyFlags(this.pingTimeoutMs - 10_000, 'Reply with exactly: PONG')),
         cwd: process.cwd(), stdinText: '', timeoutMs: this.pingTimeoutMs
       })
-      result = r.stdout.includes('PONG')
+      result = r.exitCode === 0 && !r.timedOut && !/print[- ]timeout|partial output/i.test(r.stderr) && /^PONG\r?$/m.test(r.stdout)
         ? { ok: true, detail: `PONG ${r.durationMs}ms` }
-        : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG (exit ${r.exitCode}) ${r.stderr.slice(0, 120)}` }
+        : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG (exit ${r.exitCode}) ${cliDiagnostic(r, undefined, [...this.argvPrefix, this.distro, this.agyBin, this.model ?? ""]).slice(0, 700)}` }
     } catch (err) {
-      result = { ok: false, detail: String(err).slice(0, 200) }
+      result = { ok: false, detail: redactCli(String(err), { ...process.env }, [...this.argvPrefix, this.distro, this.agyBin, this.model ?? ""]).slice(0, 700) }
     }
     this.cache.set(key, result) // 壞結果也 cache：避免對死引擎連環重打
-    return result
+    return withAdmission(result, admission)
   }
 
-  invalidatePreflight(): void { this.cache.set(`${this.distro}:${this.agyBin}`, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+  invalidatePreflight(): void { this.cache.set(this.cacheKey(), { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
 
   async run(job: Job): Promise<RunResult> {
     // marker 進 pkill -f pattern（killByMarker）：taskId=hex 的隱性契約改顯性白名單驗證（defense-in-depth）
@@ -173,9 +178,9 @@ export class AgyEngine implements Engine {
       }
     })()
 
-    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(r.stderr || r.stdout)
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(cliDiagnostic(r, undefined, [...this.argvPrefix, this.distro, this.agyBin, this.model ?? ""]))
     if (r.timedOut) {
-      return { ok: false, output: tail(r.stderr || r.stdout), costUsd: 0, costUnknown: true, failureReason: 'timeout', recoveryRequired: true }
+      return { ok: false, output: cliDiagnostic(r, undefined, [...this.argvPrefix, this.distro, this.agyBin, this.model ?? ""]), costUsd: 0, costUnknown: true, failureReason: 'timeout', recoveryRequired: true }
     }
     // 1.1.28 may return partial output with exit 0 when the print wait expires.
     if (/print[- ]timeout|timeout waiting for response|partial output/i.test(r.stderr)) {
@@ -183,10 +188,10 @@ export class AgyEngine implements Engine {
         failureReason: 'partial-result: agy print wait ended before completion', recoveryRequired: true }
     }
     if (r.exitCode !== 0) {
-      return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}` }
+      return { ok: false, output: cliDiagnostic(r, undefined, [...this.argvPrefix, this.distro, this.agyBin, this.model ?? ""]), costUsd: 0, costUnknown: true, failureReason: `exit ${r.exitCode}: ${cliDiagnostic(r, undefined, [...this.argvPrefix, this.distro, this.agyBin, this.model ?? ""]).slice(0, 700)}` }
     }
     if (r.stdout.trim() === '') {
-      return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'empty output（exit 0 零輸出 ≠ 成功，踩雷 §13）' }
+      return { ok: false, output: cliDiagnostic(r, undefined, [...this.argvPrefix, this.distro, this.agyBin, this.model ?? ""]), costUsd: 0, costUnknown: true, failureReason: 'empty output（exit 0 零輸出 ≠ 成功，踩雷 §13）' }
     }
     // 純文字輸出：exit 0＋輸出非空只是軟證據，commit hash 前進才是唯一硬證據（規格卡結論）。
     const after = this.getCommitHash(job.projectPath)

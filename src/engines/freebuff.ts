@@ -24,7 +24,7 @@ export interface FreebuffOpts {
 }
 
 interface ToolCall { name: 'get_freebuff_route' | 'delegate_to_freebuff'; arguments: Record<string, unknown> }
-interface RouteSnapshot { accessTier: 'full' | 'limited'; primaryModel: string; primaryReasoning: 'max' | 'native'; fallbackModel: string; fallbackReasoning: 'max' | 'native' }
+interface RouteSnapshot { accessTier: 'full' | 'limited'; primaryModel: string; primaryReasoning: 'max' | 'native'; fallbackModel: string; fallbackReasoning: 'max' | 'native'; quota: { status: string; price: number | null; balance: number | null; resetAt: string | null } }
 interface McpResult { ok: boolean; texts: string[]; stderr: string; durationMs: number; timedOut?: boolean; aborted?: boolean; recoveryRequired?: boolean; error?: string; route?: RouteSnapshot }
 
 /** Freebuff adapter：只走本機 freebuff-mcp stdio；不呼叫互動式 Freebuff TUI。 */
@@ -56,7 +56,7 @@ export class FreebuffEngine implements Engine {
     if (cached) return cached
     const r = await this.mcp([{ name: 'get_freebuff_route', arguments: {} }], process.cwd(), this.pingTimeoutMs)
     const result: PreflightResult = r.ok && r.route
-      ? { ok: true, detail: `Freebuff ${r.route.accessTier} ${r.route.primaryModel}/${r.route.primaryReasoning} fallback=${r.route.fallbackModel}/${r.route.fallbackReasoning} ${r.durationMs}ms` }
+      ? { ok: true, detail: `Freebuff ${r.route.accessTier} ${r.route.primaryModel}/${r.route.primaryReasoning} fallback=${r.route.fallbackModel}/${r.route.fallbackReasoning}; quota=${r.route.quota.status} price=${r.route.quota.price ?? 'unknown'} balance=${r.route.quota.balance ?? 'unknown'} reset=${r.route.quota.resetAt ?? 'unknown'}; admission unverified; ${r.durationMs}ms` }
       : { ok: false, detail: r.timedOut ? 'Freebuff MCP route timeout' : tail(r.error ?? r.stderr) }
     this.cache.set(key, result)
     return result
@@ -106,7 +106,7 @@ export class FreebuffEngine implements Engine {
       const text = r.texts.at(-1) ?? ''
       const output = text.length > 2000 ? `${text.split('\n')[0]}\n${tail(text)}` : text
       if (r.aborted || job.control?.signal?.aborted) return cancelledRun(`${output}\n${r.stderr}`)
-      if (!r.ok) return { ok: false, output: tail(`${output}\n${r.stderr}`), costUsd: 0, costUnknown: true, recoveryRequired: retainLock || undefined, failureReason: r.timedOut ? 'timeout' : `freebuff-mcp: ${tail(r.error ?? 'tool failed', 200)}` }
+      if (!r.ok) return { ok: false, output: tail(`${output}\n${r.error ?? ''}\n${r.stderr}`), costUsd: 0, costUnknown: true, recoveryRequired: retainLock || undefined, failureReason: r.timedOut ? 'timeout' : `freebuff-mcp: ${tail(r.error ?? 'tool failed', 200)}` }
       if (!output.trim()) return { ok: false, output: tail(r.stderr), costUsd: 0, failureReason: 'empty-output：MCP 成功但無文字' }
       const after = this.getCommitHash(job.projectPath)
       if (!after || after === before) return { ok: false, output, costUsd: 0, failureReason: 'no-commit(phantom completion?)' }
@@ -126,6 +126,7 @@ export class FreebuffEngine implements Engine {
       child.stdout.setEncoding('utf8')
       child.stderr.setEncoding('utf8')
       let buffer = '', stderr = '', outputChars = 0, callIndex = 0, currentId = 1, settled = false, delegated = false, route: RouteSnapshot | undefined
+      let knownBeforeAgent = false, lastProgress = 0
       let wallTimer: ReturnType<typeof setTimeout> | undefined
       const texts: string[] = []
 
@@ -141,7 +142,7 @@ export class FreebuffEngine implements Engine {
         control?.signal?.removeEventListener('abort', cancel)
         void shutdown().finally(() => {
           observeRun(control, { type: 'exit', code: child.exitCode, reason: result.aborted ? 'cancelled' : result.timedOut ? 'wall' : 'exit' })
-          resolve({ ...result, recoveryRequired: delegated && !result.ok, stderr: tail(stderr), durationMs: Date.now() - started })
+          resolve({ ...result, recoveryRequired: delegated && !result.ok && !knownBeforeAgent, stderr: tail(stderr), durationMs: Date.now() - started })
         })
       }
       const send = (message: Record<string, unknown>): void => {
@@ -157,12 +158,20 @@ export class FreebuffEngine implements Engine {
         currentId = callIndex + 2
         const call = calls[callIndex]!
         if (call.name === 'delegate_to_freebuff') delegated = true
-        send({ jsonrpc: '2.0', id: currentId, method: 'tools/call', params: { name: call.name, arguments: call.arguments } })
+        send({ jsonrpc: '2.0', id: currentId, method: 'tools/call', params: { name: call.name, arguments: call.arguments, ...(call.name === 'delegate_to_freebuff' ? { _meta: { progressToken: currentId } } : {}) } })
       }
       const acceptToolResult = (message: Record<string, unknown>): void => {
-        const result = message.result as { isError?: boolean; content?: Array<{ type?: string; text?: unknown }> } | undefined
+        const result = message.result as { isError?: boolean; content?: Array<{ type?: string; text?: unknown }>; structuredContent?: { failure?: { kind?: unknown; phase?: unknown; status?: unknown } } } | undefined
         const text = Array.isArray(result?.content) ? result.content.filter(item => item?.type === 'text' && typeof item.text === 'string').map(item => item.text as string).join('\n') : ''
-        if (result?.isError) return finish({ ok: false, texts, error: text || 'MCP tool error' })
+        if (result?.isError) {
+          const failure = result.structuredContent?.failure
+          // Only an explicit refusal before the agent starts releases the lease.
+          knownBeforeAgent = failure?.kind === 'freebuff-session-error' && (
+            (failure.phase === 'preflight' && ['insufficient_freebucks', 'wallet_required', 'unknown', 'session_limit'].includes(String(failure.status))) ||
+            (failure.phase === 'admission' && ['rate_limited', 'spend_limited', 'model_unavailable', 'model_locked', 'country_blocked', 'banned', 'ip_capped'].includes(String(failure.status)))
+          )
+          return finish({ ok: false, texts, error: text || 'MCP tool error' })
+        }
         if (!text.trim()) return finish({ ok: false, texts, error: 'MCP tool empty output' })
         const call = calls[callIndex]!
         if (call.name === 'get_freebuff_route') {
@@ -183,7 +192,19 @@ export class FreebuffEngine implements Engine {
         try { message = JSON.parse(line) as Record<string, unknown> }
         catch { return finish({ ok: false, texts, error: 'MCP stdout 不是合法 NDJSON' }) }
         if (!message || typeof message !== 'object' || Array.isArray(message)) return finish({ ok: false, texts, error: 'MCP response must be an object' })
-        if (message.method && message.id === undefined) return
+        if (message.method && message.id === undefined) {
+          if (message.method === 'notifications/progress' && calls[callIndex]?.name === 'delegate_to_freebuff') {
+            const params = message.params as { progressToken?: unknown; progress?: unknown; message?: unknown } | undefined
+            if (params?.progressToken === currentId && typeof params.progress === 'number' && Number.isSafeInteger(params.progress) && params.progress > lastProgress && typeof params.message === 'string') {
+              const event = normalizedProgress(params.message, params.progress)
+              if (event) {
+                lastProgress = params.progress
+                observeRun(control, { type: 'output', stream: 'stdout', text: `${JSON.stringify(event)}\n` })
+              }
+            }
+          }
+          return
+        }
         if (message.error) {
           const error = message.error as { code?: unknown; message?: unknown }
           return finish({ ok: false, texts, error: `JSON-RPC ${String(error.code ?? '')}: ${String(error.message ?? 'error').slice(0, 200)}` })
@@ -235,22 +256,37 @@ export class FreebuffEngine implements Engine {
 }
 
 const TIER_MODELS = {
-  full: new Set(['openai/gpt-5.6-luna', 'deepseek/deepseek-v4-pro']),
-  limited: new Set(['deepseek/deepseek-v4-flash', 'mimo/mimo-v2.5']),
+  full: new Set(['openai/gpt-5.6-luna', 'z-ai/glm-5.3-flash', 'deepseek/deepseek-v4-flash', 'mimo/mimo-v2.5']),
+  limited: new Set(['z-ai/glm-5.3-flash', 'deepseek/deepseek-v4-flash', 'mimo/mimo-v2.5']),
+}
+
+function normalizedProgress(message: string, sequence: number): Record<string, unknown> | undefined {
+  if (message.length > 2048) return
+  try {
+    const raw = JSON.parse(message) as Record<string, unknown>
+    if (!raw || raw.type !== 'freebuff_progress' || raw.sequence !== sequence || typeof raw.event !== 'string') return
+    const types: Record<string, string> = { start: 'turn.started', finish: 'turn.completed', tool_call: 'tool_execution_start', tool_result: 'tool_result', subagent_start: 'assistant.turn_start', subagent_finish: 'assistant.turn_end' }
+    const type = types[raw.event]
+    if (!type) return
+    return { type, source: 'freebuff', sequence, ...(typeof raw.toolName === 'string' && /^[\w.-]{1,100}$/.test(raw.toolName) ? { toolName: raw.toolName } : {}) }
+  } catch { return }
 }
 
 function parseRoute(text: string): { route?: RouteSnapshot; error?: string } {
   try {
     const raw = JSON.parse(text) as Record<string, unknown>
     if (raw.accessTier !== 'full' && raw.accessTier !== 'limited') return { error: 'Freebuff route 缺少可驗證 accessTier' }
-    if (raw.canDelegate !== true) return { error: 'Freebuff route canDelegate=false' }
+    if (raw.canDelegate !== true) return { error: `Freebuff route canDelegate=false: ${typeof raw.blockedReason === 'string' ? raw.blockedReason.slice(0, 300) : 'preflight refused'}` }
     if (raw.sessionConsumed !== false) return { error: 'Freebuff route probe 消耗或無法證明 sessionConsumed=false' }
+    const quota = raw.quota as Record<string, unknown> | undefined
+    if (!quota || quota.canStart !== true || quota.admissionVerified !== false || typeof quota.status !== 'string') return { error: 'Freebuff route 缺少額度預檢；需要新版 freebuff-mcp' }
+    if (![quota.price, quota.balance].every(value => value === null || typeof value === 'number' && Number.isFinite(value) && value >= 0) || !(quota.resetAt === null || typeof quota.resetAt === 'string')) return { error: 'Freebuff route 額度資料格式無效' }
     const allowed = TIER_MODELS[raw.accessTier]
     if (typeof raw.primaryModel !== 'string' || !allowed.has(raw.primaryModel)) return { error: `Freebuff ${raw.accessTier} primaryModel 不在允許路由` }
     if (typeof raw.fallbackModel !== 'string' || !allowed.has(raw.fallbackModel) || raw.fallbackModel === raw.primaryModel) return { error: `Freebuff ${raw.accessTier} fallbackModel 不在允許路由` }
     const reasoning = (model: string): 'max' | 'native' => model === 'mimo/mimo-v2.5' ? 'native' : 'max'
     if (raw.primaryReasoning !== reasoning(raw.primaryModel) || raw.fallbackReasoning !== reasoning(raw.fallbackModel)) return { error: 'Freebuff route reasoning 不符合模型契約' }
-    return { route: { accessTier: raw.accessTier, primaryModel: raw.primaryModel, primaryReasoning: raw.primaryReasoning as 'max' | 'native', fallbackModel: raw.fallbackModel, fallbackReasoning: raw.fallbackReasoning as 'max' | 'native' } }
+    return { route: { accessTier: raw.accessTier, primaryModel: raw.primaryModel, primaryReasoning: raw.primaryReasoning as 'max' | 'native', fallbackModel: raw.fallbackModel, fallbackReasoning: raw.fallbackReasoning as 'max' | 'native', quota: { status: quota.status, price: quota.price as number | null, balance: quota.balance as number | null, resetAt: quota.resetAt as string | null } } }
   } catch { return { error: 'Freebuff route 不是合法 JSON' } }
 }
 
@@ -262,6 +298,8 @@ function validateDelegate(text: string, route: RouteSnapshot | undefined): strin
   if (tier !== route.accessTier) return 'Freebuff delegate tier 與 route 不一致'
   const allowed = TIER_MODELS[route.accessTier]
   if (!allowed.has(model)) return 'Freebuff delegate model 不在 tier 允許路由'
+  if (model !== route.primaryModel && (model !== route.fallbackModel || fallbackFrom !== route.primaryModel)) return 'Freebuff delegate model 與實際預檢路由不一致'
+  if (model === route.primaryModel && fallbackFrom) return 'Freebuff delegate 回報不合理的 fallback'
   if (reasoning !== (model === 'mimo/mimo-v2.5' ? 'native' : 'max')) return 'Freebuff delegate reasoning 與模型不一致'
   if (fallbackFrom && (!allowed.has(fallbackFrom) || fallbackFrom === model)) return 'Freebuff delegate fallback 不在 tier 允許路由'
   return undefined

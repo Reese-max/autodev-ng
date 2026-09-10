@@ -1,3 +1,5 @@
+import { unknownAdmission } from './cli-admission.js'
+import { cliDiagnostic, cliPreflightKey, redactCli } from './cli-diagnostics.js'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PreflightCache } from '../preflight.js'
@@ -52,8 +54,9 @@ export class HerdrEngine implements Engine {
 
   async preflight(): Promise<PreflightResult> {
     const key = this.cacheKey()
+    const admission = unknownAdmission('herdr', undefined)
     const cached = this.cache.get(key)
-    if (cached) return cached
+    if (cached) return { ...cached, admission }
     let result: PreflightResult
     if (!existsSync(this.command)) {
       result = { ok: false, detail: `找不到 Herdr launcher：${this.command}` }
@@ -64,15 +67,15 @@ export class HerdrEngine implements Engine {
           cwd: process.cwd(), stdinText: '', timeoutMs: this.pingTimeoutMs,
         })
         const status = JSON.parse(r.stdout) as { running?: boolean; compatible?: boolean; protocol?: number }
-        result = r.exitCode === 0 && status.running === true && status.compatible === true
+        result = r.exitCode === 0 && !r.timedOut && status.running === true && status.compatible === true
           ? { ok: true, detail: `Herdr compatible protocol=${status.protocol ?? '?'}` }
           : { ok: false, detail: `Herdr 未就緒或不相容（exit=${r.exitCode} protocol=${status.protocol ?? '?'}）` }
       } catch (err) {
-        result = { ok: false, detail: String(err).slice(0, 200) }
+        result = { ok: false, detail: redactCli(String(err), { ...process.env }, [this.sessionName, this.provider]).slice(0, 700) }
       }
     }
     this.cache.set(key, result)
-    return result
+    return { ...result, admission, detail: result.detail + "; quota=unknown; model=unknown (launcher health only)" }
   }
 
   invalidatePreflight(): void {
@@ -106,7 +109,7 @@ export class HerdrEngine implements Engine {
     const output = tail(`${r.stdout}\n${r.stderr}`.trim())
     if (r.aborted || job.control?.signal?.aborted) return cancelledRun(output)
     if (r.timedOut) return { ...failure('timeout', output), recoveryRequired: true }
-    if (r.exitCode !== 0) return { ...failure(`herdr-blocked：exit ${r.exitCode} ${tail(r.stderr, 300)}`, output), recoveryRequired: true }
+    if (r.exitCode !== 0) return { ...failure(`herdr-blocked：exit ${r.exitCode} ${cliDiagnostic(r, undefined, [this.sessionName, this.provider]).slice(0, 700)}`, output), recoveryRequired: true }
     if (!r.stdout.includes('AUTOPILOT_WAIT_OK')) return { ...failure('silent-fail：缺少 AUTOPILOT_WAIT_OK', output), recoveryRequired: true }
 
     const agentHead = this.getCommitHash(job.projectPath)
@@ -121,7 +124,7 @@ export class HerdrEngine implements Engine {
     return { ok: true, output, costUsd: 0, costUnknown: true, baseCommitHash: before, commitHash: after }
   }
 
-  private cacheKey(): string { return `${this.command}|${this.sessionName}` }
+  private cacheKey(): string { return cliPreflightKey(this.command, [this.sessionName, this.provider]) }
 }
 
 function safeId(value: string): string {

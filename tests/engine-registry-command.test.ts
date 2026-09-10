@@ -14,6 +14,11 @@ vi.mock('../src/engines/proc.js', async importOriginal => {
   return { ...actual, runProcess: runProcessMock }
 })
 
+vi.mock('../src/engines/cli-admission.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/engines/cli-admission.js')>()
+  return { ...actual, nativeAdmission: vi.fn(async (provider: string, opts: { model?: string }) => actual.unknownAdmission(provider, opts.model)) }
+})
+
 /** 回歸（2026-07-18）：registry 六個 adapter case 漏傳 ec.command，config 指定的完整路徑被
  * 靜默忽略、adapter 退回裸名預設值——grok 檔位因此在 daemon 環境 ENOENT，輪替上線 11 小時
  * 零派工才被發現。逐 adapter 驗 command 有真的進到 engine（private 欄位以結構讀取）。 */

@@ -128,7 +128,7 @@ test('nonzero exit retains API errors emitted only in stdout JSON', async () => 
 })
 
 test('M5：opts.env 透傳到 CLI 子進程（值只進子進程環境，不經 argv/log）', async () => {
-  const script = 'process.stdin.resume(); process.stdin.on("end", () => console.log(JSON.stringify({ total_cost_usd: 0.01, envSeen: process.env.ADNG_FAKE_TOKEN ?? "(unset)" })))'
+  const script = 'process.stdin.resume(); process.stdin.on("end", () => console.log(JSON.stringify({ type: "result", result: "done", total_cost_usd: 0.01, envSeen: process.env.ADNG_FAKE_TOKEN ?? "(unset)" })))'
   const e = inlineEngine(script, { env: { ADNG_FAKE_TOKEN: 'sk-fake-not-a-real-key' } })
   const r = await e.run({ task: T, projectPath: process.cwd() })
   expect(r.ok).toBe(true)
@@ -136,7 +136,7 @@ test('M5：opts.env 透傳到 CLI 子進程（值只進子進程環境，不經 
 })
 
 test('M5：opts.model → CLI args 追加 --model <model>；未設不加旗標', async () => {
-  const script = 'process.stdin.resume(); process.stdin.on("end", () => console.log(JSON.stringify({ total_cost_usd: 0.01, argv: process.argv.slice(1) })))'
+  const script = 'process.stdin.resume(); process.stdin.on("end", () => console.log(JSON.stringify({ type: "result", result: "done", total_cost_usd: 0.01, argv: process.argv.slice(1) })))'
   const withModel = await inlineEngine(script, { model: 'MiniMax-M3' }).run({ task: T, projectPath: process.cwd() })
   expect(withModel.output).toContain('--model')
   expect(withModel.output).toContain('MiniMax-M3')

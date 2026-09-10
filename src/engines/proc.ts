@@ -211,7 +211,7 @@ export function runProcess(opts: {
 }
 
 /** 依子程序的 PATH/PATHEXT 找到原生執行檔，避免 cmd.exe 截斷多行 argv。 */
-function resolveSpawnTarget(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): { cmd: string; args: string[] } {
+export function resolveSpawnTarget(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): { cmd: string; args: string[] } {
   if (process.platform === 'win32' && !/\.exe$/i.test(command)) {
     const dirs = /[\\/]/.test(command) ? [cwd] : [cwd, ...(env.PATH ?? env.Path ?? '').split(';')]
     const extensions = extname(command) ? [''] : (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';')

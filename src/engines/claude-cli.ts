@@ -1,3 +1,5 @@
+import { unknownAdmission, withAdmission, claudeQuota, admissionFailure } from './cli-admission.js'
+import { cliDiagnostic, cliPreflightKey, redactCli, cliModel, cliEvents, cliError } from './cli-diagnostics.js'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
 import { cancelledRun } from './run-control.js'
@@ -38,7 +40,7 @@ export class ClaudeCliEngine implements Engine {
   constructor(opts: ClaudeCliOpts) {
     this.id = opts.id ?? 'claude-cli'
     this.command = opts.command ?? 'claude'
-    const base = opts.baseArgs ?? ['-p', '--output-format', 'json', '--dangerously-skip-permissions']
+    const base = opts.baseArgs ?? ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--dangerously-skip-permissions']
     this.baseArgs = opts.model ? [...base, '--model', opts.model] : base
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 90 * 1000 // 舊教訓：cold start 可達 40s+
@@ -48,26 +50,32 @@ export class ClaudeCliEngine implements Engine {
     this.env = opts.env
   }
 
+  private cacheKey(): string { return cliPreflightKey(this.command, this.baseArgs, this.env, 'claude-cli') }
+
   async preflight(): Promise<PreflightResult> {
-    const cached = this.cache.get(this.command)
-    if (cached) return cached
+    const admission = unknownAdmission('claude-cli', cliModel(this.baseArgs))
+    const cached = this.cache.get(this.cacheKey())
+    if (cached) return withAdmission(cached, admission, true)
     let result: PreflightResult
     try {
       const r = await runProcess({
         command: this.command, args: this.baseArgs, cwd: process.cwd(),
         stdinText: 'Reply with exactly: PONG', timeoutMs: this.pingTimeoutMs, env: this.env
       })
-      result = r.stdout.includes('PONG')
+      const p = parseResultJson(r.stdout)
+      admission.quota = claudeQuota(r.stdout) ?? admission.quota
+      result = r.exitCode === 0 && !r.timedOut && p !== null && !cliError(p) && p.result === 'PONG'
         ? { ok: true, detail: `PONG ${r.durationMs}ms` }
-        : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG (exit ${r.exitCode}) ${r.stderr.slice(0, 120)}` }
+        : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG (exit ${r.exitCode}) ${cliDiagnostic(r, this.env, this.baseArgs).slice(0, 700)}` }
     } catch (err) {
-      result = { ok: false, detail: String(err).slice(0, 200) }
+      result = { ok: false, detail: redactCli(String(err), { ...process.env, ...this.env }, this.baseArgs).slice(0, 700) }
     }
-    this.cache.set(this.command, result) // 壞結果也 cache：避免對死引擎連環重打
-    return result
+    result = admissionFailure(admission) ?? result
+    this.cache.set(this.cacheKey(), result) // 壞結果也 cache：避免對死引擎連環重打
+    return withAdmission(result, admission)
   }
 
-  invalidatePreflight(): void { this.cache.set(this.command, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+  invalidatePreflight(): void { this.cache.set(this.cacheKey(), { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
 
   async run(job: Job): Promise<RunResult> {
     // Fix 3（首跑實證）：模型會做完不 commit → 整輪 $10 白燒。commit 要求必須是硬話。
@@ -91,14 +99,13 @@ export class ClaudeCliEngine implements Engine {
     // M4 Task 3（真花錢前必修）：以下三種路徑 costUsd 記 0 只是「沒能力解出真值」的佔位，
     // 不代表真的沒花錢（CLI 進程極可能已實際呼叫並燒 token）——costUnknown:true 讓 scheduler
     // 記帳層知道該改記 cfg.failureCostEstimateUsd，而非把這個 0 當真值入帳。
-    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(r.stderr)
-    if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(cliDiagnostic(r, this.env, this.baseArgs))
+    if (r.timedOut) return { ok: false, output: cliDiagnostic(r, this.env, this.baseArgs), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
-      const error = parseResultJson(r.stdout)?.result
-      const detail = typeof error === 'string' ? error : r.stderr
+      const detail = cliDiagnostic(r, this.env, this.baseArgs)
       return {
         ok: false, output: tail(detail), costUsd: 0, costUnknown: true,
-        failureReason: `exit ${r.exitCode}: ${detail.slice(0, 200)}`
+        failureReason: `exit ${r.exitCode}: ${detail.slice(0, 700)}`
       }
     }
 
@@ -110,27 +117,22 @@ export class ClaudeCliEngine implements Engine {
       }
     }
     const costUsd = typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : 0
-    if (parsed.is_error === true) {
-      return { ok: false, output: tail(r.stdout), costUsd, failureReason: String(parsed.subtype ?? 'is_error') }
+    if (cliError(parsed)) {
+      return { ok: false, output: cliDiagnostic(r, this.env, this.baseArgs), costUsd, failureReason: cliDiagnostic(r, this.env, this.baseArgs).slice(0, 700) }
     }
+    if (typeof parsed.result !== 'string' || !parsed.result.trim()) return {
+      ok: false, output: cliDiagnostic(r, this.env, this.baseArgs), costUsd, failureReason: 'empty terminal result' }
 
     const after = this.getCommitHash(job.projectPath)
     if (after === undefined || after === before) {
-      return { ok: false, output: tail(r.stdout), costUsd, failureReason: 'no-commit(phantom completion?)' }
+      return { ok: false, output: tail(JSON.stringify(parsed)), costUsd, failureReason: 'no-commit(phantom completion?)' }
     }
-    return { ok: true, output: tail(r.stdout), costUsd, commitHash: after, baseCommitHash: before }
+    return { ok: true, output: tail(JSON.stringify(parsed)), costUsd, commitHash: after, baseCommitHash: before }
   }
 }
 
 function parseResultJson(stdout: string): Record<string, unknown> | null {
-  const text = stdout.trim()
-  if (text === '') return null
-  // claude -p --output-format json 輸出單一 JSON 物件；防禦性取最後一個非空行
-  const lines = text.split(/\r?\n/).filter(l => l.trim() !== '')
-  for (let i = lines.length - 1; i >= 0; i--) {
-    try { return JSON.parse(lines[i]!) as Record<string, unknown> } catch { /* 繼續往上找 */ }
-  }
-  return null
+  return cliEvents(stdout).reverse().find(event => event.type === 'result') ?? null
 }
 
 function tail(s: string, n = 2000): string {

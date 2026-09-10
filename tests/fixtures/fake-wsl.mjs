@@ -21,6 +21,7 @@ process.stdin.on('end', () => {
   // 前 800 字供測試驗 prompt 組裝；找不到 -p 時退回 stdin 回聲（防呆）。
   const pIdx = argv.indexOf('-p')
   const prompt = pIdx >= 0 ? (argv[pIdx + 1] ?? '') : input
+  if (prompt === 'Reply with exactly: PONG') { process.stdout.write('PONG\n'); process.exit(0) }
   process.stdout.write('AGY-DONE: ' + prompt.slice(0, 800) + '\n')
   process.exit(0)
 })

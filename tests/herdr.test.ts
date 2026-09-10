@@ -37,7 +37,7 @@ test('preflight 只查固定 session 且要求 compatible=true', async () => {
   }
   const engine = new HerdrEngine({ command: launcher, cache, runProcess: runner })
 
-  expect(await engine.preflight()).toEqual({ ok: true, detail: 'Herdr compatible protocol=20' })
+  expect(await engine.preflight()).toMatchObject({ ok: true, admission: { quota: { state: 'unknown' }, model: { state: 'unknown' } } })
   expect(calls).toHaveLength(1)
   expect(calls[0]?.args).toEqual(['--session', 'herdr-autopilot', 'status', 'server', '--json'])
   await engine.preflight()

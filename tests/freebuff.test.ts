@@ -9,6 +9,7 @@ import { acquireLock, releaseLock } from '../src/lock.js'
 import type { Task } from '../src/types.js'
 import { ConfigSchema, EngineConfigSchema } from '../src/types.js'
 import { makeEngineRegistry } from '../src/engines/registry.js'
+import { createExecutionObservation } from '../src/engines/execution-observation.js'
 
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-freebuff.mjs')
 const T: Task = { id: 'fb12cd34', text: '修好登入頁', line: 0, status: 'open' }
@@ -34,6 +35,46 @@ test('MCP preflight：唯讀 route 可派工、未消耗 session', async () => {
 test('MCP preflight：route 不可派工 → fail closed', async () => {
   const { e } = engine('bad-route', ['aaa'])
   expect(await e.preflight()).toMatchObject({ ok: false })
+})
+
+test('新版額度與 GLM 路由可用；缺少／錯誤額度與已退役模型不能派工', async () => {
+  const { e } = engine('glm', ['aaa', 'bbb'])
+  const preflight = await e.preflight()
+  expect(preflight.detail).toContain('price=5 balance=25')
+  expect(await e.run({ task: T, projectPath: process.cwd() })).toMatchObject({ ok: true, actualModel: 'z-ai/glm-5.3-flash' })
+  for (const mode of ['quota-blocked', 'missing-quota', 'malformed-quota', 'retired-model']) {
+    const blocked = engine(mode, ['aaa', 'bbb'])
+    expect((await blocked.e.preflight()).ok).toBe(false)
+    expect((await blocked.e.run({ task: T, projectPath: process.cwd() })).ok).toBe(false)
+    expect(existsSync(blocked.lockDir)).toBe(false)
+  }
+})
+
+test('明確 admission 拒絕保留診斷並釋放本輪鎖；執行狀態未知仍隔離', async () => {
+  const blocked = engine('admission-denied', ['aaa', 'bbb'])
+  const result = await blocked.e.run({ task: T, projectPath: process.cwd() })
+  expect(result.ok).toBe(false)
+  expect(result.output).toContain('"status":"spend_limited"')
+  expect(result.output).toContain('"httpStatus":429')
+  expect(existsSync(blocked.lockDir)).toBe(false)
+  const unknown = engine('tool-error', ['aaa', 'bbb'])
+  expect(await unknown.e.run({ task: T, projectPath: process.cwd() })).toMatchObject({ ok: false, recoveryRequired: true })
+  expect(existsSync(unknown.lockDir)).toBe(true)
+  releaseLock(unknown.lockDir)
+})
+
+test('MCP 進度進入既有監督紀錄；重複與其他 request 的事件不計入', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-fb-progress-'))
+  const events: string[] = []
+  const observation = createExecutionObservation({
+    dataDir: root, adapter: 'freebuff', job: { task: T, projectPath: process.cwd(), executionId: 'freebuff-progress', control: { onEvent: event => { if (event.type === 'output') events.push(event.text) } } },
+  })
+  try {
+    expect((await engine('progress', ['aaa', 'bbb']).e.run({ task: T, projectPath: process.cwd(), control: observation.control })).ok).toBe(true)
+    expect(events.filter(text => text.startsWith('{"type":"tool_result","source":"freebuff"'))).toHaveLength(1)
+    expect(observation.snapshot().lastProgressAt).toBeTypeOf('number')
+    expect(observation.snapshot().phase).toBe('validating')
+  } finally { observation.finish('completed') }
 })
 
 test('route → delegate 正常完成＋新 commit；安全參數固定且不指定 model', async () => {

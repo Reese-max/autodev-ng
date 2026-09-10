@@ -106,3 +106,8 @@ kernel 薄殼邊界；`kernel-budget` 仍保留既有 ≤2700 工作上限守門
 頂層共 **2237 行**，低於 2250 行；未調高上限。
 
 驗證：`npx vitest run tests/kernel-relocation-report.test.ts tests/scheduler.test.ts tests/team-state.test.ts tests/learning-outcomes.test.ts`。
+
+## 2026-09-10 CLI admission
+
+`src/types.ts` 在既有單行 `PreflightResult` 增加可選額度／模型證據；頂層行數不變。原生唯讀 RPC、錯誤保存與串流解析均位於 `src/engines/`。
+驗證：`npx vitest run tests/kernel-relocation-report.test.ts tests/kernel-slim.test.ts`。

@@ -1,3 +1,5 @@
+import { unknownAdmission, withAdmission } from './cli-admission.js'
+import { cliDiagnostic, cliPreflightKey, redactCli, cliModel } from './cli-diagnostics.js'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
@@ -46,26 +48,29 @@ export class OpencodeEngine implements Engine {
 
   /** 真探針（zen 免費）驗 (CLI, model, 端點) 三元組——同時擋 CLI 壞掉與免費模型下架
    * （下架實測 2-3s exit 1＋stdout 出 ProviderModelNotFoundError）。cache key 含 model：換模即重驗。 */
+  private cacheKey(): string { return cliPreflightKey(this.command, [...this.args, this.profileDir], { ...this.env, ...this.ensureProfile() }, 'opencode') }
+
   async preflight(): Promise<PreflightResult> {
-    const key = `${this.command}|${this.model}`
+    const key = this.cacheKey()
+    const admission = unknownAdmission('opencode', cliModel(this.args))
     const cached = this.cache.get(key)
-    if (cached) return cached
+    if (cached) return withAdmission(cached, admission, true)
     let result: PreflightResult
     try {
       const r = await this.exec('Reply with exactly: PONG', this.profileDir, this.pingTimeoutMs)
       const p = parseNdjson(r.stdout)
-      const why = (p.errors.join('; ') || tail(r.stdout, 200) || r.stderr.slice(0, 200) || `exit ${r.exitCode} 零輸出`).slice(0, 200)
-      result = r.exitCode === 0 && p.steps > 0 && p.text.includes('PONG')
+      const why = cliDiagnostic(r, this.env, this.args).slice(0, 700) || `exit ${r.exitCode} 零輸出`
+      result = r.exitCode === 0 && !r.timedOut && p.errors.length === 0 && p.steps > 0 && p.text.trim() === 'PONG'
         ? { ok: true, detail: `PONG ${r.durationMs}ms model=${this.model}` }
         : { ok: false, detail: r.timedOut ? 'ping timeout' : `model ${this.model} 探針失敗（免費模型可能已下架/輪替）：${why}${why.includes('ENOENT') ? '；opencode.exe 不在 PATH——請在 config engines.<tag>.command 指定完整路徑' : ''}` }
     } catch (err) {
-      result = { ok: false, detail: String(err).slice(0, 200) }
+      result = { ok: false, detail: redactCli(String(err), { ...process.env, ...this.env }, this.args).slice(0, 700) }
     }
     this.cache.set(key, result)
-    return result
+    return withAdmission(result, admission)
   }
 
-  invalidatePreflight(): void { this.cache.set(`${this.command}|${this.model}`, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+  invalidatePreflight(): void { this.cache.set(this.cacheKey(), { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
 
   async run(job: Job): Promise<RunResult> {
     // prompt 組裝沿 claude-cli/codex 模板：directive 優先（Fix 1）、commit 要求是硬話（Fix 3）。
@@ -80,15 +85,15 @@ export class OpencodeEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const r = await this.exec(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs, job.control)
     const p = parseNdjson(r.stdout)
-    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(tailErr(r))
-    if (r.timedOut) return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
-    if (r.exitCode !== 0) {
-      return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true,
-        failureReason: `exit ${r.exitCode}: ${(p.errors.join('; ') || tail(r.stdout, 200) || r.stderr.slice(0, 200)).slice(0, 200)}` }
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(cliDiagnostic(r, this.env, this.args))
+    if (r.timedOut) return { ok: false, output: cliDiagnostic(r, this.env, this.args), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
+    if (r.exitCode !== 0 || p.errors.length > 0) {
+      return { ok: false, output: cliDiagnostic(r, this.env, this.args), costUsd: 0, costUnknown: true,
+        failureReason: `exit ${r.exitCode}: ${cliDiagnostic(r, this.env, this.args).slice(0, 700)}` }
     }
     if (p.steps === 0 || p.text.trim() === '') {
       // exit 0 但零文字輸出＝失敗（規格卡 E11 真實案例）；costUsd 取已解析 cost 總和，仍是真值
-      return { ok: false, output: tailErr(r), costUsd: p.cost, failureReason: 'empty-output：exit 0 但無 text/step_finish（≠ 成功）' }
+      return { ok: false, output: cliDiagnostic(r, this.env, this.args), costUsd: p.cost, failureReason: 'empty-output：exit 0 但無 text/step_finish（≠ 成功）' }
     }
     const output = tail(p.text)
     // 事件欄位優先；零值時退 parseTokensLine 文字行（雙保險，皆無＝undefined 不入帳）
@@ -161,10 +166,6 @@ function parseNdjson(stdout: string): Parsed {
   return p
 }
 
-/** 失敗路徑輸出：stdout 為主（錯誤實測在 stdout），stderr 非空才附加（鐵律 #7：spawn 失敗/樹斬/原生崩潰時 stderr 才有料，不可吞）。 */
-function tailErr(r: { stdout: string; stderr: string }): string {
-  return tail(r.stdout + (r.stderr.trim() === '' ? '' : '\n[stderr]\n' + r.stderr))
-}
 
 function tail(s: string, n = 2000): string { return s.length > n ? s.slice(-n) : s }
 

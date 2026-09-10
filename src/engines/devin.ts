@@ -1,3 +1,5 @@
+import { nativeAdmission, admissionFailure, withAdmission } from './cli-admission.js'
+import { cliDiagnostic, cliPreflightKey, redactCli, cliModel } from './cli-diagnostics.js'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -82,23 +84,28 @@ export class DevinEngine implements Engine {
     }
   }
 
-  /** 真探針（swe-1.6 官方 0 credit multiplier，成本可控）；好壞結果都 cache，防連環重打。 */
+  /** 先查帳戶模型清單；最小 PONG 好壞結果都 cache，不推測信用額度。 */
+  private cacheKey(): string { return cliPreflightKey(this.command, [...this.baseArgs, this.profileDir], this.env, 'devin') }
+
   async preflight(): Promise<PreflightResult> {
-    const cached = this.cache.get(this.command)
-    if (cached) return cached
+    const admission = await nativeAdmission('devin', { command: this.command, args: this.baseArgs, env: this.env, model: cliModel(this.baseArgs), timeoutMs: Math.min(this.pingTimeoutMs, 30_000) })
+    const blocked = admissionFailure(admission)
+    if (blocked) return blocked
+    const cached = this.cache.get(this.cacheKey())
+    if (cached) return withAdmission(cached, admission, true)
     let result: PreflightResult
     try {
       ensureNoMcpImport(this.profileDir) // 隔離 cwd，不用 process.cwd()（可能是 daemon 真專案，別讓 ping 也起 serena）
-      const { r } = await this.runWithFiles('Reply with exactly: PONG', this.profileDir, this.pingTimeoutMs)
-      result = r.stdout.includes('PONG')
+      const { r, exp } = await this.runWithFiles('Reply with exactly: PONG', this.profileDir, this.pingTimeoutMs)
+      result = r.exitCode === 0 && !r.timedOut && exp && /^PONG\r?$/m.test(r.stdout)
         ? { ok: true, detail: `PONG ${r.durationMs}ms` }
-        : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG (exit ${r.exitCode}) ${r.stderr.slice(0, 120)}` }
-    } catch (err) { result = { ok: false, detail: String(err).slice(0, 200) } }
-    this.cache.set(this.command, result)
-    return result
+        : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG (exit ${r.exitCode}) ${cliDiagnostic(r, this.env, this.baseArgs).slice(0, 700)}` }
+    } catch (err) { result = { ok: false, detail: redactCli(String(err), { ...process.env, ...this.env }, this.baseArgs).slice(0, 700) } }
+    this.cache.set(this.cacheKey(), result)
+    return withAdmission(result, admission)
   }
 
-  invalidatePreflight(): void { this.cache.set(this.command, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+  invalidatePreflight(): void { this.cache.set(this.cacheKey(), { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
 
   async run(job: Job): Promise<RunResult> {
     const prompt = [
@@ -113,13 +120,13 @@ export class DevinEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const { r, exp } = await this.runWithFiles(prompt, job.projectPath, this.timeoutMs, this.idleTimeoutMs, job.control)
 
-    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(tailErr(r))
-    if (r.timedOut) return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(cliDiagnostic(r, this.env, this.baseArgs))
+    if (r.timedOut) return { ok: false, output: cliDiagnostic(r, this.env, this.baseArgs), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
-      return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}` }
+      return { ok: false, output: cliDiagnostic(r, this.env, this.baseArgs), costUsd: 0, costUnknown: true, failureReason: `exit ${r.exitCode}: ${cliDiagnostic(r, this.env, this.baseArgs).slice(0, 700)}` }
     }
     // silent-fail 防呆：exit 0 但無 export JSON（未產出/損毀）＝失敗，不可只信 exit code／純文字 stdout。
-    if (!exp) return { ok: false, output: tailErr(r), costUsd: 0, costUnknown: true, failureReason: 'silent-fail：exit 0 但無 export JSON（≠ 成功）' }
+    if (!exp) return { ok: false, output: cliDiagnostic(r, this.env, this.baseArgs), costUsd: 0, costUnknown: true, failureReason: 'silent-fail：exit 0 但無 export JSON（≠ 成功）' }
 
     const output = tail(`${r.stdout}\n${usageLine(exp)}`)
     const tokensIn = exp.final_metrics?.total_prompt_tokens
@@ -149,9 +156,5 @@ function usageLine(exp: DevinExport): string {
   return `[tokens in=${m.total_prompt_tokens ?? '?'} out=${m.total_completion_tokens ?? '?'} cached=${m.total_cached_tokens ?? '?'} steps=${m.total_steps ?? '?'}]`
 }
 
-/** 失敗路徑：stdout 為主（-p 的 stdout 是純文字確認訊息），stderr 非空才附加（鐵律 #7：不吞 stderr）。 */
-function tailErr(r: { stdout: string; stderr: string }): string {
-  return tail(r.stdout + (r.stderr.trim() === '' ? '' : '\n[stderr]\n' + r.stderr))
-}
 
 function tail(s: string, n = 2000): string { return s.length > n ? s.slice(-n) : s }

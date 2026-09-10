@@ -1,3 +1,5 @@
+import { withAdmission, nativeAdmission, admissionFailure } from './cli-admission.js'
+import { cliDiagnostic, cliPreflightKey, redactCli, cliModel } from './cli-diagnostics.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -50,7 +52,7 @@ export class CodexEngine implements Engine {
   private readonly pingTimeoutMs: number
   private readonly idleTimeoutMs: number
   private readonly cache: PreflightCache
-  private readonly preflightKey: string
+  private cacheKey(): string { return cliPreflightKey(this.command, [...this.pingArgs, this.homeDir], this.runtimeEnv(), 'codex') }
   private readonly getCommitHash: (cwd: string) => string | undefined
   private readonly commitChanges: (cwd: string, message: string) => string | undefined
   private readonly homeDir: string
@@ -71,7 +73,6 @@ export class CodexEngine implements Engine {
     // A read-only legacy policy can pass while the actual repair sandbox cannot start.
     this.pingArgs = [...(opts.pingArgs ?? ['exec', '--json', ...(this.useUserLogin ? [] : ['-s', 'read-only']), '--ephemeral', '--strict-config', '--skip-git-repo-check']), ...modelArgs, ...loginArgs,
       ...(this.useUserLogin ? [...FLEET_CODEX_PERMISSION_ARGS, ...['shell_tool', 'unified_exec', 'code_mode', 'code_mode_host'].flatMap(f => ['--disable', f])] : [])]
-    this.preflightKey = this.useUserLogin ? `${this.command}:${JSON.stringify(this.pingArgs)}` : this.command
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 180 * 1000 // skills 冷載入＋忙機器實測可超過 90s
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_ENGINE_IDLE_TIMEOUT_MS
@@ -84,8 +85,11 @@ export class CodexEngine implements Engine {
 
   /** 真探針（codex 走 ChatGPT 訂閱額度，prompt 保持極小）；好壞結果都 cache，防連環重打。 */
   async preflight(): Promise<PreflightResult> {
-    const cached = this.cache.get(this.preflightKey)
-    if (cached) return cached
+    const admission = await nativeAdmission('codex', { command: this.command, env: this.runtimeEnv(), model: cliModel(this.pingArgs), timeoutMs: Math.min(this.pingTimeoutMs, 30_000), args: this.pingArgs, replaceEnv: true })
+    const blocked = admissionFailure(admission)
+    if (blocked) return blocked
+    const cached = this.cache.get(this.cacheKey())
+    if (cached) return withAdmission(cached, admission, true)
     let result: PreflightResult
     try {
       const r = await runProcess({
@@ -96,19 +100,19 @@ export class CodexEngine implements Engine {
       const p = parseJsonl(r.stdout)
       if (this.useUserLogin) {
         mkdirSync(this.homeDir, { recursive: true })
-        writeFileSync(join(this.homeDir, 'preflight-last.json'), JSON.stringify({ at: new Date().toISOString(), args: this.pingArgs, exitCode: r.exitCode, timedOut: r.timedOut, durationMs: r.durationMs, stdout: r.stdout.slice(-8000), stderr: r.stderr.slice(-8000) }, null, 2))
+        writeFileSync(join(this.homeDir, 'preflight-last.json'), JSON.stringify({ at: new Date().toISOString(), args: this.pingArgs, exitCode: r.exitCode, timedOut: r.timedOut, durationMs: r.durationMs, diagnostic: cliDiagnostic(r, this.runtimeEnv(), this.pingArgs) }, null, 2))
       }
       result = r.exitCode === 0 && !r.timedOut && p.turnCompleted && p.message.trim() === 'PONG'
         ? { ok: true, detail: `PONG ${r.durationMs}ms` }
-        : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG/turn.completed (exit ${r.exitCode}) ${r.stderr.slice(0, 120)}` }
+        : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG/turn.completed (exit ${r.exitCode}) ${cliDiagnostic(r, this.env, this.pingArgs).slice(0, 700)}` }
     } catch (err) {
-      result = { ok: false, detail: String(err).slice(0, 200) }
+      result = { ok: false, detail: redactCli(String(err), { ...process.env, ...this.env }, this.pingArgs).slice(0, 700) }
     }
-    this.cache.set(this.preflightKey, result)
-    return result
+    this.cache.set(this.cacheKey(), result)
+    return withAdmission(result, admission)
   }
 
-  invalidatePreflight(): void { this.cache.set(this.preflightKey, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+  invalidatePreflight(): void { this.cache.set(this.cacheKey(), { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
 
   async run(job: Job): Promise<RunResult> {
     // Codex sandbox 保護 .git；代理只改檔，可信宿主在回傳後提交既有 managed worktree。
@@ -142,20 +146,20 @@ export class CodexEngine implements Engine {
       return result
     }
 
-    if (r.aborted || job.control?.signal?.aborted) return finish(cancelledRun(r.stderr))
-    if (r.timedOut) return finish({ ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' })
+    if (r.aborted || job.control?.signal?.aborted) return finish(cancelledRun(cliDiagnostic(r, this.env, this.pingArgs)))
+    if (r.timedOut) return finish({ ok: false, output: cliDiagnostic(r, this.env, this.pingArgs), costUsd: 0, costUnknown: true, failureReason: 'timeout' })
     if (r.exitCode !== 0) {
       return finish({
-        ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true,
-        failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}`
+        ok: false, output: cliDiagnostic(r, this.env, this.pingArgs), costUsd: 0, costUnknown: true,
+        failureReason: `exit ${r.exitCode}: ${cliDiagnostic(r, this.env, this.pingArgs).slice(0, 700)}`
       })
     }
 
     // silent-fail 防呆（規格卡：codex exit 0 不可信）：無 turn.completed 或無最終訊息＝失敗。
     if (!p.turnCompleted || p.message.trim() === '') {
       return finish({
-        ok: false, output: tail(r.stdout), costUsd: 0, costUnknown: true,
-        failureReason: 'silent-fail：exit 0 但無 turn.completed 或零輸出（≠ 成功）'
+        ok: false, output: cliDiagnostic(r, this.env, this.baseArgs), costUsd: 0, costUnknown: true,
+        failureReason: 'silent-fail：exit 0 但無 turn.completed 或零輸出（≠ 成功）；' + cliDiagnostic(r, this.env, this.baseArgs).slice(0, 700)
       })
     }
     // tokens 僅記錄於 output/detail（不換算 USD——價目表變動快，估計值走 config costPerRunUsd）。
@@ -213,7 +217,8 @@ function parseJsonl(stdout: string): ParsedJsonl {
     if (line.trim() === '') continue
     let obj: Record<string, unknown>
     try { obj = JSON.parse(line) as Record<string, unknown> } catch { continue }
-    if (obj.type === 'turn.completed') {
+    if (obj.type === 'turn.failed') { out.turnCompleted = false }
+    else if (obj.type === 'turn.completed') {
       out.turnCompleted = true
       if (typeof obj.usage === 'object' && obj.usage !== null) out.usage = obj.usage as CodexUsage
     } else if (obj.type === 'item.completed') {

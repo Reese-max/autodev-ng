@@ -1,3 +1,5 @@
+import { unknownAdmission, withAdmission } from './cli-admission.js'
+import { cliDiagnostic, cliPreflightKey, redactCli, cliModel } from './cli-diagnostics.js'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
 import { cancelledRun } from './run-control.js'
@@ -38,7 +40,7 @@ export class QwenEngine implements Engine {
   constructor(opts: QwenOpts) {
     this.id = opts.id ?? 'qwen'
     this.command = opts.command ?? 'qwen'
-    this.args = [...(opts.baseArgs ?? ['--yolo', '-o', 'json', '--auth-type', 'openai']),
+    this.args = [...(opts.baseArgs ?? ['--yolo', '-o', 'stream-json', '--include-partial-messages', '--auth-type', 'openai']),
       ...(opts.baseUrl ? ['--openai-base-url', opts.baseUrl] : []),
       ...(opts.apiKey ? ['--openai-api-key', opts.apiKey] : []), ...(opts.model ? ['-m', opts.model] : [])]
     this.timeoutMs = opts.timeoutMs ?? 15 * 60 * 1000
@@ -50,9 +52,12 @@ export class QwenEngine implements Engine {
   }
 
   /** 真探針（燒被代理的訂閱額度，prompt 極小）；好壞結果都 cache，防連環重打。 */
+  private cacheKey(): string { return cliPreflightKey(this.command, this.args, this.env, 'qwen') }
+
   async preflight(): Promise<PreflightResult> {
-    const cached = this.cache.get(this.command)
-    if (cached) return cached
+    const admission = unknownAdmission('qwen', cliModel(this.args))
+    const cached = this.cache.get(this.cacheKey())
+    if (cached) return withAdmission(cached, admission, true)
     let result: PreflightResult
     try {
       const r = await runProcess({
@@ -60,15 +65,15 @@ export class QwenEngine implements Engine {
         stdinText: 'Reply with exactly: PONG', timeoutMs: this.pingTimeoutMs, env: this.env
       })
       const p = parseResult(r.stdout)
-      result = p && !p.isError && p.text.includes('PONG')
+      result = r.exitCode === 0 && !r.timedOut && p && !p.isError && p.text.trim() === 'PONG'
         ? { ok: true, detail: `PONG ${r.durationMs}ms` }
-        : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG/result (exit ${r.exitCode}) ${(p?.errorMessage ?? r.stderr).slice(0, 120)}` }
-    } catch (err) { result = { ok: false, detail: String(err).slice(0, 200) } }
-    this.cache.set(this.command, result)
-    return result
+        : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG/result (exit ${r.exitCode}) ${cliDiagnostic(r, this.env, this.args).slice(0, 700)}` }
+    } catch (err) { result = { ok: false, detail: redactCli(String(err), { ...process.env, ...this.env }, this.args).slice(0, 700) } }
+    this.cache.set(this.cacheKey(), result)
+    return withAdmission(result, admission)
   }
 
-  invalidatePreflight(): void { this.cache.set(this.command, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+  invalidatePreflight(): void { this.cache.set(this.cacheKey(), { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
 
   async run(job: Job): Promise<RunResult> {
     // prompt 組裝沿 codex/claude-cli 模板：directive 優先、commit 要求是硬話。
@@ -85,15 +90,15 @@ export class QwenEngine implements Engine {
       stdinText: prompt, timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, env: this.env, control: job.control
     })
 
-    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(r.stderr)
-    if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(cliDiagnostic(r, this.env, this.args))
+    if (r.timedOut) return { ok: false, output: cliDiagnostic(r, this.env, this.args), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     const p = parseResult(r.stdout)
-    const fail = (failureReason: string, output = tail(r.stdout)): RunResult => ({ ok: false, output, costUsd: 0, costUnknown: true, failureReason })
+    const fail = (failureReason: string, output = cliDiagnostic(r, this.env, this.args)): RunResult => ({ ok: false, output, costUsd: 0, costUnknown: true, failureReason })
     // 規格卡：失敗時錯誤仍走 stdout 的 result 事件（is_error＋error.message），優先取其人話。
-    if (r.exitCode !== 0) return fail(`exit ${r.exitCode}: ${(p?.errorMessage ?? r.stderr).slice(0, 200)}`, tail(r.stdout === '' ? r.stderr : r.stdout))
+    if (r.exitCode !== 0) return fail(`exit ${r.exitCode}: ${cliDiagnostic(r, this.env, this.args).slice(0, 700)}`, cliDiagnostic(r, this.env, this.args))
     // silent-fail 防呆（沿 codex 模式）：exit 0 但無 result 事件或零輸出＝失敗（截斷/中途死都落這）。
     if (!p) return fail('silent-fail：exit 0 但無 result 事件（≠ 成功）')
-    if (p.isError) return fail(`result is_error（subtype=${p.subtype ?? '?'}）：${(p.errorMessage ?? '').slice(0, 200)}`)
+    if (p.isError) return fail(`result is_error（subtype=${p.subtype ?? '?'}）：${cliDiagnostic(r, this.env, this.args).slice(0, 700)}`)
     if (p.text.trim() === '') return fail('silent-fail：exit 0 但 result 零輸出（≠ 成功）')
     // tokens／per-model stats 僅記錄於 output 尾（不換算 USD——估計值走 config costPerRunUsd）。
     const output = tail(`${p.text}\n${usageLine(p)}`)

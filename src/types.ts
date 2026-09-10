@@ -74,7 +74,7 @@ export interface RunResult {
   tokensCached?: number
 }
 
-export interface PreflightResult { ok: boolean; detail: string }
+export interface PreflightResult { ok: boolean; detail: string; admission?: import('./engines/cli-admission.js').CliAdmission }
 
 export interface Engine {
   id: string

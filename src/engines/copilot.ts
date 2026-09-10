@@ -1,3 +1,5 @@
+import { withAdmission, nativeAdmission, admissionFailure } from './cli-admission.js'
+import { cliDiagnostic, cliPreflightKey, redactCli, cliModel } from './cli-diagnostics.js'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { DEFAULT_ENGINE_IDLE_TIMEOUT_MS, runProcess } from './proc.js'
 import { cancelledRun } from './run-control.js'
@@ -15,7 +17,7 @@ export interface CopilotOpts {
   cache: PreflightCache
   getCommitHash?: (cwd: string) => string | undefined
   env?: Record<string, string>
-  model?: string // 未設鎖 gpt-5.4-mini（0x premium ≈ 免費；規格卡舊名 gpt-5-mini 在 CLI 1.0.68 已下架，2026-07-07 探針實證）
+  model?: string // 未設維持 gpt-5.4-mini；原生預檢核對當前帳戶清單，不假定免費或仍可用。
 }
 
 const PROMPT_MAX = 6000 // 規格卡：copilot prompt 只能 argv（無 stdin/prompt-file）→ 截長防 8191 上限
@@ -49,27 +51,33 @@ export class CopilotEngine implements Engine {
     this.env = opts.env
   }
 
-  /** 最小探針（gpt-5-mini 0x ≈ 免費）；好壞結果都 cache，防連環重打。 */
+  /** 先查原生額度／模型，再用最小 PONG 驗證；好壞結果都 cache。 */
+  private cacheKey(): string { return cliPreflightKey(this.command, this.baseArgs, this.env, 'copilot') }
+
   async preflight(): Promise<PreflightResult> {
-    const cached = this.cache.get(this.command)
-    if (cached) return cached
+    const admission = await nativeAdmission('copilot', { command: this.command, args: this.baseArgs, env: this.env, model: cliModel(this.baseArgs), timeoutMs: Math.min(this.pingTimeoutMs, 30_000) })
+    const blocked = admissionFailure(admission)
+    if (blocked) return blocked
+    const cached = this.cache.get(this.cacheKey())
+    if (cached) return withAdmission(cached, admission, true)
     let result: PreflightResult
     try {
       const r = await runProcess({
         command: this.command, args: [...this.baseArgs, '-p', 'Reply with exactly: PONG'],
         cwd: process.cwd(), stdinText: '', timeoutMs: this.pingTimeoutMs, maxOutputChars: OUTPUT_CAP, env: this.env
       })
-      result = parseJsonl(r.stdout).result && r.stdout.includes('PONG')
+      const p = parseJsonl(r.stdout)
+      result = r.exitCode === 0 && !r.timedOut && p.result && (p.result.exitCode ?? 0) === 0 && p.message.trim() === 'PONG'
         ? { ok: true, detail: `PONG ${r.durationMs}ms` }
-        : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG/result (exit ${r.exitCode}) ${r.stderr.slice(0, 120)}` }
+        : { ok: false, detail: r.timedOut ? 'ping timeout' : `no PONG/result (exit ${r.exitCode}) ${cliDiagnostic(r, this.env, this.baseArgs).slice(0, 700)}` }
     } catch (err) {
-      result = { ok: false, detail: String(err).slice(0, 200) }
+      result = { ok: false, detail: redactCli(String(err), { ...process.env, ...this.env }, this.baseArgs).slice(0, 700) }
     }
-    this.cache.set(this.command, result)
-    return result
+    this.cache.set(this.cacheKey(), result)
+    return withAdmission(result, admission)
   }
 
-  invalidatePreflight(): void { this.cache.set(this.command, { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
+  invalidatePreflight(): void { this.cache.set(this.cacheKey(), { ok: false, detail: 'run-failed：下輪重探' }, 0) } // ts=0＝寫入即過期
 
   async run(job: Job): Promise<RunResult> {
     const before = this.getCommitHash(job.projectPath)
@@ -78,21 +86,21 @@ export class CopilotEngine implements Engine {
       cwd: job.projectPath, stdinText: '', timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, maxOutputChars: OUTPUT_CAP, env: this.env, control: job.control
     })
 
-    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(r.stderr)
-    if (r.timedOut) return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
+    if (r.aborted || job.control?.signal?.aborted) return cancelledRun(cliDiagnostic(r, this.env, this.baseArgs))
+    if (r.timedOut) return { ok: false, output: cliDiagnostic(r, this.env, this.baseArgs), costUsd: 0, costUnknown: true, failureReason: 'timeout' }
     if (r.exitCode !== 0) {
-      return { ok: false, output: tail(r.stderr), costUsd: 0, costUnknown: true, failureReason: `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}` }
+      return { ok: false, output: cliDiagnostic(r, this.env, this.baseArgs), costUsd: 0, costUnknown: true, failureReason: `exit ${r.exitCode}: ${cliDiagnostic(r, this.env, this.baseArgs).slice(0, 700)}` }
     }
 
     const p = parseJsonl(r.stdout)
     // silent-fail 防呆（沿 codex 模式）：exit 0 但無 result 尾事件＝失敗（截斷/中途死都落這）。
     if (!p.result) {
-      return { ok: false, output: tail(r.stdout), costUsd: 0, costUnknown: true, failureReason: 'silent-fail：exit 0 但無 result 尾事件（≠ 成功）' }
+      return { ok: false, output: cliDiagnostic(r, this.env, this.baseArgs), costUsd: 0, costUnknown: true, failureReason: 'silent-fail：exit 0 但無 result 尾事件（≠ 成功）；' + cliDiagnostic(r, this.env, this.baseArgs).slice(0, 700) }
     }
     const output = tail(`${p.message}\n${usageLine(p.result)}`)
     // result 事件自帶 exitCode 欄位（規格卡）：雙重確認，非 0 視同失敗。
     if (typeof p.result.exitCode === 'number' && p.result.exitCode !== 0) {
-      return { ok: false, output, costUsd: 0, costUnknown: true, failureReason: `result.exitCode ${p.result.exitCode}` }
+      return { ok: false, output: cliDiagnostic(r, this.env, this.baseArgs), costUsd: 0, costUnknown: true, failureReason: `result.exitCode ${p.result.exitCode}: ${cliDiagnostic(r, this.env, this.baseArgs).slice(0, 700)}` }
     }
 
     const after = this.getCommitHash(job.projectPath)
