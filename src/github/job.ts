@@ -18,6 +18,7 @@ import { TeamState } from '../engines/team-state.js'
 import { alternativeRetryDue, alternativeRetryUsed } from '../engines/alternative-retry.js'
 import { assertExecutionMode } from '../engines/capabilities.js'
 import { hasPendingReview, reviewRetryDelay } from '../engines/pending-review.js'
+import { markTrustedHost } from '../engines/trusted-host.js'
 
 export const git = (cwd: string, args: string[]): string => command('git', ['-c', `safe.directory=${cwd.replace(/\\/g, '/')}`, ...args], cwd)
 export const checkoutDir = (cfg: GithubConfig, state: IssueState): string => join(runDir(cfg, state), 'repo')
@@ -42,7 +43,7 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
   if (cfg.repair && !['codex', 'freebuff', ...(source.tierMode === 'free-only' ? [source.llmTransport === 'devin-cli' ? 'devin' : 'opencode'] : [])].includes(engine.adapter)) throw new Error('Automatic report repairs require Codex CLI, Freebuff or a verified free-only route')
   if (!source.verifyCommand?.trim() || !(source.reviewEngine ?? source.auditModel)) throw new Error('GitHub runner requires verifyCommand and reviewer configuration')
   const dir = runDir(cfg, state)
-  return ConfigSchema.parse({ ...source,
+  const runtime = ConfigSchema.parse({ ...source,
     projectPath: checkoutDir(cfg, state), dataDir: dir, backlogFile: join(dir, 'BACKLOG.md'), worktreesDir: join(dir, 'worktrees'),
     stopFile: githubStopFile(cfg), defaultEngine: cfg.engine, engineRotation: [cfg.engine], engines: { [cfg.engine]: engine },
     maxAttempts: cfg.maxRuns, concurrency: 1, defaultRisk: 'medium', perpetual: false, goalFile: undefined,
@@ -51,6 +52,8 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
     ...(cfg.repair && source.tierMode !== 'free-only' ? { llmTransport: 'cli', judgeUrl: undefined, reviewUrl: undefined, judgeApiKey: '' } : {}),
     extraDirective: [source.extraDirective, `Add a self-contained regression file ${regressionFile(state.issue.number, cfg, state)}. ${cfg.regression ? `Use this trusted test command: ${JSON.stringify(cfg.regression)}.` : 'Use Node node:test and node:assert/strict.'} It must pass on the fix and fail an assertion on the original code when ONLY this test file is copied there. Use the repository root as cwd. Do not change existing tests. Do not branch on git state, paths or environment to manufacture a pass.`, 'Only implement the Issue in this checkout. Do not push, create PRs, send messages, deploy, change credentials, or operate other repositories. The host handles publication after verified completion.'].filter(Boolean).join('\n'),
   })
+  markTrustedHost(runtime)
+  return runtime
 }
 export function prepareCheckout(cfg: GithubConfig, state: IssueState): void {
   const cwd = checkoutDir(cfg, state)

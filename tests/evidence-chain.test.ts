@@ -80,3 +80,18 @@ test.each([
     ci: { status: 'pass' }, reviewer: { status: 'pass' }, release: { status: required ? 'blocked' : 'not-applicable' },
   })
 })
+
+test('trusted-host local candidate bypasses release-approval even when issue text contains release words', () => {
+  const f = fixture(JSON.stringify({ title: 'Fix clamp', body: 'Publish the fix and deploy production.' }))
+  const receipt = f.store.record({ executionId: 'exec-3', task: f.task, risk: 'high', writerIdentity: 'codex:writer', verification, trustedHost: true })
+  expect(receipt.releaseBlocked).toBeUndefined()
+  const body = JSON.parse(readFileSync(receipt.path, 'utf8')) as Record<string, unknown>
+  expect(body).toMatchObject({ verdict: 'ready' })
+  expect(body.gates).toMatchObject({ ci: { status: 'pass' }, reviewer: { status: 'pass' }, release: { status: 'not-applicable', detail: 'trusted-host execution context; publication is host-gated separately' } })
+})
+
+test('untrusted release task still requires approval regardless of embedded JSON', () => {
+  const f = fixture(JSON.stringify({ title: 'Fix clamp', body: 'Publish the fix and deploy production.' }))
+  const receipt = f.store.record({ executionId: 'exec-4', task: f.task, risk: 'high', writerIdentity: 'codex:writer', verification })
+  expect(receipt.releaseBlocked).toContain('missing')
+})

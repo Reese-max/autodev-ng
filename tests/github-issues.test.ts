@@ -179,6 +179,19 @@ test('finished unpublished candidate is not executed again', async () => {
   expect(execute).toHaveBeenCalledTimes(1); expect(readState(cfg, 7)!.status).toBe('ready')
   expect(client.createPr).not.toHaveBeenCalled()
 })
+test('publish=false makes zero pushes and zero PRs even when the issue body contains release words', async () => {
+  const { cfg, client, state } = fixture()
+  state.issue.body = 'Do not push, create PRs, deploy or publish. This is a local verification request.'
+  state.fingerprint = fingerprint(state.issue)
+  const push = vi.fn()
+  const execute = vi.fn(async () => ({ done: true, detail: 'done', commit: 'a'.repeat(40) }))
+  expect(await runGithub(cfg, { client, execute, publish: (c, s, cl, ch, p, a) => publishIssue(c, s, cl, ch, p, a) })).toBe('7: ready')
+  const saved = readState(cfg, 7)!
+  expect(saved.status).toBe('ready')
+  expect(push).not.toHaveBeenCalled()
+  expect(client.createPr).not.toHaveBeenCalled()
+})
+
 test('publish is opt-in, reuses matching PR and rejects mismatched commits', async () => {
   const { cfg, client, state } = fixture(); state.commit = 'a'.repeat(40); state.status = 'ready'
   const check = vi.fn(), push = vi.fn()

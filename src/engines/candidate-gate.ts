@@ -5,6 +5,7 @@ import { mergeBack, type MergeBackResult, type WorktreeHandle } from '../worktre
 import { defaultCommitHash } from './commit-hash.js'
 import type { EvidenceReceipt, EvidenceStore } from './evidence-chain.js'
 import { classifyTaskRisk, verifyRequired } from './risk-policy.js'
+import { isTrustedHost } from './trusted-host.js'
 
 export interface CandidateGateResult extends VerifierCheck { receipt?: EvidenceReceipt }
 
@@ -84,6 +85,7 @@ export async function runCandidateGate(opts: {
     }
   }
 
+  const trustedHost = isTrustedHost(opts.cfg)
   if (!opts.evidence) return check
   if (!check.evidence) {
     return { pass: false, risk, blockedReason: 'verification-infra', reason: 'evidence-chain: verifier returned no gate evidence', alerts: check.alerts }
@@ -96,6 +98,7 @@ export async function runCandidateGate(opts: {
       writerIdentity: opts.writerIdentity,
       verification: { ...check.evidence, candidateCommit },
       releaseApprovalFile: opts.cfg.releaseApprovalFile,
+      trustedHost,
     })
     if (receipt.releaseBlocked && check.pass) {
       return { ...check, pass: false, blockedReason: 'release-approval', reason: `release-blocked: ${receipt.releaseBlocked}`, receipt }

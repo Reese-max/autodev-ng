@@ -60,8 +60,9 @@ export class EvidenceStore {
     writerIdentity: string
     verification: VerificationEvidence
     releaseApprovalFile?: string
+    trustedHost?: boolean
   }): EvidenceReceipt {
-    const release = releaseGate(args.task, args.verification.candidateCommit, args.releaseApprovalFile)
+    const release = releaseGate(args.task, args.verification.candidateCommit, args.releaseApprovalFile, args.trustedHost)
     const gates = { ci: args.verification.ci, reviewer: args.verification.reviewer, release }
     const bundle: EvidenceBundle = {
       schemaVersion: 1,
@@ -112,7 +113,8 @@ export class EvidenceStore {
 
 export function newExecutionId(): string { return randomUUID() }
 
-function releaseGate(task: Task, candidateCommit: string, approvalFile?: string): GateEvidence {
+function releaseGate(task: Task, candidateCommit: string, approvalFile?: string, trustedHost = false): GateEvidence {
+  if (trustedHost) return { status: 'not-applicable', detail: 'trusted-host execution context; publication is host-gated separately' }
   if (!releaseEvidenceRequired(task)) return { status: 'not-applicable', detail: 'task has no release intent' }
   if (!approvalFile || !existsSync(approvalFile)) return { status: 'blocked', detail: 'release approval missing' }
   try {
