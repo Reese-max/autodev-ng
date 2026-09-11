@@ -203,6 +203,18 @@ test('approval withdrawn while checking existing PR prevents push', async () => 
   await expect(publishIssue({ ...cfg, publish: true }, state, client, vi.fn(), push)).rejects.toThrow('before push')
   expect(push).not.toHaveBeenCalled()
 })
+test('a bad current issue for an existing queued row becomes a bounded blocker', async () => {
+  const { cfg, client, state } = fixture(); saveState(cfg, state)
+  client.list = async () => []
+  client.issue = async () => { throw new Error('Issue #7 is unsupported or malformed: body: Invalid input: expected string, received null') }
+  const execute = vi.fn()
+  expect(await runGithub(cfg, { client, execute })).toBe('7: blocked')
+  expect(execute).not.toHaveBeenCalled()
+  expect(readState(cfg, 7)!.status).toBe('blocked')
+  expect(readState(cfg, 7)!.detail).toContain('unsupported or malformed')
+  expect(readState(cfg, 7)!.detail).not.toContain(state.issue.body)
+})
+
 test('corrupt or cross-repo state fails closed', () => {
   const { cfg, state, dir } = fixture(); saveState(cfg, state)
   expect(() => readState({ ...cfg, repo: 'owner/another' }, 7)).toThrow('mismatch')

@@ -1,5 +1,8 @@
 import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { z } from 'zod'
+import { writeJsonAtomic } from '../guardian/incident.js'
 import { IssueSchema, type GithubConfig, type Issue } from './config.js'
 
 export function command(exe: string, args: string[], cwd?: string, input?: string): string {
@@ -19,6 +22,32 @@ const PrSchema = z.object({
   head: z.object({ sha: z.string(), ref: z.string() }), base: z.object({ ref: z.string() }),
 })
 export type PullRequest = z.infer<typeof PrSchema>
+
+type RejectedIssue = { number?: number; at: string; detail: string }
+
+function sanitizeZodIssues(error: z.ZodError): string {
+  return error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
+}
+
+function extractIssueNumber(row: unknown): number | undefined {
+  if (typeof row !== 'object' || row === null) return undefined
+  const n = (row as Record<string, unknown>).number
+  if (typeof n === 'number' && Number.isSafeInteger(n) && n > 0) return n
+  return undefined
+}
+
+function recordRejects(dataDir: string, rejects: RejectedIssue[]): void {
+  if (rejects.length === 0) return
+  if (!existsSync(dataDir)) return
+  mkdirSync(dataDir, { recursive: true })
+  const path = join(dataDir, 'rejected-issues.json')
+  const previous: RejectedIssue[] = []
+  if (existsSync(path)) {
+    try { previous.push(...(JSON.parse(readFileSync(path, 'utf8')) as RejectedIssue[])) } catch { /* ignore corrupted record */ }
+  }
+  writeJsonAtomic(path, [...previous, ...rejects])
+}
+
 function makeGithubClient(cfg: GithubConfig) {
   const root = `repos/${cfg.repo}`
   return {
@@ -51,10 +80,22 @@ function makeGithubClient(cfg: GithubConfig) {
       const pages = JSON.parse(command('gh', ['api', '--hostname', 'github.com',
         `${root}/issues?state=open${cfg.label === null ? '' : `&labels=${encodeURIComponent(cfg.label)}`}&sort=created&direction=asc&per_page=100`,
         '--paginate', '--slurp'])) as unknown
-      return z.array(z.array(z.unknown())).parse(pages).flat().filter(row =>
-        typeof row === 'object' && row !== null && !('pull_request' in row)).map(row => IssueSchema.parse(row))
+      const rejects: RejectedIssue[] = []
+      const issues: Issue[] = []
+      for (const row of z.array(z.array(z.unknown())).parse(pages).flat()) {
+        if (typeof row !== 'object' || row === null || 'pull_request' in row) continue
+        const parsed = IssueSchema.safeParse(row)
+        if (parsed.success) issues.push(parsed.data)
+        else rejects.push({ number: extractIssueNumber(row), at: new Date().toISOString(), detail: sanitizeZodIssues(parsed.error) })
+      }
+      recordRejects(cfg.dataDir, rejects)
+      return issues
     },
-    async issue(number: number): Promise<Issue> { return IssueSchema.parse(api(`${root}/issues/${number}`)) },
+    async issue(number: number): Promise<Issue> {
+      const parsed = IssueSchema.safeParse(api(`${root}/issues/${number}`))
+      if (!parsed.success) throw new Error(`Issue #${number} is unsupported or malformed: ${sanitizeZodIssues(parsed.error)}`)
+      return parsed.data
+    },
     async findLinkedPr(number: number): Promise<string | undefined> {
       const [owner, name] = cfg.repo.split('/')
       const result = api('graphql', {

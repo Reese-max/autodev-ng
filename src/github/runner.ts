@@ -78,11 +78,11 @@ export async function runGithub(cfg: GithubConfig, options: {
     }
     const state = states(cfg).find(s => (s.status === 'queued' || (s.status === 'ready' && cfg.publish)) && s.nextRunAt <= Date.now())
     if (!state) return 'idle'
-    if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
-      state.status = 'cancelled'; state.detail = 'Issue changed, closed, or no longer eligible'; saveState(cfg, state); return 'cancelled'
-    }
-    if (!active()) return 'paused'
     try {
+      if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
+        state.status = 'cancelled'; state.detail = 'Issue changed, closed, or no longer eligible'; saveState(cfg, state); return 'cancelled'
+      }
+      if (!active()) return 'paused'
       if (state.status === 'queued') {
         const existing = (await client.findPr(branchFor(state.issue.number)))?.html_url ?? await client.findLinkedPr(state.issue.number)
         if (existing && !state.revision) {

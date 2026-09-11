@@ -43,7 +43,7 @@ export function loadGithubConfig(path: string): GithubConfig {
 
 export const IssueSchema = z.object({
   number: z.number().int().positive(), title: z.string().min(1).max(500),
-  body: z.string().max(20_000).nullable(), state: z.enum(['open', 'closed']),
+  body: z.string().max(100_000).nullable(), state: z.enum(['open', 'closed']),
   user: z.object({ login: z.string() }),
   labels: z.array(z.object({ name: z.string() })),
   pull_request: z.unknown().optional(),
