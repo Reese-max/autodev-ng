@@ -1,0 +1,50 @@
+name: Delivery health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 0 * * *' # 08:17 Asia/Taipei; supplementary reporting, not an AI worker.
+  push:
+    branches: [main]
+    paths:
+      - scripts/delivery-health.mjs
+      - tests/operations/delivery-health.test.mjs
+      - configs/integrations/delivery-health.json
+      - .github/workflows/delivery-health.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/delivery-health.mjs
+      - tests/operations/delivery-health.test.mjs
+      - configs/integrations/delivery-health.json
+      - .github/workflows/delivery-health.yml
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: delivery-health-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-and-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Offline contract tests (no npm install or provider access)
+        run: node --test tests/operations/delivery-health.test.mjs
+      - name: Read current delivery evidence
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/delivery-health.mjs --out "$RUNNER_TEMP/delivery-health.json"
+      # The summary is retained by Actions. Do not upload source/runtime data or
+      # make daily commits: report success is not a production acceptance pass.
