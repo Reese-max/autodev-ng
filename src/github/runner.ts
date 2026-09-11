@@ -1,19 +1,130 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
+import { writeJsonAtomic } from '../guardian/incident.js'
 import { acquireLock, releaseLock } from '../lock.js'
 import { githubStopFile, loadGithubConfig, type GithubConfig, type Issue } from './config.js'
 import { eligibleForRun } from './repair.js'
-import { githubClient, type GithubClient } from './client.js'
+import { githubClient, type GithubClient, type RejectedIssue } from './client.js'
 import { assertPublishable, checkoutDir, executeIssue, git, issueReviewPending } from './job.js'
 import { alternativeRunPending, branchFor, fingerprint, readState, saveState, states, type IssueState } from './state.js'
 import { observePr } from './followup.js'
 
+const MAX_REJECTED_RECORDS = 10_000
+const MAX_REJECTED_DETAIL = 2_000
+
+type RejectedRecord = RejectedIssue & { count: number }
+
+function boundedDetail(detail: string): string {
+  return detail.length > MAX_REJECTED_DETAIL ? `${detail.slice(0, MAX_REJECTED_DETAIL - 1)}…` : detail
+}
+
+function boundedRecord(r: RejectedIssue, count: number): RejectedRecord {
+  const number = (typeof r.number === 'number' && Number.isSafeInteger(r.number) && r.number > 0) ? r.number : undefined
+  return { number, at: r.at, detail: boundedDetail(r.detail), page: r.page, index: r.index, count }
+}
+
+function rejectionKey(r: { number?: number; detail: string }): string {
+  return `${r.number ?? 'unknown'}|${r.detail}`
+}
+
+function uniqueBackupPath(basePath: string): string {
+  const now = Date.now()
+  let candidate = `${basePath}.corrupt.${now}`
+  let n = 0
+  while (existsSync(candidate)) {
+    n += 1
+    candidate = `${basePath}.corrupt.${now}.${n}`
+  }
+  return candidate
+}
+
+function validRecord(value: unknown): value is RejectedRecord {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const v = value as Record<string, unknown>
+  if (typeof v.at !== 'string' || typeof v.detail !== 'string' || v.detail.length === 0) return false
+  if ('number' in v && v.number !== undefined) {
+    if (typeof v.number !== 'number' || !Number.isSafeInteger(v.number) || v.number <= 0) return false
+  }
+  if ('count' in v && v.count !== undefined) {
+    if (typeof v.count !== 'number' || !Number.isSafeInteger(v.count) || v.count < 1) return false
+  }
+  if ('page' in v && v.page !== undefined) {
+    if (typeof v.page !== 'number' || !Number.isSafeInteger(v.page) || v.page < 0) return false
+  }
+  if ('index' in v && v.index !== undefined) {
+    if (typeof v.index !== 'number' || !Number.isSafeInteger(v.index) || v.index < 0) return false
+  }
+  return true
+}
+
+export function recordRejects(dataDir: string, incoming: RejectedIssue[]): void {
+  if (incoming.length === 0) return
+  try {
+    if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true })
+    const path = join(dataDir, 'rejected-issues.json')
+    let existing: RejectedRecord[] = []
+    if (existsSync(path)) {
+      try {
+        const raw = JSON.parse(readFileSync(path, 'utf8')) as unknown
+        if (!Array.isArray(raw)) throw new Error('corrupt')
+        for (const r of raw) {
+          if (!validRecord(r)) throw new Error('corrupt')
+          existing.push(boundedRecord(r, r.count ?? 1))
+        }
+      } catch {
+        const backup = uniqueBackupPath(path)
+        try { renameSync(path, backup) } catch {
+          console.error('Could not back up corrupt rejected-issues record; preserving original.')
+          return
+        }
+      }
+    }
+
+    const merged = new Map<string, RejectedRecord>()
+    for (const r of existing) {
+      const key = rejectionKey(r)
+      const cur = merged.get(key)
+      if (cur) cur.count += r.count
+      else merged.set(key, r)
+    }
+    for (const r of incoming) {
+      const rec = boundedRecord(r, 1)
+      const key = rejectionKey(rec)
+      const cur = merged.get(key)
+      if (cur) {
+        cur.count += 1
+        cur.at = rec.at
+        cur.page = rec.page
+        cur.index = rec.index
+      } else {
+        merged.set(key, rec)
+      }
+    }
+    let records = [...merged.values()]
+    if (records.length > MAX_REJECTED_RECORDS) {
+      records.sort((a, b) => (a.at < b.at ? 1 : -1))
+      const overflow = records.slice(MAX_REJECTED_RECORDS)
+      records = records.slice(0, MAX_REJECTED_RECORDS)
+      const overflowPath = uniqueBackupPath(`${path}.overflow`)
+      try { writeJsonAtomic(overflowPath, overflow) } catch {
+        console.error(`Could not preserve overflow rejected records; leaving ${path} unchanged.`)
+        return
+      }
+    }
+    writeJsonAtomic(path, records)
+  } catch (e) {
+    console.error('Failed to record rejected issues:', e instanceof Error ? e.message : 'unknown')
+  }
+}
+
 export async function syncIssues(cfg: GithubConfig, client: GithubClient): Promise<void> {
-  for (const issue of await client.list()) {
-    if (existsSync(githubStopFile(cfg))) return
+  const rejects: RejectedIssue[] = []
+  for (const issue of await client.list(reject => { rejects.push(reject) })) {
+    if (existsSync(githubStopFile(cfg))) { recordRejects(cfg.dataDir, rejects); return }
     if (!eligibleForRun(issue, cfg) || readState(cfg, issue.number)) continue
     saveState(cfg, { repo: cfg.repo, base: cfg.base, issue, fingerprint: fingerprint(issue), status: 'queued', runs: 0, nextRunAt: 0 })
   }
+  recordRejects(cfg.dataDir, rejects)
 }
 function currentIssue(cfg: GithubConfig, state: IssueState, issue: Issue): boolean {
   return issue.number === state.issue.number && eligibleForRun(issue, cfg) && fingerprint(issue) === state.fingerprint

@@ -1,8 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { z } from 'zod'
-import { writeJsonAtomic } from '../guardian/incident.js'
 import { IssueSchema, type GithubConfig, type Issue } from './config.js'
 
 export function command(exe: string, args: string[], cwd?: string, input?: string): string {
@@ -23,29 +20,49 @@ const PrSchema = z.object({
 })
 export type PullRequest = z.infer<typeof PrSchema>
 
-type RejectedIssue = { number?: number; at: string; detail: string }
+export type RejectedIssue = { number?: number; at: string; detail: string; page: number; index: number }
+
+const MAX_ISSUE_DETAIL = 2_000
 
 function sanitizeZodIssues(error: z.ZodError): string {
-  return error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
+  const MAX_ISSUES = 20
+  const issues = error.issues.slice(0, MAX_ISSUES)
+  let out = issues.map(i => `${i.path.join('.')}: ${i.code}`).join('; ')
+  if (issues.length < error.issues.length) out += '; ...'
+  if (out.length > MAX_ISSUE_DETAIL) out = `${out.slice(0, MAX_ISSUE_DETAIL - 1)}…`
+  return out
 }
 
 function extractIssueNumber(row: unknown): number | undefined {
-  if (typeof row !== 'object' || row === null) return undefined
+  if (typeof row !== 'object' || row === null || Array.isArray(row)) return undefined
   const n = (row as Record<string, unknown>).number
   if (typeof n === 'number' && Number.isSafeInteger(n) && n > 0) return n
   return undefined
 }
 
-function recordRejects(dataDir: string, rejects: RejectedIssue[]): void {
-  if (rejects.length === 0) return
-  if (!existsSync(dataDir)) return
-  mkdirSync(dataDir, { recursive: true })
-  const path = join(dataDir, 'rejected-issues.json')
-  const previous: RejectedIssue[] = []
-  if (existsSync(path)) {
-    try { previous.push(...(JSON.parse(readFileSync(path, 'utf8')) as RejectedIssue[])) } catch { /* ignore corrupted record */ }
+function describeNonObject(row: unknown): string {
+  if (row === null) return 'expected object, got null'
+  if (Array.isArray(row)) return 'expected object, got array'
+  switch (typeof row) {
+    case 'number': return 'expected object, got number'
+    case 'string': return 'expected object, got string'
+    case 'boolean': return 'expected object, got boolean'
+    case 'bigint': return 'expected object, got bigint'
+    case 'symbol': return 'expected object, got symbol'
+    default: return 'expected object, got undefined'
   }
-  writeJsonAtomic(path, [...previous, ...rejects])
+}
+
+function rejectSummary(rejects: RejectedIssue[]): string {
+  const counts = new Map<string, number>()
+  for (const r of rejects) counts.set(r.detail, (counts.get(r.detail) ?? 0) + 1)
+  const entries = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 20)
+  let out = entries.map(([detail, count]) => `${count}× ${detail}`).join('; ')
+  if (entries.length < counts.size) out += `; +${counts.size - entries.length} more`
+  if (out.length > MAX_ISSUE_DETAIL) out = `${out.slice(0, MAX_ISSUE_DETAIL - 1)}…`
+  return out
 }
 
 function makeGithubClient(cfg: GithubConfig) {
@@ -76,19 +93,34 @@ function makeGithubClient(cfg: GithubConfig) {
         checks: pending ? 'pending' as const : failed.length ? 'fail' as const : checks.length && checks.every(c => ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(c.conclusion ?? c.state ?? '')) ? 'pass' as const : 'unknown' as const,
         feedback }
     },
-    async list(): Promise<Issue[]> {
-      const pages = JSON.parse(command('gh', ['api', '--hostname', 'github.com',
+    async list(onReject?: (reject: RejectedIssue) => void): Promise<Issue[]> {
+      const raw = JSON.parse(command('gh', ['api', '--hostname', 'github.com',
         `${root}/issues?state=open${cfg.label === null ? '' : `&labels=${encodeURIComponent(cfg.label)}`}&sort=created&direction=asc&per_page=100`,
         '--paginate', '--slurp'])) as unknown
-      const rejects: RejectedIssue[] = []
+      const pages = z.array(z.array(z.unknown())).parse(raw)
       const issues: Issue[] = []
-      for (const row of z.array(z.array(z.unknown())).parse(pages).flat()) {
-        if (typeof row !== 'object' || row === null || 'pull_request' in row) continue
-        const parsed = IssueSchema.safeParse(row)
-        if (parsed.success) issues.push(parsed.data)
-        else rejects.push({ number: extractIssueNumber(row), at: new Date().toISOString(), detail: sanitizeZodIssues(parsed.error) })
+      const now = new Date().toISOString()
+      const rejects: RejectedIssue[] = []
+      for (const [page, rows] of pages.entries()) {
+        for (const [index, row] of rows.entries()) {
+          if (Array.isArray(row) || typeof row !== 'object' || row === null) {
+            const reject: RejectedIssue = { at: now, detail: describeNonObject(row), page, index }
+            if (onReject) { try { onReject(reject) } catch { /* logging failure must not break list */ } }
+            else rejects.push(reject)
+            continue
+          }
+          if ('pull_request' in row) continue
+          const number = extractIssueNumber(row)
+          const parsed = IssueSchema.safeParse(row)
+          if (parsed.success) issues.push(parsed.data)
+          else {
+            const reject: RejectedIssue = { number, at: now, detail: sanitizeZodIssues(parsed.error), page, index }
+            if (onReject) { try { onReject(reject) } catch { /* logging failure must not break list */ } }
+            else rejects.push(reject)
+          }
+        }
       }
-      recordRejects(cfg.dataDir, rejects)
+      if (rejects.length > 0 && !onReject) console.error(`Rejected ${rejects.length} malformed issue rows: ${rejectSummary(rejects)}`)
       return issues
     },
     async issue(number: number): Promise<Issue> {

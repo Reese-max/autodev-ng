@@ -1,9 +1,9 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { githubClient } from '../src/github/client.js'
+import { githubClient, type RejectedIssue } from '../src/github/client.js'
 import { GithubConfigSchema } from '../src/github/config.js'
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }))
@@ -59,25 +59,32 @@ test('long issue body is preserved exactly and survives round-trip parsing', asy
   expect(listed[0]!.body).toBe(body)
 })
 
-test('mixed good+bad page keeps healthy issues and records rejected items without raw body', async () => {
+test('mixed good+bad page keeps healthy issues and reports rejected items without raw body', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-gh-client-')); dirs.push(dir)
-  const cfg = GithubConfigSchema.parse({ repo: 'owner/project', authors: ['owner'], sourceConfig: 'source.json', dataDir: dir, engine: 'writer' })
+  const dataDir = join(dir, 'data')
+  mkdirSync(dataDir, { recursive: true })
+  const cfg = GithubConfigSchema.parse({ repo: 'owner/project', authors: ['owner'], sourceConfig: 'source.json', dataDir, engine: 'writer' })
   const good = issueFixture('good')
   const badNoTitle = { number: 18, body: 'missing title', state: 'open', user: { login: 'owner' }, labels: [] }
   const badNumber = { title: 'bad number', body: 'bad-body-value', state: 'open', user: { login: 'owner' }, labels: [], number: -1 }
   const run = vi.mocked(execFileSync)
-  run.mockReturnValueOnce(JSON.stringify([[good, badNoTitle, badNumber, { not: 'an issue' }]]))
-  const issues = await githubClient(cfg).list()
+  run.mockReturnValueOnce(JSON.stringify([[good, badNoTitle, badNumber, { not: 'an issue' }, null, 99]]))
+  const rejects: RejectedIssue[] = []
+  const issues = await githubClient(cfg).list(reject => rejects.push(reject))
   expect(issues.map(i => i.number)).toEqual([17])
-
-  const rejected = JSON.parse(readFileSync(join(dir, 'rejected-issues.json'), 'utf8')) as { number?: number; detail: string }[]
-  expect(rejected.length).toBeGreaterThanOrEqual(2)
-  expect(rejected.some(r => r.number === 18)).toBe(true)
-  expect(rejected.some(r => r.detail.includes('title'))).toBe(true)
-  for (const r of rejected) {
+  expect(rejects.length).toBe(5)
+  expect(rejects.filter(r => r.number === 18).length).toBe(1)
+  expect(rejects.filter(r => r.number === -1).length).toBe(0)
+  expect(rejects.filter(r => r.number === 99).length).toBe(0)
+  expect(rejects.some(r => r.detail.includes('title:'))).toBe(true)
+  expect(rejects.some(r => r.detail.includes('number:'))).toBe(true)
+  expect(rejects.some(r => r.detail === 'expected object, got null')).toBe(true)
+  expect(rejects.some(r => r.detail === 'expected object, got number')).toBe(true)
+  for (const r of rejects) {
     expect(r.detail).not.toContain('missing title')
     expect(r.detail).not.toContain('bad-body-value')
   }
+  expect(existsSync(join(dataDir, 'rejected-issues.json'))).toBe(false)
 })
 
 test('read-only list callers do not create data directories or expose bodies in errors', async () => {
@@ -86,12 +93,41 @@ test('read-only list callers do not create data directories or expose bodies in 
   const cfg = GithubConfigSchema.parse(JSON.parse(readFileSync(join(dir, 'github.json'), 'utf8')))
   const bad = { number: 19, body: 'secret-body-text'.repeat(1000), state: 'open', user: { login: 'owner' }, labels: [] }
   const run = vi.mocked(execFileSync)
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   run.mockReturnValueOnce(JSON.stringify([[bad]]))
   await expect(githubClient(cfg).list()).resolves.toEqual([])
+  expect(consoleError).toHaveBeenCalled()
   expect(existsSync(join(dir, 'data'))).toBe(false)
+  consoleError.mockRestore()
 
   const badBody = 'x'.repeat(120_000)
   run.mockReturnValueOnce(JSON.stringify({ ...issueFixture(), body: badBody }))
-  await expect(githubClient(cfg).issue(17)).rejects.toThrow('unsupported or malformed')
-  await expect(githubClient(cfg).issue(17)).rejects.not.toContain(badBody)
+  const promise = githubClient(cfg).issue(17)
+  await expect(promise).rejects.toThrow('unsupported or malformed')
+  const err = await promise.catch(e => e)
+  expect(err).toBeInstanceOf(Error)
+  if (err instanceof Error) {
+    expect(err.message).not.toContain(badBody)
+  }
+})
+
+test('read-only list callers with an existing data directory do not write files', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-gh-client-')); dirs.push(dir)
+  const dataDir = join(dir, 'data')
+  mkdirSync(dataDir, { recursive: true })
+  const beforeFiles = readdirSync(dataDir)
+  const beforeSizes = new Map(beforeFiles.map(f => [f, statSync(join(dataDir, f)).size]))
+  writeFileSync(join(dir, 'github.json'), JSON.stringify({ repo: 'owner/project', authors: ['owner'], sourceConfig: 'source.json', dataDir, engine: 'writer' }))
+  const cfg = GithubConfigSchema.parse(JSON.parse(readFileSync(join(dir, 'github.json'), 'utf8')))
+  const bad = { number: 19, body: 'secret-body-text'.repeat(1000), state: 'open', user: { login: 'owner' }, labels: [] }
+  const run = vi.mocked(execFileSync)
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  run.mockReturnValueOnce(JSON.stringify([[bad]]))
+  await expect(githubClient(cfg).list()).resolves.toEqual([])
+  expect(consoleError).toHaveBeenCalled()
+  const afterFiles = readdirSync(dataDir)
+  expect(afterFiles).toEqual(beforeFiles)
+  for (const f of afterFiles) expect(statSync(join(dataDir, f)).size).toBe(beforeSizes.get(f))
+  expect(existsSync(join(dataDir, 'rejected-issues.json'))).toBe(false)
+  consoleError.mockRestore()
 })
