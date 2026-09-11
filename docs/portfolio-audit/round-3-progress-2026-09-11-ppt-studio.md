@@ -1,0 +1,13 @@
+# Portfolio 50-Persona Audit — Round 3 Continuation (2026-09-11, ppt-studio)
+
+Protocol: `docs/portfolio-audit/2026-09-06-50-persona-audit.md`.
+
+This is a continuation of `round-3-progress-2026-09-11.md`. It uses the same fixed 50 simulated personas and the same severity/CLEAN criteria. Static repository evidence is not represented as production/runtime validation.
+
+| Repository | Round-3 result | New/regressed P0/P1/P2 | Evidence / next gate |
+|---|---|---|---|
+| `ppt-studio` | **NOT CLEAN** | **P1 #1 remains reproducible / incomplete remediation — remote auth can fail open when `APP_TOKEN` is absent or traffic arrives through a loopback reverse proxy** | Audited product/default snapshot `master@da303f7cdc93883b6aed1b414286ef640a6c99ee`. Default Compose is now correctly bound to `127.0.0.1:8899:8899`, so this audit does not claim the default Compose command is remotely exposed. However, `NetworkAuthMiddleware` passes all requests immediately when `APP_TOKEN` is empty, and the checked-in test explicitly expects a non-loopback `10.0.0.5` request to `/api/generate` to return 200 in that state. The middleware also bypasses every request whose transport peer is loopback; that is unsafe as a general reverse-proxy authentication contract because a same-host proxy can make external traffic appear to originate from `127.0.0.1`. `docker-compose.yml` documents remote `0.0.0.0` + `APP_TOKEN`, but the active environment list does not include `APP_TOKEN`; it appears only in the example comments. Current-default Actions run `34067396336` is a real **failure**: `kpi-baseline` failed at its baseline entrypoint and `lint` failed at Ruff. Open PR #2 is candidate remediation only and is not treated as landed/default-branch evidence. Repo Round-3 report commit `2c2ec432a559b726d35b0cc2d4b491b7f9ebd929`; #1 updated; streak remains/resets to 0/2. |
+
+## CLEAN accounting
+
+`ppt-studio` remains **NOT CLEAN**. The default loopback binding is a positive remediation, but existing P1 #1 is not satisfied because the application-level remote-auth boundary still fails open for missing-token and same-host-proxy conditions on current default source. The current default SHA also has a red CI run, so historical PR-local Docker evidence is not substituted for current-default verification. After the relevant fix lands, the same fixed 50 personas must be rerun, the authenticated remote/container path must have real execution evidence, all P0/P1/P2 blockers must be resolved/dispositioned, and two consecutive qualifying rounds with no new P0/P1/P2 findings are still required before CLEAN.
