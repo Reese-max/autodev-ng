@@ -40,6 +40,18 @@ This continuation records only repositories processed with the fixed 50 simulate
 - Existing static safety positives from prior rounds remain useful, but provider execution, interruption/resume, long-run resource/budget, visual generation, browser/accessibility and published-site paths still lack qualifying runtime evidence.
 - Status: **NOT CLEAN; CLEAN streak 0/2**.
 
+## Reese-max/minideck
+
+- Audited default branch before this repo report: `main` @ `ed7ffd5f826f4ff6098e546f277b57285674b818`.
+- Comparison with the prior fixed-persona product SHA `d3026875d9ef0f0010137639e789359463139a89` shows only two audit/documentation additions. No product-code remediation landed, so the existing publication-boundary fingerprint tracked by Issue #4 remains current: `current_version` is still both the draft/edit head and the anonymous `/p/:id` public head, with no independent `published_version` / explicit publish / unpublish lifecycle.
+- **New P2 release-assurance regression — Issue #6:** `.github/workflows/ci.yml` still declares checkout → Node 22 → `npm ci` → `npm run check` for `main`, but the two most recent default-branch CI records do not actually execute a runner.
+- Run #28 / `34221657466` on `3fb825509e4a95d3acb694f26e7d90f5e62d678a` and run #29 / `34666960074` on `ed7ffd5f826f4ff6098e546f277b57285674b818` both conclude `failure` with `runner_id=0`, empty runner name and `steps=[]`. The latest known successful `main` run remains #27 / `34094862999` on `d3026875d9ef0f0010137639e789359463139a89`.
+- Because neither failed run executed steps, they are not evidence that checkout, dependency installation, `npm run check`, Worker logic, D1/R2, or the publication path failed. Exact admission/platform cause is unknown and is not inferred.
+- Fixed-persona linkage for #6: C05, D03, H03, H05, I05, J05. Existing #4 continues to affect B03, C04, D02, D05, I02, I05 and J04.
+- Issue #4 was updated with current-head/runtime evidence; new Issue #6 requires an actually executing remote gate and two consecutive current/recent successful default-branch receipts containing the declared steps.
+- Repo audit report: `docs/audits/50-persona-round-4-2026-09-12.md`, commit `31f7131ae24af9d89287000e8048750e598686a1`.
+- Status: **NOT CLEAN; CLEAN streak 0/2**.
+
 ## Portfolio stop condition
 
-Not reached. `soundbox-offline` still has an unresolved P0 recovery-integrity blocker plus its P2 CI-gate finding. `lplrs-judicial-sync` has the existing P1 erasure blocker plus its P1 scheduled-sync runtime regression. `ai-novel-workstation` now has P2 #5 because its declared default-branch CI gate has no observable execution receipt, while other required runtime paths remain unevidenced. None of these repositories can start or continue a qualifying CLEAN streak.
+Not reached. `soundbox-offline` still has an unresolved P0 recovery-integrity blocker plus its P2 CI-gate finding. `lplrs-judicial-sync` has the existing P1 erasure blocker plus its P1 scheduled-sync runtime regression. `ai-novel-workstation` has P2 #5 because its declared default-branch CI gate has no observable execution receipt, while other required runtime paths remain unevidenced. `minideck` still has the publication-boundary blocker #4 and now P2 #6 because its two latest default-branch CI records fail before any runner step executes. None of these repositories can start or continue a qualifying CLEAN streak.
