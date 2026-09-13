@@ -24,14 +24,15 @@ New actionable issue: `Reese-max/clinical-scribe-worker#10` — `[P2][50-persona
 
 Evidence:
 
-- Current-head CI run `34314339829` concluded failure with `runner_id=0` and `steps=[]`; therefore no checkout/install/typecheck/test step executed. The platform/admission root cause is unknown and is not inferred.
+- Default-branch CI run `34314339829` concluded failure with `runner_id=0` and `steps=[]`; therefore no checkout/install/typecheck/test step executed. The platform/admission root cause is unknown and is not inferred.
 - Current `.github/workflows/ci.yml` runs only `npm ci` and `npm run typecheck`.
 - `package.json` defines `npm run check = npm run typecheck && npm run test`, with `npm test = vitest run`; current CI does not invoke this full verification contract.
 - Historical successful run `34068143837` on product SHA `88bb746...` is valid typecheck execution evidence only, not security-test evidence.
+- The initial Round-4 audit commit `c405584d6a66d7f230577947e5f72efe295bccbb` triggered run `34773424567`; it also completed as `failure` with `runner_id=0` and `steps=[]`. This is a second observed current/recent default-branch zero-step failure of the same form, not an application/test failure.
 
 Affected fixed personas: C05, D03, H03, H05, I05, J04, J05.
 
-The new repo audit commit is `c405584d6a66d7f230577947e5f72efe295bccbb`. That commit triggered CI run `34773424567`; at the last evidence check it was **queued**, so it was not counted as success, failure, or runtime validation.
+The repo audit report was updated with the second zero-step receipt; latest audit-doc commit after that update: `4de4e7e9976f9f17619f0b9f4caaed2d5e23b2b5`.
 
 ### Remaining gates
 
@@ -43,4 +44,4 @@ The new repo audit commit is `c405584d6a66d7f230577947e5f72efe295bccbb`. That co
 
 ## Portfolio stop condition
 
-Not reached. `clinical-scribe-worker` remains NOT CLEAN and the broader portfolio still contains unresolved P0/P1/P2 audit findings, so the scheduled portfolio audit must continue.
+Not reached. `clinical-scribe-worker` remains NOT CLEAN and the broader portfolio still contains unresolved P0/P1/P2 audit findings, so the portfolio audit must continue.
