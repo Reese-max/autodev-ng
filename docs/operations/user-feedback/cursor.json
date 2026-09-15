@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-15T11:40:40Z",
+  "observed_through_utc": "2026-09-15T14:40:29Z",
   "source_scope": [
     "github_issues",
     "github_issue_comments",
@@ -8,7 +8,7 @@
   ],
   "coverage": {
     "accessible_self_owned_unarchived_repositories_enumerated": 39,
-    "issues_updated_since_previous_cursor_inspected": 4,
+    "issues_updated_since_previous_cursor_inspected": 13,
     "discussion_surface": "UNAVAILABLE_ON_CONNECTED_GITHUB_TOOLING"
   },
   "classification_policy": {
@@ -18,5 +18,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental scan from the previous cursor inspected all issue threads returned as updated in the accessible Reese-max-owned, unarchived repository scope and read their comments. Newly observed content was audit/persona coordination, synthetic runtime evidence, research experiments, or provenance-unknown material rather than an original usage-experience report. Default-branch code search for explicit USER_REPORTED / 使用回饋 markers found no clearly marked usage-feedback record; broader feedback matches were product/test artifacts rather than user-experience provenance. GitHub Discussions remain unavailable through the connected GitHub surface used in this run. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
+  "notes": "Incremental scan from the previous cursor inspected all issue threads returned as updated in the accessible Reese-max-owned, unarchived repository scope and the relevant comments. Newly observed updates were connector-created planning/issues, an upstream compatibility tracking issue, and isolated research/experiment coordination or execution evidence; none contained an original usage-experience report that can be promoted to USER_REPORTED. Exact USER_REPORTED / 使用回饋 issue searches returned no new marked feedback. GitHub Discussions remain unavailable through the connected GitHub surface used in this run. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
 }
