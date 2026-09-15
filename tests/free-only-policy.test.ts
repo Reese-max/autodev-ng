@@ -182,3 +182,34 @@ test('free-only lesson publication requires independent free review even over HT
   await reflectOnFailure(deps, { kind: 'blocked', taskId: 'task', taskText: 'task', reason: 'verification-infra' })
   expect(add).not.toHaveBeenCalled()
 })
+
+// Issue #14 回歸：釘死 free-only admission 的接受/拒絕組合——只放行明確 openrouter/<provider>/<model>:free
+// 且不允許呼叫端自帶 baseArgs；其餘 namespace/無 :free 後綴/缺 model 一律在建構期 fail-closed。
+test.each([
+  { name: 'admitted explicit free model', model: `openrouter/${model}`, ok: true },
+  { name: 'non-free suffix', model: 'openrouter/test/planner', ok: false },
+  { name: 'wrong provider namespace (opencode zen)', model: 'opencode/deepseek-v4-flash-free', ok: false },
+  { name: 'wrong provider namespace (kilo)', model: 'kilo/kilo-auto/free', ok: false },
+  { name: 'wrong provider namespace (nvidia)', model: 'nvidia/z-ai/glm-5.2', ok: false },
+  { name: 'missing model falls back to non-admitted default', model: undefined, ok: false },
+  { name: 'caller-controlled baseArgs rejected', model: `openrouter/${model}`, baseArgs: ['run', '-m', 'x'], ok: false },
+])('free-only opencode admission: $name', ({ model: m, baseArgs, ok }) => {
+  const opts = options()
+  const make = () => new OpencodeEngine({ model: m, baseArgs, freeOnly: true, policyDataDir: opts.dataDir,
+    profileDir: join(opts.dataDir, 'profile'), cache: new PreflightCache(join(opts.dataDir, 'cache.json')) })
+  if (ok) expect(make).not.toThrow()
+  else expect(make).toThrow('free-policy')
+})
+
+test('engine resolve failure names tag/adapter/model without secret material', () => {
+  const opts = options()
+  const cfg = ConfigSchema.parse({ projectPath: '.', backlogFile: 'BACKLOG.md', dataDir: opts.dataDir, tierMode: 'free-only',
+    defaultEngine: 'oc-bad', engines: { 'oc-bad': { adapter: 'opencode', model: 'opencode/zen-free-thing', subscription: true, costPerRunUsd: 0 } } })
+  try {
+    makeEngineRegistry(cfg).resolve('oc-bad')
+    expect.unreachable('resolve should have thrown')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    expect(msg).toContain('oc-bad'); expect(msg).toContain('opencode'); expect(msg).toContain('opencode/zen-free-thing'); expect(msg).toContain('free-policy')
+  }
+})
