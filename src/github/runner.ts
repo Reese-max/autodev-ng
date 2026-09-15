@@ -97,7 +97,11 @@ export async function runGithub(cfg: GithubConfig, options: {
           state.status = 'cancelled'; state.detail = 'Issue changed or excluded before execution'; saveState(cfg, state); return 'cancelled'
         }
         if (!active()) return 'paused'
-        if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state) && !issueReviewPending(cfg, state)) { state.status = 'blocked'; saveState(cfg, state); return 'blocked' }
+        if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state) && !issueReviewPending(cfg, state)) {
+          // 命名 gate：entry 處 blocked 保留 stale detail 會把「沒派工就擋」誤讀成上一次失敗（#13/#16）
+          state.status = 'blocked'; state.detail = `Run limit reached before dispatch (runs=${state.runs}/${cfg.maxRuns}); no alternative or review gate pending`
+          saveState(cfg, state); return 'blocked'
+        }
         const pending = state.alternativeRetryPending
         state.alternativeRetryPending = false
         state.status = 'running'; state.runs++; saveState(cfg, state)
@@ -115,6 +119,8 @@ export async function runGithub(cfg: GithubConfig, options: {
         state.commit = result.commit
         if (result.alternativeRetryPending) state.alternativeRetryPending = alternativeRunPending(cfg, { ...state, alternativeRetryPending: true })
         state.status = result.done ? 'ready' : state.runs >= cfg.maxRuns && !state.alternativeRetryPending && !result.reviewPending ? 'blocked' : 'queued'
+        // 命名 gate：執行後 blocked 時 detail 只剩 runOnce 的泛用字串（'failed'），附帶 gate 名才可稽核（#13/#16）
+        if (state.status === 'blocked') state.detail = `Run limit reached after execution (runs=${state.runs}/${cfg.maxRuns}): ${result.detail}`
         state.nextRunAt = result.retryAt && result.retryAt > Date.now() ? result.retryAt : Date.now() + cfg.retryMs
         saveState(cfg, state)
       }
