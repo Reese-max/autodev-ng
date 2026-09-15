@@ -1,10 +1,16 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-15T08:38:21Z",
+  "observed_through_utc": "2026-09-15T11:40:40Z",
   "source_scope": [
     "github_issues",
-    "github_issue_comments"
+    "github_issue_comments",
+    "explicit_feedback_marker_search"
   ],
+  "coverage": {
+    "accessible_self_owned_unarchived_repositories_enumerated": 39,
+    "issues_updated_since_previous_cursor_inspected": 4,
+    "discussion_surface": "UNAVAILABLE_ON_CONNECTED_GITHUB_TOOLING"
+  },
   "classification_policy": {
     "user_reported_requires_original_usage_experience": true,
     "agent_or_synthetic_content_is_not_user_feedback": true,
@@ -12,5 +18,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental scan from the previous cursor inspected the issues/comments updated in the accessible Reese-max-owned repository scope. Newly observed candidate content was audit/agent coordination, research/runtime evidence, or provenance-unknown material rather than an original usage-experience report. GitHub Discussions were not available through the connected GitHub surface used in this run. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
+  "notes": "Incremental scan from the previous cursor inspected all issue threads returned as updated in the accessible Reese-max-owned, unarchived repository scope and read their comments. Newly observed content was audit/persona coordination, synthetic runtime evidence, research experiments, or provenance-unknown material rather than an original usage-experience report. Default-branch code search for explicit USER_REPORTED / 使用回饋 markers found no clearly marked usage-feedback record; broader feedback matches were product/test artifacts rather than user-experience provenance. GitHub Discussions remain unavailable through the connected GitHub surface used in this run. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
 }
