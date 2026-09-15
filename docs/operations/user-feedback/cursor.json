@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "observed_through_utc": "2026-09-15T05:43:01Z",
+  "source_scope": [
+    "github_issues",
+    "github_issue_comments"
+  ],
+  "classification_policy": {
+    "user_reported_requires_original_usage_experience": true,
+    "agent_or_synthetic_content_is_not_user_feedback": true,
+    "observed_execution_is_not_user_feedback_by_itself": true,
+    "unknown_provenance_is_not_promoted_to_user_reported": true
+  },
+  "last_disposition": "NO_VERIFIABLE_FEEDBACK",
+  "notes": "Initial cursor only. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here. Candidate issue/comment text inspected in this run was either synthetic/agent-generated, execution evidence, or lacked sufficient provenance to classify as original user feedback."
+}
