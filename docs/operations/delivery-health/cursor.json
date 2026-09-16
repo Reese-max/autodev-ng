@@ -10,7 +10,9 @@
       "docs/operations/fair-selection-v1.md@d5d0cf0eba8451a6584b7f1ed0cc279721f5889b",
       "docs/operations/delivery-health/cursor.json@3d098e7871c1ed7cd666f8ce19d31689810f4cc4",
       "https://github.com/Reese-max/taiwan-intel-dashboard/pull/34",
-      "https://github.com/Reese-max/taiwan-intel-dashboard/actions/runs/35113295826"
+      "https://github.com/Reese-max/taiwan-intel-dashboard/actions/runs/35113295826",
+      "https://github.com/Reese-max/prompt-autoresearch/pull/9",
+      "https://github.com/Reese-max/prompt-autoresearch/actions/runs/35088694290"
     ]
   },
   "inventory": {
@@ -20,25 +22,18 @@
     "discovery_cursor": "open-pr discovery partial: continue repository/issue pagination and restore recent merged-awaiting-verification work; private candidates require private persistence"
   },
   "selection": {
-    "priority_streak": 1,
+    "priority_streak": 0,
     "aging_due": false,
     "next_fair_target": {
-      "repository_id": 1323082493,
+      "repository_id": 1365107191,
       "work_type": "pr",
       "number": 9
     },
-    "fair_cycle_remaining_repo_ids": [1323082493, 1365107191],
-    "last_selection_reason": "PRIORITY: new substantive code + exact-head review/check results on taiwan-intel-dashboard PR #34",
+    "fair_cycle_remaining_repo_ids": [1365107191],
+    "last_selection_reason": "AGING: completed the queued prompt-autoresearch PR #9 diagnosis and restored its current blocker from exact workflow logs",
     "emergency_fingerprint": null
   },
-  "selection_lease": {
-    "run_id": "delivery-watch-20260916T181201Z",
-    "acquired_at": "2026-09-16T18:12:01Z",
-    "expires_at": "2026-09-16T19:42:01Z",
-    "lane": "AGING",
-    "target": "1323082493:pr:9",
-    "selection_reason": "AGING: restore and complete the queued prompt-autoresearch PR #9 delivery diagnosis before rotating to another repo"
-  },
+  "selection_lease": null,
   "discovery_watermarks": {
     "open_pr_search": {
       "observed_at": "2026-09-16T15:11:09Z",
@@ -77,14 +72,40 @@
       "repository": "Reese-max/prompt-autoresearch",
       "work_type": "pr",
       "number": 9,
-      "first_seen_at": null,
-      "last_delivery_check_at": null,
-      "last_attempted_at": null,
-      "last_product_progress_at": null,
-      "first_blocked_at": null,
-      "blocking_fingerprint": null,
-      "last_reviewed_head_sha": null,
-      "resume_subcursor": "bootstrap candidate; current diagnosis not yet restored"
+      "first_seen_at": "2026-09-16T11:08:11Z",
+      "last_delivery_check_at": "2026-09-16T18:12:01Z",
+      "last_attempted_at": "2026-09-16T18:12:01Z",
+      "last_product_progress_at": "2026-09-16T11:07:56Z",
+      "first_blocked_at": "2026-09-16T11:08:45Z",
+      "blocking_fingerprint": "required-matrix-M1-preflight-portability:posix-windows-style-baseline-run-paths+windows-parent-stdout-cp1252-unicode-error;L311-additionally-self-dirties-worktree-with-acceptance-log",
+      "last_reviewed_head_sha": "cf6bee042dfe0d2ed5aad3d26ac64b0d62c944d1",
+      "delivery_state": "WAITING_FIX",
+      "resolved_blockers": [
+        "PyYAML is now installed successfully in real GitHub-hosted matrix jobs",
+        "Linux 3.11 raw full pytest acceptance at the PR merge ref passes 1376 tests, so the original best-version evidence failure cluster is no longer the first failing layer"
+      ],
+      "secondary_blockers": [
+        "POSIX preflight cannot resolve baseline.meta run references stored with Windows backslashes even though the referenced run directories exist",
+        "Windows run_test_matrix.py reprints captured Chinese preflight JSON through a cp1252 stdout and raises UnicodeEncodeError before emitting M1 result",
+        "L311 writes acceptance-L311-raw.log into the checkout before M1, causing git_preflight to report dirty_worktree"
+      ],
+      "evidence": {
+        "workflow_run": 35088694290,
+        "pr_head_sha": "cf6bee042dfe0d2ed5aad3d26ac64b0d62c944d1",
+        "executed_merge_ref_sha": "8e4a9645446a1c46782292eda4028168f30f3b48",
+        "representative_jobs": {
+          "linux_311": 104769568011,
+          "macos_311": 104769567937,
+          "windows_311": 104769568155
+        }
+      },
+      "wake_conditions": [
+        "new head SHA that changes matrix/preflight behavior",
+        "new exact-head matrix/check result",
+        "new evidence resolving baseline path portability, Windows output encoding, or L311 worktree cleanliness"
+      ],
+      "next_probe_at": "2026-09-17T18:12:01Z",
+      "resume_subcursor": "On wake, inspect representative Linux/macOS/Windows M1 first, then all 9 matrix conclusions and test-matrix-required. Keep PR #9's best-version fix separate from matrix-harness portability; merged/default-branch verification remains a later gate."
     },
     "1365107191:pr:9": {
       "repository_id": 1365107191,
@@ -101,26 +122,26 @@
       "resume_subcursor": "bootstrap candidate; current diagnosis not yet restored"
     }
   },
-  "active_queue": ["1323082493:pr:9", "1365107191:pr:9"],
-  "waiting_queue": ["1276211068:pr:34"],
+  "active_queue": ["1365107191:pr:9"],
+  "waiting_queue": ["1276211068:pr:34", "1323082493:pr:9"],
   "waiting_probe_cursor": "1276211068:pr:34",
-  "last_run_id": "delivery-watch-20260916T151109Z",
-  "last_completed_check_at": "2026-09-16T15:13:00Z",
+  "last_run_id": "delivery-watch-20260916T181201Z",
+  "last_completed_check_at": "2026-09-16T18:12:01Z",
   "last_run": {
-    "run_id": "delivery-watch-20260916T151109Z",
-    "lane": "PRIORITY",
-    "selection_reason": "new code/review/check event",
-    "completed_scope": "taiwan-intel-dashboard PR #34 exact head: PR/Issue contract, complete current review comments, exact-SHA checks/jobs/steps, workflow and relevant source paths",
-    "result": "WAITING_FIX",
-    "next_target": "1323082493:pr:9",
-    "unfinished": "portfolio inventory/issue/recent-merge pagination remains PARTIAL"
+    "run_id": "delivery-watch-20260916T181201Z",
+    "lane": "AGING",
+    "selection_reason": "queued aging diagnosis from the persisted fair-selection cursor",
+    "completed_scope": "prompt-autoresearch PR #9: current PR/Issue/comments, PR files, exact-head workflow run and all job step conclusions, representative Linux/macOS/Windows decoded job logs, matrix/preflight source, baseline metadata and referenced run existence, plus current-head recheck",
+    "result": "WAITING_FIX; original best-version/PyYAML blocker is cleared on real CI acceptance, but the required matrix now fails at M1 cross-platform preflight/harness behavior",
+    "next_target": "1365107191:pr:9",
+    "unfinished": "portfolio inventory/issue/recent-merge pagination remains PARTIAL; no private-repo identifiers are persisted here"
   },
   "coverage": {
     "eligible": null,
-    "completed": 1,
-    "partial": 2,
-    "waiting": 1,
+    "completed": 2,
+    "partial": 1,
+    "waiting": 2,
     "note": "Bootstrap is intentionally incomplete; private repositories are excluded from this public cursor and require separate private persistence."
   },
-  "notes": "Fair-selection lease was acquired and read back, then released after one completed PRIORITY diagnosis. Bootstrap remains partial; unknown historical timestamps stay null. Private-repo candidates seen during discovery were not written to this public state, so cross-run fairness for that visibility scope remains STATE_STORAGE_BLOCKED unless a private persistence path is used."
+  "notes": "AGING diagnosis completed and selection lease released. The prompt-autoresearch blocker changed materially: the best-version/PyYAML repair reaches real GitHub-hosted runners and the raw Linux full pytest acceptance passes, while the required matrix remains red due M1 portability/encoding/worktree-preflight behavior. Inventory remains partial. Private-repo candidates are not written to this public state, so cross-run fairness for that visibility scope remains STATE_STORAGE_BLOCKED unless a private persistence path is used."
 }
