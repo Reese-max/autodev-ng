@@ -21,35 +21,32 @@
   },
   "inventory": {
     "complete": false,
-    "observed_at": "2026-09-16T15:42:00Z",
-    "repository_ids": [1164006611, 1276211068],
-    "discovery_cursor": "open-pr-search:user=Reese-max;sort=created-asc;top=100;continuation-required"
+    "observed_at": "2026-09-16T16:36:54Z",
+    "repository_ids": [1164006611, 1276211068, 1346550026],
+    "discovery_cursor": "open-pr-search:user=Reese-max;sort=created-asc;top=100;created-before-2026-08-23-exhausted;newer-continuation-required"
   },
   "selection": {
     "priority_streak": 0,
     "aging_due": false,
-    "next_fair_target": "1276211068#3",
-    "fair_cycle_remaining_repo_ids": [1276211068],
-    "last_selection_reason": "AGING selected from persisted fair target: public PR with never-completed review and long-lived unresolved thread",
+    "next_fair_target": "1346550026#4",
+    "fair_cycle_remaining_repo_ids": [1346550026],
+    "last_selection_reason": "AGING made substantive bounded progress on the persisted oldest target: all current review threads, exact-head CI scope, PR claims, current default-branch relation, and default-branch status of both blockers were checked; full 51-file diff review remains partial, so its fairness debt is preserved while rotation advances to another public repo.",
     "selection_lane": "AGING",
     "selection_target": "1276211068#3",
     "emergency_fingerprint": null
   },
-  "selection_lease": {
-    "run_id": "self-review-20260916T163115Z",
-    "task": "self-review",
-    "target": "1276211068#3",
-    "lane": "AGING",
-    "acquired_at": "2026-09-16T16:31:15Z",
-    "expires_at": "2026-09-16T18:01:15Z"
-  },
+  "selection_lease": null,
   "discovery_watermarks": {
     "open_prs": {
-      "queried_at": "2026-09-16T15:33:53Z",
+      "queried_at": "2026-09-16T16:36:54Z",
       "sort": "created-asc",
       "top": 100,
       "complete": false,
-      "resume": "continuation-required"
+      "resume": "continue open PR discovery for created_at >= 2026-08-23; no accessible open PR matched created_at < 2026-08-23 in this query scope",
+      "oldest_window_checked": {
+        "query": "created:<2026-08-23",
+        "result": "NO_MATCHES"
+      }
     }
   },
   "items": {
@@ -87,22 +84,59 @@
       "last_complete_review_at": null,
       "review_due_since": "2026-08-23T23:15:22Z",
       "oldest_unresolved_thread_at": "2026-08-23T23:18:24Z",
-      "last_attempted_at": "2026-09-16T16:31:15Z",
+      "last_attempted_at": "2026-09-16T16:36:54Z",
+      "files_resume_subcursor": "full-diff-review-remains-after-thread-and-claim-scope",
+      "threads_resume_subcursor": null,
+      "state": "PARTIAL_AGING_REVIEW_DEFAULT_FIXED",
+      "finding_refs": [],
+      "review_receipt": {
+        "reviewed_commit_sha": "7b7e1777ebcb252fc7acbc809d5982b7e8edcbca",
+        "review_submission_matches_head": true,
+        "unresolved_threads_checked": 2,
+        "unresolved_threads_still_reproducible_on_pr_head": 2,
+        "historical_exact_head_ci": "SUCCESS_UNIT_AND_TYPECHECK_ONLY",
+        "historical_deployed_smoke_on_head": "NOT_EVIDENCED",
+        "current_default_sha": "a0960df425ff3fea291ef9d0e510761e23896e51",
+        "current_relation": "DIVERGED_DEFAULT_AHEAD_27_PR_AHEAD_1",
+        "mergeable": false,
+        "default_branch_404_asset_fix": "CONFIRMED",
+        "default_branch_missing_source_status_separation_fix": "CONFIRMED",
+        "disposition": "DO_NOT_MERGE_AS_IS; rebase/refresh against current default or supersede after confirming the one unique PR commit is no longer needed"
+      }
+    },
+    "1346550026#4": {
+      "repository_id": 1346550026,
+      "pr_number": 4,
+      "visibility": "public",
+      "created_at": "2026-08-27T05:21:59Z",
+      "current_head_sha": "4bef4e0d13a5139559db8781e7d966f2cb2da26a",
+      "last_reviewed_head_sha": null,
+      "last_complete_review_at": null,
+      "review_due_since": "2026-08-27T05:30:09Z",
+      "oldest_unresolved_thread_at": "2026-08-27T05:30:09Z",
+      "last_attempted_at": null,
       "files_resume_subcursor": null,
       "threads_resume_subcursor": null,
-      "state": "SELECTED_AGING"
+      "state": "DISCOVERED_AGING_PRIORITY",
+      "discovery_receipt": {
+        "latest_reviewed_commit_sha": "4e462b11326411b0936d33d80c4025e067d6befd",
+        "current_head_differs_from_latest_review": true,
+        "current_unresolved_thread_count": 4,
+        "pr_claimed_qa_head_sha": "4e462b11326411b0936d33d80c4025e067d6befd",
+        "current_head_sha": "4bef4e0d13a5139559db8781e7d966f2cb2da26a"
+      }
     }
   },
-  "active_queue": ["1276211068#3"],
+  "active_queue": ["1276211068#3", "1346550026#4"],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
   "last_run_id": "self-review-20260916T163115Z",
-  "last_completed_check_at": "2026-09-16T15:42:00Z",
+  "last_completed_check_at": "2026-09-16T16:36:54Z",
   "coverage": {
     "eligible": null,
     "completed": 1,
-    "partial": 1,
+    "partial": 2,
     "waiting": 0
   },
-  "notes": "Fair-selection bootstrap is backed by one completed AGING review. Inventory discovery remains PARTIAL; empty/short lists are not treated as complete. Private repository identifiers are not persisted in this public cursor."
+  "notes": "This run completed all current thread/claim/CI/default-branch checks for the selected aging PR but intentionally did not mark its 51-file diff as fully reviewed. Its two old blockers are confirmed fixed independently on the current default branch while the stale PR head remains divergent and non-mergeable. Fair rotation advances to a different public repository while preserving the partial PR's review debt. Inventory discovery remains PARTIAL. Private repository identifiers are not persisted in this public cursor."
 }
