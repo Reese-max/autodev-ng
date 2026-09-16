@@ -2,19 +2,66 @@
   "schema_version": 1,
   "task": "runtime-evidence",
   "policy": "docs/operations/fair-selection-v1.md",
-  "status": "BOOTSTRAP_REQUIRED",
+  "status": "PARTIAL",
   "visibility_scope": "PUBLIC_ONLY",
-  "migration": {"required": true, "evidence_refs": []},
-  "inventory": {"complete": false, "observed_at": null, "repository_ids": [], "discovery_cursor": null},
-  "selection": {"priority_streak": 0, "aging_due": false, "next_fair_target": null, "fair_cycle_remaining_repo_ids": [], "last_selection_reason": null, "emergency_fingerprint": null},
-  "selection_lease": null,
+  "migration": {
+    "required": true,
+    "evidence_refs": [
+      "github-search:open-NEEDS_RUNTIME_VERIFICATION:62-results:2026-09-16T16:19:26Z",
+      "Reese-max/project-doctor-web#16:runtime-receipt-5698051472",
+      "Reese-max/lobsterpulse#3:runtime-receipt-5674624019"
+    ]
+  },
+  "inventory": {
+    "complete": false,
+    "observed_at": "2026-09-16T16:19:26Z",
+    "repository_ids": [1369117921],
+    "discovery_cursor": {
+      "source": "github-issue-search",
+      "query": "user:Reese-max is:issue is:open NEEDS_RUNTIME_VERIFICATION",
+      "resume": "enumerate-results-with-bounded-pagination",
+      "known_total": 62
+    }
+  },
+  "selection": {
+    "priority_streak": 1,
+    "aging_due": false,
+    "next_fair_target": "1369117921#6#provider-timeout-cancellation",
+    "fair_cycle_remaining_repo_ids": [],
+    "last_selection_reason": "PRIORITY: current default-branch source now contains bounded provider HTTP primitives for an open runtime-verification finding; verify whether the landed path satisfies the deterministic timeout/cancellation scenario without provider credentials.",
+    "emergency_fingerprint": null
+  },
+  "selection_lease": {
+    "run_id": "2026-09-16T16:19:26Z-runtime-evidence-2",
+    "expires_at": "2026-09-16T17:49:26Z",
+    "lane": "PRIORITY",
+    "target": "1369117921#6#provider-timeout-cancellation"
+  },
   "discovery_watermarks": {},
-  "items": {},
-  "active_queue": [],
+  "items": {
+    "1369117921#6#provider-timeout-cancellation": {
+      "repository_id": 1369117921,
+      "issue_number": 6,
+      "scenario_id": "provider-timeout-cancellation",
+      "state": "ACTIVE",
+      "lane": "PRIORITY",
+      "first_seen_at": "2026-09-14T08:32:29Z",
+      "last_attempted_at": "2026-09-16T16:19:26Z",
+      "last_completed_evidence_at": null,
+      "last_relevant_evidence_version": "main@9b99f580acaf1e0b6631aa911b9222c262ddc1ec",
+      "resume_subcursor": "inspect current http/provider implementation and existing exact-SHA execution receipts; execute bounded isolated fixture only if no equivalent receipt exists"
+    }
+  },
+  "active_queue": ["1369117921#6#provider-timeout-cancellation"],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
-  "last_run_id": null,
+  "last_run_id": "2026-09-16T16:19:26Z-runtime-evidence-2",
   "last_completed_check_at": null,
-  "coverage": {"eligible": null, "completed": null, "partial": null, "waiting": null},
-  "notes": "Initialized storage only, not a verified empty runtime backlog. Import actual pending run IDs, evidence versions and blockers before selection. Waiting entries require blocked_fingerprint, wake_conditions and next_probe_at. Moving entries here never closes Issues or changes external implementation queues. Public data only."
+  "coverage": {
+    "eligible": 62,
+    "completed": 0,
+    "partial": 1,
+    "waiting": 0
+  },
+  "notes": "Bootstrap remains partial: the GitHub search reports 62 open issues mentioning NEEDS_RUNTIME_VERIFICATION, but the full candidate set has not yet been classified into runnable vs waiting. Private-repository identifiers are intentionally excluded from this public cursor. Existing public receipts were used only as recovery anchors; they are not counted as this run's completed evidence."
 }
