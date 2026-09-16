@@ -1,21 +1,23 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-16T17:37:34Z",
+  "observed_through_utc": "2026-09-16T20:37:06Z",
   "source_scope": [
-    "github_repository_enumeration",
+    "github_owner_scoped_issue_search",
     "github_issues",
     "github_issue_comments",
     "explicit_feedback_marker_search"
   ],
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 39,
-    "repository_enumeration_this_run": "FRESH_SEARCH_USER_OWNER_ARCHIVED_FALSE_LIMIT_100",
-    "issues_updated_since_previous_cursor_inspected": 39,
-    "new_issues_in_window": null,
-    "existing_issue_threads_updated_in_window": null,
-    "updated_issue_threads_with_full_comments_inspected": 3,
+    "repository_enumeration_this_run": "NOT_REENUMERATED_INCREMENTAL_OWNER_SCOPE_ARCHIVED_FALSE_ISSUE_SEARCH",
+    "issues_updated_since_previous_cursor_inspected": 21,
+    "new_issues_in_window": 6,
+    "existing_issue_threads_updated_in_window": 15,
+    "updated_issue_threads_with_full_comments_inspected": 4,
     "explicit_feedback_marker_matches": 1,
     "verifiable_user_feedback_matches": 0,
+    "non_owner_authored_issue_matches": 0,
+    "threads_with_non_owner_commenters": 0,
     "discussion_surface": "REPOSITORY_DISCUSSIONS_UNAVAILABLE_ON_CONNECTED_GITHUB_TOOLING"
   },
   "classification_policy": {
@@ -25,5 +27,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental scan from 2026-09-16T14:39:58Z used a fresh enumeration of 39 accessible self-owned unarchived repositories and an issue search returning 39 updated issue threads at the query snapshot. A separate created-since-cursor search was inspected but its count is not persisted because GitHub search snapshots can move during a run. Exact searches for USER_REPORTED, 使用者回報, 我遇到, 使用時, and feedback/回饋 in comments returned no candidate original usage reports. 實際使用 matched one source-confirmed engineering/audit issue that explicitly lacked real provider evidence, so it was not promoted to USER_REPORTED. Three high-likelihood newly created requirement/feedback-themed threads had no comments; their bodies were feature definitions, audit/research findings, or paraphrased product requests without traceable original usage-source IDs. They remain SYNTHETIC_OR_AGENT or PROVENANCE_UNKNOWN rather than USER_REPORTED. The connected GitHub tooling still exposes no repository Discussions surface. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
+  "notes": "Incremental scan from 2026-09-16T17:37:34Z used owner-scoped archived:false GitHub issue search; the result was complete at query time with 21 updated issue threads, including 6 created in-window. No in-window issue was authored by a non-owner account and no updated thread with comments had a non-owner commenter. Exact searches for USER_REPORTED, 我遇到, 回饋, feedback and 實際使用 produced no traceable original usage report; 實際使用 matched a source/agent-authored reliability thread rather than a user-experience statement. Four high-likelihood updated threads were fetched with full issue-comment pagination: one runtime-evidence receipt, one research-experiment receipt, one persona-audit regression thread and one architecture/integration thread. Their automation markers, synthetic/agent framing, executed-test receipts, or connector-created provenance prevent promotion to USER_REPORTED. Several newly created requirement threads explicitly paraphrase an owner-approved direction but were created via the ChatGPT Codex Connector and do not contain an original usage-source ID, device/version context, or firsthand experience statement. They remain SYNTHETIC_OR_AGENT or PROVENANCE_UNKNOWN. Discussions remain unavailable through the connected GitHub surface; this is the same previously recorded source limitation and does not require a repeated owner notification. Repository enumeration itself was not refreshed this run; the prior aggregate remains only as the last enumerated baseline. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
 }
