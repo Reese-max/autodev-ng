@@ -2,15 +2,15 @@
   "schema_version": 1,
   "task": "upstream-watch",
   "policy": "docs/operations/fair-selection-v1.md",
-  "status": "IN_PROGRESS",
+  "status": "PARTIAL",
   "visibility_scope": "PUBLIC_ONLY",
-  "migration": {"required": true, "evidence_refs": [], "note": "No public prior upstream-watch report was found to supply an evidence-backed full-check timestamp. Private historical findings are not copied into this public cursor."},
+  "migration": {"required": false, "evidence_refs": [], "note": "Bootstrap migration was attempted. No public prior upstream-watch report supplied an evidence-backed full-check timestamp; unknown historical timestamps remain null. Private historical findings are not copied into this public cursor."},
   "inventory": {"complete": true, "observed_at": "2026-09-16T16:41:35Z", "repository_ids": [1158063134,1161935059,1164006611,1276211068,1297871948,1305479364,1306266034,1306901765,1323082493,1343595802,1346550026,1365107191,1369117921], "discovery_cursor": null},
-  "selection": {"priority_streak": 0, "aging_due": false, "next_fair_target": {"repository_id":1158063134,"repository_name":"exam-archive","lane":"AGING"}, "fair_cycle_remaining_repo_ids": [1158063134,1161935059,1164006611,1276211068,1297871948,1305479364,1306266034,1306901765,1323082493,1343595802,1346550026,1365107191,1369117921], "last_selection_reason": "BOOTSTRAP_REQUIRED; no evidence-backed full-check times exist in public state, so choose the lowest stable repository_id among NEVER_VERIFIED public candidates.", "emergency_fingerprint": null},
-  "selection_lease": {"owner":"upstream-watch:20260916T164135Z","acquired_at":"2026-09-16T16:41:35Z","expires_at":"2026-09-16T16:56:35Z","selected_item":{"repository_id":1158063134,"repository_name":"exam-archive"},"lane":"AGING","reason":"bootstrap aging selection","deferred_target":null},
+  "selection": {"priority_streak": 0, "aging_due": false, "next_fair_target": {"repository_id":1161935059,"repository_name":"police-exam-practice","lane":"AGING"}, "fair_cycle_remaining_repo_ids": [1161935059,1164006611,1276211068,1297871948,1305479364,1306266034,1306901765,1323082493,1343595802,1346550026,1365107191,1369117921], "last_selection_reason": "Completed the AGING full dependency/upstream check for exam-archive; continue fair-cycle round 1 with the next NEVER_VERIFIED public repository.", "emergency_fingerprint": null},
+  "selection_lease": null,
   "discovery_watermarks": {},
   "items": {
-    "1158063134":{"repository_name":"exam-archive","first_seen_at":"2026-09-16T16:41:35Z","last_full_dependency_check_at":null,"days_since_last_check":null,"last_attempted_at":null,"dependency_signature":null,"source_checked_through":null,"remaining_dependencies":null,"resume_subcursor":null},
+    "1158063134":{"repository_name":"exam-archive","first_seen_at":"2026-09-16T16:41:35Z","last_full_dependency_check_at":"2026-09-16T16:53:51Z","days_since_last_check":0,"last_attempted_at":"2026-09-16T16:53:51Z","dependency_signature":"static-pages|main@18a525ff132c75ebb915fabf81655fe5f4b560df|actions/checkout@v4|actions/configure-pages@v5|actions/upload-pages-artifact@v3|actions/deploy-pages@v4","source_checked_through":"2026-09-16T16:53:51Z; repository root/workflow/index source checked; latest exact-head Pages run 34441577194 checked; official GitHub Actions Node20->Node24 deprecation notice checked through the 2026-08-25 update (Node20 removal 2026-09-23)","remaining_dependencies":[],"resume_subcursor":null},
     "1161935059":{"repository_name":"police-exam-practice","first_seen_at":"2026-09-16T16:41:35Z","last_full_dependency_check_at":null,"days_since_last_check":null,"last_attempted_at":null,"dependency_signature":null,"source_checked_through":null,"remaining_dependencies":null,"resume_subcursor":null},
     "1164006611":{"repository_name":"police-exam-archive","first_seen_at":"2026-09-16T16:41:35Z","last_full_dependency_check_at":null,"days_since_last_check":null,"last_attempted_at":null,"dependency_signature":null,"source_checked_through":null,"remaining_dependencies":null,"resume_subcursor":null},
     "1276211068":{"repository_name":"taiwan-intel-dashboard","first_seen_at":"2026-09-16T16:41:35Z","last_full_dependency_check_at":null,"days_since_last_check":null,"last_attempted_at":null,"dependency_signature":null,"source_checked_through":null,"remaining_dependencies":null,"resume_subcursor":null},
@@ -24,11 +24,11 @@
     "1365107191":{"repository_name":"ai-flight-radar","first_seen_at":"2026-09-16T16:41:35Z","last_full_dependency_check_at":null,"days_since_last_check":null,"last_attempted_at":null,"dependency_signature":null,"source_checked_through":null,"remaining_dependencies":null,"resume_subcursor":null},
     "1369117921":{"repository_name":"spotify-playlist-organizer-mcp","first_seen_at":"2026-09-16T16:41:35Z","last_full_dependency_check_at":null,"days_since_last_check":null,"last_attempted_at":null,"dependency_signature":null,"source_checked_through":null,"remaining_dependencies":null,"resume_subcursor":null}
   },
-  "active_queue": [1158063134,1161935059,1164006611,1276211068,1297871948,1305479364,1306266034,1306901765,1323082493,1343595802,1346550026,1365107191,1369117921],
+  "active_queue": [1161935059,1164006611,1276211068,1297871948,1305479364,1306266034,1306901765,1323082493,1343595802,1346550026,1365107191,1369117921],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
   "last_run_id": "upstream-watch:20260916T164135Z",
-  "last_completed_check_at": null,
-  "coverage": {"eligible": 13, "completed": 0, "partial": 0, "waiting": 0},
-  "notes": "Public persistable state only. Private repository identifiers/fingerprints cannot be stored here; no separate cross-run private state store is available. Initialization is not a completed dependency check."
+  "last_completed_check_at": "2026-09-16T16:53:51Z",
+  "coverage": {"eligible": 13, "completed": 1, "partial": 0, "waiting": 0},
+  "notes": "Public persistable state only. Private repository identifiers/fingerprints cannot be stored here; no separate cross-run private state store is available. exam-archive has no app package/lock dependency; its GitHub-hosted Pages workflow at exact current head already succeeded while GitHub forced JavaScript actions onto Node24, so the 2026-09-23 Node20 runtime removal is not a confirmed breaking impact for this repository."
 }
