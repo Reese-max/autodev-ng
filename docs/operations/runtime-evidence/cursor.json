@@ -9,7 +9,8 @@
     "evidence_refs": [
       "github-search:open-NEEDS_RUNTIME_VERIFICATION:62-results:2026-09-16T16:19:26Z",
       "Reese-max/project-doctor-web#16:runtime-receipt-5698051472",
-      "Reese-max/lobsterpulse#3:runtime-receipt-5674624019"
+      "Reese-max/lobsterpulse#3:runtime-receipt-5674624019",
+      "Reese-max/spotify-playlist-organizer-mcp#6:runtime-receipt-5700840064"
     ]
   },
   "inventory": {
@@ -26,42 +27,45 @@
   "selection": {
     "priority_streak": 1,
     "aging_due": false,
-    "next_fair_target": "1369117921#6#provider-timeout-cancellation",
+    "next_fair_target": null,
     "fair_cycle_remaining_repo_ids": [],
-    "last_selection_reason": "PRIORITY: current default-branch source now contains bounded provider HTTP primitives for an open runtime-verification finding; verify whether the landed path satisfies the deterministic timeout/cancellation scenario without provider credentials.",
+    "last_selection_reason": "PRIORITY: current default-branch source contained a landed bounded provider deadline/cancellation implementation for open Issue #6; exact primitive was executed against deterministic hanging/cancelled stubs.",
     "emergency_fingerprint": null
   },
-  "selection_lease": {
-    "run_id": "2026-09-16T16:19:26Z-runtime-evidence-2",
-    "expires_at": "2026-09-16T17:49:26Z",
-    "lane": "PRIORITY",
-    "target": "1369117921#6#provider-timeout-cancellation"
-  },
+  "selection_lease": null,
   "discovery_watermarks": {},
   "items": {
     "1369117921#6#provider-timeout-cancellation": {
       "repository_id": 1369117921,
       "issue_number": 6,
       "scenario_id": "provider-timeout-cancellation",
-      "state": "ACTIVE",
+      "state": "BLOCKED_ENVIRONMENT",
       "lane": "PRIORITY",
       "first_seen_at": "2026-09-14T08:32:29Z",
+      "blocked_fingerprint": "stdio-mcp-closure-needs-repo-dependencies-not-present-in-isolated-runtime",
+      "blocked_since": "2026-09-16T16:23:00Z",
       "last_attempted_at": "2026-09-16T16:19:26Z",
-      "last_completed_evidence_at": null,
-      "last_relevant_evidence_version": "main@9b99f580acaf1e0b6631aa911b9222c262ddc1ec",
-      "resume_subcursor": "inspect current http/provider implementation and existing exact-SHA execution receipts; execute bounded isolated fixture only if no equivalent receipt exists"
+      "last_completed_evidence_at": "2026-09-16T16:23:00Z",
+      "last_relevant_evidence_version": "main@9b99f580acaf1e0b6631aa911b9222c262ddc1ec;http-blob@c6bc82c07c2ea3d0999035a1b87a6f1b436a36f8;receipt@5700840064",
+      "wake_conditions": [
+        "isolated environment already contains repository dependencies @modelcontextprotocol/server and zod, or an equivalent authorized reproducible workspace becomes available",
+        "a new exact-SHA CI/runtime receipt executes the real stdio MCP timeout/cancellation integration",
+        "relevant product implementation changes"
+      ],
+      "next_probe_at": "2026-09-17T16:23:00Z",
+      "resume_subcursor": "Run closure-grade real stdio MCP integration with a local stub server; do not call YouTube/Spotify production providers. Preserve tool-level typed timeout/cancel result, retry count and mutation count."
     }
   },
-  "active_queue": ["1369117921#6#provider-timeout-cancellation"],
-  "waiting_queue": [],
-  "waiting_probe_cursor": null,
+  "active_queue": [],
+  "waiting_queue": ["1369117921#6#provider-timeout-cancellation"],
+  "waiting_probe_cursor": "1369117921#6#provider-timeout-cancellation",
   "last_run_id": "2026-09-16T16:19:26Z-runtime-evidence-2",
   "last_completed_check_at": null,
   "coverage": {
     "eligible": 62,
     "completed": 0,
     "partial": 1,
-    "waiting": 0
+    "waiting": 1
   },
-  "notes": "Bootstrap remains partial: the GitHub search reports 62 open issues mentioning NEEDS_RUNTIME_VERIFICATION, but the full candidate set has not yet been classified into runnable vs waiting. Private-repository identifiers are intentionally excluded from this public cursor. Existing public receipts were used only as recovery anchors; they are not counted as this run's completed evidence."
+  "notes": "Bootstrap remains partial: the GitHub search reports 62 open issues mentioning NEEDS_RUNTIME_VERIFICATION, but the full candidate set has not yet been classified into runnable vs waiting. Private-repository identifiers are intentionally excluded from this public cursor. This run produced a partial LOCAL_EXECUTED receipt for one public item; it did not satisfy that Issue's real-stdio closure gate."
 }
