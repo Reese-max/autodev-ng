@@ -31,7 +31,14 @@
     "last_selection_reason": "PRIORITY: new substantive code + exact-head review/check results on taiwan-intel-dashboard PR #34",
     "emergency_fingerprint": null
   },
-  "selection_lease": null,
+  "selection_lease": {
+    "run_id": "delivery-watch-20260916T181201Z",
+    "acquired_at": "2026-09-16T18:12:01Z",
+    "expires_at": "2026-09-16T19:42:01Z",
+    "lane": "AGING",
+    "target": "1323082493:pr:9",
+    "selection_reason": "AGING: restore and complete the queued prompt-autoresearch PR #9 delivery diagnosis before rotating to another repo"
+  },
   "discovery_watermarks": {
     "open_pr_search": {
       "observed_at": "2026-09-16T15:11:09Z",
