@@ -21,44 +21,42 @@
   },
   "inventory": {
     "complete": false,
-    "observed_at": "2026-09-16T17:50:00Z",
-    "repository_ids": [1164006611, 1276211068, 1346550026, 1305479364],
-    "discovery_cursor": "open-pr-search:user=Reese-max;sort=created-asc;top=100;created-before-2026-08-23-exhausted;created-ge-2026-08-23-first-window-observed;visibility-classification-and-newer-window-continuation-required"
+    "observed_at": "2026-09-16T18:42:00Z",
+    "repository_ids": [1164006611, 1276211068, 1346550026, 1305479364, 1323082493, 1158063134],
+    "discovery_cursor": "open-pr-search:user=Reese-max;sort=created-asc;top=100;created-before-2026-08-23-exhausted;created-ge-2026-08-23-first-window-observed;created-gt-2026-09-02-window-observed-but-visibility-classification-incomplete;continue-after-public-prompt-autoresearch-and-exam-archive-candidates"
   },
   "selection": {
     "priority_streak": 0,
     "aging_due": false,
-    "next_fair_target": "1305479364#6",
-    "fair_cycle_remaining_repo_ids": [1305479364],
-    "last_selection_reason": "AGING fair target from the persisted cursor: oldest currently selected unserved public repository target, with the current head differing from the latest reviewed commit and an unresolved review thread requiring revalidation. Selection intent is persisted before deep review.",
-    "selection_lane": "AGING",
-    "selection_target": "1305479364#6",
+    "next_fair_target": "1323082493#2",
+    "fair_cycle_remaining_repo_ids": [1323082493, 1158063134],
+    "last_selection_reason": "AGING target 1305479364#6 received a bounded substantive review: latest head/source, all current review threads, post-review commits, exact-head CI/jobs/logs, current default branch, and PR discussion were checked. The sole old P2 thread is fixed on the latest head and exact-head mobile E2E proves the Blob path. The aggregate PR is now conflicting/diverged and product fixes are already represented on current main; if retained/rebased, the four post-review commits still require fresh review. Advance to the oldest verified-public unserved repository candidate discovered in the newer open-PR window.",
+    "selection_lane": null,
+    "selection_target": null,
     "emergency_fingerprint": null
   },
-  "selection_lease": {
+  "selection_lease": null,
+  "last_lease_release": {
     "run_id": "self-review-20260916T183453Z",
     "target": "1305479364#6",
     "lane": "AGING",
-    "acquired_at": "2026-09-16T18:34:53Z",
-    "expires_at": "2026-09-16T20:04:53Z"
-  },
-  "last_lease_release": {
-    "run_id": "self-review-20260916T173500Z",
-    "target": "1346550026#4",
-    "lane": "PRIORITY",
-    "released_at": "2026-09-16T17:50:00Z",
-    "status": "PARTIAL_WITH_FINDINGS"
+    "released_at": "2026-09-16T18:42:00Z",
+    "status": "PARTIAL_AGING_REVIEW_THREAD_FIXED_SUPERSEDED"
   },
   "discovery_watermarks": {
     "open_prs": {
-      "queried_at": "2026-09-16T17:38:00Z",
+      "queried_at": "2026-09-16T18:41:00Z",
       "sort": "created-asc",
       "top": 100,
       "complete": false,
-      "resume": "continue discovery after the first created>=2026-08-23 result window; classify visibility before persisting repository identifiers; private candidates were observed but intentionally not persisted",
+      "resume": "continue visibility classification and candidate persistence through the created>2026-09-02 result window; private candidates were observed but intentionally not persisted; prompt-autoresearch#2 and exam-archive#2 are the next verified-public unserved candidates",
       "oldest_window_checked": {
         "query": "created:<2026-08-23",
         "result": "NO_MATCHES"
+      },
+      "newer_window_checked": {
+        "query": "created:>2026-09-02",
+        "result": "PARTIAL_VISIBILITY_CLASSIFICATION"
       }
     }
   },
@@ -160,24 +158,77 @@
       "visibility": "public",
       "created_at": "2026-09-02T09:35:37Z",
       "current_head_sha": "8eac9ebfa9f182e43a3d670fb8616fbda9945a82",
-      "last_reviewed_head_sha": null,
+      "last_reviewed_head_sha": "8eac9ebfa9f182e43a3d670fb8616fbda9945a82",
       "last_complete_review_at": null,
       "review_due_since": "2026-09-02T09:38:59Z",
       "oldest_unresolved_thread_at": "2026-09-02T09:38:59Z",
+      "last_attempted_at": "2026-09-16T18:40:00Z",
+      "files_resume_subcursor": "remaining-full-diff-review-only-if-aggregate-pr-is-retained-or-rebased; product-fix scope is already superseded on current main",
+      "threads_resume_subcursor": null,
+      "state": "PARTIAL_AGING_REVIEW_THREAD_FIXED_SUPERSEDED_NEEDS_FRESH_REVIEW_IF_RETAINED",
+      "finding_refs": [
+        "github:Reese-max/flux-image-gen#6:discussion_r3912753151",
+        "github:Reese-max/flux-image-gen#6:review-reply-4029527021"
+      ],
+      "review_receipt": {
+        "latest_prior_reviewed_commit_sha": "24eea3c6139736f0e1a15838b2c285510fcfa161",
+        "commits_after_latest_prior_review": 4,
+        "current_unresolved_threads_checked": 1,
+        "current_unresolved_threads_still_reproducible": 0,
+        "fixed_unresolved_threads": 1,
+        "exact_head_ci_run": "33640968344:success",
+        "exact_head_deploy_run": "33640968423:success",
+        "mobile_e2e_blob_receipt": "PASS hrefPrefix=blob:http://127.0.0.1:",
+        "current_default_sha": "dfadcf30ca1d3daf479e05dd97aa457afa265333",
+        "current_relation": "DIVERGED_DEFAULT_AHEAD_9_PR_AHEAD_13",
+        "mergeable": false,
+        "default_branch_product_fix_spotcheck": "CONFIRMED_BLOB_PROVIDER_QUALITY_SEED_LOCK_AND_NO_STALE_NOTICE_SYMBOL",
+        "existing_disposition_comment": "issuecomment-5629599191: aggregate PR conflicting; individual product fixes already merged; retain only unique tests/module split if desired",
+        "fresh_review": "REQUIRED_IF_PR_IS_RETAINED_OR_REBASED"
+      }
+    },
+    "1323082493#2": {
+      "repository_id": 1323082493,
+      "pr_number": 2,
+      "visibility": "public",
+      "created_at": "2026-09-06T18:23:07Z",
+      "current_head_sha": "cf0e4b5565347df6603bd37f415feacbedd4bbee",
+      "last_reviewed_head_sha": null,
+      "last_complete_review_at": null,
+      "review_due_since": "2026-09-06T18:23:07Z",
+      "oldest_unresolved_thread_at": null,
       "last_attempted_at": null,
       "files_resume_subcursor": null,
       "threads_resume_subcursor": null,
-      "state": "DISCOVERED_AGING_PRIORITY",
+      "state": "DISCOVERED_AGING",
       "discovery_receipt": {
-        "latest_reviewed_commit_sha": "24eea3c6139736f0e1a15838b2c285510fcfa161",
-        "current_head_differs_from_latest_review": true,
-        "current_unresolved_thread_count": 1,
-        "current_head_sha": "8eac9ebfa9f182e43a3d670fb8616fbda9945a82",
-        "mergeable": false
+        "review_submission_count": 0,
+        "unresolved_thread_count": 0,
+        "current_head_sha": "cf0e4b5565347df6603bd37f415feacbedd4bbee",
+        "mergeable": true
+      }
+    },
+    "1158063134#2": {
+      "repository_id": 1158063134,
+      "pr_number": 2,
+      "visibility": "public",
+      "created_at": "2026-09-06T22:30:27Z",
+      "current_head_sha": "f2b9b44a45962ec4acad7d5778aad032c726f90b",
+      "last_reviewed_head_sha": null,
+      "last_complete_review_at": null,
+      "review_due_since": "2026-09-06T22:30:27Z",
+      "oldest_unresolved_thread_at": null,
+      "last_attempted_at": null,
+      "files_resume_subcursor": null,
+      "threads_resume_subcursor": null,
+      "state": "DISCOVERED_AGING",
+      "discovery_receipt": {
+        "current_head_sha": "f2b9b44a45962ec4acad7d5778aad032c726f90b",
+        "mergeable": true
       }
     }
   },
-  "active_queue": ["1276211068#3", "1346550026#4", "1305479364#6"],
+  "active_queue": ["1276211068#3", "1346550026#4", "1305479364#6", "1323082493#2", "1158063134#2"],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
   "last_run_id": "self-review-20260916T183453Z",
@@ -185,8 +236,8 @@
   "coverage": {
     "eligible": null,
     "completed": 1,
-    "partial": 3,
+    "partial": 4,
     "waiting": 0
   },
-  "notes": "A fair-selection AGING target has been persistently selected under a 90-minute self-review cursor lease. Deep review has not yet been credited; completion timestamps and coverage remain unchanged until the selected scope is actually checked."
+  "notes": "AGING quota was paid with a substantive bounded review of flux-image-gen#6. The old unresolved P2 review finding is fixed on the current head and exact-head browser evidence confirms the intended Blob behavior. The aggregate PR is conflicting/diverged and product-fix scope is superseded on main; fresh review is still required only if the PR is retained/rebased. Open-PR discovery advanced into the created>2026-09-02 window but remains PARTIAL while visibility classification continues. Private identifiers remain excluded from this public cursor."
 }
