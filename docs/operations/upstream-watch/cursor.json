@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "task": "upstream-watch",
+  "policy": "docs/operations/fair-selection-v1.md",
+  "status": "BOOTSTRAP_REQUIRED",
+  "visibility_scope": "PUBLIC_ONLY",
+  "migration": {"required": true, "evidence_refs": []},
+  "inventory": {"complete": false, "observed_at": null, "repository_ids": [], "discovery_cursor": null},
+  "selection": {"priority_streak": 0, "aging_due": false, "next_fair_target": null, "fair_cycle_remaining_repo_ids": [], "last_selection_reason": null, "emergency_fingerprint": null},
+  "selection_lease": null,
+  "discovery_watermarks": {},
+  "items": {},
+  "active_queue": [],
+  "waiting_queue": [],
+  "waiting_probe_cursor": null,
+  "last_run_id": null,
+  "last_completed_check_at": null,
+  "coverage": {"eligible": null, "completed": null, "partial": null, "waiting": null},
+  "notes": "Initialized storage only. Compute days_since_last_check from evidence-backed last_full_dependency_check_at; unknown is null/NEVER_VERIFIED, never zero. Import prior dependency checks before setting a baseline. Empty inventory is not a completed zero-repository scan. Public data only."
+}
