@@ -32,7 +32,15 @@
     "last_selection_reason": "PRIORITY: current default-branch source contained a landed bounded provider deadline/cancellation implementation for open Issue #6; exact primitive was executed against deterministic hanging/cancelled stubs.",
     "emergency_fingerprint": null
   },
-  "selection_lease": null,
+  "selection_lease": {
+    "run_id": "2026-09-16T19:10:04Z-runtime-evidence-3",
+    "worker": "runtime-evidence",
+    "lane": "PRIORITY",
+    "selected_key": "1276211068#35#location-news-runtime-postmerge",
+    "selection_reason": "PRIORITY: PR #33 has newly merged to current main and Issue #35 still requires bounded post-merge runtime/real-data verification beyond prior CI and preview deployment.",
+    "acquired_at": "2026-09-16T19:10:04Z",
+    "lease_until": "2026-09-16T20:40:04Z"
+  },
   "discovery_watermarks": {},
   "items": {
     "1369117921#6#provider-timeout-cancellation": {
@@ -54,9 +62,25 @@
       ],
       "next_probe_at": "2026-09-17T16:23:00Z",
       "resume_subcursor": "Run closure-grade real stdio MCP integration with a local stub server; do not call YouTube/Spotify production providers. Preserve tool-level typed timeout/cancel result, retry count and mutation count."
+    },
+    "1276211068#35#location-news-runtime-postmerge": {
+      "repository_id": 1276211068,
+      "issue_number": 35,
+      "scenario_id": "location-news-runtime-postmerge",
+      "state": "ACTIVE",
+      "lane": "PRIORITY",
+      "first_seen_at": null,
+      "blocked_fingerprint": null,
+      "blocked_since": null,
+      "last_attempted_at": "2026-09-16T19:10:04Z",
+      "last_completed_evidence_at": null,
+      "last_relevant_evidence_version": "main@3358fa2f8badb130c8befd1c477ff151e92e5e5c;pr33@1bf16e09526b5866363e65bd62ebdc87cbac4da1",
+      "wake_conditions": [],
+      "next_probe_at": null,
+      "resume_subcursor": "Verify a bounded post-merge real-data or actual preview path for Issue #35 without modifying product code or production data; preserve exact SHA and unverified browser/mobile boundaries."
     }
   },
-  "active_queue": [],
+  "active_queue": ["1276211068#35#location-news-runtime-postmerge"],
   "waiting_queue": ["1369117921#6#provider-timeout-cancellation"],
   "waiting_probe_cursor": "1369117921#6#provider-timeout-cancellation",
   "last_run_id": "2026-09-16T16:19:26Z-runtime-evidence-2",
@@ -67,5 +91,5 @@
     "partial": 1,
     "waiting": 1
   },
-  "notes": "Bootstrap remains partial: the GitHub search reports 62 open issues mentioning NEEDS_RUNTIME_VERIFICATION, but the full candidate set has not yet been classified into runnable vs waiting. Private-repository identifiers are intentionally excluded from this public cursor. This run produced a partial LOCAL_EXECUTED receipt for one public item; it did not satisfy that Issue's real-stdio closure gate."
+  "notes": "Bootstrap remains partial: the GitHub search reports 62 open issues mentioning NEEDS_RUNTIME_VERIFICATION, but the full candidate set has not yet been classified into runnable vs waiting. Private-repository identifiers are intentionally excluded from this public cursor. This run selected one newly merged public post-merge runtime target; no execution conclusion is recorded until evidence completes."
 }
