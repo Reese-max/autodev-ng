@@ -2,19 +2,105 @@
   "schema_version": 1,
   "task": "delivery-watch",
   "policy": "docs/operations/fair-selection-v1.md",
-  "status": "BOOTSTRAP_REQUIRED",
+  "status": "PARTIAL",
   "visibility_scope": "PUBLIC_ONLY",
-  "migration": {"required": true, "evidence_refs": []},
-  "inventory": {"complete": false, "observed_at": null, "repository_ids": [], "discovery_cursor": null},
-  "selection": {"priority_streak": 0, "aging_due": false, "next_fair_target": null, "fair_cycle_remaining_repo_ids": [], "last_selection_reason": null, "emergency_fingerprint": null},
-  "selection_lease": null,
-  "discovery_watermarks": {},
-  "items": {},
-  "active_queue": [],
+  "migration": {
+    "required": true,
+    "evidence_refs": [
+      "docs/operations/fair-selection-v1.md@d5d0cf0eba8451a6584b7f1ed0cc279721f5889b",
+      "docs/operations/delivery-health/cursor.json@3d098e7871c1ed7cd666f8ce19d31689810f4cc4",
+      "https://github.com/Reese-max/taiwan-intel-dashboard/pull/34"
+    ]
+  },
+  "inventory": {
+    "complete": false,
+    "observed_at": "2026-09-16T15:11:09Z",
+    "repository_ids": [1276211068, 1323082493, 1365107191],
+    "discovery_cursor": "open-pr discovery partial: public candidates restored from current accessible search; continue repository/issue pagination next run"
+  },
+  "selection": {
+    "priority_streak": 1,
+    "aging_due": false,
+    "next_fair_target": {
+      "repository_id": 1323082493,
+      "work_type": "pr",
+      "number": 9
+    },
+    "fair_cycle_remaining_repo_ids": [1323082493, 1365107191],
+    "last_selection_reason": "PRIORITY: new substantive code + exact-head review/check results on taiwan-intel-dashboard PR #34",
+    "emergency_fingerprint": null
+  },
+  "selection_lease": {
+    "run_id": "delivery-watch-20260916T151109Z",
+    "lane": "PRIORITY",
+    "repository_id": 1276211068,
+    "work_type": "pr",
+    "number": 34,
+    "acquired_at": "2026-09-16T15:11:09Z",
+    "expires_at": "2026-09-16T16:41:09Z"
+  },
+  "discovery_watermarks": {
+    "open_pr_search": {
+      "observed_at": "2026-09-16T15:11:09Z",
+      "complete": false,
+      "resume": "continue beyond current bounded search and restore in-progress Issues/recent merged verification"
+    }
+  },
+  "items": {
+    "1276211068:pr:34": {
+      "repository_id": 1276211068,
+      "repository": "Reese-max/taiwan-intel-dashboard",
+      "work_type": "pr",
+      "number": 34,
+      "first_seen_at": "2026-09-16T15:08:20Z",
+      "last_delivery_check_at": null,
+      "last_attempted_at": "2026-09-16T15:11:09Z",
+      "last_product_progress_at": "2026-09-16T15:08:20Z",
+      "first_blocked_at": null,
+      "blocking_fingerprint": null,
+      "last_reviewed_head_sha": null,
+      "resume_subcursor": "read exact-head CI/reviews/source and determine first blocker"
+    },
+    "1323082493:pr:9": {
+      "repository_id": 1323082493,
+      "repository": "Reese-max/prompt-autoresearch",
+      "work_type": "pr",
+      "number": 9,
+      "first_seen_at": null,
+      "last_delivery_check_at": null,
+      "last_attempted_at": null,
+      "last_product_progress_at": null,
+      "first_blocked_at": null,
+      "blocking_fingerprint": null,
+      "last_reviewed_head_sha": null,
+      "resume_subcursor": "bootstrap candidate; current diagnosis not yet restored"
+    },
+    "1365107191:pr:9": {
+      "repository_id": 1365107191,
+      "repository": "Reese-max/ai-flight-radar",
+      "work_type": "pr",
+      "number": 9,
+      "first_seen_at": null,
+      "last_delivery_check_at": null,
+      "last_attempted_at": null,
+      "last_product_progress_at": null,
+      "first_blocked_at": null,
+      "blocking_fingerprint": null,
+      "last_reviewed_head_sha": null,
+      "resume_subcursor": "bootstrap candidate; current diagnosis not yet restored"
+    }
+  },
+  "active_queue": ["1276211068:pr:34", "1323082493:pr:9", "1365107191:pr:9"],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
-  "last_run_id": null,
+  "last_run_id": "delivery-watch-20260916T151109Z",
   "last_completed_check_at": null,
-  "coverage": {"eligible": null, "completed": null, "partial": null, "waiting": null},
-  "notes": "Initialized storage only. Restore prior delivery diagnoses and blockers with evidence. Enforce PRIORITY/PRIORITY/AGING across primary selections when aging work is eligible. Bot/audit/lock updates do not reset product progress or waiting age. Empty arrays are unenumerated, not zero delivery work. Public data only."
+  "coverage": {
+    "eligible": null,
+    "completed": 0,
+    "partial": 3,
+    "waiting": 0,
+    "note": "Bootstrap is intentionally incomplete; private repositories are excluded from this public cursor and require separate private persistence."
+  },
+  "notes": "Bootstrap resumed from current verifiable public PR/Issue evidence. Empty or missing historical timestamps remain null. Private-repo work discovered during this run was not written here."
 }
