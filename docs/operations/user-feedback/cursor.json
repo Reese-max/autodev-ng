@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-16T20:37:06Z",
+  "observed_through_utc": "2026-09-16T23:40:51Z",
   "source_scope": [
     "github_owner_scoped_issue_search",
     "github_issues",
@@ -10,11 +10,11 @@
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 39,
     "repository_enumeration_this_run": "NOT_REENUMERATED_INCREMENTAL_OWNER_SCOPE_ARCHIVED_FALSE_ISSUE_SEARCH",
-    "issues_updated_since_previous_cursor_inspected": 21,
-    "new_issues_in_window": 6,
-    "existing_issue_threads_updated_in_window": 15,
-    "updated_issue_threads_with_full_comments_inspected": 4,
-    "explicit_feedback_marker_matches": 1,
+    "issues_updated_since_previous_cursor_inspected": 6,
+    "new_issues_in_window": 0,
+    "existing_issue_threads_updated_in_window": 6,
+    "updated_issue_threads_with_full_comments_inspected": 6,
+    "explicit_feedback_marker_matches": 3,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
     "threads_with_non_owner_commenters": 0,
@@ -27,5 +27,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental scan from 2026-09-16T17:37:34Z used owner-scoped archived:false GitHub issue search; the result was complete at query time with 21 updated issue threads, including 6 created in-window. No in-window issue was authored by a non-owner account and no updated thread with comments had a non-owner commenter. Exact searches for USER_REPORTED, 我遇到, 回饋, feedback and 實際使用 produced no traceable original usage report; 實際使用 matched a source/agent-authored reliability thread rather than a user-experience statement. Four high-likelihood updated threads were fetched with full issue-comment pagination: one runtime-evidence receipt, one research-experiment receipt, one persona-audit regression thread and one architecture/integration thread. Their automation markers, synthetic/agent framing, executed-test receipts, or connector-created provenance prevent promotion to USER_REPORTED. Several newly created requirement threads explicitly paraphrase an owner-approved direction but were created via the ChatGPT Codex Connector and do not contain an original usage-source ID, device/version context, or firsthand experience statement. They remain SYNTHETIC_OR_AGENT or PROVENANCE_UNKNOWN. Discussions remain unavailable through the connected GitHub surface; this is the same previously recorded source limitation and does not require a repeated owner notification. Repository enumeration itself was not refreshed this run; the prior aggregate remains only as the last enumerated baseline. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
+  "notes": "Incremental scan from 2026-09-16T20:37:06Z used owner-scoped archived:false GitHub issue search and inspected all six updated issue threads with their available issue comments. No issue in this window was authored by a non-owner account and no inspected thread had a non-owner commenter. Exact searches for USER_REPORTED, 我遇到, 回饋, feedback, 實際使用 and 使用測試 found only synthetic/persona framing, source/agent-authored requirements, research/runtime receipts, or implementation/test receipts; none contained a traceable original usage experience, device/version context, recovery path, or source ID that could be promoted to USER_REPORTED. One research thread explicitly states that real beta evidence is still unavailable. OBSERVED_EXECUTION evidence remains useful for validation but is not counted as user feedback by itself. Discussions remain unavailable through the connected GitHub surface; this is the same previously recorded source limitation and does not require a repeated owner notification. Repository enumeration itself was not refreshed this run; the prior aggregate remains only as the last enumerated baseline. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
 }
