@@ -22,20 +22,33 @@
   "inventory": {
     "complete": false,
     "observed_at": "2026-09-16T16:36:54Z",
-    "repository_ids": [1164006611, 1276211068, 1346550026],
+    "repository_ids": [
+      1164006611,
+      1276211068,
+      1346550026
+    ],
     "discovery_cursor": "open-pr-search:user=Reese-max;sort=created-asc;top=100;created-before-2026-08-23-exhausted;newer-continuation-required"
   },
   "selection": {
-    "priority_streak": 0,
+    "priority_streak": 1,
     "aging_due": false,
     "next_fair_target": "1346550026#4",
-    "fair_cycle_remaining_repo_ids": [1346550026],
-    "last_selection_reason": "AGING made substantive bounded progress on the persisted oldest target: all current review threads, exact-head CI scope, PR claims, current default-branch relation, and default-branch status of both blockers were checked; full 51-file diff review remains partial, so its fairness debt is preserved while rotation advances to another public repo.",
-    "selection_lane": "AGING",
-    "selection_target": "1276211068#3",
+    "fair_cycle_remaining_repo_ids": [
+      1346550026
+    ],
+    "last_selection_reason": "Persisted fair target selected in PRIORITY lane because the current head differs from the latest reviewed/claimed-QA head and unresolved review evidence must be rechecked against latest source; aging debt remains eligible and priority_streak will advance only after substantive review is saved.",
+    "selection_lane": "PRIORITY",
+    "selection_target": "1346550026#4",
     "emergency_fingerprint": null
   },
-  "selection_lease": null,
+  "selection_lease": {
+    "run_id": "self-review-20260916T173500Z",
+    "acquired_at": "2026-09-16T17:35:00Z",
+    "expires_at": "2026-09-16T19:05:00Z",
+    "target": "1346550026#4",
+    "lane": "PRIORITY",
+    "reason": "Persisted fair target is also PRIORITY because current head differs from the latest reviewed/claimed-QA head and unresolved review evidence must be rechecked against the latest source."
+  },
   "discovery_watermarks": {
     "open_prs": {
       "queried_at": "2026-09-16T16:36:54Z",
@@ -64,7 +77,9 @@
       "files_resume_subcursor": null,
       "threads_resume_subcursor": null,
       "state": "CHECKED_WITH_FINDING",
-      "finding_refs": ["github:Reese-max/police-exam-archive#70"],
+      "finding_refs": [
+        "github:Reese-max/police-exam-archive#70"
+      ],
       "review_receipt": {
         "historical_exact_head_ci": "CONFIRMED",
         "current_default_sha": "a0b5dbb9352b5558dbe62445c6452947dbd2501b",
@@ -127,10 +142,13 @@
       }
     }
   },
-  "active_queue": ["1276211068#3", "1346550026#4"],
+  "active_queue": [
+    "1276211068#3",
+    "1346550026#4"
+  ],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
-  "last_run_id": "self-review-20260916T163115Z",
+  "last_run_id": "self-review-20260916T173500Z",
   "last_completed_check_at": "2026-09-16T16:36:54Z",
   "coverage": {
     "eligible": null,
