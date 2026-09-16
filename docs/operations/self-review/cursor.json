@@ -21,41 +21,35 @@
   },
   "inventory": {
     "complete": false,
-    "observed_at": "2026-09-16T16:36:54Z",
-    "repository_ids": [
-      1164006611,
-      1276211068,
-      1346550026
-    ],
-    "discovery_cursor": "open-pr-search:user=Reese-max;sort=created-asc;top=100;created-before-2026-08-23-exhausted;newer-continuation-required"
+    "observed_at": "2026-09-16T17:50:00Z",
+    "repository_ids": [1164006611, 1276211068, 1346550026, 1305479364],
+    "discovery_cursor": "open-pr-search:user=Reese-max;sort=created-asc;top=100;created-before-2026-08-23-exhausted;created-ge-2026-08-23-first-window-observed;visibility-classification-and-newer-window-continuation-required"
   },
   "selection": {
     "priority_streak": 1,
     "aging_due": false,
-    "next_fair_target": "1346550026#4",
-    "fair_cycle_remaining_repo_ids": [
-      1346550026
-    ],
-    "last_selection_reason": "Persisted fair target selected in PRIORITY lane because the current head differs from the latest reviewed/claimed-QA head and unresolved review evidence must be rechecked against latest source; aging debt remains eligible and priority_streak will advance only after substantive review is saved.",
+    "next_fair_target": "1305479364#6",
+    "fair_cycle_remaining_repo_ids": [1305479364],
+    "last_selection_reason": "PRIORITY review of the persisted target confirmed four unresolved review findings against the latest head and verified that exact-head green CI does not cover them. Issue creation was blocked because repository Issues are disabled; a read-back-verified PR blocker index was written instead. Full changed-file review remains partial, so aging debt is preserved.",
     "selection_lane": "PRIORITY",
     "selection_target": "1346550026#4",
     "emergency_fingerprint": null
   },
-  "selection_lease": {
+  "selection_lease": null,
+  "last_lease_release": {
     "run_id": "self-review-20260916T173500Z",
-    "acquired_at": "2026-09-16T17:35:00Z",
-    "expires_at": "2026-09-16T19:05:00Z",
     "target": "1346550026#4",
     "lane": "PRIORITY",
-    "reason": "Persisted fair target is also PRIORITY because current head differs from the latest reviewed/claimed-QA head and unresolved review evidence must be rechecked against the latest source."
+    "released_at": "2026-09-16T17:50:00Z",
+    "status": "PARTIAL_WITH_FINDINGS"
   },
   "discovery_watermarks": {
     "open_prs": {
-      "queried_at": "2026-09-16T16:36:54Z",
+      "queried_at": "2026-09-16T17:38:00Z",
       "sort": "created-asc",
       "top": 100,
       "complete": false,
-      "resume": "continue open PR discovery for created_at >= 2026-08-23; no accessible open PR matched created_at < 2026-08-23 in this query scope",
+      "resume": "continue discovery after the first created>=2026-08-23 result window; classify visibility before persisting repository identifiers; private candidates were observed but intentionally not persisted",
       "oldest_window_checked": {
         "query": "created:<2026-08-23",
         "result": "NO_MATCHES"
@@ -77,9 +71,7 @@
       "files_resume_subcursor": null,
       "threads_resume_subcursor": null,
       "state": "CHECKED_WITH_FINDING",
-      "finding_refs": [
-        "github:Reese-max/police-exam-archive#70"
-      ],
+      "finding_refs": ["github:Reese-max/police-exam-archive#70"],
       "review_receipt": {
         "historical_exact_head_ci": "CONFIRMED",
         "current_default_sha": "a0b5dbb9352b5558dbe62445c6452947dbd2501b",
@@ -125,27 +117,61 @@
       "visibility": "public",
       "created_at": "2026-08-27T05:21:59Z",
       "current_head_sha": "4bef4e0d13a5139559db8781e7d966f2cb2da26a",
-      "last_reviewed_head_sha": null,
+      "last_reviewed_head_sha": "4bef4e0d13a5139559db8781e7d966f2cb2da26a",
       "last_complete_review_at": null,
       "review_due_since": "2026-08-27T05:30:09Z",
       "oldest_unresolved_thread_at": "2026-08-27T05:30:09Z",
+      "last_attempted_at": "2026-09-16T17:50:00Z",
+      "files_resume_subcursor": "remaining-full-diff-review-after-completing-current-thread-source-ci-postreview-workflow-scope",
+      "threads_resume_subcursor": null,
+      "state": "PARTIAL_PRIORITY_REVIEW_WITH_FINDINGS_NEEDS_FRESH_REVIEW",
+      "finding_refs": [
+        "github:Reese-max/MaterialYouNewTab#4:discussion_r3868981579",
+        "github:Reese-max/MaterialYouNewTab#4:discussion_r3868981583",
+        "github:Reese-max/MaterialYouNewTab#4:discussion_r3868981588",
+        "github:Reese-max/MaterialYouNewTab#4:discussion_r3868981592",
+        "github:Reese-max/MaterialYouNewTab#4:issuecomment-5701887942"
+      ],
+      "review_receipt": {
+        "latest_prior_reviewed_commit_sha": "4e462b11326411b0936d33d80c4025e067d6befd",
+        "commits_after_latest_prior_review": 24,
+        "current_unresolved_threads_checked": 4,
+        "current_unresolved_threads_still_reproducible": 4,
+        "source_confirmed_p2": 3,
+        "source_confirmed_p3": 1,
+        "current_head_qa_run": "33059241462:success",
+        "current_head_package_run": "33059241437:success",
+        "ci_coverage_gap": "green exact-head checks do not exercise async dialog ownership, single-use task creation, dialog accessible naming, or changelog 3.5.0 presence",
+        "mergeable": false,
+        "issues_search": "NO_DUPLICATE_TRACKER_FOUND",
+        "issue_write": "ISSUE_WRITE_BLOCKED_ISSUES_DISABLED_410",
+        "pr_blocker_index": "issuecomment-5701887942:READ_BACK_VERIFIED"
+      }
+    },
+    "1305479364#6": {
+      "repository_id": 1305479364,
+      "pr_number": 6,
+      "visibility": "public",
+      "created_at": "2026-09-02T09:35:37Z",
+      "current_head_sha": "8eac9ebfa9f182e43a3d670fb8616fbda9945a82",
+      "last_reviewed_head_sha": null,
+      "last_complete_review_at": null,
+      "review_due_since": "2026-09-02T09:38:59Z",
+      "oldest_unresolved_thread_at": "2026-09-02T09:38:59Z",
       "last_attempted_at": null,
       "files_resume_subcursor": null,
       "threads_resume_subcursor": null,
       "state": "DISCOVERED_AGING_PRIORITY",
       "discovery_receipt": {
-        "latest_reviewed_commit_sha": "4e462b11326411b0936d33d80c4025e067d6befd",
+        "latest_reviewed_commit_sha": "24eea3c6139736f0e1a15838b2c285510fcfa161",
         "current_head_differs_from_latest_review": true,
-        "current_unresolved_thread_count": 4,
-        "pr_claimed_qa_head_sha": "4e462b11326411b0936d33d80c4025e067d6befd",
-        "current_head_sha": "4bef4e0d13a5139559db8781e7d966f2cb2da26a"
+        "current_unresolved_thread_count": 1,
+        "current_head_sha": "8eac9ebfa9f182e43a3d670fb8616fbda9945a82",
+        "mergeable": false
       }
     }
   },
-  "active_queue": [
-    "1276211068#3",
-    "1346550026#4"
-  ],
+  "active_queue": ["1276211068#3", "1346550026#4", "1305479364#6"],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
   "last_run_id": "self-review-20260916T173500Z",
@@ -153,8 +179,8 @@
   "coverage": {
     "eligible": null,
     "completed": 1,
-    "partial": 2,
+    "partial": 3,
     "waiting": 0
   },
-  "notes": "This run completed all current thread/claim/CI/default-branch checks for the selected aging PR but intentionally did not mark its 51-file diff as fully reviewed. Its two old blockers are confirmed fixed independently on the current default branch while the stale PR head remains divergent and non-mergeable. Fair rotation advances to a different public repository while preserving the partial PR's review debt. Inventory discovery remains PARTIAL. Private repository identifiers are not persisted in this public cursor."
+  "notes": "This run performed a substantive PRIORITY review of the persisted public target. All four unresolved review findings were revalidated against the current head; three remain P2 source-confirmed product/accessibility bugs and one is P3 maintenance. Exact-head QA/package runs are green but do not cover those contracts. The repository has Issues disabled, so Issue creation returned 410 and a read-back-verified PR blocker index was used without changing PR state. The target remains PARTIAL because the full changed-file diff was not exhaustively completed; its fairness debt is preserved. Discovery advanced through the first created>=2026-08-23 window, observed private candidates without persisting their identifiers, and selected the oldest newly classified public unserved repository target for the next fair pass."
 }
