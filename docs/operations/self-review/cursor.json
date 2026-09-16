@@ -2,19 +2,72 @@
   "schema_version": 1,
   "task": "self-review",
   "policy": "docs/operations/fair-selection-v1.md",
-  "status": "BOOTSTRAP_REQUIRED",
+  "status": "RUNNING_PARTIAL_DISCOVERY",
   "visibility_scope": "PUBLIC_ONLY",
-  "migration": {"required": true, "evidence_refs": []},
-  "inventory": {"complete": false, "observed_at": null, "repository_ids": [], "discovery_cursor": null},
-  "selection": {"priority_streak": 0, "aging_due": false, "next_fair_target": null, "fair_cycle_remaining_repo_ids": [], "last_selection_reason": null, "emergency_fingerprint": null},
-  "selection_lease": null,
-  "discovery_watermarks": {},
-  "items": {},
-  "active_queue": [],
+  "migration": {
+    "required": false,
+    "evidence_refs": [
+      "github:Reese-max/police-exam-archive#50:no-review-submissions@fd4f184e4ea16da257a66f7849849f740f33b63b"
+    ],
+    "note": "Bootstrap imported only directly verifiable GitHub state. Unknown prior self-review history remains null."
+  },
+  "inventory": {
+    "complete": false,
+    "observed_at": "2026-09-16T15:33:53Z",
+    "repository_ids": [1164006611],
+    "discovery_cursor": "open-pr-search:user=Reese-max;sort=created-asc;top=100;continuation-required"
+  },
+  "selection": {
+    "priority_streak": 0,
+    "aging_due": false,
+    "next_fair_target": "1164006611#50",
+    "fair_cycle_remaining_repo_ids": [],
+    "last_selection_reason": "AGING oldest-unreviewed among currently discovered candidates; PR #50 current head has no review submissions",
+    "emergency_fingerprint": null
+  },
+  "selection_lease": {
+    "run_id": "self-review-20260916T153353Z",
+    "lane": "AGING",
+    "target": "1164006611#50",
+    "acquired_at": "2026-09-16T15:33:53Z",
+    "expires_at": "2026-09-16T17:03:53Z",
+    "policy_blob_sha": "e329afe435939920dd208419c5c0629753d77ca7"
+  },
+  "discovery_watermarks": {
+    "open_prs": {
+      "queried_at": "2026-09-16T15:33:53Z",
+      "sort": "created-asc",
+      "top": 100,
+      "complete": false
+    }
+  },
+  "items": {
+    "1164006611#50": {
+      "repository_id": 1164006611,
+      "pr_number": 50,
+      "visibility": "public",
+      "created_at": "2026-08-23T05:33:51Z",
+      "current_head_sha": "fd4f184e4ea16da257a66f7849849f740f33b63b",
+      "last_reviewed_head_sha": null,
+      "last_complete_review_at": null,
+      "review_due_since": "2026-08-23T05:33:51Z",
+      "oldest_unresolved_thread_at": null,
+      "last_attempted_at": "2026-09-16T15:33:53Z",
+      "files_resume_subcursor": null,
+      "threads_resume_subcursor": null,
+      "state": "IN_REVIEW"
+    }
+  },
+  "active_queue": ["1164006611#50"],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
-  "last_run_id": null,
+  "last_run_id": "self-review-20260916T153353Z",
   "last_completed_check_at": null,
-  "coverage": {"eligible": null, "completed": null, "partial": null, "waiting": null},
-  "notes": "Initialized state storage only. Empty collections mean not yet enumerated, not zero open PRs. Import verified prior progress without resetting history; do not persist private identifiers here. No scheduled fairness run has been validated by this initialization."
+  "coverage": {
+    "eligible": null,
+    "completed": 0,
+    "partial": 1,
+    "waiting": 0
+  },
+  "notes": "Fair-selection bootstrap started from directly verifiable GitHub state. Inventory discovery is PARTIAL; empty/short lists are not treated as complete. Private repository identifiers are not persisted in this public cursor."
 }
