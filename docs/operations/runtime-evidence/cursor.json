@@ -10,13 +10,14 @@
       "github-search:open-NEEDS_RUNTIME_VERIFICATION:62-results:2026-09-16T16:19:26Z",
       "Reese-max/project-doctor-web#16:runtime-receipt-5698051472",
       "Reese-max/lobsterpulse#3:runtime-receipt-5674624019",
-      "Reese-max/spotify-playlist-organizer-mcp#6:runtime-receipt-5700840064"
+      "Reese-max/spotify-playlist-organizer-mcp#6:runtime-receipt-5700840064",
+      "Reese-max/taiwan-intel-dashboard#35:runtime-receipt-5703191112"
     ]
   },
   "inventory": {
     "complete": false,
-    "observed_at": "2026-09-16T16:19:26Z",
-    "repository_ids": [1369117921],
+    "observed_at": "2026-09-16T19:19:02Z",
+    "repository_ids": [1369117921, 1276211068],
     "discovery_cursor": {
       "source": "github-issue-search",
       "query": "user:Reese-max is:issue is:open NEEDS_RUNTIME_VERIFICATION",
@@ -25,22 +26,14 @@
     }
   },
   "selection": {
-    "priority_streak": 1,
-    "aging_due": false,
+    "priority_streak": 2,
+    "aging_due": true,
     "next_fair_target": null,
     "fair_cycle_remaining_repo_ids": [],
-    "last_selection_reason": "PRIORITY: current default-branch source contained a landed bounded provider deadline/cancellation implementation for open Issue #6; exact primitive was executed against deterministic hanging/cancelled stubs.",
+    "last_selection_reason": "PRIORITY: PR #33 newly merged to current main; immutable exact-head CI artifact enabled bounded real-data network validation while the relevant correlate.mjs blob remained identical on current default branch.",
     "emergency_fingerprint": null
   },
-  "selection_lease": {
-    "run_id": "2026-09-16T19:10:04Z-runtime-evidence-3",
-    "worker": "runtime-evidence",
-    "lane": "PRIORITY",
-    "selected_key": "1276211068#35#location-news-runtime-postmerge",
-    "selection_reason": "PRIORITY: PR #33 has newly merged to current main and Issue #35 still requires bounded post-merge runtime/real-data verification beyond prior CI and preview deployment.",
-    "acquired_at": "2026-09-16T19:10:04Z",
-    "lease_until": "2026-09-16T20:40:04Z"
-  },
+  "selection_lease": null,
   "discovery_watermarks": {},
   "items": {
     "1369117921#6#provider-timeout-cancellation": {
@@ -67,29 +60,36 @@
       "repository_id": 1276211068,
       "issue_number": 35,
       "scenario_id": "location-news-runtime-postmerge",
-      "state": "ACTIVE",
+      "state": "BLOCKED_ENVIRONMENT",
       "lane": "PRIORITY",
       "first_seen_at": null,
-      "blocked_fingerprint": null,
-      "blocked_since": null,
-      "last_attempted_at": "2026-09-16T19:10:04Z",
-      "last_completed_evidence_at": null,
-      "last_relevant_evidence_version": "main@3358fa2f8badb130c8befd1c477ff151e92e5e5c;pr33@1bf16e09526b5866363e65bd62ebdc87cbac4da1",
-      "wake_conditions": [],
-      "next_probe_at": null,
-      "resume_subcursor": "Verify a bounded post-merge real-data or actual preview path for Issue #35 without modifying product code or production data; preserve exact SHA and unverified browser/mobile boundaries."
+      "blocked_fingerprint": "browser-execution-policy-blocks-local-artifact-and-pages-preview-before-page-load",
+      "blocked_since": "2026-09-16T19:16:17Z",
+      "last_attempted_at": "2026-09-16T19:18:15Z",
+      "last_completed_evidence_at": "2026-09-16T19:18:15Z",
+      "last_relevant_evidence_version": "main@3358fa2f8badb130c8befd1c477ff151e92e5e5c;pr33@1bf16e09526b5866363e65bd62ebdc87cbac4da1;correlate-blob@45bcd38f3ddb77d8299073c1f905fd70e9701a0f;actions-run@35107729902;artifact@10450657789;receipt@5703191112",
+      "wake_conditions": [
+        "an authorized browser environment can load the existing Pages preview or the immutable exact-head artifact over a normal HTTP origin",
+        "a new exact-SHA browser/runtime receipt covers the desktop and mobile location-link interaction checklist",
+        "relevant location-link or correlation implementation changes"
+      ],
+      "next_probe_at": "2026-09-17T19:19:02Z",
+      "resume_subcursor": "Real-data generated-network slice passed on the immutable PR-head artifact. Remaining closure path is actual desktop/mobile browser verification of location links, focus/new-tab behavior, long labels and no-coordinate cases; do not weaken browser security or substitute mock DOM."
     }
   },
-  "active_queue": ["1276211068#35#location-news-runtime-postmerge"],
-  "waiting_queue": ["1369117921#6#provider-timeout-cancellation"],
+  "active_queue": [],
+  "waiting_queue": [
+    "1369117921#6#provider-timeout-cancellation",
+    "1276211068#35#location-news-runtime-postmerge"
+  ],
   "waiting_probe_cursor": "1369117921#6#provider-timeout-cancellation",
-  "last_run_id": "2026-09-16T16:19:26Z-runtime-evidence-2",
-  "last_completed_check_at": null,
+  "last_run_id": "2026-09-16T19:10:04Z-runtime-evidence-3",
+  "last_completed_check_at": "2026-09-16T19:19:02Z",
   "coverage": {
     "eligible": 62,
     "completed": 0,
-    "partial": 1,
-    "waiting": 1
+    "partial": 2,
+    "waiting": 2
   },
-  "notes": "Bootstrap remains partial: the GitHub search reports 62 open issues mentioning NEEDS_RUNTIME_VERIFICATION, but the full candidate set has not yet been classified into runnable vs waiting. Private-repository identifiers are intentionally excluded from this public cursor. This run selected one newly merged public post-merge runtime target; no execution conclusion is recorded until evidence completes."
+  "notes": "Bootstrap remains partial: the full public candidate set has not yet been classified into runnable vs waiting, and private-repository identifiers remain intentionally excluded. This run completed a bounded real-data generated-network verification slice for one newly merged public target and preserved the still-unverified browser/mobile path as BLOCKED_ENVIRONMENT. After two consecutive PRIORITY selections, the next runnable main selection must use AGING when an eligible aging candidate is available."
 }
