@@ -7,41 +7,33 @@
   "migration": {
     "required": true,
     "evidence_refs": [
-      "https://github.com/Reese-max/spotify-playlist-organizer-mcp/issues/34#issuecomment-5699004537"
+      "https://github.com/Reese-max/spotify-playlist-organizer-mcp/issues/34#issuecomment-5699004537",
+      "https://github.com/Reese-max/autodev-ng/issues/37#issuecomment-5701576204"
     ]
   },
   "inventory": {
     "complete": false,
-    "observed_at": "2026-09-16T17:09:32Z",
+    "observed_at": "2026-09-16T17:25:00Z",
     "repository_ids": [
       1297871948,
+      1365107191,
       1369117921
     ],
-    "discovery_cursor": "PARTIAL: verified public research history plus current selected issue; accessible private research omitted from public state"
+    "discovery_cursor": "PARTIAL: verified public research history, completed current selection, and queued one unserved public repo; accessible private research omitted from public state"
   },
   "selection": {
-    "priority_streak": 0,
+    "priority_streak": 1,
     "aging_due": false,
-    "next_fair_target": null,
+    "next_fair_target": "1365107191#4",
     "fair_cycle_remaining_repo_ids": [
-      1369117921
+      1365107191
     ],
-    "last_selection_reason": "PRIORITY: public bounded offline experiment can resolve test-maintenance profile decision without product changes; prior terminal public research is not rerun",
+    "last_selection_reason": "PRIORITY: bounded offline experiment resolved the current test-maintenance profile question without product changes",
     "emergency_fingerprint": null,
     "last_research_id": "autodev-ng/github-acceptance/test-maintenance-profile-spike/v1",
-    "consecutive_research_turns": 0
+    "consecutive_research_turns": 1
   },
-  "selection_lease": {
-    "task": "research-experiment",
-    "run": "research-experiment-20260916T170932Z",
-    "worker": "research-experiment",
-    "research_id": "autodev-ng/github-acceptance/test-maintenance-profile-spike/v1",
-    "repository_id": 1297871948,
-    "issue_number": 37,
-    "lane": "PRIORITY",
-    "leased_at": "2026-09-16T17:09:32Z",
-    "lease_until": "2026-09-16T18:39:32Z"
-  },
+  "selection_lease": null,
   "discovery_watermarks": {},
   "items": {
     "1369117921#34": {
@@ -77,38 +69,67 @@
       "issue_number": 37,
       "research_id": "autodev-ng/github-acceptance/test-maintenance-profile-spike/v1",
       "hypothesis_version": "v1",
+      "last_attempted_at": "2026-09-16T17:25:00Z",
+      "last_progress_at": "2026-09-16T17:25:00Z",
+      "completed_steps": [
+        "source contract confirmed on unchanged src/github/job.ts blob",
+        "offline synthetic base and docs-only controls",
+        "bugfix-vs-maintenance decision-table execution",
+        "assertion weakening, test.skip, unauthorized product and workflow bypass counterexamples",
+        "bounded hardened fixture-profile counterfactual"
+      ],
+      "resume_subcursor": null,
+      "blocking_fingerprint": null,
+      "blocked_since": null,
+      "wake_conditions": [
+        "actual AutoDev integration exists for an owner-approved fixture-maintenance profile",
+        "new evidence changes the current do-not-edit-existing-tests contract"
+      ],
+      "next_probe_at": null,
+      "last_relevant_evidence_version": "job.ts blob 511160a6188a1a49ee5f3c468d37bb27c6325838; harness 2075c1c452e18c3c5e06bc2ebd6109690ed6fa135ee1a88a60886bad4b74961a; result 106dad7ce26bc59867b42204d8b5589b024d2687f4f4e7233eb2ec2140c1da58",
+      "evidence_refs": [
+        "https://github.com/Reese-max/autodev-ng/issues/37#issuecomment-5701576204",
+        "https://github.com/Reese-max/autodev-ng/blob/17510ad81f19ea09566eb5006e0d71f4f860a93e/src/github/job.ts",
+        "https://github.com/Reese-max/autodev-ng/pull/22"
+      ],
+      "decision": "NARROW",
+      "pending_run_id": null,
+      "state": "TERMINAL_RESEARCH_DECISION"
+    },
+    "1365107191#4": {
+      "repository_id": 1365107191,
+      "issue_number": 4,
+      "research_id": "ai-flight-radar/intent-to-watchspec/v1",
+      "hypothesis_version": "v1",
       "last_attempted_at": null,
       "last_progress_at": null,
-      "completed_steps": [
-        "source contract confirmed on current main"
-      ],
-      "resume_subcursor": "run bounded offline synthetic decision-table experiment",
+      "completed_steps": [],
+      "resume_subcursor": "read current source and existing experiments before deciding whether a bounded semantic-preservation fixture is still actionable",
       "blocking_fingerprint": null,
       "blocked_since": null,
       "wake_conditions": [],
       "next_probe_at": null,
-      "last_relevant_evidence_version": "main@b38b63eadc9687f021c2c64fa0cf8989b4798ff5",
+      "last_relevant_evidence_version": "issue#4 discovered",
       "evidence_refs": [
-        "https://github.com/Reese-max/autodev-ng/issues/37",
-        "https://github.com/Reese-max/autodev-ng/blob/b38b63eadc9687f021c2c64fa0cf8989b4798ff5/src/github/job.ts"
+        "https://github.com/Reese-max/ai-flight-radar/issues/4"
       ],
       "decision": null,
       "pending_run_id": null,
-      "state": "SELECTED"
+      "state": "DISCOVERED"
     }
   },
   "active_queue": [
-    "1297871948#37"
+    "1365107191#4"
   ],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
   "last_run_id": "research-experiment-20260916T170932Z",
-  "last_completed_check_at": null,
+  "last_completed_check_at": "2026-09-16T17:25:00Z",
   "coverage": {
     "eligible": null,
-    "completed": 1,
+    "completed": 2,
     "partial": 1,
     "waiting": 0
   },
-  "notes": "Bootstrap is partial, not a full portfolio inventory. Verified private research history exists but is intentionally omitted from this public cursor; source issues retain that evidence. PR #20 remains open and docs/operations/research-experiment.md is not on default branch."
+  "notes": "Bootstrap remains partial, not a full portfolio inventory. Verified private research history exists but is intentionally omitted from this public cursor; source issues retain that evidence. PR #20 remains open and docs/operations/research-experiment.md is not on default branch. This run's cursor-only commits are not product research evidence."
 }
