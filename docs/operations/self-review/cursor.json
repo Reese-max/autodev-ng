@@ -30,10 +30,19 @@
     "aging_due": false,
     "next_fair_target": "1276211068#3",
     "fair_cycle_remaining_repo_ids": [1276211068],
-    "last_selection_reason": "AGING completed for oldest currently persisted public never-reviewed target; next public fair target has old unresolved review threads",
+    "last_selection_reason": "AGING selected from persisted fair target: public PR with never-completed review and long-lived unresolved thread",
+    "selection_lane": "AGING",
+    "selection_target": "1276211068#3",
     "emergency_fingerprint": null
   },
-  "selection_lease": null,
+  "selection_lease": {
+    "run_id": "self-review-20260916T163115Z",
+    "task": "self-review",
+    "target": "1276211068#3",
+    "lane": "AGING",
+    "acquired_at": "2026-09-16T16:31:15Z",
+    "expires_at": "2026-09-16T18:01:15Z"
+  },
   "discovery_watermarks": {
     "open_prs": {
       "queried_at": "2026-09-16T15:33:53Z",
@@ -78,16 +87,16 @@
       "last_complete_review_at": null,
       "review_due_since": "2026-08-23T23:15:22Z",
       "oldest_unresolved_thread_at": "2026-08-23T23:18:24Z",
-      "last_attempted_at": null,
+      "last_attempted_at": "2026-09-16T16:31:15Z",
       "files_resume_subcursor": null,
       "threads_resume_subcursor": null,
-      "state": "DISCOVERED_AGING"
+      "state": "SELECTED_AGING"
     }
   },
   "active_queue": ["1276211068#3"],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
-  "last_run_id": "self-review-20260916T153353Z",
+  "last_run_id": "self-review-20260916T163115Z",
   "last_completed_check_at": "2026-09-16T15:42:00Z",
   "coverage": {
     "eligible": null,
@@ -95,5 +104,5 @@
     "partial": 1,
     "waiting": 0
   },
-  "notes": "Fair-selection bootstrap is now backed by one completed AGING review. Inventory discovery remains PARTIAL; empty/short lists are not treated as complete. Private repository identifiers are not persisted in this public cursor."
+  "notes": "Fair-selection bootstrap is backed by one completed AGING review. Inventory discovery remains PARTIAL; empty/short lists are not treated as complete. Private repository identifiers are not persisted in this public cursor."
 }
