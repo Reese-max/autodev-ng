@@ -2,43 +2,45 @@
   "schema_version": 1,
   "task": "self-review",
   "policy": "docs/operations/fair-selection-v1.md",
-  "status": "RUNNING_PARTIAL_DISCOVERY",
+  "policy_blob_sha": "d5d0cf0eba8451a6584b7f1ed0cc279721f5889b",
+  "status": "PARTIAL_DISCOVERY",
   "visibility_scope": "PUBLIC_ONLY",
+  "state_storage": {
+    "public": "AVAILABLE",
+    "private": "STATE_STORAGE_BLOCKED",
+    "private_note": "No privacy-safe cross-run state sink is available to this task. Private identifiers are intentionally not written to the public cursor; private candidates remain eligible for read-only review."
+  },
   "migration": {
     "required": false,
     "evidence_refs": [
-      "github:Reese-max/police-exam-archive#50:no-review-submissions@fd4f184e4ea16da257a66f7849849f740f33b63b"
+      "github:Reese-max/police-exam-archive#50:no-review-submissions@fd4f184e4ea16da257a66f7849849f740f33b63b",
+      "github:Reese-max/police-exam-archive#50:historical-ci-success@fd4f184e4ea16da257a66f7849849f740f33b63b",
+      "github:Reese-max/police-exam-archive#70:self-review-finding"
     ],
     "note": "Bootstrap imported only directly verifiable GitHub state. Unknown prior self-review history remains null."
   },
   "inventory": {
     "complete": false,
-    "observed_at": "2026-09-16T15:33:53Z",
-    "repository_ids": [1164006611],
+    "observed_at": "2026-09-16T15:42:00Z",
+    "repository_ids": [1164006611, 1276211068],
     "discovery_cursor": "open-pr-search:user=Reese-max;sort=created-asc;top=100;continuation-required"
   },
   "selection": {
     "priority_streak": 0,
     "aging_due": false,
-    "next_fair_target": "1164006611#50",
-    "fair_cycle_remaining_repo_ids": [],
-    "last_selection_reason": "AGING oldest-unreviewed among currently discovered candidates; PR #50 current head has no review submissions",
+    "next_fair_target": "1276211068#3",
+    "fair_cycle_remaining_repo_ids": [1276211068],
+    "last_selection_reason": "AGING completed for oldest currently persisted public never-reviewed target; next public fair target has old unresolved review threads",
     "emergency_fingerprint": null
   },
-  "selection_lease": {
-    "run_id": "self-review-20260916T153353Z",
-    "lane": "AGING",
-    "target": "1164006611#50",
-    "acquired_at": "2026-09-16T15:33:53Z",
-    "expires_at": "2026-09-16T17:03:53Z",
-    "policy_blob_sha": "e329afe435939920dd208419c5c0629753d77ca7"
-  },
+  "selection_lease": null,
   "discovery_watermarks": {
     "open_prs": {
       "queried_at": "2026-09-16T15:33:53Z",
       "sort": "created-asc",
       "top": 100,
-      "complete": false
+      "complete": false,
+      "resume": "continuation-required"
     }
   },
   "items": {
@@ -48,26 +50,50 @@
       "visibility": "public",
       "created_at": "2026-08-23T05:33:51Z",
       "current_head_sha": "fd4f184e4ea16da257a66f7849849f740f33b63b",
-      "last_reviewed_head_sha": null,
-      "last_complete_review_at": null,
-      "review_due_since": "2026-08-23T05:33:51Z",
+      "last_reviewed_head_sha": "fd4f184e4ea16da257a66f7849849f740f33b63b",
+      "last_complete_review_at": "2026-09-16T15:42:00Z",
+      "review_due_since": null,
       "oldest_unresolved_thread_at": null,
-      "last_attempted_at": "2026-09-16T15:33:53Z",
+      "last_attempted_at": "2026-09-16T15:42:00Z",
       "files_resume_subcursor": null,
       "threads_resume_subcursor": null,
-      "state": "IN_REVIEW"
+      "state": "CHECKED_WITH_FINDING",
+      "finding_refs": ["github:Reese-max/police-exam-archive#70"],
+      "review_receipt": {
+        "historical_exact_head_ci": "CONFIRMED",
+        "current_default_sha": "a0b5dbb9352b5558dbe62445c6452947dbd2501b",
+        "current_relation": "DIVERGED_10_AHEAD_5_BEHIND",
+        "mergeable": false,
+        "branch_protected": true,
+        "full_branch_protection_rules": "UNVERIFIED_403"
+      }
+    },
+    "1276211068#3": {
+      "repository_id": 1276211068,
+      "pr_number": 3,
+      "visibility": "public",
+      "created_at": "2026-08-23T23:15:22Z",
+      "current_head_sha": "7b7e1777ebcb252fc7acbc809d5982b7e8edcbca",
+      "last_reviewed_head_sha": null,
+      "last_complete_review_at": null,
+      "review_due_since": "2026-08-23T23:15:22Z",
+      "oldest_unresolved_thread_at": "2026-08-23T23:18:24Z",
+      "last_attempted_at": null,
+      "files_resume_subcursor": null,
+      "threads_resume_subcursor": null,
+      "state": "DISCOVERED_AGING"
     }
   },
-  "active_queue": ["1164006611#50"],
+  "active_queue": ["1276211068#3"],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
   "last_run_id": "self-review-20260916T153353Z",
-  "last_completed_check_at": null,
+  "last_completed_check_at": "2026-09-16T15:42:00Z",
   "coverage": {
     "eligible": null,
-    "completed": 0,
+    "completed": 1,
     "partial": 1,
     "waiting": 0
   },
-  "notes": "Fair-selection bootstrap started from directly verifiable GitHub state. Inventory discovery is PARTIAL; empty/short lists are not treated as complete. Private repository identifiers are not persisted in this public cursor."
+  "notes": "Fair-selection bootstrap is now backed by one completed AGING review. Inventory discovery remains PARTIAL; empty/short lists are not treated as complete. Private repository identifiers are not persisted in this public cursor."
 }
