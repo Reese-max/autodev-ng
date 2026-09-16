@@ -26,16 +26,22 @@
     "discovery_cursor": "open-pr-search:user=Reese-max;sort=created-asc;top=100;created-before-2026-08-23-exhausted;created-ge-2026-08-23-first-window-observed;visibility-classification-and-newer-window-continuation-required"
   },
   "selection": {
-    "priority_streak": 1,
+    "priority_streak": 0,
     "aging_due": false,
     "next_fair_target": "1305479364#6",
     "fair_cycle_remaining_repo_ids": [1305479364],
-    "last_selection_reason": "PRIORITY review of the persisted target confirmed four unresolved review findings against the latest head and verified that exact-head green CI does not cover them. Issue creation was blocked because repository Issues are disabled; a read-back-verified PR blocker index was written instead. Full changed-file review remains partial, so aging debt is preserved.",
-    "selection_lane": "PRIORITY",
-    "selection_target": "1346550026#4",
+    "last_selection_reason": "AGING fair target from the persisted cursor: oldest currently selected unserved public repository target, with the current head differing from the latest reviewed commit and an unresolved review thread requiring revalidation. Selection intent is persisted before deep review.",
+    "selection_lane": "AGING",
+    "selection_target": "1305479364#6",
     "emergency_fingerprint": null
   },
-  "selection_lease": null,
+  "selection_lease": {
+    "run_id": "self-review-20260916T183453Z",
+    "target": "1305479364#6",
+    "lane": "AGING",
+    "acquired_at": "2026-09-16T18:34:53Z",
+    "expires_at": "2026-09-16T20:04:53Z"
+  },
   "last_lease_release": {
     "run_id": "self-review-20260916T173500Z",
     "target": "1346550026#4",
@@ -174,7 +180,7 @@
   "active_queue": ["1276211068#3", "1346550026#4", "1305479364#6"],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
-  "last_run_id": "self-review-20260916T173500Z",
+  "last_run_id": "self-review-20260916T183453Z",
   "last_completed_check_at": "2026-09-16T16:36:54Z",
   "coverage": {
     "eligible": null,
@@ -182,5 +188,5 @@
     "partial": 3,
     "waiting": 0
   },
-  "notes": "This run performed a substantive PRIORITY review of the persisted public target. All four unresolved review findings were revalidated against the current head; three remain P2 source-confirmed product/accessibility bugs and one is P3 maintenance. Exact-head QA/package runs are green but do not cover those contracts. The repository has Issues disabled, so Issue creation returned 410 and a read-back-verified PR blocker index was used without changing PR state. The target remains PARTIAL because the full changed-file diff was not exhaustively completed; its fairness debt is preserved. Discovery advanced through the first created>=2026-08-23 window, observed private candidates without persisting their identifiers, and selected the oldest newly classified public unserved repository target for the next fair pass."
+  "notes": "A fair-selection AGING target has been persistently selected under a 90-minute self-review cursor lease. Deep review has not yet been credited; completion timestamps and coverage remain unchanged until the selected scope is actually checked."
 }
