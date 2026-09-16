@@ -1,14 +1,17 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-15T23:39:06Z",
+  "observed_through_utc": "2026-09-16T02:39:47Z",
   "source_scope": [
     "github_issues",
     "github_issue_comments",
     "explicit_feedback_marker_search"
   ],
   "coverage": {
-    "accessible_self_owned_unarchived_repositories_enumerated": 36,
-    "issues_updated_since_previous_cursor_inspected": 2,
+    "accessible_self_owned_unarchived_repositories_last_enumerated": 36,
+    "repository_enumeration_this_run": "REUSED_PREVIOUS_CURSOR_NO_CONNECTED_OWNED_REPO_LIST_SURFACE",
+    "issues_updated_since_previous_cursor_inspected": 24,
+    "new_issues_in_window": 15,
+    "existing_issue_threads_updated_in_window": 9,
     "discussion_surface": "UNAVAILABLE_ON_CONNECTED_GITHUB_TOOLING"
   },
   "classification_policy": {
@@ -18,5 +21,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental scan from 2026-09-15T20:37:46Z inspected the two issue threads returned as updated in the currently accessible Reese-max-owned, unarchived repository scope and their relevant comments. One update was connector-created external-radar scope-calibration lock/result/release activity; the other was connector-created research-experiment lock/result/release evidence from an isolated experiment. Neither contains an original usage-experience statement that can be promoted to USER_REPORTED. Exact USER_REPORTED, 使用回饋, and feedback issue searches returned no new marked feedback. GitHub Discussions remain unavailable through the connected GitHub surface used in this run; this is unchanged and is not treated as a new owner-actionable blocker. Repository enumeration again returned 36. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
+  "notes": "Incremental scan from 2026-09-15T23:39:06Z inspected all 24 issue threads returned as updated by the connected GitHub issue search and fetched the full available comment history for the 9 pre-existing updated threads plus all 15 newly created threads. The new/updated material was product/source review, isolated experiment evidence, security/upstream tracking, feature specifications, or automation/lock activity. Some issue text uses user-task or user-requirement phrasing, but no new item contained an original usage-experience source that can be promoted to USER_REPORTED; those remain specification/synthetic or PROVENANCE_UNKNOWN as applicable. Exact USER_REPORTED, 使用回饋, and feedback searches in the same update window returned no matches. GitHub Discussions are still not exposed by the connected GitHub tooling discovered this run. Repository enumeration was not independently rerun because no owned-repository listing surface is exposed; the prior cursor's last enumerated count of 36 is retained only as prior coverage, not asserted as a fresh portfolio count. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
 }
