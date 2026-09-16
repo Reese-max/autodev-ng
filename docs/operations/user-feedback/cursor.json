@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-16T11:42:33Z",
+  "observed_through_utc": "2026-09-16T14:39:58Z",
   "source_scope": [
     "github_repository_enumeration",
     "github_issues",
@@ -10,13 +10,13 @@
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 39,
     "repository_enumeration_this_run": "FRESH_SEARCH_USER_OWNER_ARCHIVED_FALSE_LIMIT_100",
-    "issues_updated_since_previous_cursor_inspected": 2,
-    "new_issues_in_window": 1,
-    "existing_issue_threads_updated_in_window": 1,
-    "updated_issue_threads_with_full_comments_inspected": 2,
-    "explicit_feedback_marker_matches": 0,
+    "issues_updated_since_previous_cursor_inspected": 33,
+    "new_issues_in_window": null,
+    "existing_issue_threads_updated_in_window": null,
+    "updated_issue_threads_with_full_comments_inspected": 3,
+    "explicit_feedback_marker_matches": 2,
     "verifiable_user_feedback_matches": 0,
-    "discussion_surface": "UNAVAILABLE_ON_CONNECTED_GITHUB_TOOLING"
+    "discussion_surface": "REPOSITORY_DISCUSSIONS_UNAVAILABLE_ON_CONNECTED_GITHUB_TOOLING"
   },
   "classification_policy": {
     "user_reported_requires_original_usage_experience": true,
@@ -25,5 +25,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental scan from 2026-09-16T08:41:00Z inspected both issue threads returned as updated in the connected self-owned repository search and fetched their full available comment history. Fresh repository enumeration again returned 39 accessible self-owned unarchived repositories. New material was an agent-created legal-source freshness research tracker and an agent-run C2PA transport experiment/research update; these are SYNTHETIC_OR_AGENT and/or OBSERVED_EXECUTION, not original usage experience. Exact USER_REPORTED, 使用回饋, 實際使用, 使用者回報, and generic feedback searches returned no matches in this window. GitHub Discussions remain unavailable through the connected GitHub tooling discovered this run. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
+  "notes": "Incremental scan from 2026-09-16T11:42:33Z used a fresh enumeration of 39 accessible self-owned unarchived repositories and an issue search that returned 33 updated issues at the query snapshot. Separate created/existing searches were not combined into a derived count because the GitHub search index changed during the run. Exact USER_REPORTED, 使用回饋, 實際使用, 我使用, and generic feedback searches returned no candidate original usage reports. 使用者回報 matched one maintenance statement using the term generically; 使用者希望 matched one tracking issue that paraphrases a requirement but provides no traceable original usage experience. Deep-read examples in the newest material were agent/research execution records, source/static audit findings, feature definitions, and requirement paraphrases; they remain SYNTHETIC_OR_AGENT, OBSERVED_EXECUTION, or PROVENANCE_UNKNOWN rather than USER_REPORTED. The connected GitHub tooling exposes PR discussion timelines but no repository Discussions surface. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
 }
