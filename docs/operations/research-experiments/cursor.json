@@ -2,19 +2,113 @@
   "schema_version": 1,
   "task": "research-experiment",
   "policy": "docs/operations/fair-selection-v1.md",
-  "status": "BOOTSTRAP_REQUIRED",
+  "status": "PARTIAL",
   "visibility_scope": "PUBLIC_ONLY",
-  "migration": {"required": true, "evidence_refs": []},
-  "inventory": {"complete": false, "observed_at": null, "repository_ids": [], "discovery_cursor": null},
-  "selection": {"priority_streak": 0, "aging_due": false, "next_fair_target": null, "fair_cycle_remaining_repo_ids": [], "last_selection_reason": null, "emergency_fingerprint": null, "last_research_id": null, "consecutive_research_turns": 0},
-  "selection_lease": null,
+  "migration": {
+    "required": true,
+    "evidence_refs": [
+      "https://github.com/Reese-max/spotify-playlist-organizer-mcp/issues/34#issuecomment-5699004537"
+    ]
+  },
+  "inventory": {
+    "complete": false,
+    "observed_at": "2026-09-16T17:09:32Z",
+    "repository_ids": [
+      1297871948,
+      1369117921
+    ],
+    "discovery_cursor": "PARTIAL: verified public research history plus current selected issue; accessible private research omitted from public state"
+  },
+  "selection": {
+    "priority_streak": 0,
+    "aging_due": false,
+    "next_fair_target": null,
+    "fair_cycle_remaining_repo_ids": [
+      1369117921
+    ],
+    "last_selection_reason": "PRIORITY: public bounded offline experiment can resolve test-maintenance profile decision without product changes; prior terminal public research is not rerun",
+    "emergency_fingerprint": null,
+    "last_research_id": "autodev-ng/github-acceptance/test-maintenance-profile-spike/v1",
+    "consecutive_research_turns": 0
+  },
+  "selection_lease": {
+    "task": "research-experiment",
+    "run": "research-experiment-20260916T170932Z",
+    "worker": "research-experiment",
+    "research_id": "autodev-ng/github-acceptance/test-maintenance-profile-spike/v1",
+    "repository_id": 1297871948,
+    "issue_number": 37,
+    "lane": "PRIORITY",
+    "leased_at": "2026-09-16T17:09:32Z",
+    "lease_until": "2026-09-16T18:39:32Z"
+  },
   "discovery_watermarks": {},
-  "items": {},
-  "active_queue": [],
+  "items": {
+    "1369117921#34": {
+      "repository_id": 1369117921,
+      "issue_number": 34,
+      "research_id": "spotify-playlist-organizer-mcp/save-music/concurrent-idempotency/v1",
+      "hypothesis_version": "v1",
+      "last_attempted_at": "2026-09-16T14:17:09Z",
+      "last_progress_at": "2026-09-16T14:17:09Z",
+      "completed_steps": [
+        "deterministic concurrent barrier experiment",
+        "sequential control",
+        "test-only per-key serialization counterfactual"
+      ],
+      "resume_subcursor": null,
+      "blocking_fingerprint": null,
+      "blocked_since": null,
+      "wake_conditions": [
+        "new evidence contradicts provider mutation overlap",
+        "owner requests implementation-scoping follow-up"
+      ],
+      "next_probe_at": null,
+      "last_relevant_evidence_version": "PR20@7baf749152fddc093fbdebb042141036c3c31b65",
+      "evidence_refs": [
+        "https://github.com/Reese-max/spotify-playlist-organizer-mcp/issues/34#issuecomment-5699004537"
+      ],
+      "decision": "BUILD",
+      "pending_run_id": null,
+      "state": "TERMINAL_RESEARCH_DECISION"
+    },
+    "1297871948#37": {
+      "repository_id": 1297871948,
+      "issue_number": 37,
+      "research_id": "autodev-ng/github-acceptance/test-maintenance-profile-spike/v1",
+      "hypothesis_version": "v1",
+      "last_attempted_at": null,
+      "last_progress_at": null,
+      "completed_steps": [
+        "source contract confirmed on current main"
+      ],
+      "resume_subcursor": "run bounded offline synthetic decision-table experiment",
+      "blocking_fingerprint": null,
+      "blocked_since": null,
+      "wake_conditions": [],
+      "next_probe_at": null,
+      "last_relevant_evidence_version": "main@b38b63eadc9687f021c2c64fa0cf8989b4798ff5",
+      "evidence_refs": [
+        "https://github.com/Reese-max/autodev-ng/issues/37",
+        "https://github.com/Reese-max/autodev-ng/blob/b38b63eadc9687f021c2c64fa0cf8989b4798ff5/src/github/job.ts"
+      ],
+      "decision": null,
+      "pending_run_id": null,
+      "state": "SELECTED"
+    }
+  },
+  "active_queue": [
+    "1297871948#37"
+  ],
   "waiting_queue": [],
   "waiting_probe_cursor": null,
-  "last_run_id": null,
+  "last_run_id": "research-experiment-20260916T170932Z",
   "last_completed_check_at": null,
-  "coverage": {"eligible": null, "completed": null, "partial": null, "waiting": null},
-  "notes": "Initialized persistent storage, not an executed experiment. Import verified research IDs, hypothesis versions, completed steps, pending runs, decisions and blocking_fingerprint from prior evidence; preserve unresolved resume points. At most one independent research question per run. Public data only."
+  "coverage": {
+    "eligible": null,
+    "completed": 1,
+    "partial": 1,
+    "waiting": 0
+  },
+  "notes": "Bootstrap is partial, not a full portfolio inventory. Verified private research history exists but is intentionally omitted from this public cursor; source issues retain that evidence. PR #20 remains open and docs/operations/research-experiment.md is not on default branch."
 }
