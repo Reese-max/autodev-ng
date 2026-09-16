@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "task": "runtime-evidence",
-  "policy": "docs/operations/fair-selection-v1.md",
-  "status": "PARTIAL",
+  "policy": "docs/operations/fair-selection-v2.md",
+  "status": "RETIRED_PUBLIC_SNAPSHOT",
+  "role": "HISTORICAL_NOT_AUTHORITATIVE",
   "visibility_scope": "PUBLIC_ONLY",
   "migration": {
-    "required": true,
+    "required": false,
+    "state_authority": "Use the private coordination location configured in the task prompt; do not resume writes to this public snapshot.",
     "evidence_refs": [
-      "github-search:open-NEEDS_RUNTIME_VERIFICATION:62-results:2026-09-16T16:19:26Z",
-      "Reese-max/project-doctor-web#16:runtime-receipt-5698051472",
       "Reese-max/lobsterpulse#3:runtime-receipt-5674624019",
       "Reese-max/spotify-playlist-organizer-mcp#6:runtime-receipt-5700840064",
       "Reese-max/taiwan-intel-dashboard#35:runtime-receipt-5703191112"
@@ -18,19 +18,15 @@
     "complete": false,
     "observed_at": "2026-09-16T19:19:02Z",
     "repository_ids": [1369117921, 1276211068],
-    "discovery_cursor": {
-      "source": "github-issue-search",
-      "query": "user:Reese-max is:issue is:open NEEDS_RUNTIME_VERIFICATION",
-      "resume": "enumerate-results-with-bounded-pagination",
-      "known_total": 62
-    }
+    "discovery_cursor": null,
+    "note": "Historical public subset only; no complete candidate denominator is established here."
   },
   "selection": {
     "priority_streak": 2,
     "aging_due": true,
     "next_fair_target": null,
     "fair_cycle_remaining_repo_ids": [],
-    "last_selection_reason": "PRIORITY: PR #33 newly merged to current main; immutable exact-head CI artifact enabled bounded real-data network validation while the relevant correlate.mjs blob remained identical on current default branch.",
+    "last_selection_reason": "Historical PRIORITY selection for the newly merged location-news verification path; the pending aging obligation was preserved during migration.",
     "emergency_fingerprint": null
   },
   "selection_lease": null,
@@ -48,13 +44,8 @@
       "last_attempted_at": "2026-09-16T16:19:26Z",
       "last_completed_evidence_at": "2026-09-16T16:23:00Z",
       "last_relevant_evidence_version": "main@9b99f580acaf1e0b6631aa911b9222c262ddc1ec;http-blob@c6bc82c07c2ea3d0999035a1b87a6f1b436a36f8;receipt@5700840064",
-      "wake_conditions": [
-        "isolated environment already contains repository dependencies @modelcontextprotocol/server and zod, or an equivalent authorized reproducible workspace becomes available",
-        "a new exact-SHA CI/runtime receipt executes the real stdio MCP timeout/cancellation integration",
-        "relevant product implementation changes"
-      ],
       "next_probe_at": "2026-09-17T16:23:00Z",
-      "resume_subcursor": "Run closure-grade real stdio MCP integration with a local stub server; do not call YouTube/Spotify production providers. Preserve tool-level typed timeout/cancel result, retry count and mutation count."
+      "resume_subcursor": "Historical pending scope: real stdio MCP timeout/cancellation integration using a local stub, with typed result, retry count and mutation count. No production provider calls."
     },
     "1276211068#35#location-news-runtime-postmerge": {
       "repository_id": 1276211068,
@@ -68,13 +59,8 @@
       "last_attempted_at": "2026-09-16T19:18:15Z",
       "last_completed_evidence_at": "2026-09-16T19:18:15Z",
       "last_relevant_evidence_version": "main@3358fa2f8badb130c8befd1c477ff151e92e5e5c;pr33@1bf16e09526b5866363e65bd62ebdc87cbac4da1;correlate-blob@45bcd38f3ddb77d8299073c1f905fd70e9701a0f;actions-run@35107729902;artifact@10450657789;receipt@5703191112",
-      "wake_conditions": [
-        "an authorized browser environment can load the existing Pages preview or the immutable exact-head artifact over a normal HTTP origin",
-        "a new exact-SHA browser/runtime receipt covers the desktop and mobile location-link interaction checklist",
-        "relevant location-link or correlation implementation changes"
-      ],
       "next_probe_at": "2026-09-17T19:19:02Z",
-      "resume_subcursor": "Real-data generated-network slice passed on the immutable PR-head artifact. Remaining closure path is actual desktop/mobile browser verification of location links, focus/new-tab behavior, long labels and no-coordinate cases; do not weaken browser security or substitute mock DOM."
+      "resume_subcursor": "Historical pending scope: authorized desktop/mobile browser checks for location links, focus/new-tab behavior, long labels and no-coordinate cases. Do not bypass browser security or substitute mock DOM."
     }
   },
   "active_queue": [],
@@ -86,10 +72,12 @@
   "last_run_id": "2026-09-16T19:10:04Z-runtime-evidence-3",
   "last_completed_check_at": "2026-09-16T19:19:02Z",
   "coverage": {
-    "eligible": 62,
-    "completed": 0,
-    "partial": 2,
-    "waiting": 2
+    "eligible": null,
+    "known_public_work_items": 2,
+    "full_completed_known": 0,
+    "partial_known": 2,
+    "waiting_known": 2,
+    "note": "Partial evidence and waiting state overlap; these counts are not additive and are not whole-portfolio coverage."
   },
-  "notes": "Bootstrap remains partial: the full public candidate set has not yet been classified into runnable vs waiting, and private-repository identifiers remain intentionally excluded. This run completed a bounded real-data generated-network verification slice for one newly merged public target and preserved the still-unverified browser/mobile path as BLOCKED_ENVIRONMENT. After two consecutive PRIORITY selections, the next runnable main selection must use AGING when an eligible aging candidate is available."
+  "notes": "Retired public snapshot. Current coordination metadata is maintained only at the task-configured private location. This edit changes neither product evidence nor Issue severity/status, and is not a new runtime run. Out-of-scope metadata was removed from the current file; Git history was not rewritten."
 }
