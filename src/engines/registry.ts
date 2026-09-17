@@ -117,7 +117,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           id: tag === 'herdr' ? 'herdr' : `herdr:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           command: ec.command, verifyCommand: cfg.verifyCommand,
-          provider: ec.provider,
+          provider: ec.provider, dataDir: cfg.dataDir,
           timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs,
         })
       case 'freebuff':
