@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-17T20:41:16Z",
+  "observed_through_utc": "2026-09-17T23:37:15Z",
   "source_scope": [
     "github_owner_scoped_issue_search",
     "github_issues",
@@ -10,10 +10,10 @@
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 39,
     "repository_enumeration_this_run": "COMPLETE_USER_REESE_MAX_ARCHIVED_FALSE_PAGE_1_39_PAGE_2_EMPTY",
-    "issues_updated_since_previous_cursor_inspected": 3,
-    "new_issues_in_window": 2,
-    "existing_issue_threads_updated_in_window": 1,
-    "updated_issue_threads_with_comments_inspected": 3,
+    "issues_updated_since_previous_cursor_inspected": 0,
+    "new_issues_in_window": 0,
+    "existing_issue_threads_updated_in_window": 0,
+    "updated_issue_threads_with_comments_inspected": 0,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
@@ -22,8 +22,8 @@
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
-    "OBSERVED_EXECUTION": 1,
-    "SYNTHETIC_OR_AGENT": 2,
+    "OBSERVED_EXECUTION": 0,
+    "SYNTHETIC_OR_AGENT": 0,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -33,5 +33,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped archived:false issue scan advanced from 2026-09-17T17:37:32Z and refreshed the complete accessible inventory: page 1 returned 39 Reese-max-owned unarchived repositories and page 2 was empty. Three issue threads changed in the bounded window: two newly created coordination/finding threads and one existing research thread with new bounded-experiment receipts. Issue bodies and necessary comment surfaces were inspected. One thread contains traceable synthetic/offline execution evidence and is classified OBSERVED_EXECUTION; two newly created threads are agent-authored coordination or technical findings and are classified SYNTHETIC_OR_AGENT. None contains an original end-user usage-experience report. Incremental explicit feedback-marker searches for feedback/回饋 returned no matches. No non-owner-authored issue or non-owner commenter appeared in the inspected delta. No inspected thread contains an original usage-experience statement with traceable task context, reported actual result, workaround/recovery, or post-fix real-use reproduction. Discussions remain unavailable through the connected GitHub surface; this is the same known source limitation and does not require repeated owner notification. No existing Issue was updated because there is no new actionable original feedback to add. Private source identifiers are intentionally omitted from this public cursor; detailed evidence remains in the source repositories."
+  "notes": "Incremental owner-scoped archived:false issue scan advanced from 2026-09-17T20:41:16Z through 2026-09-17T23:37:15Z and refreshed the complete accessible inventory: page 1 returned 39 Reese-max-owned unarchived repositories and page 2 was empty. No Issue thread was created or updated in the bounded window, so there was no new Issue/comment source requiring provenance classification or mapping to an existing root cause. Incremental explicit feedback-marker searches for feedback/回饋 returned no matches. No verifiable original usage-experience report, post-fix real-use reproduction, or new actionable workflow friction was observed. Discussions remain unavailable through the connected GitHub surface; this is the same known source limitation and does not require repeated owner notification. No existing Issue was updated because there is no new actionable original feedback to add. Private source identifiers are intentionally omitted from this public cursor; detailed evidence remains in the source repositories."
 }
