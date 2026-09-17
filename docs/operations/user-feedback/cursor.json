@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-17T14:40:02Z",
+  "observed_through_utc": "2026-09-17T17:37:32Z",
   "source_scope": [
     "github_owner_scoped_issue_search",
     "github_issues",
@@ -10,10 +10,10 @@
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 39,
     "repository_enumeration_this_run": "COMPLETE_USER_REESE_MAX_ARCHIVED_FALSE_PAGE_1_39_PAGE_2_EMPTY",
-    "issues_updated_since_previous_cursor_inspected": 5,
-    "new_issues_in_window": 4,
-    "existing_issue_threads_updated_in_window": 1,
-    "updated_issue_threads_with_comments_inspected": 5,
+    "issues_updated_since_previous_cursor_inspected": 4,
+    "new_issues_in_window": 2,
+    "existing_issue_threads_updated_in_window": 2,
+    "updated_issue_threads_with_comments_inspected": 4,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
@@ -22,8 +22,8 @@
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
-    "OBSERVED_EXECUTION": 1,
-    "SYNTHETIC_OR_AGENT": 4,
+    "OBSERVED_EXECUTION": 2,
+    "SYNTHETIC_OR_AGENT": 2,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -33,5 +33,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped archived:false issue scan advanced from 2026-09-17T11:42:50Z and refreshed the complete accessible inventory: page 1 returned 39 Reese-max-owned unarchived repositories and page 2 was empty. Five issue threads changed in the bounded window: four newly created planning/research/self-review findings and one existing research thread updated with a bounded offline experiment receipt. Issue bodies and necessary comment surfaces were inspected. The research receipt is OBSERVED_EXECUTION because it contains traceable synthetic experiment evidence, but it is not original end-user usage feedback; the four new findings are SYNTHETIC_OR_AGENT and were created through the connected automation/app surface. No non-owner-authored issue or non-owner commenter appeared in the inspected delta, and explicit feedback-marker searches returned no match. No inspected thread contains an original usage-experience statement with traceable task context, reported actual result, workaround/recovery, or post-fix real-use reproduction. Discussions remain unavailable through the connected GitHub surface; this is the same known source limitation and does not require repeated owner notification. No existing Issue was updated because there is no new actionable original feedback to add. Private source identifiers are intentionally omitted from this public cursor; detailed evidence remains in the source repositories."
+  "notes": "Incremental owner-scoped archived:false issue scan advanced from 2026-09-17T14:40:02Z and refreshed the complete accessible inventory: page 1 returned 39 Reese-max-owned unarchived repositories and page 2 was empty. Four issue threads changed in the bounded window: two newly created findings and two existing threads with new audit/research receipts. Issue bodies and necessary comment surfaces were inspected. Two records contain traceable CI/local or bounded experiment execution evidence and are classified OBSERVED_EXECUTION; two are audit/self-review coordination and are SYNTHETIC_OR_AGENT. None is an original end-user usage-experience report. Broad feedback-marker searches produced only contextual false positives such as external-product descriptions or technical wording, so no explicit project feedback statement was retained as a match. No non-owner-authored issue or non-owner commenter appeared in the inspected delta. No inspected thread contains an original usage-experience statement with traceable task context, reported actual result, workaround/recovery, or post-fix real-use reproduction. Discussions remain unavailable through the connected GitHub surface; this is the same known source limitation and does not require repeated owner notification. No existing Issue was updated because there is no new actionable original feedback to add. Private source identifiers are intentionally omitted from this public cursor; detailed evidence remains in the source repositories."
 }
