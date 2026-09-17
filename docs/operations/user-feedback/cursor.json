@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-17T08:39:58Z",
+  "observed_through_utc": "2026-09-17T11:42:50Z",
   "source_scope": [
     "github_owner_scoped_issue_search",
     "github_issues",
@@ -11,10 +11,10 @@
     "accessible_self_owned_unarchived_repositories_last_enumerated": 39,
     "repository_enumeration_this_run": "COMPLETE_USER_REESE_MAX_ARCHIVED_FALSE_PAGE_1_39_PAGE_2_EMPTY",
     "issues_updated_since_previous_cursor_inspected": 6,
-    "new_issues_in_window": 2,
-    "existing_issue_threads_updated_in_window": 4,
+    "new_issues_in_window": 4,
+    "existing_issue_threads_updated_in_window": 2,
     "updated_issue_threads_with_comments_inspected": 6,
-    "explicit_feedback_marker_matches": 4,
+    "explicit_feedback_marker_matches": 1,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
     "threads_with_non_owner_commenters": 0,
@@ -22,8 +22,8 @@
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
-    "OBSERVED_EXECUTION": 3,
-    "SYNTHETIC_OR_AGENT": 3,
+    "OBSERVED_EXECUTION": 2,
+    "SYNTHETIC_OR_AGENT": 4,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -33,5 +33,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped archived:false issue scan advanced from 2026-09-17T05:39:09Z. Repository enumeration was refreshed and completed: page 1 returned 39 accessible Reese-max-owned unarchived repositories and page 2 was empty. Six issue threads changed in the window: two new audit/source-confirmed planning issues and four existing threads with research/runtime progress. Necessary comment surfaces were inspected. Three delta threads contain traceable execution or CI/experiment progress and are classified OBSERVED_EXECUTION; three are synthetic audit/planning findings and are classified SYNTHETIC_OR_AGENT. Marker search for human/user-validation language matched four threads, but the matched text either explicitly says USER_VALIDATED=NO / no real-user evidence or describes hypothetical user workflow; none contains an original usage experience with traceable context, observed result, workaround, or post-fix real-use reproduction. No non-owner-authored issue or non-owner commenter was found in the inspected delta. Discussions remain unavailable through the connected GitHub surface; this is the same known source limitation and does not require repeated owner notification. No existing Issue was updated because there is no new actionable original feedback to add."
+  "notes": "Incremental owner-scoped archived:false issue scan advanced from 2026-09-17T08:39:58Z and refreshed the complete accessible inventory: page 1 returned 39 Reese-max-owned unarchived repositories and page 2 was empty. Six issue threads changed in the bounded window: four newly created planning/audit/research findings and two existing threads with bounded runtime/research experiment receipts. Necessary issue/comment surfaces were inspected. Two threads contain traceable executed test/experiment evidence and are classified OBSERVED_EXECUTION; four are connector/agent-generated planning, source-audit, or research content and are classified SYNTHETIC_OR_AGENT. Explicit feedback-marker search produced one match, whose own text explicitly distinguishes synthetic personas from real-user frequency evidence. No inspected thread contains an original usage-experience statement with traceable task context, reported actual result, workaround/recovery, or post-fix real-use reproduction. No non-owner-authored issue or non-owner commenter appeared in the inspected delta. Discussions remain unavailable through the connected GitHub surface; this is the same known source limitation and does not require repeated owner notification. No existing Issue was updated because there is no new actionable original feedback to add. Private source identifiers are intentionally omitted from this public cursor; detailed evidence remains in the source repositories."
 }
