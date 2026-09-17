@@ -30,6 +30,11 @@ export class PreflightCache {
     } catch { /* fail-open */ }
   }
 
+  /** 讓結果維持有效到 untilMs（可靠 quota reset 等再檢查時間）；untilMs 已過去＝寫入即過期。 */
+  setUntil(key: string, r: PreflightResult, untilMs: number): void {
+    this.set(key, r, untilMs - (r.ok ? this.ttlMs : this.badTtlMs))
+  }
+
   private load(): Record<string, Entry> {
     if (!existsSync(this.file)) return {}
     try { return JSON.parse(readFileSync(this.file, 'utf8')) } catch { return {} }

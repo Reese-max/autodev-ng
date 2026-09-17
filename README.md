@@ -184,7 +184,9 @@ Guardian 不啟動 subagent，也不另設專案任務總時間／成本上限�
 pwsh -NoProfile -File scripts/herdr-fleet-console.ps1
 ```
 
-Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.herdr.command` 必須指向 `Start-Herdr-Autopilot.ps1`，並設定 `costPerRunUsd`。可選的 `engines.herdr.provider` 為 `Codex` 或 `Pi`，未設仍走 Codex；Pi 必須先有可用模型／provider。AutoDev 仍擁有 worktree、提交與最終驗收。
+Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.herdr.command` 必須指向 `Start-Herdr-Autopilot.ps1`，並設定 `costPerRunUsd`。可選的 `engines.herdr.provider` 為 `Codex` 或 `Pi`，未設仍走 Codex；`engines.herdr.model` 設定時會與 status 回報的 backend 模型／清單比對，不符即視為設定問題拒絕派工。Pi 必須先有可用模型／provider。AutoDev 仍擁有 worktree、提交與最終驗收。
+
+Preflight 對 server／登入／模型／額度分開驗證（issue #34）：唯讀 `status server --json` 回報的 `backend.auth`／`backend.model(s)`／`backend.quota` 欄位存在時才採信，缺欄位一律 `unknown`——unknown 不冒充可用；`auth=missing`、`model=unavailable`、`quota=exhausted` 會分別擋下並附不同處置（等人工登入／設定問題／依 resetsAt 或 30 分有界冷卻再查）。設了 `engines.herdr.model` 而 backend 無法證實該模型時也視為設定問題拒絕派工。探針僅在 transient（逾時／無法解析／spawn 失敗）時退避重試，最多 5 次、單次退避上限 5 秒。快取 key 綁定 launcher 檔案雜湊＋session＋provider＋model，版本或設定變動、run 失敗即重探。費用維持 `costUnknown`：入帳走 `costPerRunUsd`／`failureCostEstimateUsd`，永不記成已證實零成本；`tierMode: free-only` 下 herdr 無已驗證免費路徑，resolve 即拒絕。
 
 ### 4. Discord bot（可選）
 
