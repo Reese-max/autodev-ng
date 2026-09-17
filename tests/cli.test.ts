@@ -526,6 +526,12 @@ test('M5：configs/ 下所有現役真檔 schema 全過，且 registry 能建出
     const cfg = ConfigSchema.parse(JSON.parse(readFileSync(join(cfgDir, f), 'utf8')))
     expect(cfg.engines[cfg.defaultEngine], `${f} 的 defaultEngine 必須在自己的 engines 白名單內`).toBeDefined()
     const registry = makeEngineRegistry({ ...cfg, dataDir: mkdtempSync(join(tmpdir(), 'adng-cfg-')) })
-    expect(registry.resolve(cfg.defaultEngine)).toBeDefined() // lazy：只 resolve defaultEngine，不需要其他引擎的 env
+    try {
+      expect(registry.resolve(cfg.defaultEngine)).toBeDefined() // lazy：只 resolve defaultEngine，不需要其他引擎的 env
+    } catch (err) {
+      // 失敗訊息必須點名設定檔名與 engine tag（registry 已附 adapter/model），不得含 secret 材料
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new Error(`${f}: defaultEngine "${cfg.defaultEngine}" resolve 失敗——${detail}`)
+    }
   }
 })
