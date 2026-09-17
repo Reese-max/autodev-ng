@@ -5,6 +5,7 @@ import { parseBacklog } from '../backlog.js'
 import { githubConsole } from '../github/console.js'
 import { ConfigSchema, type Config } from '../types.js'
 import { readExecutions } from '../engines/execution-observation.js'
+import { ControlStore } from '../engines/steering.js'
 
 export function loadMonitorConfig(file: string): Config {
   const cfg = ConfigSchema.parse(JSON.parse(readFileSync(file, 'utf8')))
@@ -42,13 +43,15 @@ export function readMonitor(cfg: Config, cfgPath: string, now = Date.now()) {
     }
   }
   const hb = json(join(cfg.dataDir, 'heartbeat.json'))
-  let heartbeat: { ts: string; state: string; currentTask: string | null; ageMs: number; stale: boolean; recordedCostUsd: number | null } | null = null
+  let heartbeat: { ts: string; state: string; currentTask: string | null; currentTaskId: string | null; currentExecutionId: string | null; ageMs: number; stale: boolean; recordedCostUsd: number | null } | null = null
   if (hb) {
     const ts = typeof hb.ts === 'string' ? Date.parse(hb.ts) : NaN
     if (!Number.isFinite(ts) || ts > now + 60_000 || typeof hb.state !== 'string') errors.push('heartbeat.json：時間或狀態無效')
     else heartbeat = {
       ts: hb.ts as string, state: hb.state.slice(0, 80),
       currentTask: typeof hb.currentTask === 'string' ? hb.currentTask.slice(0, 200) : null,
+      currentTaskId: typeof hb.currentTaskId === 'string' ? hb.currentTaskId.slice(0, 40) : null,
+      currentExecutionId: typeof hb.currentExecutionId === 'string' ? hb.currentExecutionId.slice(0, 40) : null,
       ageMs: Math.max(0, now - ts), stale: now - ts > cfg.staleThresholdMs,
       recordedCostUsd: typeof hb.todayCostUsd === 'number' && Number.isFinite(hb.todayCostUsd) && hb.todayCostUsd >= 0 ? hb.todayCostUsd : null,
     }
@@ -75,20 +78,28 @@ export function readMonitor(cfg: Config, cfgPath: string, now = Date.now()) {
   const paused = flag(cfg.stopFile), fleetPaused = flag(resolve(dirname(cfgPath), '.adng.stop'))
   const executions = readExecutions(cfg.dataDir, now)
   errors.push(...executions.errors)
+  // Issue #11：待送達控制數量——operator 一眼看出有沒有 queued follow-up，不必猜。
+  // 唯讀開 run.db；檔不存在/表未建/任何故障都回 null（fail-open，不汙染 errors）。
+  let controlsPending: number | null = null
+  try {
+    const store = new ControlStore(join(cfg.dataDir, 'run.db'), { readonly: true })
+    try { controlsPending = store.pendingCount(cfg.projectPath) } finally { store.close() }
+  } catch { /* run.db 不存在或不可讀——控制面資訊省略 */ }
   const health = paused || fleetPaused ? 'paused'
     : errors.length || processState === 'unknown' ? 'unknown'
     : processState === 'absent' ? 'not-running'
     : !heartbeat ? 'unknown' : heartbeat.stale ? 'stale'
     : ['cost-stopped', 'preflight-failed', 'stopped'].includes(heartbeat.state) ? 'blocked' : 'observed'
   return { project: basename(cfgPath, '.json'), checkedAt: new Date(now).toISOString(), health, paused, fleetPaused,
-    process: { pid, state: processState, identityVerified: false }, heartbeat, backlog, dlqCount, errors, executions }
+    process: { pid, state: processState, identityVerified: false }, heartbeat, backlog, dlqCount, errors, executions, controlsPending }
 }
 
 export function monitorRuntimeLines(m: ReturnType<typeof readMonitor>): string[] {
   const hb = m.heartbeat
   return [
     `監控：${m.health}｜${m.checkedAt}`,
-    hb ? `heartbeat：${hb.ts}｜state=${hb.state}｜${Math.floor(hb.ageMs / 1000)} 秒前${hb.stale ? '（心跳過期，請檢查）' : ''}${hb.currentTask ? `｜任務=${hb.currentTask}` : ''}` : '尚無 heartbeat 紀錄或資料無效',
+    hb ? `heartbeat：${hb.ts}｜state=${hb.state}｜${Math.floor(hb.ageMs / 1000)} 秒前${hb.stale ? '（心跳過期，請檢查）' : ''}${hb.currentTask ? `｜任務=${hb.currentTask}` : ''}${hb.currentExecutionId ? `｜taskId=${hb.currentTaskId}｜exec=${hb.currentExecutionId.slice(0, 8)}` : ''}` : '尚無 heartbeat 紀錄或資料無效',
+    ...(m.controlsPending ? [`控制訊息：${m.controlsPending} 筆待送達`] : []),
     `daemon 進程：${m.process.state === 'present' ? 'PID 存在（未核對程序身分）' : m.process.state === 'absent' ? '未偵測到' : '未知'}`,
     ...(m.executions.protected ? [`執行觀測：${m.executions.records.filter(r => r.phase !== 'terminal').length} 項待收斂｜${m.executions.diagnosisDue ? '需要診斷，保留寫入權' : '持續觀測'} `] : []),
     `派工：${m.paused || m.fleetPaused ? `已暫停${m.fleetPaused ? '（車隊旗標）' : ''}` : m.paused === null || m.fleetPaused === null ? '未知' : '未暫停'}`,

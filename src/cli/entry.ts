@@ -19,6 +19,8 @@ export const CLI_HELP = [
   '  adng monitor --configs-dir <dir> [--json]       多專案監控',
   '  adng execution list|capabilities --config <path>  執行觀測／全接頭能力契約',
   '  adng execution cancel --config <path> --id <executionId>  要求指定執行停止（仍須核對後端）',
+  '  adng steer|enqueue --config <path> --execution <id> --text <指示>  對當前 execution 即時修正／排下一個 safe turn',
+  '  adng controls --config <path> [--json]                          查看控制訊息（pending/delivered/stale）',
   '  adng pause|resume --config <path> [--json]      暫停／恢復單一專案派工',
   '  adng cost|backlog|log --config <path> [--json]  查看成本、任務與事件',
   '  adng bot (--config <path> | --configs-dir <dir>)  啟動 Discord 控制與監控',
@@ -76,6 +78,9 @@ export async function runCli(argv: string[], cliPath: string): Promise<void> {
   if (argv[0] === 'bot') { await (await import('../bot/index.js')).runBotCli(argv.slice(1)); return }
   if (['monitor', 'pause', 'resume', 'cost', 'backlog', 'log'].includes(argv[0] ?? '') || (argv[0] === 'status' && argv.includes('--json'))) {
     await (await import('./control.js')).controlCli(argv[0]!, argv.slice(1)); return
+  }
+  if (['steer', 'enqueue', 'controls'].includes(argv[0] ?? '')) {
+    await (await import('./steering.js')).steeringCli(argv[0]!, argv.slice(1)); return
   }
   if (argv[0] === 'github') {
     const { githubCli } = await import('../github/cli.js')

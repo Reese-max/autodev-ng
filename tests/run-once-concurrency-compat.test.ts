@@ -69,6 +69,8 @@ function heartbeat(fixture: Fixture): Record<string, unknown> | undefined {
   if (!existsSync(file)) return undefined
   const value = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
   delete value.ts
+  // Issue #11：executionId 本質是隨機 uuid——兩次獨立 runOnce 必不同，compat 斷言要排除。
+  delete value.currentExecutionId
   return value
 }
 

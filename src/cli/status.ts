@@ -7,6 +7,8 @@ export interface HeartbeatSnapshot {
   ts: string
   state: string
   currentTask?: string
+  currentTaskId?: string
+  currentExecutionId?: string
   todayCostUsd: number
 }
 
@@ -31,12 +33,13 @@ export function formatStatus(input: StatusInput): string {
 
   const hb = input.heartbeat
   const taskLine = hb.currentTask ? `｜currentTask=${hb.currentTask}` : ''
+  const execLine = hb.currentExecutionId ? `｜taskId=${hb.currentTaskId ?? '?'}｜executionId=${hb.currentExecutionId}` : ''
   const backlogLine = input.backlogError
     ? `backlog：${input.backlogError}`
     : `backlog：open=${input.backlog.open}｜blocked=${input.backlog.blocked}｜superseded=${input.backlog.superseded}｜done=${input.backlog.done}`
   return [
     'adng status',
-    `heartbeat：${hb.ts}｜state=${hb.state}${taskLine}`,
+    `heartbeat：${hb.ts}｜state=${hb.state}${taskLine}${execLine}`,
     `今日成本：$${hb.todayCostUsd.toFixed(4)}（軟頂 ${formatCostLimit(input.dailySoftUsd)} / 硬頂 ${formatCostLimit(input.dailyHardUsd)}）`,
     backlogLine,
     `DLQ 積壓：${input.dlqCount} 筆`,
@@ -56,6 +59,8 @@ function readHeartbeat(dataDir: string): HeartbeatSnapshot | null {
       ts: r.ts,
       state: r.state,
       currentTask: typeof r.currentTask === 'string' ? r.currentTask : undefined,
+      currentTaskId: typeof r.currentTaskId === 'string' ? r.currentTaskId : undefined,
+      currentExecutionId: typeof r.currentExecutionId === 'string' ? r.currentExecutionId : undefined,
       todayCostUsd: r.todayCostUsd,
     }
   } catch {

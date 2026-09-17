@@ -72,6 +72,8 @@ export interface RunResult {
   tokensOut?: number
   /** cache 命中部分（含於 tokensIn；影子帳按 cached 價計）。 */
   tokensCached?: number
+  /** Issue #11：本輪於 safe boundary 實際接收的 in-flight steer envelope id（engine 自報 ack）。 */
+  appliedSteers?: string[]
 }
 
 export interface PreflightResult { ok: boolean; detail: string; admission?: import('./engines/cli-admission.js').CliAdmission }
