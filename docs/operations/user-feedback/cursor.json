@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-16T23:40:51Z",
+  "observed_through_utc": "2026-09-17T02:38:26Z",
   "source_scope": [
     "github_owner_scoped_issue_search",
     "github_issues",
@@ -10,11 +10,11 @@
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 39,
     "repository_enumeration_this_run": "NOT_REENUMERATED_INCREMENTAL_OWNER_SCOPE_ARCHIVED_FALSE_ISSUE_SEARCH",
-    "issues_updated_since_previous_cursor_inspected": 6,
-    "new_issues_in_window": 0,
-    "existing_issue_threads_updated_in_window": 6,
-    "updated_issue_threads_with_full_comments_inspected": 6,
-    "explicit_feedback_marker_matches": 3,
+    "issues_updated_since_previous_cursor_inspected": 19,
+    "new_issues_in_window": 7,
+    "existing_issue_threads_updated_in_window": 12,
+    "updated_issue_threads_with_full_comments_inspected": 12,
+    "explicit_feedback_marker_matches": 1,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
     "threads_with_non_owner_commenters": 0,
@@ -27,5 +27,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental scan from 2026-09-16T20:37:06Z used owner-scoped archived:false GitHub issue search and inspected all six updated issue threads with their available issue comments. No issue in this window was authored by a non-owner account and no inspected thread had a non-owner commenter. Exact searches for USER_REPORTED, 我遇到, 回饋, feedback, 實際使用 and 使用測試 found only synthetic/persona framing, source/agent-authored requirements, research/runtime receipts, or implementation/test receipts; none contained a traceable original usage experience, device/version context, recovery path, or source ID that could be promoted to USER_REPORTED. One research thread explicitly states that real beta evidence is still unavailable. OBSERVED_EXECUTION evidence remains useful for validation but is not counted as user feedback by itself. Discussions remain unavailable through the connected GitHub surface; this is the same previously recorded source limitation and does not require a repeated owner notification. Repository enumeration itself was not refreshed this run; the prior aggregate remains only as the last enumerated baseline. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
+  "notes": "Incremental scan from 2026-09-16T23:40:52Z used an owner-scoped archived:false GitHub issue search; the result was complete for that query window (19 updated issues, 7 newly created and 12 existing updated threads). All updated issues were owner-authored. Every updated thread with issue comments was read through the all-pages comment surface; no non-owner commenter was found. Exact searches for USER_REPORTED, 我遇到, 回饋, feedback, 實際使用 and 使用測試 produced only one distinct marker-matching thread, whose wording was planning/agent provenance without a traceable original usage source. Other new material consisted of architecture/planning, source-confirmed audits, synthetic or isolated experiments, CI/runtime receipts, and external-platform risk evidence; several records explicitly disclaim real production incidence, real-user validation, or actual loss. These remain SYNTHETIC_OR_AGENT, OBSERVED_EXECUTION, or PROVENANCE_UNKNOWN rather than USER_REPORTED. Discussions remain unavailable through the connected GitHub surface; this is the same recorded source limitation and does not require a repeated owner notification. Repository enumeration itself was not refreshed this run; the prior aggregate remains only as the last enumerated baseline. No private repository names, URLs, content, branches, logs, or identifying metadata are persisted here."
 }
