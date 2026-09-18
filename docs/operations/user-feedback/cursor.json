@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-18T20:41:22Z",
+  "observed_through_utc": "2026-09-18T23:38:43Z",
   "source_scope": [
     "github_owner_scoped_issue_search",
     "github_issues",
@@ -11,10 +11,10 @@
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 39,
     "repository_enumeration_this_run": "NOT_REFRESHED_PREVIOUS_COMPLETE_39; OWNER_SCOPED_UPDATED_ISSUE_WINDOW_PROCESSED",
-    "issues_updated_since_previous_cursor_inspected": 1,
+    "issues_updated_since_previous_cursor_inspected": 0,
     "new_issues_in_window": 0,
-    "existing_issue_threads_updated_in_window": 1,
-    "updated_issue_threads_with_comments_inspected": 1,
+    "existing_issue_threads_updated_in_window": 0,
+    "updated_issue_threads_with_comments_inspected": 0,
     "zero_comment_new_issue_bodies_inspected": 0,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
@@ -25,8 +25,8 @@
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
-    "OBSERVED_EXECUTION": 1,
-    "SYNTHETIC_OR_AGENT": 1,
+    "OBSERVED_EXECUTION": 0,
+    "SYNTHETIC_OR_AGENT": 0,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -36,5 +36,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped archived:false Issue scan advanced from 2026-09-18T17:39:39Z through 2026-09-18T20:41:22Z. Exactly one existing Issue thread changed in the bounded window. Its three new comments are a runtime-evidence lock, a bounded GitHub Actions/source evidence receipt, and the matching release marker, all authored through the connected ChatGPT/Codex GitHub app. The receipt is verifiable OBSERVED_EXECUTION for this feedback task, but it is not an original usage-experience report and is also classified SYNTHETIC_OR_AGENT for provenance purposes. No new Issue body appeared, no changed Issue or inspected comment was non-owner-authored, and explicit feedback-marker searches for feedback/回饋/使用測試 returned no matches in the delta window. No verifiable original usage-experience report, post-fix real-use reproduction, or actionable recurring workflow friction was observed. Discussions remain unavailable through the connected GitHub surface; this is the same known source limitation and does not require repeated owner notification. No existing Issue was updated because there is no new actionable original feedback to add. Private source identifiers are intentionally omitted from this public cursor; detailed evidence remains in the source repositories."
+  "notes": "Incremental owner-scoped Issue scan advanced from 2026-09-18T20:41:22Z through 2026-09-18T23:38:43Z. Both the archived:false owner-scoped query and the same bounded owner query without the archive qualifier returned zero changed Issues, so there were no Issue bodies or comment threads requiring classification in this interval. Explicit bounded searches for feedback, 回饋, and 使用測試 also returned no matches. No verifiable original usage-experience report, post-fix real-use reproduction, recurring manual workaround, or actionable friction evidence was observed. Discussions remain unavailable through the connected GitHub surface; this is the same known source limitation and does not require repeated owner notification. No Issue was updated or created. Private source identifiers are intentionally omitted from this public cursor; detailed evidence remains in the source repositories."
 }
