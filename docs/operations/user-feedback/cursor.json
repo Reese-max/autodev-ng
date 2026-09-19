@@ -1,33 +1,34 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-19T08:40:44Z",
+  "observed_through_utc": "2026-09-19T11:42:59Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
     "github_issues",
     "github_issue_comments",
     "explicit_feedback_marker_search",
-    "repository_metadata"
+    "repository_metadata",
+    "bounded_repository_discussion_metadata_probe"
   ],
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 40,
     "repository_enumeration_this_run": "REFRESHED_COMPLETE_PAGE_1_40_PAGE_2_TERMINAL_EMPTY",
-    "issues_updated_since_previous_cursor_inspected": 1,
-    "new_issues_in_window": 1,
+    "issues_updated_since_previous_cursor_inspected": 0,
+    "new_issues_in_window": 0,
     "existing_issue_threads_updated_in_window": 0,
     "updated_issue_threads_with_comments_inspected": 0,
-    "zero_comment_new_issue_bodies_inspected": 1,
+    "zero_comment_new_issue_bodies_inspected": 0,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
     "threads_with_non_owner_commenters": 0,
     "provenance_unknown_feedback_claims_traced": 0,
-    "discussion_surface": "CHANGED_REPOSITORY_DISCUSSIONS_DISABLED; OTHER_REPOSITORY_DISCUSSIONS_NOT_RESCANNED_THIS_WINDOW"
+    "discussion_surface": "ONE_BOUNDED_REPOSITORY_METADATA_PROBE_DISCUSSIONS_DISABLED; REMAINING_DISCUSSION_SURFACES_NOT_RESCANNED_THIS_WINDOW"
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
     "OBSERVED_EXECUTION": 0,
-    "SYNTHETIC_OR_AGENT": 1,
+    "SYNTHETIC_OR_AGENT": 0,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -37,5 +38,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped Issue scan advanced from 2026-09-19T05:37:28Z through 2026-09-19T08:40:44Z. Repository enumeration was refreshed and terminated with an empty second page: 40 accessible self-owned unarchived repositories are currently visible to this connection. The archived:false owner-scoped Issue query and the same bounded owner query without the archive qualifier returned the same single changed Issue: one newly created zero-comment research item. The source Issue was created through the ChatGPT Codex Connector and contains repository/research analysis rather than an original usage-experience statement, so it is SYNTHETIC_OR_AGENT rather than USER_REPORTED or OBSERVED_EXECUTION. The changed repository is owned, unarchived and Issues-enabled; Discussions are disabled. Explicit bounded searches for feedback, 回饋, and 使用測試 returned no matches. No non-owner-authored changed Issue, non-owner commenter, original usage-experience statement, post-fix real-use reproduction, recurring manual workaround, or actionable user-friction evidence was observed. No Issue was updated or created by this user-feedback task. Private source identifiers are intentionally omitted from this public cursor; detailed evidence remains in source repositories."
+  "notes": "Incremental owner-scoped scan advanced from 2026-09-19T08:40:44Z through 2026-09-19T11:42:59Z. Repository enumeration was refreshed and terminated with an empty second page: 40 accessible self-owned unarchived repositories are currently visible to this connection. The bounded owner-scoped Issue query found no Issue created or updated after the previous cursor, so there were no changed Issue bodies or comment threads requiring source classification this window. Explicit bounded searches for feedback, 回饋, and 使用測試 in the same update window returned no matches. A bounded repository metadata probe advanced Discussion-surface coverage without exposing private repository identity; that probed repository has Discussions disabled. No original usage-experience statement, post-fix real-use reproduction, recurring manual workaround, actionable user-friction evidence, or newly traceable OBSERVED_EXECUTION receipt was observed. No Issue was updated or created by this user-feedback task. Private source identifiers are intentionally omitted from this public cursor; detailed evidence remains in source repositories."
 }
