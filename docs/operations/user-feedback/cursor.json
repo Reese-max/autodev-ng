@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-19T02:37:53Z",
+  "observed_through_utc": "2026-09-19T05:37:28Z",
   "source_scope": [
     "github_owner_scoped_issue_search",
     "github_issues",
@@ -11,22 +11,22 @@
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 39,
     "repository_enumeration_this_run": "NOT_REFRESHED_PREVIOUS_COMPLETE_39; OWNER_SCOPED_UPDATED_ISSUE_WINDOW_PROCESSED",
-    "issues_updated_since_previous_cursor_inspected": 2,
+    "issues_updated_since_previous_cursor_inspected": 1,
     "new_issues_in_window": 1,
-    "existing_issue_threads_updated_in_window": 1,
-    "updated_issue_threads_with_comments_inspected": 1,
+    "existing_issue_threads_updated_in_window": 0,
+    "updated_issue_threads_with_comments_inspected": 0,
     "zero_comment_new_issue_bodies_inspected": 1,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
     "threads_with_non_owner_commenters": 0,
     "provenance_unknown_feedback_claims_traced": 0,
-    "discussion_surface": "REPOSITORY_DISCUSSIONS_UNAVAILABLE_ON_CONNECTED_GITHUB_TOOLING"
+    "discussion_surface": "CHANGED_REPOSITORY_DISCUSSIONS_DISABLED; OTHER_REPOSITORY_DISCUSSIONS_NOT_RESCANNED_THIS_WINDOW"
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
-    "OBSERVED_EXECUTION": 1,
-    "SYNTHETIC_OR_AGENT": 3,
+    "OBSERVED_EXECUTION": 0,
+    "SYNTHETIC_OR_AGENT": 1,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -36,5 +36,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped Issue scan advanced from 2026-09-18T23:38:43Z through 2026-09-19T02:37:53Z. The archived:false owner-scoped query and the same bounded owner query without the archive qualifier returned the same two changed Issue threads: one newly created zero-comment Issue and one existing research thread with three new comments. The new Issue was created through the ChatGPT Codex Connector and explicitly states that no production incident/live provider failure is claimed, so it is SYNTHETIC_OR_AGENT rather than user feedback. The existing thread's new comments were also written through the ChatGPT Codex Connector: lock/release coordination markers are SYNTHETIC_OR_AGENT, while the bounded loopback-only fixture report is OBSERVED_EXECUTION; the report is controlled synthetic execution evidence and does not contain an original usage-experience statement. Explicit bounded searches for feedback, 回饋, and 使用測試 returned no matches; the changed set also contained no non-owner-authored Issue and no non-owner commenter in the inspected updated thread. No verifiable original usage-experience report, post-fix real-use reproduction, recurring manual workaround, or actionable friction evidence was observed. Discussions remain unavailable through the connected GitHub surface; this is the same known source limitation and does not require repeated owner notification. No Issue was updated or created by this user-feedback task. Private source identifiers are intentionally omitted from this public cursor; detailed evidence remains in the source repositories."
+  "notes": "Incremental owner-scoped Issue scan advanced from 2026-09-19T02:37:53Z through 2026-09-19T05:37:28Z. The archived:false owner-scoped query and the same bounded owner query without the archive qualifier returned the same single changed Issue: one newly created zero-comment maintenance item. Its body explicitly states that no current owner incident or frequency is claimed and is based on provider-contract/repository analysis, so it is SYNTHETIC_OR_AGENT rather than USER_REPORTED or OBSERVED_EXECUTION. The affected repository remains owned, public, unarchived, Issues-enabled, and has Discussions disabled; its current README still defines the YouTube-first two-stage identify/confirm/save product direction. Explicit bounded searches for feedback, 回饋, and 使用測試 returned no matches. No non-owner-authored changed Issue, non-owner commenter, original usage-experience statement, post-fix real-use reproduction, recurring manual workaround, or actionable user-friction evidence was observed. No Issue was updated or created by this user-feedback task. Private source identifiers are intentionally omitted from this public cursor; detailed evidence remains in source repositories."
 }
