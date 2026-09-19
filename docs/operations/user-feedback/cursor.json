@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-19T14:41:02Z",
+  "observed_through_utc": "2026-09-19T17:37:30Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
@@ -12,23 +12,23 @@
   ],
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 40,
-    "repository_enumeration_this_run": "REFRESHED_COMPLETE_PAGE_1_40_PAGE_2_TERMINAL_EMPTY",
-    "issues_updated_since_previous_cursor_inspected": 1,
+    "repository_enumeration_this_run": "REFRESHED_COMPLETE_PAGE_1_41_TOTAL_40_UNARCHIVED_PAGE_2_TERMINAL_EMPTY",
+    "issues_updated_since_previous_cursor_inspected": 0,
     "new_issues_in_window": 0,
-    "existing_issue_threads_updated_in_window": 1,
-    "updated_issue_threads_with_comments_inspected": 1,
+    "existing_issue_threads_updated_in_window": 0,
+    "updated_issue_threads_with_comments_inspected": 0,
     "zero_comment_new_issue_bodies_inspected": 0,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
     "threads_with_non_owner_commenters": 0,
     "provenance_unknown_feedback_claims_traced": 0,
-    "discussion_surface": "ONE_BOUNDED_REPOSITORY_METADATA_PROBE_DISCUSSIONS_DISABLED; REMAINING_DISCUSSION_SURFACES_NOT_RESCANNED_THIS_WINDOW"
+    "discussion_surface": "NO_NEW_DISCUSSION_SURFACE_EVIDENCE_IN_WINDOW; ISSUE_INDEPENDENT_DISCUSSIONS_NOT_RESCANNED_THIS_WINDOW"
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
     "OBSERVED_EXECUTION": 0,
-    "SYNTHETIC_OR_AGENT": 1,
+    "SYNTHETIC_OR_AGENT": 0,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -38,5 +38,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped scan advanced from 2026-09-19T11:42:59Z through 2026-09-19T14:41:02Z. Repository enumeration was refreshed and terminated with an empty second page: 40 accessible self-owned unarchived repositories are currently visible to this connection. One existing Issue thread changed in the window; its complete available comment page was inspected. The only substantive change was an authorized agent/external-radar research calibration with lock/release markers, so it is classified SYNTHETIC_OR_AGENT rather than USER_REPORTED. No new Issue was created in the window. Explicit bounded searches for feedback, 回饋, and 使用測試 returned no matches. A bounded repository metadata probe advanced Discussion-surface coverage; that probed repository has Discussions disabled. No original usage-experience statement, post-fix real-use reproduction, recurring manual workaround, actionable user-friction evidence, or newly traceable OBSERVED_EXECUTION receipt was observed. No Issue was updated or created by this user-feedback task. Private source identifiers are intentionally omitted from this public cursor; detailed evidence remains in source repositories."
+  "notes": "Incremental owner-scoped scan advanced from 2026-09-19T14:41:02Z through 2026-09-19T17:37:30Z. Repository enumeration was refreshed completely: 41 owned repositories were returned on the first page, one is archived, leaving 40 accessible self-owned unarchived repositories in scope; the second page was terminal empty. Owner-scoped Issue search found no Issue created or updated in the window, so there were no changed Issue/comment threads requiring source classification, no new original usage-experience statement, no new post-fix real-use reproduction, no recurring manual workaround, and no newly traceable OBSERVED_EXECUTION receipt. Issue-independent Discussion surfaces were not rescanned because this run exposed no new Discussion-listing capability; this is a coverage gap, not evidence that no Discussions or users exist. No Issue was updated or created by this user-feedback task. Private source identifiers remain omitted from this public cursor."
 }
