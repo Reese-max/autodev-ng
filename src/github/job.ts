@@ -14,6 +14,7 @@ import { makeEngineRegistry } from '../engines/registry.js'
 import { KernelVerifier } from '../verifier.js'
 import { regressionFile, verifyRegression, assertRegression } from './regression.js'
 import { verifyAcceptance, assertAcceptance } from './acceptance.js'
+import { assertQuality, verifyQuality } from './quality.js'
 import { TeamState } from '../engines/team-state.js'
 import { alternativeRetryDue, alternativeRetryUsed } from '../engines/alternative-retry.js'
 import { assertExecutionMode } from '../engines/capabilities.js'
@@ -123,13 +124,13 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
       if (!res.commitHash) throw new Error('Regression candidate commit missing')
       await verifyRegression(cfg, state, job.projectPath, res.commitHash, runtime.verifyTimeoutMs)
       await verifyAcceptance(cfg, state, job.projectPath, res.commitHash, runtime.verifyTimeoutMs)
+      await verifyQuality(cfg.quality, job.projectPath, res.commitHash, join(runDir(cfg, state), `quality-${res.commitHash}.json`), runtime.verifyTimeoutMs)
       return checked
     } catch (err) { return { ...checked, pass: false, reason: `regression-fail: ${String(err)}` } }
   } }
   // No notifications or perpetual discovery: one imported Issue, one bounded scheduler cycle.
   app.deps.notify = undefined
   app.deps.taskTerminalNotify = undefined
-  if (!cfg.repair) app.deps.lessons = undefined
   try {
     if (cfg.repair) {
       const source = JSON.parse(readFileSync(cfg.sourceConfig, 'utf8')) as { projectPath: string }
@@ -180,4 +181,5 @@ export function assertPublishable(cfg: GithubConfig, state: IssueState): void {
   if (cfg.repair) assertRepairEvidence(cfg, state)
   assertRegression(cfg, state, cwd)
   assertAcceptance(cfg, state)
+  assertQuality(cfg.quality, join(runDir(cfg, state), `quality-${state.commit}.json`), state.commit)
 }

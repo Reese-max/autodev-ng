@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { z } from 'zod'
+import { QualityConfigSchema } from './quality.js'
 const outputPattern = z.string().min(3).max(200).refine(value => { try { new RegExp(value); return true } catch { return false } }, 'Invalid output pattern')
 
 export const GithubConfigSchema = z.object({
@@ -19,6 +20,7 @@ export const GithubConfigSchema = z.object({
     passPattern: outputPattern, failPattern: outputPattern,
   }).strict().optional(),
   acceptance: z.object({ command: z.string().min(1), args: z.array(z.string()) }).strict().optional(),
+  quality: QualityConfigSchema.optional(),
   followup: z.boolean().default(false),
   template: z.boolean().optional(),
   stopFile: z.string().optional(),

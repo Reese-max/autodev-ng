@@ -158,7 +158,7 @@ test.each(['codex', 'freebuff'])('%s: real Git/scheduler repairs red to green wi
   const changed = JSON.parse(readFileSync(receipt, 'utf8')); changed.probe = {}
   writeFileSync(receipt, JSON.stringify(changed))
   expect(() => assertPublishable(f.cfg, state)).toThrow('Missing original probe pass')
-}, 30_000)
+}, 60_000)
 
 test('report repair follow-up preserves the original fix, proves a new regression and updates the same PR within its lifetime cap', async () => {
   const f = await setup(), realRun = proc.runProcess
