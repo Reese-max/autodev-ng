@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-19T17:37:30Z",
+  "observed_through_utc": "2026-09-19T20:39:44Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
@@ -11,24 +11,24 @@
     "bounded_repository_discussion_metadata_probe"
   ],
   "coverage": {
-    "accessible_self_owned_unarchived_repositories_last_enumerated": 40,
-    "repository_enumeration_this_run": "REFRESHED_COMPLETE_PAGE_1_41_TOTAL_40_UNARCHIVED_PAGE_2_TERMINAL_EMPTY",
-    "issues_updated_since_previous_cursor_inspected": 0,
-    "new_issues_in_window": 0,
+    "accessible_self_owned_unarchived_repositories_last_enumerated": 41,
+    "repository_enumeration_this_run": "REFRESHED_COMPLETE_PAGE_1_42_TOTAL_41_UNARCHIVED_PAGE_2_TERMINAL_EMPTY",
+    "issues_updated_since_previous_cursor_inspected": 2,
+    "new_issues_in_window": 2,
     "existing_issue_threads_updated_in_window": 0,
-    "updated_issue_threads_with_comments_inspected": 0,
+    "updated_issue_threads_with_comments_inspected": 2,
     "zero_comment_new_issue_bodies_inspected": 0,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
     "threads_with_non_owner_commenters": 0,
     "provenance_unknown_feedback_claims_traced": 0,
-    "discussion_surface": "NO_NEW_DISCUSSION_SURFACE_EVIDENCE_IN_WINDOW; ISSUE_INDEPENDENT_DISCUSSIONS_NOT_RESCANNED_THIS_WINDOW"
+    "discussion_surface": "SOURCE_BLOCKED_BY_CURRENT_CONNECTOR_CAPABILITY; ISSUE_INDEPENDENT_DISCUSSIONS_NOT_RESCANNED_THIS_WINDOW; PREVIOUSLY_KNOWN_GAP"
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
     "OBSERVED_EXECUTION": 0,
-    "SYNTHETIC_OR_AGENT": 0,
+    "SYNTHETIC_OR_AGENT": 2,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -38,5 +38,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped scan advanced from 2026-09-19T14:41:02Z through 2026-09-19T17:37:30Z. Repository enumeration was refreshed completely: 41 owned repositories were returned on the first page, one is archived, leaving 40 accessible self-owned unarchived repositories in scope; the second page was terminal empty. Owner-scoped Issue search found no Issue created or updated in the window, so there were no changed Issue/comment threads requiring source classification, no new original usage-experience statement, no new post-fix real-use reproduction, no recurring manual workaround, and no newly traceable OBSERVED_EXECUTION receipt. Issue-independent Discussion surfaces were not rescanned because this run exposed no new Discussion-listing capability; this is a coverage gap, not evidence that no Discussions or users exist. No Issue was updated or created by this user-feedback task. Private source identifiers remain omitted from this public cursor."
+  "notes": "Incremental owner-scoped scan advanced from 2026-09-19T17:37:30Z through 2026-09-19T20:39:44Z. Repository enumeration refreshed completely: 42 owned repositories were returned on page 1, one archived, leaving 41 accessible self-owned unarchived repositories; page 2 was terminal empty. Owner-scoped Issue search found two new/updated threads, both in the same private repository. Both bodies and complete comments were inspected. Their provenance is SYNTHETIC_OR_AGENT: each explicitly belongs to the fixed synthetic 50-persona audit, and the Issue/comments were written through the ChatGPT Codex Connector with persona-audit lock/release markers. Neither is original usage experience or a real-use post-fix reproduction. No USER_REPORTED, OBSERVED_EXECUTION, recurring manual workaround, or explicit persisted operator-feedback marker was found in the delta. A bounded check of repositories pushed during the window found audit/research docs and product/deployment commits, but no newly committed explicit usage-feedback record. Issue-independent Discussions remain unlistable through the current connected GitHub capability; this previously known coverage gap is not evidence that no Discussions or users exist. No Issue was updated or created by this user-feedback task. Private repository identifiers remain omitted from this public cursor."
 }
