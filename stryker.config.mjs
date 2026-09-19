@@ -1,0 +1,15 @@
+export default {
+  testRunner: 'vitest',
+  testFiles: ['tests/github-quality.test.ts'],
+  mutate: ['src/github/quality.ts'],
+  coverageAnalysis: 'perTest',
+  checkers: ['typescript'],
+  ignorePatterns: ['data', 'dist', 'web', 'coverage-quality-probe'],
+  disableTypeChecks: 'src/github/**/*.ts',
+  reporters: ['clear-text', 'json'],
+  jsonReporter: { fileName: 'reports/mutation/mutation.json' },
+  thresholds: { high: 80, low: 70, break: 80 },
+  concurrency: 1,
+  timeoutMS: 60_000,
+  cleanTempDir: 'always',
+}
