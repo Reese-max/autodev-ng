@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-19T23:41:55Z",
+  "observed_through_utc": "2026-09-20T02:39:59Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
@@ -13,10 +13,10 @@
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 41,
     "repository_enumeration_this_run": "REFRESHED_COMPLETE_PAGE_1_42_TOTAL_41_UNARCHIVED_PAGE_2_TERMINAL_EMPTY",
-    "issues_updated_since_previous_cursor_inspected": 5,
-    "new_issues_in_window": 5,
+    "issues_updated_since_previous_cursor_inspected": 1,
+    "new_issues_in_window": 1,
     "existing_issue_threads_updated_in_window": 0,
-    "updated_issue_threads_with_comments_inspected": 4,
+    "updated_issue_threads_with_comments_inspected": 0,
     "zero_comment_new_issue_bodies_inspected": 1,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
@@ -28,7 +28,7 @@
   "delta_source_classification": {
     "USER_REPORTED": 0,
     "OBSERVED_EXECUTION": 0,
-    "SYNTHETIC_OR_AGENT": 5,
+    "SYNTHETIC_OR_AGENT": 1,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -38,5 +38,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped scan advanced from 2026-09-19T20:39:44Z through 2026-09-19T23:41:55Z. Repository enumeration refreshed completely: 42 owned repositories were returned on page 1, one archived, leaving 41 accessible self-owned unarchived repositories; page 2 was terminal empty. Owner-scoped Issue search found five new Issue threads in the window. All five bodies were inspected, and all comments on the four commented threads were inspected. Provenance remains SYNTHETIC_OR_AGENT: the records were written through the ChatGPT Codex Connector and/or explicitly identify product-board or fixed synthetic 50-persona audit activity; one source-confirmed defect report contains no original usage-experience statement and no executed reproduction receipt. Owner login alone was not treated as proof of a human report. A separate owner-scoped search found no non-owner-authored Issue in the window, and the inspected comments contained no non-owner commenter. No USER_REPORTED, OBSERVED_EXECUTION, recurring manual workaround, post-fix user regression, or explicit persisted usage-feedback marker was found in the delta. Issue-independent Discussions remain unlistable through the current connected GitHub capability; this previously known coverage gap is not evidence that no Discussions or users exist. No Issue was updated or created by this user-feedback task. Private repository identifiers and source content remain omitted from this public cursor."
+  "notes": "Incremental owner-scoped scan advanced from 2026-09-19T23:41:55Z through 2026-09-20T02:39:59Z. Repository enumeration refreshed completely: 42 owned repositories were returned on page 1, one archived, leaving 41 accessible self-owned unarchived repositories; page 2 was terminal empty. Owner-scoped Issue search found one new Issue thread in the window; its complete body was inspected and it has no comments. The Issue was created through the ChatGPT Codex Connector and presents source-confirmed product analysis without an original usage-experience statement or executed user-operation receipt, so it remains SYNTHETIC_OR_AGENT rather than USER_REPORTED or OBSERVED_EXECUTION. A separate owner-scoped search found no non-owner-authored Issue in the window. Explicit feedback-marker searches returned no matches. No recurring manual workaround, post-fix user regression, provenance-unknown feedback claim, or verifiable original user report was found in the delta. Issue-independent Discussions remain unlistable through the current connected GitHub capability; this previously known coverage gap is not evidence that no Discussions or users exist. No Issue was updated or created by this user-feedback task. Private repository identifiers and source content remain omitted from this public cursor."
 }
