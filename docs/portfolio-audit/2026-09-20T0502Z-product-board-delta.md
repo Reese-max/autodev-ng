@@ -231,9 +231,8 @@ README 定義的核心不是通用聊天前端，而是可持續的 AI 角色／
 | 去重／映射 | 4/4，映射 #2、#3、PR #4/#9 與既有 review threads |
 | SKIPPED_LOCKED | 4（活躍 owner／branch／PR／review） |
 | Verified Fixed | 0 |
-| 寫入阻塞 | 0（中央報告待 commit 讀回驗證） |
+| 寫入阻塞 | 0（中央報告已 commit 並讀回驗證） |
 | runtime pending | Cloudflare Access 真實驗簽與輪替、preview D1、部署 HTTP、瀏覽器、手機、輔助科技 |
 | CLEAN | **NOT CLEAN, 0/2** |
 
 本輪沒有在 Issue 或 PR 留重複留言，沒有取得或搶占 issue lease。所有產品建議均為 `auto_implementation=false`；活躍實作者保有 scope。
-
