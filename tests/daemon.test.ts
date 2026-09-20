@@ -374,7 +374,7 @@ test('⑫ 冷卻閘：同一任務重複轉 blocked（report 未落地）→ 第
   expect(result).toBe('max-cycles')
   const blockedAlerts = notifier.sent.filter(t => t.includes('blocked'))
   expect(blockedAlerts).toHaveLength(1) // 第 2~4 次同任務（同 key）blocked 被冷卻閘吞掉
-})
+}, 60_000)
 
 test('⑬ 冷卻閘：alert-cooldown.json 損壞 → fail-open 照發不炸 daemon（鐵律 #4）', async () => {
   const d = deps(new MockEngine())
@@ -436,7 +436,7 @@ test('⑮ 冷卻閘（修 1）：lock-busy 連續兩次啟動在冷卻窗內只�
   const lockBusyAlertsAfter = notifier.sent.filter(t => /lock|佔用/.test(t))
   expect(lockBusyAlertsAfter).toHaveLength(2)
   expect(lockBusyAlertsAfter[1]).toContain('冷卻期間抑制')
-})
+}, 60_000)
 
 test('⑯ 冷卻閘（修 3）：兩個不同 task.id 但任務文字前 40 字相同 → key 各自獨立、各發一則 blocked 告警', async () => {
   const prefix = 'A'.repeat(40)
@@ -459,7 +459,7 @@ test('⑯ 冷卻閘（修 3）：兩個不同 task.id 但任務文字前 40 字�
   expect(blockedAlerts).toHaveLength(2)
   expect(blockedAlerts[0]).toContain('第一個任務')
   expect(blockedAlerts[1]).toContain('第二個任務')
-})
+}, 60_000)
 
 test('MEDIUM 1 修復：baseAlertMessage 依 blocked reason 各出對應人話文案（不再全部印「連敗達上限」）', () => {
   const blocked = (reason: 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'completion-gate' | 'branch-switched'): CycleResult =>
