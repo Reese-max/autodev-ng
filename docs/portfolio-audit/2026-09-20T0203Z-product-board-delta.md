@@ -199,5 +199,5 @@
 - `SKIPPED_LOCKED`: PR #16, #17, #18 and related #14/#15/#6
 - Verified fixed: 0
 - Product implementation changes: 0
-- Report write: pending at authoring time
+- Report write: completed and read back at commit `9dae4397f731273682656f7d13eedecbe64bbb99`
 - Remaining cursor: continue fair rotation after `voice-actress`; do not treat this audit-only report as product change.
