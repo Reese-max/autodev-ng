@@ -14,7 +14,7 @@ import { makeEngineRegistry } from '../engines/registry.js'
 import { KernelVerifier } from '../verifier.js'
 import { regressionFile, verifyRegression, assertRegression } from './regression.js'
 import { verifyAcceptance, assertAcceptance } from './acceptance.js'
-import { assertQuality, verifyQuality } from './quality.js'
+import { assertQuality, assertQualityContract, verifyQuality } from './quality.js'
 import { TeamState } from '../engines/team-state.js'
 import { alternativeRetryDue, alternativeRetryUsed } from '../engines/alternative-retry.js'
 import { assertExecutionMode } from '../engines/capabilities.js'
@@ -93,6 +93,7 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
   }
   prepareCheckout(cfg, state)
   const runtime = runtimeConfig(cfg, state)
+  assertQualityContract(cfg.quality, runtime.projectPath)
   const worker = cfg.repair && !resumingReview ? makeEngineRegistry(runtime).resolve(cfg.engine) : undefined
   if (worker) {
     const preflight = await worker.preflight()

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GithubConfigSchema } from '../src/github/config.js'
-import { assertQuality, QualityConfigSchema, verifyQuality } from '../src/github/quality.js'
+import { assertQuality, assertQualityContract, QualityConfigSchema, verifyQuality } from '../src/github/quality.js'
 
 const dirs: string[] = []
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
@@ -55,6 +55,28 @@ test('quality config validates command and required bounds', () => {
   let error: unknown
   try { QualityConfigSchema.parse({ required: ['unit', 'unit'] }) } catch (caught) { error = caught }
   expect((error as { issues: Array<{ path: string[]; message: string }> }).issues[0]).toMatchObject({ path: ['required'], message: 'quality.required cannot contain duplicates' })
+})
+
+test('quality contract rejects missing required npm scripts before dispatch', () => {
+  const dir = root()
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }))
+  const c = parseQuality({
+    unit: { command: 'npm.cmd', args: ['test'] },
+    coverage: { command: 'npm.cmd', args: ['run', 'test:coverage'] },
+    required: ['unit', 'coverage'],
+  }).quality!
+  expect(() => assertQualityContract(c, dir)).toThrow('quality-contract-missing: coverage: npm script test:coverage is missing')
+})
+
+test('quality contract allows non-npm commands and configured npm scripts', () => {
+  const dir = root()
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run', 'test:coverage': 'vitest run --coverage' } }))
+  const c = parseQuality({
+    unit: { command: process.execPath, args: ['-e', 'process.exit(0)'] },
+    coverage: { command: 'npm', args: ['run', 'test:coverage'] },
+    required: ['unit', 'coverage'],
+  }).quality!
+  expect(() => assertQualityContract(c, dir)).not.toThrow()
 })
 
 test('missing required advanced checks are unverified and block publication', async () => {

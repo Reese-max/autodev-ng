@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { z } from 'zod'
 import { runProcess } from '../engines/proc.js'
 
@@ -39,6 +40,35 @@ type QualityReceipt = {
 const NAMES: QualityName[] = ['unit', 'coverage', 'crap', 'mutation']
 const hash = (value: string): string => createHash('sha256').update(value).digest('hex')
 const contractHash = (quality: QualityConfig): string => hash(JSON.stringify(quality))
+
+function npmScript(command: { command: string; args: string[] }): string | undefined {
+  if (!/(^|[\\/])npm(?:\.cmd)?$/i.test(command.command)) return undefined
+  if (command.args[0] === 'test') return 'test'
+  return command.args[0] === 'run' && command.args[1] ? command.args[1] : undefined
+}
+
+/** Reject a known-broken repository contract before spending a writer attempt. */
+export function assertQualityContract(quality: QualityConfig | undefined, cwd: string): void {
+  if (!quality) return
+  const missing: string[] = []
+  let packageJson: { scripts?: Record<string, unknown> } | undefined
+  const loadPackageJson = () => {
+    if (packageJson) return packageJson
+    const file = join(cwd, 'package.json')
+    if (!existsSync(file)) throw new Error('quality-contract-missing: package.json')
+    try { packageJson = JSON.parse(readFileSync(file, 'utf8')) as { scripts?: Record<string, unknown> } } catch { throw new Error('quality-contract-invalid: package.json') }
+    return packageJson
+  }
+  for (const name of quality.required) {
+    const command = quality[name]
+    if (!command) { missing.push(`${name}: command not configured`); continue }
+    const script = npmScript(command)
+    if (script && typeof loadPackageJson().scripts?.[script] !== 'string') {
+      missing.push(`${name}: npm script ${script} is missing`)
+    }
+  }
+  if (missing.length) throw new Error(`quality-contract-missing: ${missing.join('; ')}`)
+}
 
 export async function verifyQuality(
   quality: QualityConfig | undefined,
