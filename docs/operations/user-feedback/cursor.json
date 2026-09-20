@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-20T11:39:52Z",
+  "observed_through_utc": "2026-09-20T14:42:49Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
@@ -13,23 +13,23 @@
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 41,
     "repository_enumeration_this_run": "REFRESHED_COMPLETE_PAGE_1_42_TOTAL_41_UNARCHIVED_PAGE_2_TERMINAL_EMPTY",
-    "issues_updated_since_previous_cursor_inspected": 4,
-    "new_issues_in_window": 2,
-    "existing_issue_threads_updated_in_window": 2,
-    "updated_issue_threads_with_comments_inspected": 2,
-    "zero_comment_new_issue_bodies_inspected": 2,
+    "issues_updated_since_previous_cursor_inspected": 0,
+    "new_issues_in_window": 0,
+    "existing_issue_threads_updated_in_window": 0,
+    "updated_issue_threads_with_comments_inspected": 0,
+    "zero_comment_new_issue_bodies_inspected": 0,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
     "threads_with_non_owner_commenters": 0,
-    "provenance_unknown_feedback_claims_traced": 1,
+    "provenance_unknown_feedback_claims_traced": 0,
     "discussion_surface": "SOURCE_BLOCKED_BY_CURRENT_CONNECTOR_CAPABILITY; ISSUE_INDEPENDENT_DISCUSSIONS_NOT_RESCANNED_THIS_WINDOW; PREVIOUSLY_KNOWN_GAP"
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
     "OBSERVED_EXECUTION": 0,
-    "SYNTHETIC_OR_AGENT": 3,
-    "PROVENANCE_UNKNOWN": 1
+    "SYNTHETIC_OR_AGENT": 0,
+    "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
     "user_reported_requires_original_usage_experience": true,
@@ -38,5 +38,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped scan advanced from 2026-09-20T08:37:09Z through 2026-09-20T11:39:52Z. Repository enumeration was refreshed completely: 42 owned repositories were returned on page 1, one archived, leaving 41 accessible self-owned unarchived repositories; page 2 was terminal empty. Four Issue threads changed after the prior watermark: two newly created zero-comment Issue bodies and two existing threads with complete comment inspection. Three deltas were explicitly synthetic/agent quality-control activity, including one newly created Issue whose GitHub REST metadata records the ChatGPT connector as performed_via_github_app and two fixed-persona post-fix audit threads. One newly created owner-authored Issue had performed_via_github_app=null and described prior operational behavior, but the allowed repository sources did not contain a linked original experience record, run log, or other provenance sufficient to establish USER_REPORTED or OBSERVED_EXECUTION; it remains PROVENANCE_UNKNOWN rather than being promoted to feedback. No non-owner-authored Issue, non-owner commenter, recurring manual workaround, or verified post-fix user regression was identified. Issue-independent Discussions remain unlistable through the current connected GitHub capability; this previously known coverage gap is not evidence that no Discussions or users exist. No product Issue/PR was created, modified, reopened, closed, or reprioritized by this user-feedback task. Private repository identifiers and source content remain omitted from this public cursor."
+  "notes": "Incremental owner-scoped scan advanced from 2026-09-20T11:39:52Z through 2026-09-20T14:42:49Z. Repository enumeration was refreshed completely: 42 owned repositories were returned on page 1, one archived, leaving 41 accessible self-owned unarchived repositories; page 2 was terminal empty. Owner-scoped Issue search found no Issue thread updated after the prior watermark, so there was no new Issue body or Issue-comment delta requiring provenance classification or root-cause mapping in this window. Issue-independent Discussions remain unlistable through the current connected GitHub capability; this previously known coverage gap is not evidence that no Discussions or users exist. No product Issue/PR was created, modified, reopened, closed, or reprioritized by this user-feedback task. Private repository identifiers and source content remain omitted from this public cursor."
 }
