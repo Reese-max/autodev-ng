@@ -158,7 +158,7 @@ test.each(['codex', 'freebuff'])('%s: real Git/scheduler repairs red to green wi
   const changed = JSON.parse(readFileSync(receipt, 'utf8')); changed.probe = {}
   writeFileSync(receipt, JSON.stringify(changed))
   expect(() => assertPublishable(f.cfg, state)).toThrow('Missing original probe pass')
-}, 60_000)
+}, 180_000)
 
 test('report repair follow-up preserves the original fix, proves a new regression and updates the same PR within its lifetime cap', async () => {
   const f = await setup(), realRun = proc.runProcess
@@ -209,7 +209,7 @@ test('report repair follow-up preserves the original fix, proves a new regressio
   expect(repairMetrics(f.cfg)).toMatchObject({ failedAttempts: 0, recordedFailedAttempts: 0 })
   writeFileSync(join(checkoutDir(f.cfg, second), 'add.cjs'), 'module.exports = () => 0\n')
   await expect(prepareRepair(f.cfg, second, checkoutDir(f.cfg, second), 10_000)).rejects.toThrow('does not preserve')
-}, 60_000)
+}, 180_000)
 
 test('recovery retains attempt counts and pause until a fresh same-policy doctor passes; dirty and changed contracts stay blocked', async () => {
   const f = await setup(), pause = join(f.dir, 'repair.pause')

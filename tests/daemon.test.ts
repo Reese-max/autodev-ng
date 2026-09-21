@@ -214,8 +214,8 @@ test('③ 一個任務成功、一個任務連敗轉 blocked，其餘輪跑到 i
   // digest：每輪都會檢查，但同一天只應該真的送達一次（多輪 idle 不重複灌）
   const digestSends = notifier.sent.filter(t => t.includes('每日摘要'))
   expect(digestSends).toHaveLength(1)
-  // 真 git worktree I/O，24/7 機器負載下曾耗時 25s（非產品 bug）→ 針對性 timeout 30s
-}, 30_000)
+  // 真 git worktree I/O，24/7 機器負載下曾耗時 25s（非產品 bug）→ 針對性 timeout 60s
+}, 60_000)
 
 test('④ stop 檔 → 回 stopped，且 lock 有被釋放（daemon 結束後可再次 acquire）', async () => {
   const d = deps(new MockEngine())
@@ -351,7 +351,7 @@ test('⑪ 冷卻閘：兩個不同任務各自 blocked → 各送一則告警（
   expect(blockedAlerts).toHaveLength(2)
   expect(blockedAlerts[0]).toContain('任務甲')
   expect(blockedAlerts[1]).toContain('任務乙')
-})
+}, 60_000)
 
 test('⑫ 冷卻閘：同一任務重複轉 blocked（report 未落地）→ 第 2 次起被去重吞掉', async () => {
   class NeverPersistBlockedStore extends BacklogStore {

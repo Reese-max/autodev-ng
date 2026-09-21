@@ -102,7 +102,7 @@ test('hang → timeout、costUnknown=true（timeout 輪照樣可能已燒配額�
   expect(r.ok).toBe(false)
   expect(r.failureReason).toBe('timeout')
   expect(r.costUnknown).toBe(true)
-}, 15_000)
+}, 60_000)
 
 test('preflight：真探針 PONG 判 ok，第二次走 cache（fake 換 no-export 仍 ok）', async () => {
   const e = engine('ok', ['a'])

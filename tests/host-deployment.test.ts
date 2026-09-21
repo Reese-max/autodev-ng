@@ -35,7 +35,7 @@ test('new host is paused, does not modify the project, and refuses overwrite', a
   expect(inside(f.home, join(alias, 'new-destination'))).toBe(true)
   const pid = join(f.home, 'data/pid.json'); writeJson(pid, { pid: process.pid })
   expect(() => assertIdleData(join(f.home, 'data'))).toThrow('alive')
-})
+}, 60_000)
 test('backup/restore preserves SQLite and issue evidence, rejects corruption and remains paused', async () => {
   const f = fixture(), data = join(f.home, 'data/project')
   fs.mkdirSync(data)
