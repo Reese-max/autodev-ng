@@ -46,6 +46,7 @@ test('quality receipt proves configured checks without storing raw output', asyn
 })
 
 test('quality config validates command and required bounds', () => {
+  expect(QualityConfigSchema.parse({ unit: { command: '  node  ', args: [] } }).unit?.command).toBe('node')
   expect(() => QualityConfigSchema.parse({ unit: { command: '   ', args: [] } })).toThrow()
   expect(() => QualityConfigSchema.parse({ required: [] })).toThrow()
   expect(() => QualityConfigSchema.parse({ required: ['unit', 'unit'] })).toThrow()
@@ -55,6 +56,39 @@ test('quality config validates command and required bounds', () => {
   let error: unknown
   try { QualityConfigSchema.parse({ required: ['unit', 'unit'] }) } catch (caught) { error = caught }
   expect((error as { issues: Array<{ path: string[]; message: string }> }).issues[0]).toMatchObject({ path: ['required'], message: 'quality.required cannot contain duplicates' })
+})
+
+test('quality contract handles missing files, commands, and npm command shapes', () => {
+  const noPackageDir = root()
+  const noPackage = parseQuality({ unit: { command: 'npm', args: ['test'] } }).quality!
+  expect(() => assertQualityContract(noPackage, noPackageDir)).toThrow('quality-contract-missing: package.json')
+
+  const invalidDir = root()
+  writeFileSync(join(invalidDir, 'package.json'), '{')
+  expect(() => assertQualityContract(noPackage, invalidDir)).toThrow('quality-contract-invalid: package.json')
+
+  const missingCommandDir = root()
+  writeFileSync(join(missingCommandDir, 'package.json'), JSON.stringify({ scripts: {} }))
+  const missingCommand = parseQuality({ required: ['unit'] }).quality!
+  expect(() => assertQualityContract(missingCommand, missingCommandDir)).toThrow('unit: command not configured')
+
+  const multipleMissing = parseQuality({ coverage: { command: 'npm', args: ['run', 'missing'] }, required: ['unit', 'coverage'] }).quality!
+  expect(() => assertQualityContract(multipleMissing, missingCommandDir)).toThrow('unit: command not configured; coverage: npm script missing is missing')
+
+  const npmExtra = parseQuality({ unit: { command: 'npm-extra', args: ['run', 'missing'] } }).quality!
+  expect(() => assertQualityContract(npmExtra, missingCommandDir)).not.toThrow()
+
+  const npmPath = parseQuality({ unit: { command: 'x/npm', args: ['run', 'missing'] } }).quality!
+  expect(() => assertQualityContract(npmPath, missingCommandDir)).toThrow('unit: npm script missing is missing')
+
+  const bareNpm = parseQuality({ unit: { command: 'npm', args: ['run', 'missing'] } }).quality!
+  expect(() => assertQualityContract(bareNpm, missingCommandDir)).toThrow('unit: npm script missing is missing')
+
+  const npmTest = parseQuality({ unit: { command: 'npm', args: ['test'] } }).quality!
+  expect(() => assertQualityContract(npmTest, missingCommandDir)).toThrow('unit: npm script test is missing')
+
+  const unexpectedNpmArgs = parseQuality({ unit: { command: 'npm', args: ['unexpected', 'missing'] } }).quality!
+  expect(() => assertQualityContract(unexpectedNpmArgs, missingCommandDir)).not.toThrow()
 })
 
 test('quality contract rejects missing required npm scripts before dispatch', () => {
@@ -123,6 +157,21 @@ test('quality commands receive bounded empty stdin', async () => {
     unit: { command: process.execPath, args: ['-e', "process.exit(require('node:fs').readFileSync(0, 'utf8') === '' ? 0 : 3)"] },
   }).quality!
   await expect(verifyQuality(c, dir, 'e'.repeat(40), file, 5_000)).resolves.toMatchObject({ status: 'passed' })
+})
+
+test('quality runner records bounded fallback evidence when process setup throws', async () => {
+  const dir = root(), file = join(dir, 'quality.json'), c = parseQuality({ unit: { command: process.execPath, args: ['-e', 'process.exit(0)'] } }).quality!
+  const previous = process.env.GIT_CONFIG_COUNT
+  process.env.GIT_CONFIG_COUNT = 'invalid'
+  try {
+    await expect(verifyQuality(c, dir, 'g'.repeat(40), file, 5_000)).rejects.toThrow('failed')
+    const receipt = JSON.parse(readFileSync(file, 'utf8'))
+    expect(receipt.checks[0]).toMatchObject({ status: 'failed', exitCode: null, timedOut: false, durationMs: 0 })
+    expect(receipt.checks[0].outputHash).toBe(createHash('sha256').update('').digest('hex'))
+  } finally {
+    if (previous === undefined) delete process.env.GIT_CONFIG_COUNT
+    else process.env.GIT_CONFIG_COUNT = previous
+  }
 })
 
 test('assertQuality rejects stale, failed, and incomplete receipts', async () => {

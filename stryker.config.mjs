@@ -3,6 +3,7 @@ export default {
   testFiles: ['tests/github-quality.test.ts'],
   mutate: ['src/github/quality.ts'],
   coverageAnalysis: 'perTest',
+  ignoreStatic: true,
   checkers: ['typescript'],
   ignorePatterns: ['data', 'dist', 'web', 'coverage-quality-probe'],
   disableTypeChecks: 'src/github/**/*.ts',
