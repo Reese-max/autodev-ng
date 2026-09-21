@@ -196,7 +196,8 @@ test('report repair follow-up preserves the original fix, proves a new regressio
   expect(queued.status).toBe('queued'); expect(queued.revision?.baseCommit).toBe(first.commit)
   expect(repairMetrics(f.cfg).recordedFailedAttempts).toBe(0)
   queued.nextRunAt = 0; saveState(f.cfg, queued)
-  expect(await runGithub(f.cfg, options), readState(f.cfg, 4)?.detail).toBe('4: published')
+  const followUp = await runGithub(f.cfg, options), followUpState = readState(f.cfg, 4)
+  expect(followUp, `GitHub repair follow-up state: ${JSON.stringify(followUpState)}`).toBe('4: published')
   const second = readState(f.cfg, 4)!
   assertPublishable(f.cfg, second)
   expect(second.runs).toBe(2); expect(second.pr).toBe(first.pr); expect(second.commit).not.toBe(first.commit)
