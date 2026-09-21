@@ -113,6 +113,14 @@ export class RunDb {
     return row && row.ok === 0 && (row.failure_class === 'task' || row.failure_class === 'legacy') ? row.detail : null
   }
 
+  /** Self-optimization needs the latest failure even when the provider/supply gate failed. */
+  lastAttemptFailureFor(taskId: string): string | null {
+    const row = this.db.prepare(
+      'SELECT ok, detail FROM attempts WHERE task_id=? ORDER BY seq DESC LIMIT 1'
+    ).get(taskId) as { ok: number; detail: string } | undefined
+    return row && row.ok === 0 ? row.detail : null
+  }
+
   failCount(taskId: string): number {
     const row = this.db.prepare(
       'SELECT COUNT(*) AS n FROM attempts WHERE task_id=? AND ok=0'

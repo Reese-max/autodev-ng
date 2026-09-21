@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { RunControl } from './engines/run-control.js'
+import { RoutePolicySchema } from './engines/model-route-policy.js'
 
 export type TaskRisk = 'low' | 'medium' | 'high'
 export interface TaskOwnership {
@@ -191,6 +192,9 @@ export const ConfigSchema = z.object({
   defaultEngine: z.string().default('claude'),
   engineRotation: z.array(z.string()).optional(), // 無 tag 任務的輪替路由清單（src/engines/rotation.ts）；未設＝defaultEngine 舊行為
   tierMode: z.literal('free-only').optional(), // 未設＝既有路由；free-only＝所有模型呼叫須核對免費路由與費率
+  // Issue #51：非 free-only HTTP 路徑的 opt-in 有界備援＋熔斷；未設／enabled:false 維持單一路徑。
+  // free-only 分支在 callAgent 優先處理，不受本政策影響；CLI transport 不經此路由。
+  routePolicy: RoutePolicySchema.optional(),
   // M7：教訓庫檔路徑。learningsFile 未設時 cli.ts assemble 預設 join(dataDir,'learnings.md')
   // （功能零設定開啟）；globalLearningsFile 為跨專案共用教訓檔，未設即不注入全局段。
   learningsFile: z.string().optional(),

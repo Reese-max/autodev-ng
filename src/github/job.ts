@@ -14,6 +14,7 @@ import { makeEngineRegistry } from '../engines/registry.js'
 import { KernelVerifier } from '../verifier.js'
 import { regressionFile, verifyRegression, assertRegression } from './regression.js'
 import { verifyAcceptance, assertAcceptance } from './acceptance.js'
+import { assertQuality, assertQualityContract, verifyQuality } from './quality.js'
 import { TeamState } from '../engines/team-state.js'
 import { alternativeRetryDue, alternativeRetryUsed } from '../engines/alternative-retry.js'
 import { assertExecutionMode } from '../engines/capabilities.js'
@@ -92,6 +93,7 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
   }
   prepareCheckout(cfg, state)
   const runtime = runtimeConfig(cfg, state)
+  assertQualityContract(cfg.quality, runtime.projectPath)
   const worker = cfg.repair && !resumingReview ? makeEngineRegistry(runtime).resolve(cfg.engine) : undefined
   if (worker) {
     const preflight = await worker.preflight()
@@ -123,13 +125,13 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
       if (!res.commitHash) throw new Error('Regression candidate commit missing')
       await verifyRegression(cfg, state, job.projectPath, res.commitHash, runtime.verifyTimeoutMs)
       await verifyAcceptance(cfg, state, job.projectPath, res.commitHash, runtime.verifyTimeoutMs)
+      await verifyQuality(cfg.quality, job.projectPath, res.commitHash, join(runDir(cfg, state), `quality-${res.commitHash}.json`), runtime.verifyTimeoutMs)
       return checked
     } catch (err) { return { ...checked, pass: false, reason: `regression-fail: ${String(err)}` } }
   } }
   // No notifications or perpetual discovery: one imported Issue, one bounded scheduler cycle.
   app.deps.notify = undefined
   app.deps.taskTerminalNotify = undefined
-  if (!cfg.repair) app.deps.lessons = undefined
   try {
     if (cfg.repair) {
       const source = JSON.parse(readFileSync(cfg.sourceConfig, 'utf8')) as { projectPath: string }
@@ -146,7 +148,10 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     const commit = done ? git(runtime.projectPath, ['rev-parse', 'HEAD']) : undefined
     if (done) assertPublishable(cfg, { ...state, commit })
     const alternativeRetryPending = runtime.alternativeRetry && result === 'failed' && alternativeRetryDue(runtime, app.deps.db.taskFailCount(tasks[0]!.id)) && !alternativeRetryUsed(runtime, tasks[0]!.id) && app.deps.store.read()[0]?.status === 'open'
-    return { done, detail: typeof result === 'string' ? result : result.reason, ...(resumingReview ? { attempted: false } : {}),
+    const detail = typeof result === 'string' && (result === 'failed' || result === 'engine-error')
+      ? app.deps.db.lastAttemptFailureFor(tasks[0]!.id) ?? result
+      : typeof result === 'string' ? result : result.reason
+    return { done, detail, ...(resumingReview ? { attempted: false } : {}),
       ...(result === 'deferred' && issueReviewPending(cfg, state) ? { reviewPending: true, retryAt: Date.now() + reviewRetryDelay(runtime) } : {}),
       ...(typeof result === 'object' && result.reason === 'team-state-quarantined' ? { recoveryRequired: true } : {}), ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
   } finally { app.deps.db.close(); app.deps.team?.close() }
@@ -180,4 +185,5 @@ export function assertPublishable(cfg: GithubConfig, state: IssueState): void {
   if (cfg.repair) assertRepairEvidence(cfg, state)
   assertRegression(cfg, state, cwd)
   assertAcceptance(cfg, state)
+  assertQuality(cfg.quality, join(runDir(cfg, state), `quality-${state.commit}.json`), state.commit)
 }

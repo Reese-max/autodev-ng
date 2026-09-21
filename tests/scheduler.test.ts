@@ -1,4 +1,4 @@
-import { expect, test, beforeEach } from 'vitest'
+import { expect, test, beforeEach, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -931,7 +931,7 @@ test('簽名熔斷觸發時 deps.notify 收到告警（含引擎名與簽名熔�
   } as Deps['cfg']
   const r = await runOnce({ ...d, cfg: customCfg, notify: async t => { sent.push(t); return true } })
   expect(r).toBe('done') // codex 熔斷後輪替到 fallback 照常派工
-  expect(sent).toHaveLength(1)
+  await vi.waitFor(() => expect(sent).toHaveLength(1), { timeout: 5_000 })
   expect(sent[0]).toContain('codex')
   expect(sent[0]).toContain('簽名熔斷')
 })
