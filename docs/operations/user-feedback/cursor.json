@@ -1,11 +1,12 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-20T23:39:23Z",
+  "observed_through_utc": "2026-09-21T02:39:40Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
     "github_issues",
     "github_issue_comments",
+    "github_pull_request_conversation_delta_probe",
     "explicit_feedback_marker_search",
     "repository_metadata",
     "bounded_repository_discussion_metadata_probe"
@@ -13,11 +14,12 @@
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 41,
     "repository_enumeration_this_run": "REFRESHED_COMPLETE_PAGE_1_41_UNARCHIVED_PLUS_1_ARCHIVED_PAGE_2_TERMINAL_EMPTY",
-    "issues_updated_since_previous_cursor_inspected": 1,
-    "new_issues_in_window": 1,
+    "issues_updated_since_previous_cursor_inspected": 0,
+    "new_issues_in_window": 0,
     "existing_issue_threads_updated_in_window": 0,
     "updated_issue_threads_with_comments_inspected": 0,
-    "zero_comment_new_issue_bodies_inspected": 1,
+    "zero_comment_new_issue_bodies_inspected": 0,
+    "pull_requests_updated_since_previous_cursor_inspected": 0,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
@@ -28,7 +30,7 @@
   "delta_source_classification": {
     "USER_REPORTED": 0,
     "OBSERVED_EXECUTION": 0,
-    "SYNTHETIC_OR_AGENT": 1,
+    "SYNTHETIC_OR_AGENT": 0,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -38,5 +40,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped scan advanced from 2026-09-20T20:41:17Z through 2026-09-20T23:39:23Z. Repository enumeration was refreshed completely for the requested scope: 42 self-owned repositories were returned on page 1, one was archived and excluded, leaving 41 self-owned unarchived repositories; page 2 was terminal empty. Owner-scoped Issue search found one newly created zero-comment Issue in the window. Its GitHub metadata shows it was created through an agent connector, and the body is based on repository/platform evidence while explicitly stating that no real compatible-host runtime was executed; it is therefore SYNTHETIC_OR_AGENT, not verifiable original user-experience feedback. No independent user comments or traceable user-operation report were added in the window. Issue-independent Discussions remain unlistable through the current connected GitHub capability; this previously known coverage gap is not evidence that no Discussions or users exist. No product Issue/PR was created, modified, reopened, closed, or reprioritized by this user-feedback task. Private repository identifiers and source content remain omitted from this public cursor."
+  "notes": "Incremental owner-scoped scan advanced from 2026-09-20T23:39:23Z through 2026-09-21T02:39:40Z. Repository enumeration was refreshed completely for the requested scope: 42 self-owned repositories were returned on page 1, one was archived and excluded, leaving 41 self-owned unarchived repositories; page 2 was terminal empty. Owner-scoped Issue search found no Issues created or updated in the window, so there were no new Issue bodies or Issue-comment threads requiring provenance classification. A matching owner-scoped pull-request delta probe also found no PR conversation updated in the window. Issue-independent Discussions remain unlistable through the current connected GitHub capability; this previously known coverage gap is not evidence that no Discussions or users exist. No product Issue/PR was created, modified, reopened, closed, or reprioritized by this user-feedback task. Private repository identifiers and source content remain omitted from this public cursor."
 }
