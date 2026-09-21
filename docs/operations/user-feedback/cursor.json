@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-21T02:39:40Z",
+  "observed_through_utc": "2026-09-21T05:39:23Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
@@ -13,24 +13,25 @@
   ],
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 41,
-    "repository_enumeration_this_run": "REFRESHED_COMPLETE_PAGE_1_41_UNARCHIVED_PLUS_1_ARCHIVED_PAGE_2_TERMINAL_EMPTY",
+    "repository_enumeration_this_run": "REFRESHED_COMPLETE_PAGE_1_41_UNARCHIVED_PAGE_2_TERMINAL_EMPTY",
     "issues_updated_since_previous_cursor_inspected": 0,
     "new_issues_in_window": 0,
     "existing_issue_threads_updated_in_window": 0,
     "updated_issue_threads_with_comments_inspected": 0,
     "zero_comment_new_issue_bodies_inspected": 0,
-    "pull_requests_updated_since_previous_cursor_inspected": 0,
+    "pull_requests_updated_since_previous_cursor_inspected": 2,
+    "pull_request_threads_inspected": 2,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
-    "threads_with_non_owner_commenters": 0,
+    "threads_with_non_owner_commenters": 1,
     "provenance_unknown_feedback_claims_traced": 0,
     "discussion_surface": "SOURCE_BLOCKED_BY_CURRENT_CONNECTOR_CAPABILITY; ISSUE_INDEPENDENT_DISCUSSIONS_NOT_RESCANNED_THIS_WINDOW; PREVIOUSLY_KNOWN_GAP"
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
     "OBSERVED_EXECUTION": 0,
-    "SYNTHETIC_OR_AGENT": 0,
+    "SYNTHETIC_OR_AGENT": 2,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -40,5 +41,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped scan advanced from 2026-09-20T23:39:23Z through 2026-09-21T02:39:40Z. Repository enumeration was refreshed completely for the requested scope: 42 self-owned repositories were returned on page 1, one was archived and excluded, leaving 41 self-owned unarchived repositories; page 2 was terminal empty. Owner-scoped Issue search found no Issues created or updated in the window, so there were no new Issue bodies or Issue-comment threads requiring provenance classification. A matching owner-scoped pull-request delta probe also found no PR conversation updated in the window. Issue-independent Discussions remain unlistable through the current connected GitHub capability; this previously known coverage gap is not evidence that no Discussions or users exist. No product Issue/PR was created, modified, reopened, closed, or reprioritized by this user-feedback task. Private repository identifiers and source content remain omitted from this public cursor."
+  "notes": "Incremental owner-scoped scan advanced from 2026-09-21T02:39:40Z through 2026-09-21T05:39:23Z. Repository enumeration was refreshed completely for the requested scope: 41 self-owned unarchived repositories were returned on page 1 and page 2 was terminal empty. Owner-scoped Issue search found no Issues created or updated in the window, so there were no new Issue bodies or Issue-comment threads requiring provenance classification. Two pull-request conversation deltas were inspected: one PR body explicitly disclosed agent generation and had no comments or reviews; the other contained automated review activity and no original usage-experience statement. These were classified SYNTHETIC_OR_AGENT, not USER_REPORTED or OBSERVED_EXECUTION. Issue-independent Discussions remain unlistable through the current connected GitHub capability; this previously known coverage gap is not evidence that no Discussions or users exist. No product Issue/PR was created, modified, reopened, closed, or reprioritized by this user-feedback task. Private repository identifiers and source content remain omitted from this public cursor."
 }
