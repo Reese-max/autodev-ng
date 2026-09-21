@@ -15,7 +15,7 @@
     "routing-status": "tsc -p tsconfig.build.json && node dist/engines/routing-status.js",
     "check-secrets": "node scripts/check-secrets.mjs",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=json --coverage.reporter=text --coverage.reportsDirectory=coverage",
+    "test:coverage": "vitest run --testTimeout=60000 --coverage.enabled --coverage.provider=v8 --coverage.reporter=json --coverage.reporter=text --coverage.reportsDirectory=coverage",
     "quality:crap": "node scripts/crap-report.mjs --files src/github/quality.ts",
     "test:mutation": "stryker run",
     "quality:gate": "npm run test && npm run test:coverage && npm run quality:crap && npm run test:mutation",

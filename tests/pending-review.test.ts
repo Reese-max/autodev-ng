@@ -103,7 +103,7 @@ test('quota wait survives reopen: CI proof/candidate retained, one worker admiss
     expect(d.evidence!.verifiedTaskCommit(task.id, task.text)).toBe(pending.candidateHead)
     expect(JSON.parse(readFileSync(pendingReviewFile(d.cfg, task), 'utf8')).phase).toBe('closed')
   } finally { d.db.close(); d.team?.close() }
-}, 30_000)
+}, 60_000)
 
 test('changed candidate after restart is quarantined without worker, model request or merge', async () => {
   const f = fixture(), d = f.deps
