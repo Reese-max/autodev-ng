@@ -50,6 +50,15 @@ test('label-free intake retains author and opt-out gates, and exclusion before e
   expect(await runGithub(cfg, { client, execute })).toBe('cancelled')
   expect(execute).not.toHaveBeenCalled()
 })
+test('label-free intake parks explicit non-implementation and research Issues', () => {
+  const { cfg, issue } = fixture(); cfg.label = null; issue.labels = []
+  expect(eligible(issue, cfg)).toBe(true)
+  for (const body of [
+    'kind: VALIDATION_GAP\nauto_implementation: false',
+    '[RESEARCH_REQUIRED]\nResearch only',
+    'kind: RESEARCH\nresearch_runtime_required: true',
+  ]) expect(eligible({ ...issue, body }, cfg)).toBe(false)
+})
 test('existing linked PR blocks execution without consuming an attempt', async () => {
   const { cfg, client } = fixture(); cfg.label = null
   client.findLinkedPr = async () => 'https://github.com/owner/project/pull/99'
