@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-22T17:42:53Z",
+  "observed_through_utc": "2026-09-22T20:42:46Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
@@ -13,25 +13,25 @@
   ],
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 41,
-    "repository_enumeration_this_run": "REFRESHED; OWNER_SCOPED_UNARCHIVED_ENUMERATION_RETURNED_41_REPOSITORIES; OWNER_SCOPED_ISSUE_AND_PR_DELTA_SEARCH_COMPLETE_THROUGH_2026-09-22T17:42:53Z",
-    "issues_updated_since_previous_cursor_inspected": 2,
-    "new_issues_in_window": 1,
+    "repository_enumeration_this_run": "REFRESHED; OWNER_SCOPED_UNARCHIVED_ENUMERATION_RETURNED_41_REPOSITORIES; OWNER_SCOPED_ISSUE_AND_PR_DELTA_SEARCH_COMPLETE_THROUGH_2026-09-22T20:42:46Z",
+    "issues_updated_since_previous_cursor_inspected": 1,
+    "new_issues_in_window": 0,
     "existing_issue_threads_updated_in_window": 1,
-    "updated_issue_threads_with_comments_inspected": 2,
+    "updated_issue_threads_with_comments_inspected": 1,
     "zero_comment_new_issue_bodies_inspected": 0,
-    "pull_requests_updated_since_previous_cursor_inspected": 2,
-    "pull_request_threads_inspected": 2,
+    "pull_requests_updated_since_previous_cursor_inspected": 3,
+    "pull_request_threads_inspected": 3,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
-    "threads_with_non_owner_commenters": 2,
+    "threads_with_non_owner_commenters": 3,
     "provenance_unknown_feedback_claims_traced": 0,
     "discussion_surface": "ALL_UPDATED_REPOSITORIES_IN_THIS_DELTA_HAVE_DISCUSSIONS_DISABLED; PORTFOLIO_WIDE_ISSUE_INDEPENDENT_DISCUSSIONS_REMAIN_UNLISTABLE_THROUGH_CURRENT_CONNECTOR_CAPABILITY; PREVIOUSLY_KNOWN_GAP"
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
-    "OBSERVED_EXECUTION": 3,
-    "SYNTHETIC_OR_AGENT": 3,
+    "OBSERVED_EXECUTION": 4,
+    "SYNTHETIC_OR_AGENT": 4,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -41,5 +41,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped scan advanced strictly after 2026-09-22T14:39:14Z through 2026-09-22T17:42:53Z. The owner-scoped unarchived repository inventory was refreshed and returned 41 accessible repositories. Complete owner-scoped delta searches found one newly created Issue, one updated existing Issue, and two updated PR conversations; the Issue bodies, all Issue comments, PR bodies, and available PR conversation comments were inspected. The new Issue is an explicitly synthetic fixed-persona audit finding. The updated research Issue contains a bounded synthetic/source-equivalent executed experiment receipt. One PR explicitly states it was generated with an agent and reports test execution; the other reports local verification and has an automated review summary. These are SYNTHETIC_OR_AGENT and/or OBSERVED_EXECUTION evidence, not original first-person product-use reports. Explicit 回饋/feedback marker searches returned no in-window matches. No Issue was authored by a non-owner source, and the only non-owner commenters in the delta were automation/bot accounts. No source supplied a verifiable first-person use experience, manual workaround, or post-fix real-use regression. No product Issue was reprioritized or amended and no new feedback Issue was created. All repositories touched by this delta have Discussions disabled. Portfolio-wide issue-independent Discussions remain unlistable through the current connected GitHub capability, a previously known coverage gap rather than evidence that no users or Discussions exist. Private repository identifiers and private source content are omitted from this public cursor."
+  "notes": "Incremental owner-scoped scan advanced strictly after 2026-09-22T17:42:53Z through 2026-09-22T20:42:46Z. The owner-scoped unarchived repository inventory was refreshed and returned 41 accessible repositories. Complete owner-scoped delta searches found no newly created Issues, one updated existing Issue, and three updated PR conversations. The updated Issue body and complete available Issue comments were inspected; it contains an explicitly bounded synthetic/source-equivalent research experiment receipt. The three updated PR bodies, issue comments, review summaries, and available inline review comments were inspected. Their relevant evidence consists of agent-generated or issue-loop changes, local/test execution claims, and automated review findings; these are SYNTHETIC_OR_AGENT and/or OBSERVED_EXECUTION evidence, not original first-person product-use reports. Explicit 回饋/feedback marker searches returned no in-window matches. No Issue was authored by a non-owner source, and the non-owner commenters observed in updated PR threads were automation/bot accounts. No source supplied a verifiable first-person use experience, manual workaround, or post-fix real-use regression. No product Issue was reprioritized or amended and no new feedback Issue was created. Repository metadata for all repositories touched by this delta reports Discussions disabled. Portfolio-wide issue-independent Discussions remain unlistable through the current connected GitHub capability, a previously known coverage gap rather than evidence that no users or Discussions exist. Private repository identifiers and private source content are omitted from this public cursor."
 }
