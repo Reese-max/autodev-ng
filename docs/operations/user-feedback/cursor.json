@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-22T08:34:44Z",
+  "observed_through_utc": "2026-09-22T11:40:00Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
@@ -13,15 +13,15 @@
   ],
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 41,
-    "repository_enumeration_this_run": "NOT_REFRESHED; CURRENT_CANONICAL_INVENTORY_OBSERVED_2026-09-21T17:26:56Z_REMAINS_WITHIN_24H; OWNER_SCOPED_ISSUE_AND_PR_DELTA_SEARCH_COMPLETE_THROUGH_2026-09-22T08:34:44Z",
-    "issues_updated_since_previous_cursor_inspected": 1,
-    "new_issues_in_window": 0,
-    "existing_issue_threads_updated_in_window": 1,
-    "updated_issue_threads_with_comments_inspected": 1,
+    "repository_enumeration_this_run": "NOT_REFRESHED; CURRENT_CANONICAL_INVENTORY_OBSERVED_2026-09-21T17:26:56Z_REMAINS_WITHIN_24H; OWNER_SCOPED_ISSUE_AND_PR_DELTA_SEARCH_COMPLETE_THROUGH_2026-09-22T11:40:00Z",
+    "issues_updated_since_previous_cursor_inspected": 4,
+    "new_issues_in_window": 1,
+    "existing_issue_threads_updated_in_window": 3,
+    "updated_issue_threads_with_comments_inspected": 4,
     "zero_comment_new_issue_bodies_inspected": 0,
     "pull_requests_updated_since_previous_cursor_inspected": 0,
     "pull_request_threads_inspected": 0,
-    "explicit_feedback_marker_matches": 0,
+    "explicit_feedback_marker_matches": 1,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
     "threads_with_non_owner_commenters": 0,
@@ -30,8 +30,8 @@
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
-    "OBSERVED_EXECUTION": 1,
-    "SYNTHETIC_OR_AGENT": 1,
+    "OBSERVED_EXECUTION": 2,
+    "SYNTHETIC_OR_AGENT": 4,
     "PROVENANCE_UNKNOWN": 0
   },
   "classification_policy": {
@@ -41,5 +41,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped scan advanced strictly after 2026-09-22T05:22:52Z through the latest observed GitHub source timestamp 2026-09-22T08:34:44Z. Current canonical inventory remains within 24 hours, so repository enumeration was not redundantly refreshed. Complete owner-scoped delta searches found one updated existing Issue thread and no updated PR threads; the Issue comments added in-window were fully inspected. The delta consisted of connected-automation research lock/receipt/release activity containing a bounded synthetic isolated experiment, so it is OBSERVED_EXECUTION as well as SYNTHETIC_OR_AGENT, not user feedback. Explicit searches for feedback/回饋 returned no matches. No source supplied a verifiable first-person product-use experience, manual workaround report, or post-fix real-use regression, so no product Issue was reprioritized or amended and no new feedback Issue was created. Portfolio-wide issue-independent Discussions remain unlistable through the current connected GitHub capability, a previously known coverage gap rather than evidence that no users or Discussions exist. Private repository identifiers and private source content are omitted from this public cursor."
+  "notes": "Incremental owner-scoped scan advanced strictly after 2026-09-22T08:34:44Z through 2026-09-22T11:40:00Z. Current canonical inventory remains within 24 hours, so repository enumeration was not redundantly refreshed. Complete owner-scoped delta searches found four updated Issues (one newly created, three existing) and no updated PR threads; all in-window Issue comments were inspected. The updates were connected-automation/self-review/research/persona-audit material. Two threads contained traceable execution evidence (exact-head CI observation or bounded synthetic experiment), but all four were SYNTHETIC_OR_AGENT rather than first-person product-use reports. An explicit 回饋 marker search matched one existing research/competitive-inspiration Issue only because it described an external product's feedback behavior; it is not project user feedback. No non-owner issue author or commenter appeared in the delta, and no source supplied a verifiable first-person use experience, manual workaround, or post-fix real-use regression. No product Issue was reprioritized or amended and no new feedback Issue was created. Portfolio-wide issue-independent Discussions remain unlistable through the current connected GitHub capability, a previously known coverage gap rather than evidence that no users or Discussions exist. Private repository identifiers and private source content are omitted from this public cursor."
 }
