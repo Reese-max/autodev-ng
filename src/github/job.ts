@@ -37,7 +37,10 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
   if (cfg.verifyCommand) source.verifyCommand = cfg.verifyCommand
   else if (cfg.template) source.verifyCommand = detectVerification(checkoutDir(cfg, state))
   const engine = source.engines[cfg.engine]
-  if (!engine || ['herdr', 'mock'].includes(engine.adapter)) throw new Error('GitHub runner requires an explicitly selected regular engine')
+  if (!engine) throw new Error('GitHub runner requires an explicitly selected regular engine')
+  if (engine.adapter === 'herdr' && !cfg.herdrOptIn) throw new Error('GitHub runner requires explicit Herdr opt-in')
+  if (engine.adapter === 'herdr' && engine.provider === 'Pi') throw new Error('GitHub Herdr runner requires provider Codex')
+  if (engine.adapter === 'mock') throw new Error('GitHub runner requires an explicitly selected regular engine')
   assertExecutionMode(engine)
   if (engine.timeoutMs === 0 && engine.executionMode !== 'supervised') throw new Error('GitHub runner requires a bounded engine wall timeout or accepted supervised execution')
   if (cfg.repair && !['codex', 'freebuff', ...(source.tierMode === 'free-only' ? ['opencode'] : [])].includes(engine.adapter)) throw new Error('Automatic report repairs require Codex CLI, Freebuff or a verified free-only OpenCode route')

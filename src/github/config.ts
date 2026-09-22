@@ -22,6 +22,7 @@ export const GithubConfigSchema = z.object({
   acceptance: z.object({ command: z.string().min(1), args: z.array(z.string()) }).strict().optional(),
   quality: QualityConfigSchema.optional(),
   followup: z.boolean().default(false),
+  herdrOptIn: z.boolean().default(false),
   template: z.boolean().optional(),
   stopFile: z.string().optional(),
   enabled: z.boolean().default(false),
