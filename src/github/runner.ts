@@ -53,63 +53,85 @@ export async function publishIssue(cfg: GithubConfig, state: IssueState, client:
   state.status = 'published'
   saveState(cfg, state)
 }
-export async function runGithub(cfg: GithubConfig, options: {
-  syncOnly?: boolean; client?: GithubClient; execute?: typeof executeIssue; publish?: typeof publishIssue; configPath?: string
-} = {}): Promise<string> {
-  if (!cfg.enabled || existsSync(githubStopFile(cfg))) return 'paused'
+export type RunOutcome = { disposition: string; attempted: boolean }
+
+const DEFAULT_OBSERVE_BUDGET = 25
+
+export async function runGithubOutcome(cfg: GithubConfig, options: {
+  syncOnly?: boolean; client?: GithubClient; execute?: typeof executeIssue; publish?: typeof publishIssue; configPath?: string;
+  observeBudget?: number
+} = {}): Promise<RunOutcome> {
+  const outcome = (disposition: string, attempted = false): RunOutcome => ({ disposition, attempted })
+  if (!cfg.enabled || existsSync(githubStopFile(cfg))) return outcome('paused')
   const original = options.configPath ? readFileSync(options.configPath, 'utf8') : undefined
-  if (options.configPath && JSON.stringify(loadGithubConfig(options.configPath)) !== JSON.stringify(cfg)) return 'paused'
+  if (options.configPath && JSON.stringify(loadGithubConfig(options.configPath)) !== JSON.stringify(cfg)) return outcome('paused')
   const inputs = [cfg.sourceConfig, ...(cfg.repair ? [cfg.repair.reportConfig] : [])].map(file => [file, readFileSync(file, 'utf8')] as const)
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'runner.lock')
-  if (!acquireLock(lock)) return 'locked'
+  if (!acquireLock(lock)) return outcome('locked')
   const client = options.client ?? githubClient(cfg)
   const active = () => !existsSync(githubStopFile(cfg)) && (!options.configPath || readFileSync(options.configPath, 'utf8') === original)
     && inputs.every(([file, snapshot]) => readFileSync(file, 'utf8') === snapshot)
   try {
     await syncIssues(cfg, client)
-    if (options.syncOnly) return 'synced'
-    for (const published of states(cfg).filter(s => s.status === 'published')) {
-      try { await observePr(cfg, published, client, active) }
-      catch (error) { published.detail = String(error); saveState(cfg, published) }
+    // PR observation is decoupled from the per-tick worker slot: syncOnly repos
+    // still track due PRs, bounded by observeBudget and ordered oldest-first so
+    // large backlogs continue fairly across ticks instead of starving the tail.
+    let observed = 0
+    const observeBudget = options.observeBudget ?? DEFAULT_OBSERVE_BUDGET
+    const published = states(cfg).filter(s => s.status === 'published' && s.pr && s.commit && client.feedback)
+      .sort((a, b) => (a.lastObservedAt ?? 0) - (b.lastObservedAt ?? 0))
+    for (const state of published) {
+      if (observed >= observeBudget || !active()) break
+      observed += 1
+      try { await observePr(cfg, state, client, active) }
+      // The remote call already happened: advance the timestamp on failure too,
+      // or a poisoned PR pins the queue front and starves the tail every tick.
+      catch (error) { state.detail = String(error); state.lastObservedAt = Date.now(); saveState(cfg, state) }
     }
+    if (options.syncOnly) return outcome('synced')
     for (const stale of states(cfg).filter(s => s.status === 'running')) {
       stale.status = 'blocked'; stale.detail = 'Previous runner interrupted; inspect artifacts before retry'; saveState(cfg, stale)
     }
     const state = states(cfg).find(s => (s.status === 'queued' || (s.status === 'ready' && cfg.publish)) && s.nextRunAt <= Date.now())
-    if (!state) return 'idle'
+    if (!state) return outcome('idle')
     if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
-      state.status = 'cancelled'; state.detail = 'Issue changed, closed, or no longer eligible'; saveState(cfg, state); return 'cancelled'
+      state.status = 'cancelled'; state.detail = 'Issue changed, closed, or no longer eligible'; saveState(cfg, state); return outcome('cancelled')
     }
-    if (!active()) return 'paused'
+    if (!active()) return outcome('paused')
+    let slotUsed = false
+    let invoked = false
     try {
       if (state.status === 'queued') {
         const existing = (await client.findPr(branchFor(state.issue.number)))?.html_url ?? await client.findLinkedPr(state.issue.number)
         if (existing && !state.revision) {
           state.status = 'blocked'; state.pr = existing; state.detail = 'Existing PR; manual review required before further execution'
-          saveState(cfg, state); return 'blocked'
+          saveState(cfg, state); return outcome('blocked')
         }
         if (state.revision) {
           const pr = await client.findPr(branchFor(state.issue.number))
           if (!pr || pr.state !== 'open' || pr.html_url !== state.pr || pr.head.sha !== state.revision.baseCommit || pr.base.ref !== cfg.base) throw new Error('PR changed before revision execution')
         }
         if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
-          state.status = 'cancelled'; state.detail = 'Issue changed or excluded before execution'; saveState(cfg, state); return 'cancelled'
+          state.status = 'cancelled'; state.detail = 'Issue changed or excluded before execution'; saveState(cfg, state); return outcome('cancelled')
         }
-        if (!active()) return 'paused'
-        if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state) && !issueReviewPending(cfg, state)) { state.status = 'blocked'; saveState(cfg, state); return 'blocked' }
+        if (!active()) return outcome('paused')
+        if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state) && !issueReviewPending(cfg, state)) { state.status = 'blocked'; saveState(cfg, state); return outcome('blocked') }
         const pending = state.alternativeRetryPending
         state.alternativeRetryPending = false
         state.status = 'running'; state.runs++; saveState(cfg, state)
+        invoked = true
         const result = await (options.execute ?? executeIssue)(cfg, state)
-        if (result.attempted === false) { state.runs--; state.alternativeRetryPending = pending } // Review/capacity deferral does not spend a writer attempt.
+        // A deferral (attempted === false) did not consume the writer slot.
+        slotUsed = result.attempted !== false
+        if (result.attempted === false) { state.runs--; state.alternativeRetryPending = pending; invoked = false }
         if (result.recoveryRequired) {
           state.status = 'blocked'; state.detail = `Execution recovery required: ${result.detail}`
-          saveState(cfg, state); return 'blocked'
+          saveState(cfg, state); return outcome('blocked', slotUsed)
         }
         if (!active() || !currentIssue(cfg, state, await client.issue(state.issue.number))) {
           state.status = 'cancelled'; state.detail = 'Issue or configuration changed during execution; candidate preserved'
-          saveState(cfg, state); return 'cancelled'
+          saveState(cfg, state); return outcome('cancelled', slotUsed)
         }
         state.detail = result.detail
         state.commit = result.commit
@@ -118,10 +140,19 @@ export async function runGithub(cfg: GithubConfig, options: {
         state.nextRunAt = result.retryAt && result.retryAt > Date.now() ? result.retryAt : Date.now() + cfg.retryMs
         saveState(cfg, state)
       }
-      if (state.status === 'ready') await (options.publish ?? publishIssue)(cfg, state, client, undefined, undefined, active)
+      if (state.status === 'ready') { invoked = true; await (options.publish ?? publishIssue)(cfg, state, client, undefined, undefined, active); slotUsed = true }
     } catch (err) {
+      // The callee was invoked: work may have happened before the throw, so the
+      // slot stays consumed and the owner cannot double-dispatch this tick.
+      if (invoked) slotUsed = true
       state.status = 'blocked'; state.detail = err instanceof Error ? err.message : String(err); saveState(cfg, state)
     }
-    return `${state.issue.number}: ${state.status}`
+    return outcome(`${state.issue.number}: ${state.status}`, slotUsed)
   } finally { releaseLock(lock) }
+}
+
+// External callers keep the plain disposition string; owner dispatch uses the
+// explicit RunOutcome so pre-dispatch blocks can yield the per-tick slot.
+export async function runGithub(cfg: GithubConfig, options: Parameters<typeof runGithubOutcome>[1] = {}): Promise<string> {
+  return (await runGithubOutcome(cfg, options)).disposition
 }

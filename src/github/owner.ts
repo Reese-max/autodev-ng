@@ -3,9 +3,10 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join, resolve } from 'node:path'
 import { z } from 'zod'
 import { acquireLock, releaseLock } from '../lock.js'
+import { writeJsonAtomic } from '../guardian/incident.js'
 import { api, command } from './client.js'
 import { GithubConfigSchema, type GithubConfig } from './config.js'
-import { runGithub } from './runner.js'
+import { runGithubOutcome, type RunOutcome } from './runner.js'
 import { states } from './state.js'
 
 export const OwnerConfigSchema = GithubConfigSchema.omit({ repo: true, base: true, template: true, stopFile: true, verifyCommand: true, repair: true }).extend({
@@ -37,33 +38,84 @@ export function repoConfig(cfg: OwnerConfig, repo: Repo): GithubConfig {
     dataDir: join(cfg.dataDir, 'repo-' + createHash('sha256').update(repo.full_name.toLowerCase()).digest('hex').slice(0, 16)),
     stopFile: join(cfg.dataDir, '.adng.stop') })
 }
-export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = discoverRepos, run = runGithub) {
+const DispatchCursorSchema = z.object({
+  version: z.literal(1),
+  seq: z.number().int().nonnegative(),
+  repos: z.record(z.string(), z.object({
+    attemptSeq: z.number().int().nonnegative(),
+    lastAttemptedAt: z.number(),
+    lastScannedAt: z.number(),
+  })),
+})
+type DispatchCursor = z.infer<typeof DispatchCursorSchema>
+
+const CURSOR_FILE = 'dispatch-cursor.json'
+
+function readDispatchCursor(dataDir: string): DispatchCursor {
+  try {
+    return DispatchCursorSchema.parse(JSON.parse(readFileSync(join(dataDir, CURSOR_FILE), 'utf8')))
+  } catch {
+    return { version: 1, seq: 0, repos: {} }
+  }
+}
+
+export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = discoverRepos,
+  run: (child: GithubConfig, options: { syncOnly?: boolean }) => Promise<RunOutcome> = runGithubOutcome) {
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'owner.lock')
   // ponytail: one account lock and one Issue per tick; add concurrency only if queue latency warrants it.
   if (!acquireLock(lock)) return { status: 'locked' }
-  const report: { status: string; at: string; repositories: { repo: string; result: string; issues?: ReturnType<typeof states> }[] } = {
+  const report: { status: string; at: string; repositories: {
+    repo: string; result: string; attempted?: boolean; syncOnly?: boolean;
+    lastScannedAt?: string; lastAttemptedAt?: string; issues?: ReturnType<typeof states> }[] } = {
     status: 'ok', at: new Date().toISOString(), repositories: [] }
   try {
     let executed = false
     const repos = discover(cfg.owner)
-    // Rotate the starting repository each tick so a permanently busy project cannot starve others.
-    const offset = repos.length ? Math.floor(Date.now() / cfg.retryMs) % repos.length : 0
-    for (const repo of [...repos.slice(offset), ...repos.slice(0, offset)]) {
+    // Persisted fair cursor: order by last attempt sequence (not wall-clock
+    // modulo) so aligned ticks, restarts, reorders and clock jumps cannot pin
+    // the worker slot to the same repository. Never-attempted repos go first.
+    const cursor = readDispatchCursor(cfg.dataDir)
+    const order = [...repos].sort((a, b) => {
+      const sa = cursor.repos[a.full_name.toLowerCase()]?.attemptSeq ?? 0
+      const sb = cursor.repos[b.full_name.toLowerCase()]?.attemptSeq ?? 0
+      return sa - sb || a.full_name.localeCompare(b.full_name)
+    })
+    const seen = new Set<string>()
+    for (const repo of order) {
+      const id = repo.full_name.toLowerCase()
+      seen.add(id)
       if (repo.archived || repo.disabled || !repo.has_issues || !repo.permissions.push) {
         report.repositories.push({ repo: repo.full_name, result: 'skipped: archived, disabled, Issues disabled, or no push access' }); continue
       }
       const child = repoConfig(cfg, repo)
+      const entry = cursor.repos[id] ?? { attemptSeq: 0, lastAttemptedAt: 0, lastScannedAt: 0 }
+      entry.lastScannedAt = Date.now()
+      cursor.repos[id] = entry
       try {
-        const result = await run(child, { syncOnly: scanOnly || executed })
-        if (!['synced', 'idle', 'paused', 'locked'].includes(result)) executed = true
-        report.repositories.push({ repo: repo.full_name, result, issues: states(child) })
-        if (/blocked$/.test(result)) report.status = 'blocked'
+        const sync = scanOnly || executed
+        const outcome = await run(child, { syncOnly: sync })
+        if (outcome.attempted) {
+          executed = true
+          entry.attemptSeq = ++cursor.seq
+          entry.lastAttemptedAt = Date.now()
+        }
+        report.repositories.push({ repo: repo.full_name, result: outcome.disposition, attempted: outcome.attempted,
+          syncOnly: sync || undefined,
+          lastScannedAt: new Date(entry.lastScannedAt).toISOString(),
+          lastAttemptedAt: entry.lastAttemptedAt ? new Date(entry.lastAttemptedAt).toISOString() : undefined,
+          issues: states(child) })
+        if (/blocked$/.test(outcome.disposition)) report.status = 'blocked'
       } catch (err) {
         report.status = 'error'
-        report.repositories.push({ repo: repo.full_name, result: err instanceof Error ? err.message : String(err) })
+        report.repositories.push({ repo: repo.full_name, result: err instanceof Error ? err.message : String(err),
+          lastScannedAt: new Date(entry.lastScannedAt).toISOString(),
+          lastAttemptedAt: entry.lastAttemptedAt ? new Date(entry.lastAttemptedAt).toISOString() : undefined })
       }
     }
+    // Prune identities no longer discovered so the cursor cannot grow without bound.
+    for (const id of Object.keys(cursor.repos)) if (!seen.has(id)) delete cursor.repos[id]
+    writeJsonAtomic(join(cfg.dataDir, CURSOR_FILE), cursor)
     const tmp = join(cfg.dataDir, `status-${process.pid}.tmp`)
     writeFileSync(tmp, JSON.stringify(report, null, 2) + '\n'); renameSync(tmp, join(cfg.dataDir, 'status.json'))
     return report
