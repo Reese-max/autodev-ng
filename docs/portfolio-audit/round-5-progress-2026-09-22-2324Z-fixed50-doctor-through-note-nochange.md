@@ -46,7 +46,7 @@ No due second qualifying CLEAN recheck exists while unresolved P1/P2 findings an
 
 ### 2. `Reese-max/prompt-autoresearch` — NO_CHANGE
 
-Current default branch: `master`. Current HEAD: `34d3fa288b91d89b7b8dd309f92334824dc72e5e` (`docs(audit): add 2026-09-22 prompt-autoresearch product board`). The commit itself records inspected predecessor `244f7598b0157fa76217f988549869b0577f45b8` and underlying product baseline `723746c96c7fdc03b4d5e441bada0fc25e3146f36741fab730ab46cd4d12` is **not** used here because that string is a prior harness digest, not a repository commit; the product-board file identifies the repository product baseline as `723746c96c7fdc03ba3ab9f754b79f7ae6addd75`. No later product change is present.
+Current default branch: `master`. Current HEAD: `34d3fa288b91d89b7b8dd309f92334824dc72e5e` (`docs(audit): add 2026-09-22 prompt-autoresearch product board`). The commit records inspected predecessor `244f7598b0157fa76217f988549869b0577f45b8` and repository product baseline `723746c96c7fdc03ba3ab9f754b79f7ae6addd75`; no later product change is present.
 
 Round-3 fixed-50 report at `244f7598b0157fa76217f988549869b0577f45b8` therefore remains applicable. #12 stays `BUG / P1 / SOURCE_CONFIRMED / NEEDS_REVIEW / auto_implementation=false`; its persona-audit lease was re-read and is released. Existing #4 P1 evidence-contract failure and #7 P2 retired-Gemini path remain separately tracked.
 
