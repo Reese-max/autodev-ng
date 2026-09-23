@@ -44,7 +44,7 @@ test('M1 閉環：3 任務→2 完成 1 驗收 blocked→idle', async () => {
   expect(seq).toEqual([
     'done', 'failed',
     { kind: 'blocked', taskId: taskId('任務B'), taskText: '任務B', reason: 'max-attempts' },
-    'done', 'idle', 'idle'
+    'done', { kind: 'not-started', reason: 'idle' }, { kind: 'not-started', reason: 'idle' }
   ])
 
   const md = readFileSync(backlogFile, 'utf8')

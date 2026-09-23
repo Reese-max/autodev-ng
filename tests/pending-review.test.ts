@@ -7,7 +7,7 @@ import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
 import { ConfigSchema, type Engine } from '../src/types.js'
-import { runOnce, type Deps } from '../src/scheduler.js'
+import { runOnce, cycleResultCode, type Deps } from '../src/scheduler.js'
 import { KernelVerifier } from '../src/verifier.js'
 import { TeamState } from '../src/engines/team-state.js'
 import { EvidenceStore } from '../src/engines/evidence-chain.js'
@@ -55,13 +55,13 @@ test('all free reviewers deferred: reopened scheduler merges through the recover
   const f = fixture(), d = f.deps, backup = 'test/backup:free'
   d.cfg.freeReviewFallbacks = [backup]; f.blockAll()
   try {
-    expect(await runOnce(d)).toBe('deferred')
+    expect(cycleResultCode(await runOnce(d))).toBe('deferred')
     const task = d.store.read()[0]!, pending = readPendingReview(d.cfg, task)!
     expect(pending.retryAt - Date.now()).toBeLessThanOrEqual(15_000)
     expect(baseAlertMessage('deferred', d.cfg)).toContain(pending.candidateHead.slice(0, 12))
     expect(baseAlertMessage('deferred', d.cfg)).toContain(new Date(pending.retryAt).toISOString())
     const count = vi.mocked(f.fetch).mock.calls.length
-    expect(await runOnce(d)).toBe('deferred'); expect(f.fetch).toHaveBeenCalledTimes(count)
+    expect(cycleResultCode(await runOnce(d))).toBe('deferred'); expect(f.fetch).toHaveBeenCalledTimes(count)
     d.db.close(); d.team!.close(); d.db = new RunDb(join(d.cfg.dataDir, 'run.db')); d.team = new TeamState(d.cfg.projectPath)
     f.allowBackup(); vi.spyOn(Date, 'now').mockReturnValue(pending.retryAt + 1000)
     expect(await runOnce(d)).toBe('done')
@@ -81,7 +81,7 @@ test('all free reviewers deferred: reopened scheduler merges through the recover
 test('quota wait survives reopen: CI proof/candidate retained, one worker admission, no repeat preflight or worker', async () => {
   const f = fixture(), d = f.deps, base = git(d.cfg.projectPath, 'rev-parse', 'HEAD')
   try {
-    expect(await runOnce(d)).toBe('deferred')
+    expect(cycleResultCode(await runOnce(d))).toBe('deferred')
     const task = d.store.read()[0]!, pending = readPendingReview(d.cfg, task)!
     expect(pending.verification).toMatchObject({ candidateCommit: pending.candidateHead, ci: { status: 'pass', executed: true, exitCode: 0 }, reviewer: { status: 'blocked' } })
     expect(git(d.cfg.projectPath, 'rev-parse', 'HEAD')).toBe(base)
@@ -92,7 +92,7 @@ test('quota wait survives reopen: CI proof/candidate retained, one worker admiss
       planFn: planner, evalFn: async () => ({ achieved: false, score: 0, detail: '' }), runOnceFn: runOnce, isAlive: () => true })).toMatchObject({ kind: 'stuck', retryable: true })
     expect(planner).not.toHaveBeenCalled()
     const calls = vi.mocked(f.fetch).mock.calls.length
-    expect(await runOnce(d)).toBe('deferred'); expect(f.fetch).toHaveBeenCalledTimes(calls)
+    expect(cycleResultCode(await runOnce(d))).toBe('deferred'); expect(f.fetch).toHaveBeenCalledTimes(calls)
     d.db.close(); d.team!.close()
     d.db = new RunDb(join(d.cfg.dataDir, 'run.db')); d.team = new TeamState(d.cfg.projectPath)
     f.available(); vi.spyOn(Date, 'now').mockReturnValue(pending.retryAt + 1000)
@@ -108,7 +108,7 @@ test('quota wait survives reopen: CI proof/candidate retained, one worker admiss
 test('changed candidate after restart is quarantined without worker, model request or merge', async () => {
   const f = fixture(), d = f.deps
   try {
-    expect(await runOnce(d)).toBe('deferred')
+    expect(cycleResultCode(await runOnce(d))).toBe('deferred')
     const task = d.store.read()[0]!, pending = readPendingReview(d.cfg, task)!, calls = vi.mocked(f.fetch).mock.calls.length
     writeFileSync(join(pending.wt.cwd, 'value.cjs'), 'module.exports = 999\n')
     expect(await runOnce(d)).toMatchObject({ kind: 'blocked', reason: 'team-state-quarantined' })
@@ -120,7 +120,7 @@ test('changed candidate after restart is quarantined without worker, model reque
 test('an independent rejection after waiting still blocks the merge and counts a task failure', async () => {
   const f = fixture(), d = f.deps, base = git(d.cfg.projectPath, 'rev-parse', 'HEAD')
   try {
-    expect(await runOnce(d)).toBe('deferred')
+    expect(cycleResultCode(await runOnce(d))).toBe('deferred')
     const task = d.store.read()[0]!, pending = readPendingReview(d.cfg, task)!
     f.reject(); vi.spyOn(Date, 'now').mockReturnValue(pending.retryAt + 1000)
     expect(await runOnce(d)).toBe('failed')
@@ -153,7 +153,7 @@ test('rebase review quota wait resumes the exact candidate after restart without
     return check
   } }
   try {
-    expect(await runOnce(d)).toBe('deferred')
+    expect(cycleResultCode(await runOnce(d))).toBe('deferred')
     const task = d.store.read()[0]!, pending = readPendingReview(d.cfg, task)!
     expect(checks).toBe(2); expect(pending.retryAt).toBeGreaterThan(Date.now())
     expect(pending.candidateHead).not.toBe(originalCandidate); expect(pending.result.baseCommitHash).toBe(current)

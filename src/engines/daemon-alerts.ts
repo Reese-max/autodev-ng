@@ -2,7 +2,7 @@ import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isSilenced } from '../bot/silence.js'
 import { localDay } from '../db.js'
-import type { BlockedReason, CycleResult } from '../scheduler.js'
+import { cycleResultCode, type BlockedReason, type CycleResult } from '../scheduler.js'
 import { quiet, type EventLog } from '../events.js'
 import { pendingReviewNotice } from './pending-review.js'
 
@@ -52,12 +52,13 @@ function saveCooldownTable(dataDir: string, table: CooldownTable): void {
 }
 
 export function cooldownKeyFor(result: CycleResult): string {
-  if (typeof result === 'object') return `blocked:${result.taskId}`
-  return result
+  if (typeof result === 'object' && result.kind === 'blocked') return `blocked:${result.taskId}`
+  return cycleResultCode(result) // #49：key 沿用原因碼——與舊字串結果的冷卻表條目相容
 }
 
 export function isAlertableResult(result: CycleResult): boolean {
-  return typeof result === 'object' || result === 'cost-hard-stop' || result === 'preflight-failed' || result === 'deferred'
+  const code = cycleResultCode(result)
+  return (typeof result === 'object' && result.kind === 'blocked') || code === 'cost-hard-stop' || code === 'preflight-failed' || code === 'deferred'
 }
 
 function blockedReasonText(reason: BlockedReason, detail?: string): string {
@@ -83,14 +84,14 @@ function blockedReasonText(reason: BlockedReason, detail?: string): string {
 }
 
 export function baseAlertMessage(result: CycleResult, cfg?: { dataDir: string }): string {
-  if (typeof result === 'object') {
+  if (typeof result === 'object' && result.kind === 'blocked') {
     return `daemon 告警：任務 blocked（${blockedReasonText(result.reason, result.alertDetail)}）——任務：${[...result.taskText].slice(0, 80).join('')}`
   }
-  switch (result) {
+  switch (cycleResultCode(result)) {
     case 'cost-hard-stop': return 'daemon 告警：cost-hard-stop——今日成本已達硬停上限，暫停派工'
     case 'preflight-failed': return 'daemon 告警：preflight-failed——engine 尚未就緒'
     case 'deferred': return `daemon 告警：deferred——${cfg ? pendingReviewNotice(cfg) : 'worker 或審查暫不可用，任務保持 open，待冷卻後續跑'}`
-    default: return `daemon 告警：${result}`
+    default: return `daemon 告警：${cycleResultCode(result)}`
   }
 }
 

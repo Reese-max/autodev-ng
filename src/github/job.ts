@@ -142,9 +142,14 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     const tasks = app.deps.store.read()
     if (tasks.length !== 1 || tasks[0]!.text !== issueTask(state)) throw new Error('Issue backlog contract changed')
     if (tasks[0]!.status === 'done') throw new Error('Interrupted completed cycle; manual evidence recovery required')
+    // #49：backlog 任務已終態 blocked 時不再空轉輪詢（open 清單為空 → 永遠 idle 退款）——直接進 issue 終態。
+    if (tasks[0]!.status === 'blocked') throw new Error('Issue task already blocked in backlog; manual intervention required')
     const result = await runOnce(app.deps)
     finalizeRunOnceHeartbeat(app.deps, result)
     try { await app.deps.lessons?.reflect(result) } catch { /* Ancillary learning cannot invalidate completed work. */ }
+    // 本輪把任務打進終態 blocked（admission/merge/驗收類）——issue 同步終態，不留在 queued 無限重試。
+    if (typeof result === 'object' && result.kind === 'blocked' && result.reason !== 'team-state-quarantined')
+      throw new Error(`Issue task blocked (${result.reason})${result.alertDetail ? `：${result.alertDetail}` : ''}`)
     const done = result === 'done'
     const commit = done ? git(runtime.projectPath, ['rev-parse', 'HEAD']) : undefined
     if (done) assertPublishable(cfg, { ...state, commit })
@@ -152,7 +157,11 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     const detail = typeof result === 'string' && (result === 'failed' || result === 'engine-error')
       ? app.deps.db.lastAttemptFailureFor(tasks[0]!.id) ?? result
       : typeof result === 'string' ? result : result.reason
-    return { done, detail, ...(resumingReview || result === 'cost-hard-stop' || result === 'stopped' ? { attempted: false } : {}),
+    // #49：只有型別化 not-started（worker 從未啟動）才退還 writer 額度；
+    // 同名字串 'stopped'/'deferred' 在執行後仍有別的語意，不按字串猜。
+    const notStarted = typeof result === 'object' && result.kind === 'not-started'
+    return { done, detail, ...(resumingReview || notStarted ? { attempted: false } : {}),
+      ...(notStarted && result.retryAt !== undefined ? { retryAt: result.retryAt } : {}),
       ...(result === 'deferred' && issueReviewPending(cfg, state) ? { reviewPending: true, retryAt: Date.now() + reviewRetryDelay(runtime) } : {}),
       ...(typeof result === 'object' && result.reason === 'team-state-quarantined' ? { recoveryRequired: true } : {}), ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
   } finally { app.deps.db.close(); app.deps.team?.close() }

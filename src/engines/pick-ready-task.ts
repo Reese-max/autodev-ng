@@ -17,7 +17,7 @@ export function blockTask(
   task: Task,
   reason: BlockedReason,
   humanReason: string, eventDetail?: string
-): CycleResult {
+): Extract<CycleResult, { kind: 'blocked' }> {
   try {
     store.report(task.id, { kind: 'blocked', reason: humanReason })
   } catch (err) {
@@ -31,7 +31,11 @@ export function blockTask(
 export async function pickReadyTask(
   { cfg, store, db, events, engines, notify, team }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines' | 'notify' | 'team'>,
   openTasks: Task[]
-): Promise<{ task: Task; engine: Engine; engineTag: string; fixedCost: number | undefined } | CycleResult> {
+): Promise<
+  | { task: Task; engine: Engine; engineTag: string; fixedCost: number | undefined }
+  | 'deferred' | 'preflight-failed'
+  | Extract<CycleResult, { kind: 'blocked' }>
+> {
   const routingKey = JSON.stringify([cfg.dataDir, cfg.engineRotation, cfg.timezoneOffsetHours])
   const isolatedTags = cfg.engineIsolation && cfg.engineRotation?.length ? await singleFlightPickRouting(routingKey, () => loadIsolatedTagsForPick(
     { dataDir: cfg.dataDir, rotation: cfg.engineRotation, offsetHours: cfg.timezoneOffsetHours },

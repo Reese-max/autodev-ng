@@ -8,6 +8,8 @@ const StateSchema = z.object({
   repo: z.string(), base: z.string(), issue: IssueSchema, fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   status: z.enum(['queued', 'running', 'ready', 'published', 'blocked', 'cancelled']),
   runs: z.number().int().nonnegative(), nextRunAt: z.number(),
+  // #49：控制端連續未啟動輪次（退避用）——與 writer lifetime 額度 runs 分開計。
+  controlRuns: z.number().int().nonnegative().optional(),
   alternativeRetryPending: z.boolean().optional(),
   revision: z.object({ round: z.number().int().positive().max(5), baseCommit: z.string().regex(/^[a-f0-9]{40,64}$/), feedback: z.string().min(1).max(20000), key: z.string() }).optional(),
   remote: z.object({ at: z.string(), head: z.string(), state: z.enum(['open', 'closed', 'merged']), checks: z.enum(['pass', 'fail', 'pending', 'unknown']), feedback: z.string(), key: z.string() }).optional(),

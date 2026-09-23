@@ -9,7 +9,7 @@ import { TeamState } from '../src/engines/team-state.js'
 import { cancelledRun } from '../src/engines/run-control.js'
 import { readExecutions } from '../src/engines/execution-observation.js'
 import { EventLog } from '../src/events.js'
-import { runOnce, type Deps } from '../src/scheduler.js'
+import { runOnce, cycleResultCode, type Deps } from '../src/scheduler.js'
 import { ConfigSchema, type Engine, type Job, type RunResult } from '../src/types.js'
 
 const roots: string[] = []
@@ -55,7 +55,7 @@ test.each([false, true])('uncertain stop (after nudge=%s) keeps ownership and ne
     expect(readFileSync(join(cwd, 'checkpoint.txt'), 'utf8')).toBe('keep me')
     expect(f.team.snapshot().claims).toMatchObject([{ state: 'QUARANTINED' }])
     expect(f.team.claim({ executionId: 'another', task: { ...task, id: 'other-task' }, workerId: 'mock', reservedCostUsd: 0, spentUsd: 0, dailyHardUsd: 0, leaseMs: 1000 })).toMatchObject({ ok: false, reason: 'ownership-conflict' })
-    expect(await runOnce(f.deps)).toBe('idle')
+    expect(cycleResultCode(await runOnce(f.deps))).toBe('idle')
     expect(calls).toBe(afterNudge ? 2 : 1)
   } finally { f.db.close(); f.team.close() }
 })
@@ -158,12 +158,12 @@ test('worker 執行中出現 stop sentinel：不啟 Reviewer／不 merge，候�
   f.deps.engines = { resolve: () => engine }
   f.deps.verifier = { check: async () => { reviews++; return { pass: true, alerts: [] } } }
   try {
-    expect(await runOnce(f.deps)).toBe('stopped')
+    expect(cycleResultCode(await runOnce(f.deps))).toBe('stopped')
     expect(engine.calls).toBe(1)
     expect(reviews).toBe(0)
     expect(() => readFileSync(join(f.repo, 'paused.txt'), 'utf8')).toThrow()
     expect(readFileSync(f.backlog, 'utf8')).toContain('- [ ] 可暫停任務')
     expect(f.team.snapshot().queue).toMatchObject([{ state: 'PAUSED_READY' }])
-    expect(await runOnce(f.deps)).toBe('stopped')
+    expect(cycleResultCode(await runOnce(f.deps))).toBe('stopped')
   } finally { f.db.close(); f.team.close() }
 })
