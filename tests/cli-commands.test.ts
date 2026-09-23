@@ -52,7 +52,7 @@ test('CLI 搬移回歸：代表性子指令維持搬移前的輸出快照與 exi
 
     expect(actual).toEqual({
       status: { stdout: ['daemon 未跑過'], stderr: [], exitCode: 0 },
-      'run-once': { stdout: ['CycleResult: idle'], stderr: [], exitCode: 0 },
+      'run-once': { stdout: ['CycleResult: not-started（idle）'], stderr: [], exitCode: 0 },
       supervise: { stdout: ['supervise：找不到 config，未執行任何動作'], stderr: [], exitCode: 0 },
       unknown: {
         stdout: [],
@@ -85,10 +85,12 @@ test('CLI entry：缺少 config 時只負責回報用法，不載入子指令執
   expect(process.exitCode).toBe(1)
 })
 
-test('formatCycleResult：字串結果原樣輸出，blocked 保留既有任務格式', () => {
+test('formatCycleResult：字串結果原樣輸出，blocked/not-started 保留結構化格式', () => {
   expect(formatCycleResult('done')).toBe('done')
   expect(formatCycleResult({ kind: 'blocked', taskId: 't1', taskText: '修 bug', reason: 'merge-conflict' }))
     .toBe('blocked（任務：修 bug）')
+  expect(formatCycleResult({ kind: 'not-started', reason: 'idle' })).toBe('not-started（idle）')
+  expect(formatCycleResult({ kind: 'not-started', reason: 'preflight-failed' })).toBe('not-started（preflight-failed）')
 })
 
 test('printSuperviseResults：空結果維持既有 stdout', () => {

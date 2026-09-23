@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runOnce, type Deps } from '../src/scheduler.js'
+import { runOnce, cycleResultCode, type Deps } from '../src/scheduler.js'
 import { BacklogStore, taskId } from '../src/backlog.js'
 import type { Disposition, RunResult } from '../src/types.js'
 import { RunDb, localDay, type AttemptRecord } from '../src/db.js'
@@ -106,7 +106,7 @@ test('供應失敗不消耗任務額度：同一引擎在冷卻窗內只試一�
   const e = new MockEngine([{ ok: false, reason: 'x' }, { ok: false, reason: 'x' }])
   const d = deps(e)
   expect(await runOnce(d)).toBe('failed')
-  expect(await runOnce(d)).toBe('deferred')
+  expect(cycleResultCode(await runOnce(d))).toBe('deferred')
   expect(e.calls).toHaveLength(1)
   expect(d.store.nextTask()).not.toBeNull()
   expect(d.db.taskFailCount(taskId('任務一'))).toBe(0)
@@ -117,14 +117,14 @@ test('供應歷史查詢失敗時 fail-closed deferred，不重燒同一引擎',
   const d = deps(e)
   expect(await runOnce(d)).toBe('failed')
   d.db.attemptedEngineTags = () => { throw new Error('database is locked') }
-  expect(await runOnce(d)).toBe('deferred')
+  expect(cycleResultCode(await runOnce(d))).toBe('deferred')
   expect(e.calls).toHaveLength(1)
 })
 
 test('backlog 空 → idle，且 idle 事件 24h 去重', async () => {
   const d = deps(new MockEngine(), '# 空\n')
-  expect(await runOnce(d)).toBe('idle')
-  expect(await runOnce(d)).toBe('idle')
+  expect(cycleResultCode(await runOnce(d))).toBe('idle')
+  expect(cycleResultCode(await runOnce(d))).toBe('idle')
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events.match(/"type":"idle"/g)).toHaveLength(1)
 })
@@ -170,7 +170,7 @@ test('stop 檔優先於一切', async () => {
   const e = new MockEngine()
   const d = deps(e)
   writeFileSync(d.cfg.stopFile, '')
-  expect(await runOnce(d)).toBe('stopped')
+  expect(cycleResultCode(await runOnce(d))).toBe('stopped')
   expect(e.calls).toHaveLength(0)
 })
 
@@ -178,7 +178,7 @@ test('成本硬停：超過 dailyHardUsd 不再派工', async () => {
   const e = new MockEngine()
   const d = deps(e)
   d.db.record({ taskId: 'z', ok: true, costUsd: 999, detail: 'burn' })
-  expect(await runOnce(d)).toBe('cost-hard-stop')
+  expect(cycleResultCode(await runOnce(d))).toBe('cost-hard-stop')
   expect(e.calls).toHaveLength(0)
 })
 
@@ -203,7 +203,7 @@ test('M9.9：訂閱引擎花費不觸日頂，真金引擎照觸', async () => {
     const d = deps(new MockEngine())
     const cfg = { ...d.cfg, engines }
     d.db.record({ taskId: 'z-real', ok: true, costUsd: 100, detail: 'real-burn', engine: 'claude' })
-    expect(await runOnce({ ...d, cfg })).toBe('cost-hard-stop')
+    expect(cycleResultCode(await runOnce({ ...d, cfg }))).toBe('cost-hard-stop')
   }
 
   // 訂閱 codex-spark $100（超硬頂，名義帳）＋ 真金 claude $1 → 不觸日頂（billed=$1 < 硬頂 $100）
@@ -212,7 +212,7 @@ test('M9.9：訂閱引擎花費不觸日頂，真金引擎照觸', async () => {
     const cfg = { ...d.cfg, engines }
     d.db.record({ taskId: 'z-sub', ok: true, costUsd: 100, detail: 'subscription-burn', engine: 'codex-spark' })
     d.db.record({ taskId: 'z-real2', ok: true, costUsd: 1, detail: 'real-burn', engine: 'claude' })
-    expect(await runOnce({ ...d, cfg })).not.toBe('cost-hard-stop')
+    expect(cycleResultCode(await runOnce({ ...d, cfg }))).not.toBe('cost-hard-stop')
   }
 })
 
@@ -284,8 +284,8 @@ test('任務驗收 max-attempts blocked 註記帶最後失敗原因（人工分�
 test('preflight 失敗：回 preflight-failed，engine.run 零呼叫，事件 24h 去重', async () => {
   const e = new MockEngine([{ ok: true }], { ok: false, detail: 'engine 尚未就緒' })
   const d = deps(e)
-  expect(await runOnce(d)).toBe('preflight-failed')
-  expect(await runOnce(d)).toBe('preflight-failed')
+  expect(cycleResultCode(await runOnce(d))).toBe('preflight-failed')
+  expect(cycleResultCode(await runOnce(d))).toBe('preflight-failed')
   expect(e.calls).toHaveLength(0)
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events.match(/"type":"preflight-failed"/g)).toHaveLength(1)
@@ -303,7 +303,7 @@ test('engine 成功但 store.report 拋錯：保留成果並暫停，不回 done
 
   const result = await runOnce({ ...d, store: throwingStore })
   expect(result).toMatchObject({ kind: 'blocked', reason: 'verification-infra' })
-  expect(await runOnce({ ...d, store: throwingStore })).toBe('stopped')
+  expect(cycleResultCode(await runOnce({ ...d, store: throwingStore }))).toBe('stopped')
 
   // db 只記一筆「ok」紀錄，沒有因為下游 report 失敗而被誤記成假失敗
   const task = d.store.nextTask()
@@ -322,7 +322,7 @@ test('engine 成功但 store.report 拋錯：保留成果並暫停，不回 done
 test('engine throw 後同一引擎在冷卻窗內 deferred，仍保持 open 且不污染任務失敗額度', async () => {
   const d = deps(new MockEngine([{ throw: 'ECONNRESET' }, { throw: 'ECONNRESET' }]))
   expect(await runOnce(d)).toBe('engine-error')
-  expect(await runOnce(d)).toBe('deferred')
+  expect(cycleResultCode(await runOnce(d))).toBe('deferred')
   expect(d.store.nextTask()).not.toBeNull()
   expect(d.db.taskFailCount(taskId('任務一'))).toBe(0)
 })
@@ -330,14 +330,14 @@ test('engine throw 後同一引擎在冷卻窗內 deferred，仍保持 open 且�
 test('preflight 失敗時 heartbeat 標成 preflight-failed（不偽裝 idle）', async () => {
   const e = new MockEngine([], { ok: false, detail: 'auth dead' })
   const d = deps(e)
-  expect(await runOnce(d)).toBe('preflight-failed')
+  expect(cycleResultCode(await runOnce(d))).toBe('preflight-failed')
   const hb = JSON.parse(readFileSync(join(d.cfg.dataDir, 'heartbeat.json'), 'utf8'))
   expect(hb.state).toBe('preflight-failed')
 })
 
 test('heartbeat 含 todayAttempts 摘要欄位（無 attempts 時為空物件或僅 cap 列）', async () => {
   const d = deps(new MockEngine(), '# 空 backlog\n')
-  expect(await runOnce(d)).toBe('idle')
+  expect(cycleResultCode(await runOnce(d))).toBe('idle')
   const hb = JSON.parse(readFileSync(join(d.cfg.dataDir, 'heartbeat.json'), 'utf8')) as {
     state: string
     todayAttempts?: Record<string, { n: number; ok: number; cap?: number }>
@@ -898,7 +898,7 @@ test('M10.5：全域日頂超標 → cost-hard-stop-global', async () => {
   const cfgPath = seedTwoProjectConfigs()
   const d = deps(new MockEngine())
   const cfg = { ...d.cfg, globalDailyHardUsd: 10 } // 兄弟專案已花 $50，遠超此頂
-  expect(await runOnce({ ...d, cfg, cfgPath })).toBe('cost-hard-stop')
+  expect(cycleResultCode(await runOnce({ ...d, cfg, cfgPath }))).toBe('cost-hard-stop')
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events).toContain('"type":"cost-hard-stop-global"')
 })
@@ -916,7 +916,7 @@ test('M10.5 回歸：未設 globalDailyHardUsd → 不受兄弟專案超標影�
 test('#40：設了 globalDailyHardUsd 但 cfgPath 缺失 → cost-hard-stop（不靜默略過）', async () => {
   const d = deps(new MockEngine())
   const cfg = { ...d.cfg, globalDailyHardUsd: 10 }
-  expect(await runOnce({ ...d, cfg })).toBe('cost-hard-stop') // 沒傳 cfgPath
+  expect(cycleResultCode(await runOnce({ ...d, cfg }))).toBe('cost-hard-stop') // 沒傳 cfgPath
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events).toContain('"scope":"global-no-scope"')
 })
@@ -927,7 +927,7 @@ test('#40：billingScopeDirs 的 issue run.db 計入全域帳務（單靠兄弟�
   seedSiblingDb(join(scopeRoot, 'issue-9'), [{ ts: new Date().toISOString(), cost: 20, engine: 'writer' }])
   const d = deps(new MockEngine())
   const cfg = { ...d.cfg, globalDailyHardUsd: 60 } // 50 < 60，50+20 ≥ 60
-  expect(await runOnce({ ...d, cfg, cfgPath, billingScopeDirs: [scopeRoot] })).toBe('cost-hard-stop')
+  expect(cycleResultCode(await runOnce({ ...d, cfg, cfgPath, billingScopeDirs: [scopeRoot] }))).toBe('cost-hard-stop')
 })
 
 test('#40：billingScopeDirs 同一目錄傳兩次不重複計（inode 去重）', async () => {
@@ -949,7 +949,7 @@ test('#40：billingScopeDirs 目錄內未知來源費用 → 拒絕派工（未�
   db.close()
   const d = deps(new MockEngine())
   const cfg = { ...d.cfg, globalDailyHardUsd: 999 }
-  expect(await runOnce({ ...d, cfg, cfgPath, billingScopeDirs: [scopeRoot] })).toBe('cost-hard-stop')
+  expect(cycleResultCode(await runOnce({ ...d, cfg, cfgPath, billingScopeDirs: [scopeRoot] }))).toBe('cost-hard-stop')
   const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
   expect(events).toContain('"type":"cost-accounting-incomplete"')
 })

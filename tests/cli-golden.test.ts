@@ -32,7 +32,7 @@ const FIXED_NOTIFY_ISO = '2026-07-24T00:00:00.000Z'
 function beforeRelocationGoldens(missingConfig: string): Record<PublicCliCommand, CliGoldenCapture> {
   return {
     status: { stdout: 'daemon 未跑過\n', stderr: '', exitCode: 0 },
-    'run-once': { stdout: 'CycleResult: idle\n', stderr: '', exitCode: 0 },
+    'run-once': { stdout: 'CycleResult: not-started（idle）\n', stderr: '', exitCode: 0 },
     daemon: { stdout: '', stderr: `設定檔不存在: ${missingConfig}\n`, exitCode: 1 },
     'notify-test': {
       stdout: `送達失敗（已寫入 DLQ，detail 見 dataDir/notify-dlq.jsonl）：adng 通道測試 ${FIXED_NOTIFY_ISO}\n`,

@@ -102,7 +102,9 @@ export async function runGithub(cfg: GithubConfig, options: {
         state.alternativeRetryPending = false
         state.status = 'running'; state.runs++; saveState(cfg, state)
         const result = await (options.execute ?? executeIssue)(cfg, state)
-        if (result.attempted === false) { state.runs--; state.alternativeRetryPending = pending } // Review/capacity deferral does not spend a writer attempt.
+        // Review/capacity deferral does not spend a writer attempt.
+        if (result.attempted === false) { state.runs--; state.controlRuns = (state.controlRuns ?? 0) + 1; state.alternativeRetryPending = pending }
+        else if (state.controlRuns) state.controlRuns = 0 // 真的啟動過 → 控制端連續等待歸零
         if (result.recoveryRequired) {
           state.status = 'blocked'; state.detail = `Execution recovery required: ${result.detail}`
           saveState(cfg, state); return 'blocked'
@@ -115,7 +117,10 @@ export async function runGithub(cfg: GithubConfig, options: {
         state.commit = result.commit
         if (result.alternativeRetryPending) state.alternativeRetryPending = alternativeRunPending(cfg, { ...state, alternativeRetryPending: true })
         state.status = result.done ? 'ready' : state.runs >= cfg.maxRuns && !state.alternativeRetryPending && !result.reviewPending ? 'blocked' : 'queued'
-        state.nextRunAt = result.retryAt && result.retryAt > Date.now() ? result.retryAt : Date.now() + cfg.retryMs
+        // #49：前置拒絕用控制端連續次數做有界指數退避（最遲 16×retryMs），不讓同一案
+        // 每輪搶先其他 issue；明確 retryAt（如 pending review 的到期點）優先。
+        state.nextRunAt = result.retryAt && result.retryAt > Date.now() ? result.retryAt
+          : Date.now() + cfg.retryMs * (result.attempted === false ? 1 << Math.min((state.controlRuns ?? 1) - 1, 4) : 1)
         saveState(cfg, state)
       }
       if (state.status === 'ready') await (options.publish ?? publishIssue)(cfg, state, client, undefined, undefined, active)

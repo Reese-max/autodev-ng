@@ -111,7 +111,7 @@ export async function recoverIssue(file: string, number: number, reason: string,
         const tasks = new BacklogStore(backlog).read()
         if (tasks.length !== 1 || tasks[0]!.text !== issueTask(state) || tasks[0]!.status !== 'open') throw new Error('Backlog requires evidence recovery; no automatic rewrite')
       }
-      state.status = 'queued'; state.nextRunAt = 0
+      state.status = 'queued'; state.nextRunAt = 0; state.controlRuns = 0 // 人工重排連控制端退避也歸零
     }
     if (state.status === 'queued' || pause !== undefined) {
       const doctor = await (options.doctor ?? repairDoctor)(cfg, true)

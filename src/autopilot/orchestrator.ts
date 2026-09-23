@@ -1,4 +1,4 @@
-import type { Deps, CycleResult } from '../scheduler.js'
+import { cycleResultCode, type Deps, type CycleResult } from '../scheduler.js'
 import type { Task } from '../types.js'
 import { quiet } from '../events.js'
 import type { Goal } from './goal.js'
@@ -61,9 +61,10 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
     round++
     if (deps.kernelDeps.cfg.tierMode === 'free-only' && deps.kernelDeps.store.read().some(task => task.status === 'open' && hasPendingReview(deps.kernelDeps.cfg, task))) {
       const resumed = await deps.runOnceFn(deps.kernelDeps)
-      if (resumed === 'deferred') return { kind: 'stuck', rounds: round, retryable: true, reason: 'candidate review deferred; worker output preserved' }
-      if (resumed === 'stopped') return { kind: 'killed', rounds: round }
-      if (typeof resumed === 'object') return { kind: 'stuck', rounds: round, reason: resumed.alertDetail ?? resumed.reason }
+      const resumedCode = cycleResultCode(resumed)
+      if (resumedCode === 'deferred') return { kind: 'stuck', rounds: round, retryable: true, reason: 'candidate review deferred; worker output preserved' }
+      if (resumedCode === 'stopped') return { kind: 'killed', rounds: round }
+      if (typeof resumed === 'object' && resumed.kind === 'blocked') return { kind: 'stuck', rounds: round, reason: resumed.alertDetail ?? resumed.reason }
       if (resumed === 'done') {
         const snapshot = await deps.evalFn(deps.cwd)
         if (snapshot.retryable) return { kind: 'stuck', rounds: round, retryable: true, reason: snapshot.detail }
@@ -130,7 +131,8 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
     for (;;) {
       if (!deps.isAlive()) return { kind: 'killed', rounds: round }
       const r = await deps.runOnceFn(deps.kernelDeps)
-      if (r === 'deferred' || (r === 'preflight-failed' && deps.kernelDeps.cfg.tierMode === 'free-only')) return {
+      const code = cycleResultCode(r)
+      if (code === 'deferred' || (code === 'preflight-failed' && deps.kernelDeps.cfg.tierMode === 'free-only')) return {
         kind: 'stuck', rounds: round, retryable: true,
         reason: 'engine supply deferred：worker 或審查暫不可用，任務與候選提交保留，待冷卻後續跑',
       }
@@ -138,7 +140,7 @@ export async function runGoalSession(deps: OrchestratorDeps): Promise<GoalOutcom
       // 若不中止，下一輪 runOnceFn 會重撿同一個 task、重複同一個 preflight
       // 失敗，形成無退避的緊迴圈。中止後交還控制權給外層 round 迴圈，
       // 讓「連續無進展」煞車與 kill switch 接手。
-      if (r === 'idle' || r === 'stopped' || r === 'cost-hard-stop' || r === 'preflight-failed') break
+      if (code === 'idle' || code === 'stopped' || code === 'cost-hard-stop' || code === 'preflight-failed') break
     }
 
     const snapshot = await deps.evalFn(deps.cwd)
