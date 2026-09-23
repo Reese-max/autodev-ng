@@ -11,6 +11,8 @@ export const GithubConfigSchema = z.object({
   authors: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/)).min(1),
   sourceConfig: z.string().min(1),
   dataDir: z.string().min(1),
+  /** 全域計帳額外 scope 根目錄（預設 dataDir）。owner 模式設為 owner dataDir，涵蓋所有 repo-X/issue-Y/run.db。 */
+  billingScope: z.string().min(1).optional(),
   engine: z.string().min(1),
   verifyCommand: z.string().trim().min(1).optional(),
   regressionPrepareCommand: z.string().trim().min(1).optional(),
@@ -39,6 +41,7 @@ export const githubStopFile = (cfg: GithubConfig): string => cfg.stopFile ?? joi
 export function loadGithubConfig(path: string): GithubConfig {
   const cfg = GithubConfigSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
   return { ...cfg, sourceConfig: resolve(dirname(path), cfg.sourceConfig), dataDir: resolve(dirname(path), cfg.dataDir),
+    billingScope: cfg.billingScope ? resolve(dirname(path), cfg.billingScope) : undefined,
     stopFile: cfg.stopFile ? resolve(dirname(path), cfg.stopFile) : undefined,
     repair: cfg.repair ? { ...cfg.repair, reportConfig: resolve(dirname(path), cfg.repair.reportConfig) } : undefined }
 }

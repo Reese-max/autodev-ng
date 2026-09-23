@@ -7,7 +7,7 @@ import { quiet, type EventLog } from '../events.js'
 import { localDay } from '../db.js'
 import type { Deps } from '../scheduler.js'
 import { subscriptionTags } from '../scheduler.js'
-import { globalBilledToday } from '../globalcost.js'
+import { globalBilledToday, extraBillingScopes } from '../globalcost.js'
 import { ProblemsLedger, problemFingerprint, readHandledProblemTitles } from './ledger.js'
 import { discoverProblems, type DiscoverResult, type RankedProblem } from './discover.js'
 import { parseGoal } from './goal.js'
@@ -395,8 +395,10 @@ export async function maybeRunPerpetual(
   }
 
   // M10.5：全域日頂同步閘（安靜讓路，與其他前置閘一致）。
-  if (cfg.globalDailyHardUsd !== undefined && deps.cfgPath) {
-    try { if (globalBilledToday(deps.cfgPath, new Date().toISOString()) >= cfg.globalDailyHardUsd) return false } catch { deps.events.appendOnce('cost-accounting-incomplete', { scope: 'global-discovery' }); return false }
+  // #40：已設上限但缺 scope 不視為「沒事」——查帳不可用即不探索。
+  if (cfg.globalDailyHardUsd !== undefined) {
+    if (!deps.cfgPath) { deps.events.appendOnce('cost-accounting-incomplete', { scope: 'global-discovery-no-scope' }); return false }
+    try { if (globalBilledToday(deps.cfgPath, new Date().toISOString(), extraBillingScopes(cfg, deps.billingScopeDirs)) >= cfg.globalDailyHardUsd) return false } catch { deps.events.appendOnce('cost-accounting-incomplete', { scope: 'global-discovery' }); return false }
   }
 
   return runPerpetualCycle(cfg, cfg.dataDir, deps.events, (t) => notifier.send(t), hooks)

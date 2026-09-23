@@ -911,6 +911,50 @@ test('M10.5 回歸：未設 globalDailyHardUsd → 不受兄弟專案超標影�
 })
 
 // ---------------------------------------------------------------------------
+// Issue #40：全域上限接線硬化——已設上限但缺 scope／額外 issue 計帳目錄
+
+test('#40：設了 globalDailyHardUsd 但 cfgPath 缺失 → cost-hard-stop（不靜默略過）', async () => {
+  const d = deps(new MockEngine())
+  const cfg = { ...d.cfg, globalDailyHardUsd: 10 }
+  expect(await runOnce({ ...d, cfg })).toBe('cost-hard-stop') // 沒傳 cfgPath
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  expect(events).toContain('"scope":"global-no-scope"')
+})
+
+test('#40：billingScopeDirs 的 issue run.db 計入全域帳務（單靠兄弟帳不足停機）', async () => {
+  const cfgPath = seedTwoProjectConfigs() // sibling 花了 50
+  const scopeRoot = mkdtempSync(join(tmpdir(), 'adng-bscope-'))
+  seedSiblingDb(join(scopeRoot, 'issue-9'), [{ ts: new Date().toISOString(), cost: 20, engine: 'writer' }])
+  const d = deps(new MockEngine())
+  const cfg = { ...d.cfg, globalDailyHardUsd: 60 } // 50 < 60，50+20 ≥ 60
+  expect(await runOnce({ ...d, cfg, cfgPath, billingScopeDirs: [scopeRoot] })).toBe('cost-hard-stop')
+})
+
+test('#40：billingScopeDirs 同一目錄傳兩次不重複計（inode 去重）', async () => {
+  const cfgPath = seedTwoProjectConfigs() // sibling 50
+  const scopeRoot = mkdtempSync(join(tmpdir(), 'adng-bscope-dup-'))
+  seedSiblingDb(join(scopeRoot, 'issue-9'), [{ ts: new Date().toISOString(), cost: 20, engine: 'writer' }])
+  const d = deps(new MockEngine([{ ok: true, costUsd: 0.1 }]))
+  const cfg = { ...d.cfg, globalDailyHardUsd: 75 } // 70 < 75 放行；若重複計成 90 會誤停
+  expect(await runOnce({ ...d, cfg, cfgPath, billingScopeDirs: [scopeRoot, scopeRoot] })).toBe('done')
+})
+
+test('#40：billingScopeDirs 目錄內未知來源費用 → 拒絕派工（未知不當零）', async () => {
+  const cfgPath = seedTwoProjectConfigs()
+  const scopeRoot = mkdtempSync(join(tmpdir(), 'adng-bscope-unknown-'))
+  seedSiblingDb(join(scopeRoot, 'issue-9'), [{ ts: new Date().toISOString(), cost: 1, engine: 'writer' }])
+  // seedSiblingDb 寫入 provider-reported；改寫成無來源記錄
+  const db = new Database(join(scopeRoot, 'issue-9', 'run.db'))
+  db.prepare('UPDATE attempts SET accounting_json = NULL').run()
+  db.close()
+  const d = deps(new MockEngine())
+  const cfg = { ...d.cfg, globalDailyHardUsd: 999 }
+  expect(await runOnce({ ...d, cfg, cfgPath, billingScopeDirs: [scopeRoot] })).toBe('cost-hard-stop')
+  const events = readFileSync(join(d.cfg.dataDir, 'events.jsonl'), 'utf8')
+  expect(events).toContain('"type":"cost-accounting-incomplete"')
+})
+
+// ---------------------------------------------------------------------------
 // 簽名熔斷告警接線（2026-07-27）：隔離事件 → deps.notify（fail-open）
 // ---------------------------------------------------------------------------
 
