@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-23T14:42:46Z",
+  "observed_through_utc": "2026-09-23T20:42:32Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
@@ -13,33 +13,35 @@
   ],
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 41,
-    "repository_enumeration_this_run": "REFRESHED; OWNER_SCOPED_UNARCHIVED_ENUMERATION_RETURNED_41_REPOSITORIES; SECOND_PAGE_EMPTY; OWNER_SCOPED_ISSUE_AND_PR_DELTA_SEARCH_COMPLETE_THROUGH_2026-09-23T14:42:46Z",
-    "issues_updated_since_previous_cursor_inspected": 0,
-    "new_issues_in_window": 0,
+    "repository_enumeration_this_run": "REFRESHED; OWNER_SCOPED_UNARCHIVED_ENUMERATION_RETURNED_41_REPOSITORIES; OWNER_SCOPED_ISSUE_AND_PR_DELTA_SEARCH_COMPLETE_THROUGH_2026-09-23T20:42:32Z",
+    "issues_updated_since_previous_cursor_inspected": 1,
+    "new_issues_in_window": 1,
     "existing_issue_threads_updated_in_window": 0,
     "updated_issue_threads_with_comments_inspected": 0,
-    "zero_comment_new_issue_bodies_inspected": 0,
-    "pull_requests_updated_since_previous_cursor_inspected": 6,
-    "pull_request_bodies_inspected": 6,
-    "pull_request_general_comment_delta_repositories_inspected": 2,
-    "pull_request_inline_comment_delta_repositories_inspected": 2,
+    "zero_comment_new_issue_bodies_inspected": 1,
+    "pull_requests_updated_since_previous_cursor_inspected": 10,
+    "pull_request_bodies_inspected": 10,
+    "pull_request_threads_inspected": 10,
+    "pull_request_general_comment_delta_repositories_inspected": 3,
+    "pull_request_inline_comment_delta_repositories_inspected": 3,
     "explicit_feedback_marker_matches": 0,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
-    "non_owner_authored_pull_request_matches": 0,
+    "non_owner_authored_pull_request_matches": null,
     "threads_with_non_owner_human_or_unknown_commenters": 0,
-    "provenance_unknown_feedback_claims_traced": 0,
-    "discussion_surface": "BOTH_REPOSITORIES_UPDATED_IN_THIS_DELTA_HAVE_DISCUSSIONS_DISABLED; PORTFOLIO_WIDE_ISSUE_INDEPENDENT_DISCUSSIONS_REMAIN_UNLISTABLE_THROUGH_CURRENT_CONNECTOR_CAPABILITY; PREVIOUSLY_KNOWN_GAP"
+    "provenance_unknown_feedback_claims_traced": 1,
+    "discussion_surface": "ALL_THREE_REPOSITORIES_UPDATED_IN_THIS_DELTA_HAVE_DISCUSSIONS_DISABLED; PORTFOLIO_WIDE_ISSUE_INDEPENDENT_DISCUSSIONS_REMAIN_UNLISTABLE_THROUGH_CURRENT_CONNECTOR_CAPABILITY; PREVIOUSLY_KNOWN_GAP"
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
-    "OBSERVED_EXECUTION": 2,
-    "SYNTHETIC_OR_AGENT": 5,
-    "PROVENANCE_UNKNOWN": 1
+    "OBSERVED_EXECUTION": 0,
+    "SYNTHETIC_OR_AGENT": 8,
+    "PROVENANCE_UNKNOWN": 3
   },
   "pull_request_delta_provenance": {
-    "explicit_synthetic_or_agent_markers": 5,
-    "body_provenance_unknown_but_no_usage_experience_claim": 1,
+    "explicit_synthetic_or_agent_markers": 7,
+    "body_provenance_unknown_but_no_usage_experience_claim": 2,
+    "body_provenance_unknown_with_unverified_live_acceptance_claim": 1,
     "user_reported": 0
   },
   "classification_policy": {
@@ -49,5 +51,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped scan advanced strictly after 2026-09-23T11:40:08Z through 2026-09-23T14:42:46Z. Fresh pagination again returned 41 accessible self-owned unarchived repositories and an empty second page. Complete owner-scoped delta searches found no updated Issues and six updated pull requests across two public repositories. All six PR bodies were inspected; all are owner-authored, but owner login alone was not treated as proof of human use. Five are explicitly report/audit/radar or agent-generated work, and one implementation PR has unknown body provenance while containing only technical validation claims, not an original use experience. Conversation deltas were inspected for both repositories: non-owner comments and inline findings are ChatGPT Codex bot output. One owner-authored PR comment records bounded isolated revalidation of a historical release candidate; another merged PR records test and live-collector canary evidence. Those are OBSERVED_EXECUTION, not USER_REPORTED. Explicit 回饋/feedback marker searches returned no in-window matches. No source supplied a verifiable first-person product-use experience, manual workaround, post-fix real-use regression, or new actual-user impact evidence. No product Issue was reprioritized or amended and no feedback Issue was created. Repository metadata confirms Discussions disabled on both repositories represented in this delta; portfolio-wide issue-independent Discussions remain unlistable through the current connected GitHub capability, a previously known coverage gap rather than evidence that no users or Discussions exist. Private repository identifiers and private source content are omitted from this public cursor."
+  "notes": "Incremental owner-scoped scan advanced strictly after 2026-09-23T14:42:46Z through 2026-09-23T20:42:32Z. Fresh owner-scoped enumeration returned 41 accessible self-owned unarchived repositories. Complete owner-scoped delta searches found one newly created Issue and ten updated pull requests across three repositories. The new Issue is an explicit issueops canary and is SYNTHETIC_OR_AGENT. All ten PR bodies and complete available PR conversations were inspected. Audit/radar/cursor work and the supervisor canary are synthetic/agent work; non-owner conversation participants observed in the inspected threads are ChatGPT Codex bot output. Three implementation PR bodies have unknown author-process provenance. One merged private implementation PR claims that an authorized live provider acceptance exposed a snapshot-ID validator mismatch, but the allowed GitHub source surface contains no provider run ID, log, receipt, or original first-person usage report, so the claim remains PROVENANCE_UNKNOWN rather than OBSERVED_EXECUTION or USER_REPORTED. Explicit feedback-marker searches yielded no verifiable first-person use report. No source supplied a verifiable manual-workaround report or post-fix real-use regression; no product Issue was reprioritized or amended and no feedback Issue was created. All three repositories represented in this delta report Discussions disabled. Portfolio-wide issue-independent Discussions remain unlistable through the current connected GitHub capability, a previously known coverage gap rather than evidence that no users or Discussions exist. Private repository identifiers and private source content are omitted from this public cursor."
 }
