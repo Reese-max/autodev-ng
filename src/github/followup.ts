@@ -14,6 +14,7 @@ export async function observePr(cfg: GithubConfig, state: IssueState, client: Gi
   if (remote.url !== state.pr || remote.base !== cfg.base || remote.head !== state.commit) throw new Error('PR head/base changed outside this runner; inspect before continuing')
   const key = createHash('sha256').update(JSON.stringify([remote.head, remote.feedback])).digest('hex')
   state.remote = { ...remote, at: new Date().toISOString(), key }
+  state.lastObservedAt = Date.now()
   saveState(cfg, state)
   if (remote.state !== 'open' || remote.checks === 'pending' || !remote.feedback || !cfg.followup || !cfg.publish || state.revision?.key === key) return
   if (state.runs >= cfg.maxRuns) { state.detail = 'PR follow-up attempt limit reached; human review required'; saveState(cfg, state); return }
