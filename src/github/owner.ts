@@ -41,7 +41,8 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'owner.lock')
   // ponytail: one account lock and one Issue per tick; add concurrency only if queue latency warrants it.
-  if (!acquireLock(lock)) return { status: 'locked' }
+  const lockToken = acquireLock(lock)
+  if (!lockToken) return { status: 'locked' }
   const report: { status: string; at: string; repositories: { repo: string; result: string; issues?: ReturnType<typeof states> }[] } = {
     status: 'ok', at: new Date().toISOString(), repositories: [] }
   try {
@@ -67,7 +68,7 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
     const tmp = join(cfg.dataDir, `status-${process.pid}.tmp`)
     writeFileSync(tmp, JSON.stringify(report, null, 2) + '\n'); renameSync(tmp, join(cfg.dataDir, 'status.json'))
     return report
-  } finally { releaseLock(lock) }
+  } finally { releaseLock(lock, lockToken) }
 }
 export async function ownerCli(mode: string, file: string): Promise<void> {
   const raw = OwnerConfigSchema.parse(JSON.parse(readFileSync(file, 'utf8')))

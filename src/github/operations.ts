@@ -71,7 +71,8 @@ export async function recoverIssue(file: string, number: number, reason: string,
   if (pause !== undefined && !resume) throw new Error('Paused; use repair-resume after fixing the environment')
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'runner.lock')
-  if (!acquireLock(lock)) throw new Error('Runner active; no recovery performed')
+  const lockToken = acquireLock(lock)
+  if (!lockToken) throw new Error('Runner active; no recovery performed')
   try {
     const state = readState(cfg, number)
     if (!state || !['blocked', 'running', 'queued', 'ready'].includes(state.status)) throw new Error('State cannot be recovered')
@@ -125,13 +126,14 @@ export async function recoverIssue(file: string, number: number, reason: string,
     if (pause !== undefined) renameSync(stop, `${stop}.resumed-${randomUUID()}`)
     writeJsonAtomic(receipt, { ...intent, phase: 'completed', after: readState(cfg, number), paused: existsSync(stop) })
     return state
-  } finally { releaseLock(lock) }
+  } finally { releaseLock(lock, lockToken) }
 }
 
 export async function acceptDelivery(file: string, number: number, commit: string, evidence: string) {
   if (!Number.isSafeInteger(number) || number < 1 || evidence.trim().length < 8 || evidence.length > 2000) throw new Error('Issue and concrete acceptance evidence required (8–2000 characters)')
   const cfg = loadGithubConfig(file), lock = join(cfg.dataDir, 'runner.lock'), original = readFileSync(file, 'utf8'), source = readFileSync(cfg.sourceConfig, 'utf8')
-  if (!acquireLock(lock)) throw new Error('Runner active; retry acceptance later')
+  const lockToken = acquireLock(lock)
+  if (!lockToken) throw new Error('Runner active; retry acceptance later')
   try {
     const state = readState(cfg, number)
     if (!state || state.commit !== commit || state.status !== 'published') throw new Error('Published candidate changed; review current commit')
@@ -145,7 +147,7 @@ export async function acceptDelivery(file: string, number: number, commit: strin
     state.remote = { ...remote, at: new Date().toISOString(), key: state.remote?.key ?? '' }
     saveState(cfg, state)
     return state.acceptance
-  } finally { releaseLock(lock) }
+  } finally { releaseLock(lock, lockToken) }
 }
 
 export function repairMetrics(cfg: GithubConfig) {

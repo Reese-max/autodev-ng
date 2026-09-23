@@ -1,137 +1,72 @@
-import { existsSync, mkdirSync, rmSync, statSync, renameSync, readFileSync, writeFileSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+import {
+  dirAgeMs, generationOf, ownerAlive,
+  readPidFile, writeOwnPidFileOrCleanup, type LockHooks, type PidInfo,
+} from './lock/internal.js'
+import { reclaimLockDir } from './lock/reclaim.js'
 
-interface PidInfo {
-  pid: number
-  startedAt: string
-}
+export type { LockHooks } from './lock/internal.js'
 
-/** process.kill(pid, 0) 不拋=活、EPERM=活（無權限但存在）、ESRCH=死。其餘未知例外 fail-safe 視為活著（不誤搶）。 */
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code !== 'ESRCH'
-  }
-}
-
-/** Windows 會重用 PID；若目前程序的啟動時間晚於鎖建立時間，它不可能是原持鎖者。 */
-function isReusedWindowsPid(pid: number, lockStartedAt: string): boolean {
-  if (process.platform !== 'win32') return false
-  const lockStartedAtMs = Date.parse(lockStartedAt)
-  if (!Number.isFinite(lockStartedAtMs)) return false
-
-  try {
-    const raw = execFileSync('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
-    ], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
-    const processStartedAtMs = Date.parse(raw.trim())
-    return Number.isFinite(processStartedAtMs) && processStartedAtMs > lockStartedAtMs + 5_000
-  } catch {
-    // ponytail: Windows-only identity check; fail-safe as alive if the probe is unavailable.
-    return false
-  }
-}
-
-/** 讀 dir/pid.json 判定鎖主人是否存活。缺失/損壞/pid 非正整數一律回 'unknown'（fallback 舊 mtime 邏輯），
- *  讀取過程任何例外皆視為「損壞」（驗活是盡力而為，不 rethrow）。 */
-function checkLockOwner(dir: string): 'alive' | 'dead' | 'unknown' {
-  try {
-    const parsed = JSON.parse(readFileSync(join(dir, 'pid.json'), 'utf8')) as Partial<PidInfo>
-    const pid = parsed.pid
-    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return 'unknown'
-    if (!isPidAlive(pid)) return 'dead'
-    if (typeof parsed.startedAt === 'string' && isReusedWindowsPid(pid, parsed.startedAt)) return 'dead'
-    return 'alive'
-  } catch {
-    return 'unknown'
-  }
-}
-
-function writeFileAtomic(file: string, content: string): void {
-  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`
-  writeFileSync(tmp, content)
-  renameSync(tmp, file)
-}
-
-/** 比照 events.ts heartbeat 的 tmp+rename 原子寫慣例，記錄目前持鎖者身分供下次驗活。 */
-function writeOwnPidFile(dir: string): void {
-  writeFileAtomic(join(dir, 'pid.json'), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }))
-}
-
-/** writeOwnPidFile 失敗（ENOSPC/EIO 等）時，剛建立的 dir 已是「無 pid.json、無主」的幽靈鎖，
- *  會擋住後續所有 acquire（含自己重試）長達 staleMs。此處補償刪除該 dir 再 rethrow 原錯；
- *  rmSync 本身若又失敗，吞掉（避免二次故障掩蓋原始錯誤），仍以原錯為準浮出。 */
-function writeOwnPidFileOrCleanup(dir: string): void {
-  try {
-    writeOwnPidFile(dir)
-  } catch (err) {
-    try {
-      rmSync(dir, { recursive: true, force: true })
-    } catch {
-      // 二次故障：吞掉，原始錯誤才是需要浮出的訊號。
-    }
-    throw err
-  }
-}
-
-/** Windows 無 flock：mkdir 是唯一可靠的原子互斥（舊系統實證）。 */
-export function acquireLock(dir: string, staleMs = 30 * 60 * 1000): boolean {
+/** Windows 無 flock：mkdir 是唯一可靠的原子互斥（舊系統實證）。
+ *  回傳持有權 token（寫入 pid.json），供 releaseLock 驗證世代；失敗回 null。 */
+export function acquireLock(dir: string, staleMs = 30 * 60 * 1000, hooks?: LockHooks): string | null {
+  const token = randomUUID()
   try {
     mkdirSync(dir, { recursive: false })
-    writeOwnPidFileOrCleanup(dir)
-    return true
+    writeOwnPidFileOrCleanup(dir, token)
+    return token
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
 
     // An uncertain backend survives its local owner; elapsed time cannot release it.
-    if (existsSync(join(dir, 'recovery-required.json'))) return false
+    if (existsSync(join(dir, 'recovery-required.json'))) return null
 
     // (1) pid.json 指向存活進程 → 直接讓步，不看 mtime（修「假 stale」：長任務不更新 mtime 被誤搶）。
-    const owner = checkLockOwner(dir)
-    if (owner === 'alive') return false
+    const observed = readPidFile(dir)
+    const owner = observed ? (ownerAlive(observed) ? 'alive' : 'dead') : 'unknown'
+    if (owner === 'alive') return null
 
     // (3) pid.json 缺失/損壞 → fallback 既有 mtime 年齡判定（staleMs 語意保留）。
     if (owner === 'unknown') {
-      let age: number
-      try {
-        age = Date.now() - statSync(dir).mtimeMs
-      } catch (statErr) {
-        // ENOENT：鎖目錄在檢查 age 前已被清走（正常讓步）。其他 code 為 infra 故障，須浮出。
-        if ((statErr as NodeJS.ErrnoException).code !== 'ENOENT') throw statErr
-        return false
-      }
-      if (age <= staleMs) return false
+      const age = dirAgeMs(dir)
+      if (age === null) return null // ENOENT：鎖目錄在檢查 age 前已被清走（正常讓步）
+      if (age <= staleMs) return null
     }
-    // owner === 'dead'：不等 staleMs，立即進入以下搶奪流程（修「假 fresh」：崩潰後 30 分內鎖佔著茅坑）。
+    // owner === 'dead'：不等 staleMs，立即進入搶奪流程（修「假 fresh」：崩潰後 30 分內鎖佔著茅坑）。
 
-    // rename 為原子操作：同一路徑只有一個 process 能搶到，輸家直接讓步。
-    const stolen = `${dir}.stale-${process.pid}-${Date.now()}`
-    try {
-      renameSync(dir, stolen)
-    } catch (renameErr) {
-      // ENOENT：競爭者已搶先 rename 走，正常讓步。其他 code（EPERM/EBUSY 等）為 infra 故障，須浮出。
-      if ((renameErr as NodeJS.ErrnoException).code !== 'ENOENT') throw renameErr
-      return false
-    }
-    rmSync(stolen, { recursive: true, force: true })
-    try {
-      mkdirSync(dir, { recursive: false })
-    } catch (mkdirErr) {
-      // EEXIST：rename 贏家仍可能撞上第三方剛建立的新鎖，讓步。其他 code 為 infra 故障，須浮出。
-      if ((mkdirErr as NodeJS.ErrnoException).code !== 'EEXIST') throw mkdirErr
-      return false
-    }
-    writeOwnPidFileOrCleanup(dir)
-    return true
+    return reclaimLockDir(dir, observed, staleMs, { token }, hooks) ? token : null
   }
 }
 
-export function releaseLock(dir: string): void {
+/** 世代驗證釋放：只有 dir/pid.json 仍記錄同一世代（token 或舊格式 legacy:pid:startedAt 指紋）才刪除；
+ *  舊 token、錯誤持有者、重複 release 一律 no-op——新世代鎖不會被過期觀察刪掉。
+ *  活持有者存在期間沒有任何路徑能替換 dir（回收需觀察到死亡），因此 check→rm 無 TOCTOU。 */
+export function releaseLock(dir: string, token?: string | null): void {
+  if (!token) return
+  const now = readPidFile(dir)
+  if (!now || generationOf(now) !== token) return // 舊格式鎖用 legacy:pid:startedAt 指紋釋放
   rmSync(dir, { recursive: true, force: true })
+}
+
+/** 監督者／守護行程專用：只在持有者確定死亡（或過期無主）時移除鎖目錄，自己不成為持有者。
+ *  活鎖、recovery-required、未知新鮮狀態一律不動。回傳是否實際移除。 */
+export function releaseDeadLock(dir: string, staleMs = 30 * 60 * 1000): boolean {
+  try {
+    if (!existsSync(dir)) return false
+    if (existsSync(join(dir, 'recovery-required.json'))) return false
+    const observed = readPidFile(dir)
+    const owner = observed ? (ownerAlive(observed) ? 'alive' : 'dead') : 'unknown'
+    if (owner === 'alive') return false
+    if (owner === 'unknown') {
+      const age = dirAgeMs(dir)
+      if (age === null) return false
+      if (age <= staleMs) return false
+    }
+    return reclaimLockDir(dir, observed, staleMs, null)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw err
+  }
 }
