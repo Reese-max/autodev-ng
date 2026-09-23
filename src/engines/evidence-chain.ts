@@ -12,6 +12,8 @@ export interface GateEvidence {
   command?: string
   executed?: boolean
   exitCode?: number | null
+  /** #48：多步驗收的逐步證據——序號/executed/exitCode/逾時，未執行步驟不冒充成功。 */
+  steps?: { step: number; command: string; executed: boolean; exitCode?: number | null; timedOut?: boolean; skipped?: string }[]
   detail: string
 }
 export interface VerificationEvidence {

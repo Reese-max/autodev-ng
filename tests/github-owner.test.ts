@@ -43,5 +43,6 @@ test('verification never inherits another project command or treats unsupported 
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'echo "Error: no test specified" && exit 1' } }))
   expect(() => detectVerification(root)).toThrow('verification contract')
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node --test', build: 'tsc' } }))
-  expect(detectVerification(root)).toBe('npm ci --no-audit --no-fund && npm test && npm run build')
+  // #48：產生端契約改為步驟清單——執行端逐步原生 spawn，不再產出 && 串接字串。
+  expect(detectVerification(root)).toEqual(['npm ci --no-audit --no-fund', 'npm test', 'npm run build'])
 })
