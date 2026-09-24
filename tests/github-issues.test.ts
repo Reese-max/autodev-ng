@@ -122,6 +122,33 @@ test('one Issue per run, retry cooldown and total attempt ceiling bound supply f
   expect(readState(cfg, 7)!.status).toBe('blocked')
   expect(execute).toHaveBeenCalledTimes(cfg.maxRuns)
 })
+
+test('configured Issue concurrency runs independent queued Issues in parallel', async () => {
+  const { cfg, client, issue } = fixture()
+  const second: Issue = { ...issue, number: 8, title: 'Fix subtraction' }
+  expect(GithubConfigSchema.parse({ ...cfg }).concurrency).toBe(1)
+  const parallel = GithubConfigSchema.parse({ ...cfg, concurrency: 2 })
+  expect(() => GithubConfigSchema.parse({ ...cfg, concurrency: 5 })).toThrow()
+  client.list = vi.fn(async () => [issue, second])
+  client.issue = vi.fn(async number => number === 8 ? second : issue)
+  let active = 0, maxActive = 0
+  const execute = vi.fn(async () => {
+    active++
+    maxActive = Math.max(maxActive, active)
+    await new Promise(resolve => setTimeout(resolve, 20))
+    active--
+    return { done: false, detail: 'deferred' }
+  })
+
+  const result = await runGithub(parallel, { client, execute })
+
+  expect(result).toContain('7: queued')
+  expect(result).toContain('8: queued')
+  expect(maxActive).toBe(2)
+  expect(execute).toHaveBeenCalledTimes(2)
+  expect(readState(parallel, 7)?.status).toBe('queued')
+  expect(readState(parallel, 8)?.status).toBe('queued')
+})
 test('capacity deferral before worker execution preserves the Issue retry budget', async () => {
   const { cfg, client } = fixture()
   const execute = vi.fn(async () => ({ done: false, detail: 'daily cap', attempted: false }))
