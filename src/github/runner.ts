@@ -53,6 +53,67 @@ export async function publishIssue(cfg: GithubConfig, state: IssueState, client:
   state.status = 'published'
   saveState(cfg, state)
 }
+type GithubRunOptions = { execute?: typeof executeIssue; publish?: typeof publishIssue }
+
+function summarizeRunResults(results: string[]): string {
+  if (results.length === 1) return results[0]!
+  const statuses = results.map(result => result.match(/(?:^|: )(blocked|queued|cancelled|paused|published|ready)$/)?.[1] ?? 'done')
+  const outcome = statuses.includes('blocked') ? 'blocked'
+    : statuses.includes('queued') ? 'queued'
+      : statuses.includes('paused') ? 'paused'
+        : statuses.every(status => status === 'cancelled') ? 'cancelled'
+          : statuses.includes('published') ? 'published' : 'done'
+  return `batch(${results.join(', ')}): ${outcome}`
+}
+
+async function runGithubState(cfg: GithubConfig, state: IssueState, client: GithubClient, options: GithubRunOptions, active: () => boolean): Promise<string> {
+  if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
+    state.status = 'cancelled'; state.detail = 'Issue changed, closed, or no longer eligible'; saveState(cfg, state); return 'cancelled'
+  }
+  if (!active()) return 'paused'
+  try {
+    if (state.status === 'queued') {
+      const existing = (await client.findPr(branchFor(state.issue.number)))?.html_url ?? await client.findLinkedPr(state.issue.number)
+      if (existing && !state.revision) {
+        state.status = 'blocked'; state.pr = existing; state.detail = 'Existing PR; manual review required before further execution'
+        saveState(cfg, state); return 'blocked'
+      }
+      if (state.revision) {
+        const pr = await client.findPr(branchFor(state.issue.number))
+        if (!pr || pr.state !== 'open' || pr.html_url !== state.pr || pr.head.sha !== state.revision.baseCommit || pr.base.ref !== cfg.base) throw new Error('PR changed before revision execution')
+      }
+      if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
+        state.status = 'cancelled'; state.detail = 'Issue changed or excluded before execution'; saveState(cfg, state); return 'cancelled'
+      }
+      if (!active()) return 'paused'
+      if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state) && !issueReviewPending(cfg, state)) { state.status = 'blocked'; saveState(cfg, state); return 'blocked' }
+      const pending = state.alternativeRetryPending
+      state.alternativeRetryPending = false
+      state.status = 'running'; state.runs++; saveState(cfg, state)
+      const result = await (options.execute ?? executeIssue)(cfg, state)
+      if (result.attempted === false) { state.runs--; state.alternativeRetryPending = pending } // Review/capacity deferral does not spend a writer attempt.
+      if (result.recoveryRequired) {
+        state.status = 'blocked'; state.detail = `Execution recovery required: ${result.detail}`
+        saveState(cfg, state); return 'blocked'
+      }
+      if (!active() || !currentIssue(cfg, state, await client.issue(state.issue.number))) {
+        state.status = 'cancelled'; state.detail = 'Issue or configuration changed during execution; candidate preserved'
+        saveState(cfg, state); return 'cancelled'
+      }
+      state.detail = result.detail
+      state.commit = result.commit
+      if (result.alternativeRetryPending) state.alternativeRetryPending = alternativeRunPending(cfg, { ...state, alternativeRetryPending: true })
+      state.status = result.done ? 'ready' : state.runs >= cfg.maxRuns && !state.alternativeRetryPending && !result.reviewPending ? 'blocked' : 'queued'
+      state.nextRunAt = result.retryAt && result.retryAt > Date.now() ? result.retryAt : Date.now() + cfg.retryMs
+      saveState(cfg, state)
+    }
+    if (state.status === 'ready') await (options.publish ?? publishIssue)(cfg, state, client, undefined, undefined, active)
+  } catch (err) {
+    state.status = 'blocked'; state.detail = err instanceof Error ? err.message : String(err); saveState(cfg, state)
+  }
+  return `${state.issue.number}: ${state.status}`
+}
+
 export async function runGithub(cfg: GithubConfig, options: {
   syncOnly?: boolean; client?: GithubClient; execute?: typeof executeIssue; publish?: typeof publishIssue; configPath?: string
 } = {}): Promise<string> {
@@ -76,52 +137,15 @@ export async function runGithub(cfg: GithubConfig, options: {
     for (const stale of states(cfg).filter(s => s.status === 'running')) {
       stale.status = 'blocked'; stale.detail = 'Previous runner interrupted; inspect artifacts before retry'; saveState(cfg, stale)
     }
-    const state = states(cfg).find(s => (s.status === 'queued' || (s.status === 'ready' && cfg.publish)) && s.nextRunAt <= Date.now())
-    if (!state) return 'idle'
-    if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
-      state.status = 'cancelled'; state.detail = 'Issue changed, closed, or no longer eligible'; saveState(cfg, state); return 'cancelled'
-    }
+    const ready = states(cfg)
+      .filter(s => (s.status === 'queued' || (s.status === 'ready' && cfg.publish)) && s.nextRunAt <= Date.now())
+      .sort((a, b) => a.nextRunAt - b.nextRunAt || a.issue.number - b.issue.number)
+      .slice(0, cfg.concurrency)
+    if (!ready.length) return 'idle'
     if (!active()) return 'paused'
-    try {
-      if (state.status === 'queued') {
-        const existing = (await client.findPr(branchFor(state.issue.number)))?.html_url ?? await client.findLinkedPr(state.issue.number)
-        if (existing && !state.revision) {
-          state.status = 'blocked'; state.pr = existing; state.detail = 'Existing PR; manual review required before further execution'
-          saveState(cfg, state); return 'blocked'
-        }
-        if (state.revision) {
-          const pr = await client.findPr(branchFor(state.issue.number))
-          if (!pr || pr.state !== 'open' || pr.html_url !== state.pr || pr.head.sha !== state.revision.baseCommit || pr.base.ref !== cfg.base) throw new Error('PR changed before revision execution')
-        }
-        if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
-          state.status = 'cancelled'; state.detail = 'Issue changed or excluded before execution'; saveState(cfg, state); return 'cancelled'
-        }
-        if (!active()) return 'paused'
-        if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state) && !issueReviewPending(cfg, state)) { state.status = 'blocked'; saveState(cfg, state); return 'blocked' }
-        const pending = state.alternativeRetryPending
-        state.alternativeRetryPending = false
-        state.status = 'running'; state.runs++; saveState(cfg, state)
-        const result = await (options.execute ?? executeIssue)(cfg, state)
-        if (result.attempted === false) { state.runs--; state.alternativeRetryPending = pending } // Review/capacity deferral does not spend a writer attempt.
-        if (result.recoveryRequired) {
-          state.status = 'blocked'; state.detail = `Execution recovery required: ${result.detail}`
-          saveState(cfg, state); return 'blocked'
-        }
-        if (!active() || !currentIssue(cfg, state, await client.issue(state.issue.number))) {
-          state.status = 'cancelled'; state.detail = 'Issue or configuration changed during execution; candidate preserved'
-          saveState(cfg, state); return 'cancelled'
-        }
-        state.detail = result.detail
-        state.commit = result.commit
-        if (result.alternativeRetryPending) state.alternativeRetryPending = alternativeRunPending(cfg, { ...state, alternativeRetryPending: true })
-        state.status = result.done ? 'ready' : state.runs >= cfg.maxRuns && !state.alternativeRetryPending && !result.reviewPending ? 'blocked' : 'queued'
-        state.nextRunAt = result.retryAt && result.retryAt > Date.now() ? result.retryAt : Date.now() + cfg.retryMs
-        saveState(cfg, state)
-      }
-      if (state.status === 'ready') await (options.publish ?? publishIssue)(cfg, state, client, undefined, undefined, active)
-    } catch (err) {
-      state.status = 'blocked'; state.detail = err instanceof Error ? err.message : String(err); saveState(cfg, state)
-    }
-    return `${state.issue.number}: ${state.status}`
+    const outcomes = await Promise.allSettled(ready.map(state => runGithubState(cfg, state, client, options, active)))
+    const rejected = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+    if (rejected) throw rejected.reason
+    return summarizeRunResults(outcomes.map(outcome => (outcome as PromiseFulfilledResult<string>).value))
   } finally { releaseLock(lock) }
 }

@@ -88,7 +88,7 @@ export async function repairFromReports(file: string): Promise<void> {
   const reports = loadReportConfig(file)
   if (stopped(reports)) return
   const { runGithub } = await import('./runner.js')
-  // ponytail: one repair per patrol on this host; existing per-repo runner locks prevent duplicate CLI launches.
+  // ponytail: one repo patrol per host; the per-repo runner bounds concurrent repairs and prevents duplicate launches.
   for (const path of reports.repairConfigs) {
     const cfg = loadGithubConfig(path)
     if (!cfg.repair || resolve(cfg.repair.reportConfig) !== resolve(file)) throw new Error('Repair configuration references a different reporter')

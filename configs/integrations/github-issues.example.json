@@ -12,5 +12,6 @@
   "enabled": false,
   "publish": false,
   "maxRuns": 3,
+  "concurrency": 1,
   "retryMs": 300000
 }

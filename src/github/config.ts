@@ -28,6 +28,7 @@ export const GithubConfigSchema = z.object({
   enabled: z.boolean().default(false),
   publish: z.boolean().default(false),
   maxRuns: z.number().int().min(1).max(5).default(3),
+  concurrency: z.number().int().min(1).max(4).default(1),
   retryMs: z.number().int().min(60_000).default(300_000),
   repair: z.object({
     reportConfig: z.string().min(1),

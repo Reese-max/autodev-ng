@@ -40,7 +40,7 @@ export function repoConfig(cfg: OwnerConfig, repo: Repo): GithubConfig {
 export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = discoverRepos, run = runGithub) {
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'owner.lock')
-  // ponytail: one account lock and one Issue per tick; add concurrency only if queue latency warrants it.
+  // ponytail: one account lock and one repo patrol per tick; each repo runner bounds Issue concurrency.
   if (!acquireLock(lock)) return { status: 'locked' }
   const report: { status: string; at: string; repositories: { repo: string; result: string; issues?: ReturnType<typeof states> }[] } = {
     status: 'ok', at: new Date().toISOString(), repositories: [] }

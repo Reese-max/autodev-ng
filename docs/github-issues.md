@@ -26,8 +26,14 @@ mock 仍不可用於此入口。
 - 已有對應分支 PR 或 GitHub 關聯 PR（包含已關閉）時阻擋重複修復，保留 PR 連結。
 
 帳號入口會確認 gh 登入身分與 owner 相符，自動發現該帳號擁有的公開／私人 repos；
-跳過封存、停用、未開啟 Issues 或無 push 權限的專案。每輪最多執行一張 Issue，
-透過帳號鎖、repo 鎖、重試間隔與最多三輪的預設上限避免重複或無界派工。
+跳過封存、停用、未開啟 Issues 或無 push 權限的專案。每個 repo 每輪最多執行
+`concurrency` 張 Issue，預設為 1、上限為 4；每張 Issue 使用獨立 checkout、state、receipt
+與分支，發布仍逐案驗證，合併不由 runner 執行。帳號鎖、repo 鎖、重試間隔與最多三輪的
+預設上限仍會避免重複或無界派工；owner-run 跨 repos 維持單一 repo patrol。
+
+只有確認主機 CPU／記憶體、模型額度、quality／review queue 能消化產出後才提高
+`concurrency`。共用檔案、共用資源或不明 ownership 的 Issue 不應為了填滿槽位同時派工；
+衝突候選保留在各自 worktree，交由後續 merge／人工審查處理。
 
 ## 驗收指令
 
