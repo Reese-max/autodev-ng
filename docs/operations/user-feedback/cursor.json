@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-24T05:40:02Z",
+  "observed_through_utc": "2026-09-24T08:39:56Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
@@ -13,34 +13,34 @@
   ],
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 41,
-    "repository_enumeration_this_run": "REFRESHED; OWNER_SCOPED_UNARCHIVED_ENUMERATION_RETURNED_41_REPOSITORIES; OWNER_SCOPED_ISSUE_AND_PR_DELTA_SEARCH_COMPLETE_THROUGH_2026-09-24T05:40:02Z",
+    "repository_enumeration_this_run": "REFRESHED; OWNER_SCOPED_UNARCHIVED_ENUMERATION_RETURNED_41_REPOSITORIES; OWNER_SCOPED_ISSUE_AND_PR_DELTA_SEARCH_COMPLETE_THROUGH_2026-09-24T08:39:56Z",
     "issues_updated_since_previous_cursor_inspected": 0,
     "new_issues_in_window": 0,
     "existing_issue_threads_updated_in_window": 0,
     "updated_issue_threads_with_comments_inspected": 0,
     "zero_comment_new_issue_bodies_inspected": 0,
-    "pull_requests_updated_since_previous_cursor_inspected": 6,
-    "pull_request_bodies_inspected": 6,
-    "pull_request_threads_inspected": 6,
-    "pull_request_general_comment_delta_repositories_inspected": 2,
-    "pull_request_inline_comment_delta_repositories_inspected": 2,
-    "explicit_feedback_marker_matches": 5,
+    "pull_requests_updated_since_previous_cursor_inspected": 3,
+    "pull_request_bodies_inspected": 3,
+    "pull_request_threads_inspected": 3,
+    "pull_request_general_comment_delta_repositories_inspected": 1,
+    "pull_request_inline_comment_delta_repositories_inspected": 1,
+    "explicit_feedback_marker_matches": 1,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
     "non_owner_authored_pull_request_matches": 0,
     "threads_with_non_owner_human_or_unknown_commenters": 0,
     "provenance_unknown_feedback_claims_traced": 0,
-    "discussion_surface": "BOTH_REPOSITORIES_REPRESENTED_IN_THIS_DELTA_HAVE_DISCUSSIONS_DISABLED; NO_READABLE_DISCUSSION_THREAD_EXISTED_ON_THE_UPDATED_REPOSITORIES; THIS_DOES_NOT_PROVE_PORTFOLIO_WIDE_ABSENCE_OF_USER_FEEDBACK"
+    "discussion_surface": "THE_ONLY_REPOSITORY_REPRESENTED_IN_THIS_DELTA_HAS_DISCUSSIONS_DISABLED; NO_READABLE_DISCUSSION_THREAD EXISTED_IN_THIS_DELTA; THIS_DOES_NOT_PROVE_PORTFOLIO_WIDE_ABSENCE_OF_USER_FEEDBACK"
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
     "OBSERVED_EXECUTION": 0,
-    "SYNTHETIC_OR_AGENT": 2,
-    "PROVENANCE_UNKNOWN": 4
+    "SYNTHETIC_OR_AGENT": 3,
+    "PROVENANCE_UNKNOWN": 0
   },
   "pull_request_delta_provenance": {
-    "explicit_synthetic_or_agent_markers": 2,
-    "body_provenance_unknown_but_no_usage_experience_claim": 4,
+    "explicit_synthetic_or_agent_markers": 3,
+    "body_provenance_unknown_but_no_usage_experience_claim": 0,
     "body_provenance_unknown_with_unverified_live_acceptance_claim": 0,
     "user_reported": 0
   },
@@ -51,5 +51,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental owner-scoped scan advanced strictly after the latest task cursor at 2026-09-24T02:41:58Z through 2026-09-24T05:40:02Z. Fresh owner-scoped enumeration again returned 41 accessible self-owned unarchived repositories. Complete owner-scoped delta searches found zero updated Issues and six updated pull requests across two repositories. All six PR bodies and complete available PR conversation timelines were inspected. Every observed PR comment/review in this delta was emitted by the ChatGPT Codex connector; none was a human or provenance-unknown first-person product-use report. Two PR bodies are explicitly report/task artifacts and are SYNTHETIC_OR_AGENT. The remaining four owner-authored engineering PR bodies are retained as PROVENANCE_UNKNOWN because the owner login alone does not prove a human author; their test/live-runtime assertions were not promoted to USER_REPORTED or to OBSERVED_EXECUTION without directly inspected execution receipts in this feedback pass. Lexical feedback search returned five PR matches, but they were task/report wording or Codex review text such as address-that-feedback, not user experience evidence. No source supplied an original first-person usage experience, manual workaround, current-version post-fix regression, or user-impact evidence that changes an existing Issue priority or minimum solution. No product Issue/PR scope was modified and no feedback Issue was created. Repository metadata confirms Discussions are disabled on both repositories represented in this delta. Private repository identifiers and private source content are omitted from this public cursor."
+  "notes": "Incremental owner-scoped scan advanced strictly after the latest task cursor at 2026-09-24T05:40:02Z through 2026-09-24T08:39:56Z. Fresh owner-scoped enumeration again returned 41 accessible self-owned unarchived repositories. Complete bounded owner-scoped delta searches found zero updated Issues and three updated pull requests, all in the public coordination repository. All three PR bodies and complete available PR conversation surfaces were inspected. The three PRs are explicit docs/report task artifacts (the user-feedback cursor PR itself plus two external radar reports), so they are SYNTHETIC_OR_AGENT rather than original product-use reports. The only in-window PR conversation comments were emitted by the ChatGPT Codex connector; no human or provenance-unknown commenter supplied a first-person product-use experience. Lexical feedback search returned one match: the task's own user-feedback report PR, not usage evidence. No source supplied an original first-person usage experience, manual workaround, current-version post-fix regression, or user-impact evidence that changes an existing Issue priority or minimum solution. No product Issue/PR scope was modified and no feedback Issue was created. Repository metadata for the only repository represented in this delta reports Discussions disabled. This delta therefore remains NO_VERIFIABLE_FEEDBACK and does not prove portfolio-wide absence of users or feedback."
 }
