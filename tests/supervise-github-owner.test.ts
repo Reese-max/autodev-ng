@@ -90,6 +90,8 @@ test('GitHub watcher supervisor restarts one child and stops cleanly on pause', 
     })
     const replacement = readState(statePath)
     expect(isAlive(replacement.childPid)).toBe(true)
+    await waitFor(() => existsSync(join(root, 'child-starts.log'))
+      && readFileSync(join(root, 'child-starts.log'), 'utf8').trim().split(/\r?\n/).length === 2)
 
     writeFileSync(stopPath, 'pause\n')
     await waitFor(() => supervisor?.exitCode !== null)
