@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-24T23:38:21Z",
+  "observed_through_utc": "2026-09-25T11:38:23Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
@@ -13,7 +13,7 @@
   ],
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 41,
-    "repository_enumeration_this_run": "REFRESHED; 41 unarchived repositories; next page empty; delta checked through 2026-09-24T23:38:21Z",
+    "repository_enumeration_this_run": "REFRESHED; 41 unarchived repositories; owner-scoped delta checked through 2026-09-25T11:38:23Z",
     "issues_updated_since_previous_cursor_inspected": 0,
     "new_issues_in_window": 0,
     "existing_issue_threads_updated_in_window": 0,
@@ -52,5 +52,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental scan advanced after 2026-09-24T14:37:32Z. Inventory remained 41 accessible owned unarchived repositories and the next page was empty. No Issues changed. The only updated PR was the existing user-feedback cursor PR; its body, comments and review-thread surface contained no new original usage report. One existing public feedback template was rechecked and remains unfilled. No product Issue/PR scope was changed and no feedback Issue was created."
+  "notes": "Incremental scan advanced strictly after 2026-09-24T23:38:21Z through 2026-09-25T11:38:23Z. The owned unarchived inventory was refreshed and remained 41 accessible repositories. No Issues changed in the window. The only updated PR was the existing user-feedback cursor PR itself, advanced by prior report-only cursor state; its body and complete available conversation/review surface supplied no new original product-use experience. The existing public UkePack teacher feedback form was re-read and remains an unfilled template, so it is not USER_REPORTED evidence. No source supplied a verifiable first-person use experience, manual workaround, or post-fix real-use regression. Discussion thread listing remains unavailable through the connected GitHub actions and no alternate owner-authorized feedback source was specified. No product Issue/PR scope was changed and no feedback Issue was created."
 }
