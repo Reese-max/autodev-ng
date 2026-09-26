@@ -19,7 +19,8 @@ import { readExecutions } from '../engines/execution-observation.js'
 export async function repairDoctor(cfg: GithubConfig, live = false) {
   const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
   const engine = source.engines[cfg.engine]
-  if (!engine || ['mock', 'herdr'].includes(engine.adapter) || engine.timeoutMs === 0) throw new Error('Requires a bounded supported worker')
+  if (!engine || engine.adapter === 'mock' || (engine.adapter === 'herdr' && !cfg.herdrOptIn) || engine.timeoutMs === 0) throw new Error('Requires a bounded supported worker')
+  if (engine.adapter === 'herdr' && engine.provider === 'Pi') throw new Error('GitHub Herdr runner requires provider Codex')
   if (!(cfg.verifyCommand ?? source.verifyCommand)?.trim() || !(source.reviewEngine ?? source.auditModel)) throw new Error('Requires verification command and independent reviewer')
   const checks: Record<string, string> = { credentials: 'pass', verification: 'pass', reviewer: 'pass' }
   if (!cfg.template) {

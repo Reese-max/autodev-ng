@@ -11,7 +11,9 @@
 `github-owner.example.json` 為整個 GitHub 個人帳號範例。兩者預設停用且不發布。
 複製成自己的設定檔後，指定 `sourceConfig`、`engine`、`authors` 與資料目錄。
 範例的 `codex-sol` 對應目前版本的 sourceConfig；實際引擎、模型登入與成本政策須依使用環境設定。
-Freebuff 可由本機設定明確選用，見 [Freebuff 使用方式](freebuff.md)；Herdr、mock 及無 wall timeout 的引擎仍不可用於此入口。
+Freebuff 可由本機設定明確選用，見 [Freebuff 使用方式](freebuff.md)。Herdr 只有在 `engine` 指向
+Herdr、`herdrOptIn=true` 且使用有限時 Codex route 時才可用；缺少 opt-in、使用 Pi 或無 wall timeout 會拒絕。
+mock 仍不可用於此入口。
 
 `sourceConfig`、`dataDir` 與 projects 的路徑相對於 integration 設定檔。
 `enabled=true` 允許接單與執行，`publish=true` 允許推送修復分支與建立草稿 PR。
@@ -87,6 +89,11 @@ Windows 可用 `scripts/install-github-issues-task.ps1 -Config <設定檔>` 安�
 `scripts/watch-github-owner.ps1 -Config <設定檔>`，並由使用者 Startup 捷徑登入啟動。
 watcher 使用 mutex 防止重複，每輪結束後等待 retryMs；登出或關機時不執行。
 watcher 的 `-Mode issues` 也可直接讀取單一 repo 設定，僅輪詢該 repo。
+需要在 watcher 意外退出後自動恢復時，使用 `scripts/supervise-github-owner.ps1 -Config <設定檔>`
+包住既有 watcher；它只管理自己啟動的單一 child，使用系統 Windows PowerShell，並在
+`enabled=false` 或 `.adng.stop` 出現時停止重啟且清理 child。狀態寫入同一個 dataDir 的
+`supervisor.json`，不保存 prompt、Issue 內容、秘密或 provider 輸出；不要同時以另一個
+supervisor 管理同一份設定。
 
 ## 狀態與停止
 
