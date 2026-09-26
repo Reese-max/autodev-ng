@@ -186,6 +186,8 @@ pwsh -NoProfile -File scripts/herdr-fleet-console.ps1
 
 Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.herdr.command` 必須指向 `Start-Herdr-Autopilot.ps1`，並設定 `costPerRunUsd`。可選的 `engines.herdr.provider` 為 `Codex` 或 `Pi`，未設仍走 Codex；Pi 必須先有可用模型／provider。AutoDev 仍擁有 worktree、提交與最終驗收。
 
+完成回執採結果契約 v1（issue #32）：派工時帶 `-RequestId`（綁定 task＋base commit＋`executionId`）、`-ExecutionId` 與 `-ResultFile <path>`；launcher 必須在終態把 `{"schemaVersion":1,"requestId","executionId","repo","taskId","baseCommit","server","session","pane","status":"done"|"failed"}` 寫入該檔。宿主送件前先把預期綁定存到 `dataDir/herdr/<requestId>.expected.json`，回讀時逐欄位核對——缺檔、壞 JSON、欄位不符或 schemaVersion≠1 一律拒收（`herdr-unsupported`/`herdr-result-invalid`/`herdr-result-mismatch`），不做宿主提交。stdout 只作人讀日誌，marker 字串不再是成功證據（長輸出截斷也不影響終態判定）。不支援 `-ResultFile` 的舊 launcher 會得到明確 unsupported，需更新 launcher。
+
 ### 4. Discord bot（可選）
 
 ```powershell
