@@ -26,8 +26,3 @@ export function fenceUsurped(lockDir: string, selfPid: number, events: Pick<Even
   return true
 }
 
-/** 所有權釋放：pid.json 屬別人＝繼任者已接手，絕不 rm；null（自己的殘骸/損壞殼）照舊清除。 */
-export function releaseLockIfOwned(lockDir: string, selfPid: number, release: (dir: string) => void): void {
-  const owner = readLockOwnerPid(lockDir)
-  if (owner === null || owner === selfPid) release(lockDir)
-}

@@ -19,7 +19,8 @@ export async function reviewProposals(file: string): Promise<string> {
   if (stopped(cfg) || !cfg.research.enabled || !cfg.proposalRepos.length) return 'paused'
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'proposal.lock')
-  if (!acquireLock(lock)) return 'locked'
+  const lockToken = acquireLock(lock)
+  if (!lockToken) return 'locked'
   try {
     const state = readReportState(cfg), now = Date.now()
     const candidate = Object.entries(state.entries).filter(([, e]) => e.finding.kind === 'proposal' && ['pending', 'posted'].includes(e.status)
@@ -31,12 +32,13 @@ export async function reviewProposals(file: string): Promise<string> {
     const findingSnapshot = JSON.stringify(entry.finding)
     const saveDecision = () => {
       const reportLock = join(cfg.dataDir, 'report.lock')
-      if (!acquireLock(reportLock)) throw new Error('Reporter busy; validation receipt preserved for the next bounded attempt')
+      const reportToken = acquireLock(reportLock)
+      if (!reportToken) throw new Error('Reporter busy; validation receipt preserved for the next bounded attempt')
       try {
         const latest = readReportState(cfg), current = latest.entries[id]
         if (!current || !['pending', 'posted'].includes(current.status) || JSON.stringify(current.finding) !== findingSnapshot) throw new Error('Proposal changed or suppressed during validation')
         current.decision = entry.decision; saveReportState(cfg, latest)
-      } finally { releaseLock(reportLock) }
+      } finally { releaseLock(reportLock, reportToken) }
     }
     const ctx = projectContext(project), sourceText = readFileSync(project.sourceConfig, 'utf8')
     const source = expandConfigPaths(dirname(project.sourceConfig), ConfigSchema.parse(JSON.parse(sourceText)))
@@ -99,7 +101,7 @@ export async function reviewProposals(file: string): Promise<string> {
       entry.decision.scheduled = true; saveDecision()
     }
     return `${id}: ${entry.decision.kind}`
-  } finally { releaseLock(lock) }
+  } finally { releaseLock(lock, lockToken) }
 }
 
 export async function proposalCli(mode: string, argv: string[]): Promise<void> {
@@ -113,7 +115,8 @@ export async function proposalCli(mode: string, argv: string[]): Promise<void> {
   }
   if (!values.id || !['helpful', 'not-helpful'].includes(values.outcome ?? '') || !values.reason || values.reason.trim().length < 8 || values.reason.length > 1000 || /[\r\n]/.test(values.reason)) throw new Error('Feedback requires --id, --outcome helpful|not-helpful and a single-line --reason (8–1000 characters)')
   const lock = join(cfg.dataDir, 'report.lock')
-  if (!acquireLock(lock)) throw new Error('Reporter active; retry feedback later')
+  const lockToken = acquireLock(lock)
+  if (!lockToken) throw new Error('Reporter active; retry feedback later')
   try {
     const state = readReportState(cfg), entry = state.entries[values.id]
     if (!entry?.decision || entry.decision.kind !== 'adopt' || !entry.decision.scheduled) throw new Error('Only an adopted scheduled proposal accepts outcome feedback')
@@ -133,5 +136,5 @@ export async function proposalCli(mode: string, argv: string[]): Promise<void> {
     if (!current.includes(signal)) appendFileSync(path, signal)
     outcome.signalRecorded = true; saveReportState(cfg, state)
     console.log(JSON.stringify(outcome))
-  } finally { releaseLock(lock) }
+  } finally { releaseLock(lock, lockToken) }
 }

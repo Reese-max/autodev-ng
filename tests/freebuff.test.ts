@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { mkdtempSync, existsSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, existsSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -60,7 +60,7 @@ test('明確 admission 拒絕保留診斷並釋放本輪鎖；執行狀態未知
   const unknown = engine('tool-error', ['aaa', 'bbb'])
   expect(await unknown.e.run({ task: T, projectPath: process.cwd() })).toMatchObject({ ok: false, recoveryRequired: true })
   expect(existsSync(unknown.lockDir)).toBe(true)
-  releaseLock(unknown.lockDir)
+  rmSync(unknown.lockDir, { recursive: true, force: true }) // engine 持有的鎖（token 在 engine 內）——測試清場直接移除
 })
 
 test('MCP 進度進入既有監督紀錄；重複與其他 request 的事件不計入', async () => {
@@ -124,12 +124,13 @@ test('跨 chunk NDJSON 可解析；stderr 雜訊不是成功證據也不反殺',
 test('共用鎖 busy 時不啟動 delegate、成本仍為真 0', async () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-fb-'))
   const { e, lockDir } = engine('ok', ['aaa', 'bbb'], 10_000, root)
-  expect(acquireLock(lockDir)).toBe(true)
+  const lockToken = acquireLock(lockDir)
+  expect(lockToken).toBeTruthy()
   try {
     expect(await e.run({ task: T, projectPath: process.cwd() })).toEqual({
       ok: false, output: '', costUsd: 0, failureReason: 'freebuff-session-busy',
     })
-  } finally { releaseLock(lockDir) }
+  } finally { releaseLock(lockDir, lockToken) }
 })
 
 test('timeout 後保留 backend 隔離；宿主死亡也不能搶 session', async () => {
@@ -139,9 +140,9 @@ test('timeout 後保留 backend 隔離；宿主死亡也不能搶 session', asyn
   expect(r).toMatchObject({ ok: false, failureReason: 'timeout', costUsd: 0, costUnknown: true, recoveryRequired: true })
   expect(existsSync(join(lockDir, 'recovery-required.json'))).toBe(true)
   writeFileSync(join(lockDir, 'pid.json'), JSON.stringify({ pid: 2147483647, startedAt: '2000-01-01T00:00:00.000Z' }))
-  expect(acquireLock(lockDir, 1)).toBe(false)
+  expect(acquireLock(lockDir, 1)).toBeNull() // recovery-required 標記：宿主死亡也不可搶
   expect((await e.run({ task: T, projectPath: process.cwd() })).failureReason).toBe('freebuff-session-busy')
-  releaseLock(lockDir)
+  rmSync(lockDir, { recursive: true, force: true }) // engine 持有的鎖（含 recovery-required）——測試清場
 }, 20_000)
 
 test('非絕對或非 Git worktree 在 MCP spawn 前拒絕', async () => {

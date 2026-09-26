@@ -18,6 +18,7 @@ vi.mock('node:fs', async (importOriginal) => {
   }
 })
 
+const realFs = await vi.importActual<typeof import('node:fs')>('node:fs')
 const { acquireLock } = await import('../src/lock.js')
 
 function errWithCode(code: string): NodeJS.ErrnoException {
@@ -49,7 +50,7 @@ describe('writeOwnPidFile 失敗時補償清理鎖目錄（MEDIUM-1：不留幽�
     expectThrowsWithCode(() => acquireLock(dir), 'ENOSPC')
     expect(existsSync(dir)).toBe(false) // 補償清理：剛建立的幽靈鎖目錄已刪除
 
-    expect(acquireLock(dir)).toBe(true) // 下次 acquire（真實 writeFileSync）立即成功，未被幽靈鎖擋住
+    expect(acquireLock(dir)).toBeTruthy() // 下次 acquire（真實 writeFileSync）立即成功，未被幽靈鎖擋住
   })
 
   test('steal 重建：pid-dead steal 過程 writeFileSync ENOSPC → acquireLock rethrow 且新鎖目錄不存在，下次 acquire 立即成功', () => {
@@ -59,13 +60,15 @@ describe('writeOwnPidFile 失敗時補償清理鎖目錄（MEDIUM-1：不留幽�
     const old = new Date(Date.now() - 60 * 60 * 1000)
     utimesSync(dir, old, old) // mtime 超過 staleMs，觸發 mtime-fallback steal 流程
 
-    writeFileSync.mockImplementationOnce(() => {
-      throw errWithCode('ENOSPC')
-    })
+    writeFileSync
+      .mockImplementationOnce(realFs.writeFileSync) // 第一次寫入是 .reclaim 互斥的 pid.json，放行
+      .mockImplementationOnce(() => {
+        throw errWithCode('ENOSPC')
+      }) // steal 重建後的 pid.json 寫入故障
 
     expectThrowsWithCode(() => acquireLock(dir, 30 * 60 * 1000), 'ENOSPC')
     expect(existsSync(dir)).toBe(false) // 補償清理：steal 重建的幽靈鎖目錄已刪除
 
-    expect(acquireLock(dir, 30 * 60 * 1000)).toBe(true) // 下次 acquire 立即成功
+    expect(acquireLock(dir, 30 * 60 * 1000)).toBeTruthy() // 下次 acquire 立即成功
   })
 })
