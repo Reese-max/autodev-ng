@@ -90,10 +90,10 @@ test('ownerCli 與 runOwner 真實接線：撤回後停止派送下一個 repo',
   const row = (name: string) => ({ full_name: name, owner: { login: 'owner' }, default_branch: 'main',
     archived: false, disabled: false, has_issues: true, permissions: { push: true } })
   const discover = vi.fn(() => [row('owner/one'), row('owner/two')])
-  const run = vi.fn(async (_child: GithubConfig, options: { syncOnly?: boolean; policyCheck?: () => boolean }) => {
-    expect(options.policyCheck?.()).toBe(true)
+  const run = vi.fn(async (_child: GithubConfig, options?: { syncOnly?: boolean; policyCheck?: () => boolean }) => {
+    expect(options?.policyCheck?.()).toBe(true)
     writeFileSync(file, JSON.stringify({ ...raw, publish: false }))
-    expect(options.policyCheck?.()).toBe(false)
+    expect(options?.policyCheck?.()).toBe(false)
     return 'paused'
   })
   const log = vi.spyOn(console, 'log').mockImplementation(() => {})
