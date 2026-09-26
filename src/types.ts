@@ -155,7 +155,8 @@ export const ConfigSchema = z.object({
   engineIsolation: z.boolean().default(true),
   extraDirective: z.string().optional(),
   stopFile: z.string().default('.adng.stop'),
-  verifyCommand: z.string().optional(),
+  // #48：單步字串或有序步驟清單；字串內 && 視為序接鏈逐步執行，其他 shell 元字元拒絕。
+  verifyCommand: z.union([z.string(), z.array(z.string().trim().min(1)).min(1)]).optional(),
   verifyTimeoutMs: z.number().int().positive().default(600_000),
   defaultRisk: z.enum(['low', 'medium', 'high']).default('medium'),
   // 併發基建骨架（GOAL A 2026-07-28）：>1 的併發池屬 GOAL B，骨架僅收設定並防呆。
