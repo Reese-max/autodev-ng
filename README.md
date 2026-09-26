@@ -213,9 +213,39 @@ node web/server.mjs --config <path>
 | 暫停/恢復 | 手動建/刪 `stopFile` | `/pause` `/resume` | POST `/api/pause`/`resume` |
 | 加任務 | 直接編輯 backlog 檔 | `/task <文字>` | POST `/api/task` |
 | 靜音告警 | — | `/silence <分鐘>` | POST `/api/silence` |
+| 控制執行中任務 | `steer`/`enqueue`/`controls` | `/steer` `/enqueue` `/controls` | — |
 | 問 LLM | — | `/ask <問題>` | — |
 | GOAL 自主迴圈 | `node dist/autopilot/run.js --config <path>`（前景） | `/goal set\|run\|status\|stop` | Goal 面板 + set/run/stop 按鈕 |
 | 告警自檢 | `notify-test` | — | — |
+
+### 執行控制面（STEER／QUEUE）
+
+對「正在跑的 exact execution」下指示，而不是加新任務或整專案暫停：
+
+```powershell
+node dist/cli.js steer   --config <path> --execution <id> --text "只修 parser，不要動 migration"
+node dist/cli.js enqueue --config <path> --execution <id> --text "完成後先跑 pnpm test"
+node dist/cli.js controls --config <path>            # 查看 pending/delivered/stale 收據
+```
+
+Discord 對應：`/steer project:<p> execution:<id> text:<指示>`、`/enqueue …`、`/controls project:<p>`。
+`/status` 與 `/monitor` 會顯示當前 `taskId`/`executionId`（steer/enqueue 的 target 來源）與待送達筆數。
+
+語意與安全邊界：
+
+- `STEER`＝in-flight 修正，只在 adapter 宣告 `controls.inFlightSteer` 時於引擎 safe boundary 注入；
+  目前唯一支援的是 `mock`（測試 transport），其他 adapter 一律回 `UNSUPPORTED`，絕不假裝成功。
+- `QUEUE`＝同一 `executionId` 的 FIFO，當前 turn 結束後的第一個 safe boundary 以有界
+  continuation turn（同一 worktree）送達；永不打斷 verify/merge/ownership critical section。
+- 每個請求留下 immutable receipt：`run.db` 的 `control_envelopes`（issuer、taskId、executionId、
+  content hash、mode、disposition、request/delivery 時間戳）＋ `events.jsonl` 的
+  `control-request`/`control-delivered`/`control-closed` 事件。
+- Fail closed：未知/已結束/已切換的 executionId、taskId 或 engineTag 不符、重放
+  （dedupe）、過期（30 分鐘 TTL）、超長（>400 字元）、含換行/HTML 註解/`adng:` 標記的
+  指示一律拒絕並留下 REJECTED_* 收據。
+- daemon 重啟後 pending envelope 只認原 `executionId`：目標已死即轉 `STALE`，
+  絕不投給下一個 task/execution；既有 stop/pause/cost/verification/issue-lock 閘不被繞過
+  （stopFile 出現時 follow-up turn 不會啟動，指示在 verify 之前送達且仍受原驗收條件約束）。
 
 ## 鐵律摘要
 

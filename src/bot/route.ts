@@ -1,4 +1,4 @@
-import { handleCommand, type BotDeps } from './handlers.js'
+import { handleCommand, type BotDeps, type CmdContext } from './handlers.js'
 import { formatMonitor, githubMonitor, readMonitor } from './monitor.js'
 import { doPause, doResume } from './actions.js'
 import type { BotConfig } from './config.js'
@@ -28,7 +28,7 @@ export async function routeInteraction(
   }
   try {
     await i.defer?.()
-    const r = await handle(i.commandName, i.arg, d)
+    const r = await handle(i.commandName, i.arg, d, { issuer: `discord:${i.userId}` })
     await i.reply(r.text)
   } catch {
     await i.reply('內部錯誤')
@@ -37,8 +37,8 @@ export async function routeInteraction(
 
 /** 讀類指令：無 project 參數時對使用者有權限的每個專案各摘要一段。
  * 動作類指令：project 必填（改狀態動作不可對「全部專案」批次做）。 */
-export const READ_COMMANDS = ['status', 'cost', 'backlog', 'log', 'lessons', 'problems', 'monitor', 'github'] as const
-export const ACTION_COMMANDS = ['pause', 'resume', 'silence', 'task', 'ask', 'goal'] as const
+export const READ_COMMANDS = ['status', 'cost', 'backlog', 'log', 'lessons', 'problems', 'monitor', 'github', 'controls'] as const
+export const ACTION_COMMANDS = ['pause', 'resume', 'silence', 'task', 'ask', 'goal', 'steer', 'enqueue'] as const
 
 /** 專案名解析：精確匹配優先（即使該名同時是另一專案的前綴）；否則在 names 裡找唯一前綴匹配；
  * 前綴命中 ≥2 個回 ambiguous 帶候選（依 names 原順序）；一個都沒命中回 unknown。
@@ -57,8 +57,8 @@ export type ProjectRuntime = { allowed: string[]; testPeer?: BotConfig['testPeer
   { deps: BotDeps; monitorOnly?: never } | { deps?: never; monitorOnly: Pick<BotDeps, 'cfg' | 'cfgPath'> }
 )
 
-export async function handleProject(name: string, arg: string, rt: ProjectRuntime, handle: typeof handleCommand = handleCommand) {
-  if (rt.deps) return handle(name, arg, rt.deps)
+export async function handleProject(name: string, arg: string, rt: ProjectRuntime, handle: typeof handleCommand = handleCommand, ctx: CmdContext = {}) {
+  if (rt.deps) return handle(name, arg, rt.deps, ctx)
   const d = rt.monitorOnly
   if (name === 'pause') return doPause(d)
   if (name === 'resume') return doResume(d)
@@ -98,7 +98,7 @@ export async function routeMultiInteraction(
     }
     try {
       await i.defer?.()
-      const result = await handleProject(i.commandName, i.arg, rt, handle)
+      const result = await handleProject(i.commandName, i.arg, rt, handle, { issuer: `discord:${i.userId}` })
       await i.reply(result.text)
     } catch {
       await i.reply('內部錯誤')
@@ -126,7 +126,7 @@ export async function routeMultiInteraction(
     const sections: string[] = []
     for (const [name, rt] of allowedEntries) {
       try {
-        const result = await handleProject(i.commandName, i.arg, rt, handle)
+        const result = await handleProject(i.commandName, i.arg, rt, handle, { issuer: `discord:${i.userId}` })
         sections.push(`【${name}】\n${result.text}`)
       } catch { sections.push(`【${name}】\n查詢失敗，其他專案仍可查看`) }
     }
