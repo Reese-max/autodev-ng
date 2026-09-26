@@ -104,7 +104,8 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     writeFileSync(runtime.backlogFile, '')
     new BacklogStore(runtime.backlogFile).append(issueTask(state), { goalId: `github-${state.issue.number}`, round: 1 })
   }
-  const app = assemble(runtime)
+  const app = assemble(runtime, resolve(cfg.sourceConfig)) // #40：全域查帳 scope＝sourceConfig 同層的艦隊 configs
+  app.deps.billingScopeDirs = [cfg.billingScope ?? cfg.dataDir] // Issue/revision 動態帳務納入全域查帳
   if (worker) app.deps.engines = { resolve: () => worker }
   if (cfg.repair) {
     const verifier = new KernelVerifier({ cfg: runtime, reviewRun: args => reviewRepair({ ...reviewLlmFromConfig(runtime), onModel: args.onModel, dataDir: runtime.dataDir,
@@ -151,7 +152,7 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     const detail = typeof result === 'string' && (result === 'failed' || result === 'engine-error')
       ? app.deps.db.lastAttemptFailureFor(tasks[0]!.id) ?? result
       : typeof result === 'string' ? result : result.reason
-    return { done, detail, ...(resumingReview ? { attempted: false } : {}),
+    return { done, detail, ...(resumingReview || result === 'cost-hard-stop' || result === 'stopped' ? { attempted: false } : {}),
       ...(result === 'deferred' && issueReviewPending(cfg, state) ? { reviewPending: true, retryAt: Date.now() + reviewRetryDelay(runtime) } : {}),
       ...(typeof result === 'object' && result.reason === 'team-state-quarantined' ? { recoveryRequired: true } : {}), ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
   } finally { app.deps.db.close(); app.deps.team?.close() }

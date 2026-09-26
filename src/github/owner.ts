@@ -9,7 +9,7 @@ import { GithubConfigSchema, type GithubConfig } from './config.js'
 import { runGithub } from './runner.js'
 import { states } from './state.js'
 
-export const OwnerConfigSchema = GithubConfigSchema.omit({ repo: true, base: true, template: true, stopFile: true, verifyCommand: true, repair: true }).extend({
+export const OwnerConfigSchema = GithubConfigSchema.omit({ repo: true, base: true, template: true, stopFile: true, verifyCommand: true, repair: true, billingScope: true }).extend({
   owner: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/),
   projects: z.record(GithubConfigSchema.shape.repo, z.string().min(1)).optional(),
   verifyCommands: z.record(GithubConfigSchema.shape.repo, GithubConfigSchema.shape.verifyCommand.unwrap()).optional(),
@@ -36,6 +36,7 @@ export function repoConfig(cfg: OwnerConfig, repo: Repo): GithubConfig {
     verifyCommand: Object.entries(verifyCommands ?? {}).find(([name]) => name.toLowerCase() === repo.full_name.toLowerCase())?.[1],
     repo: repo.full_name, base: repo.default_branch, template: !project,
     dataDir: join(cfg.dataDir, 'repo-' + createHash('sha256').update(repo.full_name.toLowerCase()).digest('hex').slice(0, 16)),
+    billingScope: cfg.dataDir, // 全域計帳涵蓋所有兄弟 repo 的 issue-*/run.db（issue #40）
     stopFile: join(cfg.dataDir, '.adng.stop') })
 }
 /** 以「當初解析過的檔案內容快照」做授權重核對：內容位元組有任何變動（含改壞、改回、刪除）一律 fail-closed。
