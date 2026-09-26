@@ -81,6 +81,31 @@ test('runOwner 把 policyCheck 傳給每個子 repo 的 run', async () => {
   expect(run.mock.calls[0]![1]?.policyCheck).toBe(policyCheck)
 })
 
+test('ownerCli 與 runOwner 真實接線：撤回後停止派送下一個 repo', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-owner-cli-')); dirs.push(root)
+  const file = join(root, 'owner.json')
+  const raw = { owner: 'owner', authors: ['owner'], sourceConfig: 'source.json', dataDir: root,
+    engine: 'writer', enabled: true, publish: true }
+  writeFileSync(file, JSON.stringify(raw))
+  const row = (name: string) => ({ full_name: name, owner: { login: 'owner' }, default_branch: 'main',
+    archived: false, disabled: false, has_issues: true, permissions: { push: true } })
+  const discover = vi.fn(() => [row('owner/one'), row('owner/two')])
+  const run = vi.fn(async (_child: GithubConfig, options: { syncOnly?: boolean; policyCheck?: () => boolean }) => {
+    expect(options.policyCheck?.()).toBe(true)
+    writeFileSync(file, JSON.stringify({ ...raw, publish: false }))
+    expect(options.policyCheck?.()).toBe(false)
+    return 'paused'
+  })
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+  try {
+    await ownerCli('owner-run', file, { discover, run })
+  } finally {
+    log.mockRestore()
+  }
+  expect(discover).toHaveBeenCalledTimes(1)
+  expect(run).toHaveBeenCalledTimes(1)
+})
+
 test('policyFileCheck：檔案未變→true；內容變更/刪除/毀損→false（fail-closed）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-policy-file-')); dirs.push(dir)
   const file = join(dir, 'owner.json')

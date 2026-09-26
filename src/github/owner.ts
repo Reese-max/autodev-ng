@@ -85,7 +85,7 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
     return report
   } finally { releaseLock(lock) }
 }
-export async function ownerCli(mode: string, file: string): Promise<void> {
+export async function ownerCli(mode: string, file: string, deps: { discover?: typeof discoverRepos; run?: typeof runGithub } = {}): Promise<void> {
   const policyContent = readFileSync(file) // 快照產生 cfg 的那份位元組，供執行中重核對（issue #41）
   const raw = OwnerConfigSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(policyContent)))
   const cfg = { ...raw, sourceConfig: resolve(dirname(file), raw.sourceConfig), dataDir: resolve(dirname(file), raw.dataDir),
@@ -94,7 +94,7 @@ export async function ownerCli(mode: string, file: string): Promise<void> {
   const result = mode === 'owner-status'
     ? { enabled: cfg.enabled, publish: cfg.publish, label: cfg.label, authors: cfg.authors, paused: !cfg.enabled || existsSync(join(cfg.dataDir, '.adng.stop')),
         lastRun: existsSync(statusFile) ? JSON.parse(readFileSync(statusFile, 'utf8')) : null }
-    : await runOwner(cfg, mode === 'owner-sync', undefined, undefined, { policyCheck: policyFileCheck(resolve(file), policyContent) })
+    : await runOwner(cfg, mode === 'owner-sync', deps.discover, deps.run, { policyCheck: policyFileCheck(resolve(file), policyContent) })
   console.log(JSON.stringify(result, null, 2))
   if ('status' in result && ['blocked', 'error'].includes(result.status)) process.exitCode = 1
 }
