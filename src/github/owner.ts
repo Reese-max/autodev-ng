@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { TextDecoder } from 'node:util'
 import { z } from 'zod'
 import { acquireLock, releaseLock } from '../lock.js'
 import { api, command } from './client.js'
@@ -39,10 +40,10 @@ export function repoConfig(cfg: OwnerConfig, repo: Repo): GithubConfig {
 }
 /** 以「當初解析過的檔案內容快照」做授權重核對：內容位元組有任何變動（含改壞、改回、刪除）一律 fail-closed。
  *  快照必須是產生 cfg 的那份內容——在入口重讀會漏掉 parse→run 之間的撤回。 */
-export function policyFileCheck(file: string, snapshot: string): () => boolean {
+export function policyFileCheck(file: string, snapshot: Buffer): () => boolean {
   return () => {
     try {
-      return readFileSync(file, 'utf8') === snapshot
+      return readFileSync(file).equals(snapshot)
     } catch {
       return false
     }
@@ -85,8 +86,8 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
   } finally { releaseLock(lock) }
 }
 export async function ownerCli(mode: string, file: string): Promise<void> {
-  const policyContent = readFileSync(file, 'utf8') // 快照產生 cfg 的那份內容，供執行中重核對（issue #41）
-  const raw = OwnerConfigSchema.parse(JSON.parse(policyContent))
+  const policyContent = readFileSync(file) // 快照產生 cfg 的那份位元組，供執行中重核對（issue #41）
+  const raw = OwnerConfigSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(policyContent)))
   const cfg = { ...raw, sourceConfig: resolve(dirname(file), raw.sourceConfig), dataDir: resolve(dirname(file), raw.dataDir),
     projects: raw.projects ? Object.fromEntries(Object.entries(raw.projects).map(([repo, path]) => [repo, resolve(dirname(file), path)])) : undefined }
   const statusFile = join(cfg.dataDir, 'status.json')

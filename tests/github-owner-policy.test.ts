@@ -6,7 +6,7 @@ import { GithubConfigSchema, type GithubConfig, type Issue } from '../src/github
 import { type GithubClient } from '../src/github/client.js'
 import { fingerprint, saveState, type IssueState } from '../src/github/state.js'
 import { publishIssue, runGithub } from '../src/github/runner.js'
-import { OwnerConfigSchema, policyFileCheck, runOwner } from '../src/github/owner.js'
+import { OwnerConfigSchema, ownerCli, policyFileCheck, runOwner } from '../src/github/owner.js'
 
 // Issue #41：owner 執行中撤回授權（enabled/publish 改 false、檔案被改/刪）必須在
 // 子 repo 啟動、execute 前後、push→createPr 之間被重核對——不能只靠啟動時快照。
@@ -86,7 +86,7 @@ test('policyFileCheck：檔案未變→true；內容變更/刪除/毀損→false
   const file = join(dir, 'owner.json')
   const content = JSON.stringify({ owner: 'owner', enabled: true })
   writeFileSync(file, content)
-  const check = policyFileCheck(file, content)
+  const check = policyFileCheck(file, Buffer.from(content))
   expect(check()).toBe(true)
   writeFileSync(file, JSON.stringify({ owner: 'owner', enabled: false }))
   expect(check()).toBe(false)
@@ -96,13 +96,40 @@ test('policyFileCheck：檔案未變→true；內容變更/刪除/毀損→false
   expect(check()).toBe(false)
 })
 
+test('policyFileCheck 比較原始位元組：無效 UTF-8 不得冒充 U+FFFD', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-policy-bytes-')); dirs.push(dir)
+  const file = join(dir, 'owner.json')
+  const content = Buffer.from(JSON.stringify({ owner: 'owner', sourceConfig: '\uFFFD', enabled: true }))
+  writeFileSync(file, content)
+  const check = policyFileCheck(file, content)
+  expect(check()).toBe(true)
+  const replacement = Buffer.from('\uFFFD')
+  const at = content.indexOf(replacement)
+  expect(at).toBeGreaterThanOrEqual(0)
+  const invalid = Buffer.concat([content.subarray(0, at), Buffer.from([0xff]), content.subarray(at + replacement.length)])
+  expect(invalid.toString('utf8')).toBe(content.toString('utf8'))
+  writeFileSync(file, invalid)
+  expect(check()).toBe(false)
+})
+
+test('ownerCli 啟動時拒絕無效 UTF-8 的政策檔', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'adng-policy-invalid-')); dirs.push(dir)
+  const file = join(dir, 'owner.json')
+  const valid = Buffer.from(JSON.stringify({ owner: 'owner', sourceConfig: '\uFFFD', enabled: true }))
+  const replacement = Buffer.from('\uFFFD')
+  const at = valid.indexOf(replacement)
+  const invalid = Buffer.concat([valid.subarray(0, at), Buffer.from([0xff]), valid.subarray(at + replacement.length)])
+  writeFileSync(file, invalid)
+  await expect(ownerCli('owner-run', file)).rejects.toThrow()
+})
+
 test('policyFileCheck 不吞快照期差異：ownerCli 必須傳入「當初解析的那份內容」', () => {
   // 防回歸：快照若改成 runOwner 入口重讀，load→run 之間的撤回會被漏掉。
   // 此處語意：check 是「與當初給定位元組相等」，不是「當下可解析」。
   const dir = mkdtempSync(join(tmpdir(), 'adng-policy-snap-')); dirs.push(dir)
   const file = join(dir, 'owner.json')
   writeFileSync(file, 'A')
-  const check = policyFileCheck(file, 'A')
+  const check = policyFileCheck(file, Buffer.from('A'))
   writeFileSync(file, 'not json at all')
   expect(check()).toBe(false) // 毀損＝位元組不同＝撤回
 })
