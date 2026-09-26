@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_through_utc": "2026-09-25T11:38:23Z",
+  "observed_through_utc": "2026-09-26T17:39:51Z",
   "source_scope": [
     "github_owner_scoped_repository_enumeration",
     "github_owner_scoped_issue_search",
@@ -13,35 +13,37 @@
   ],
   "coverage": {
     "accessible_self_owned_unarchived_repositories_last_enumerated": 41,
-    "repository_enumeration_this_run": "REFRESHED; 41 unarchived repositories; owner-scoped delta checked through 2026-09-25T11:38:23Z",
-    "issues_updated_since_previous_cursor_inspected": 0,
+    "repository_enumeration_this_run": "REFRESHED; 42 owned repositories visible, 41 unarchived and 1 archived; page 2 empty; owner-scoped delta checked through 2026-09-26T17:39:51Z",
+    "issues_updated_since_previous_cursor_inspected": 38,
     "new_issues_in_window": 0,
-    "existing_issue_threads_updated_in_window": 0,
-    "updated_issue_threads_with_comments_inspected": 0,
+    "existing_issue_threads_updated_in_window": 38,
+    "updated_issue_threads_with_comments_inspected": 38,
     "zero_comment_new_issue_bodies_inspected": 0,
-    "pull_requests_updated_since_previous_cursor_inspected": 1,
-    "pull_request_bodies_inspected": 1,
-    "pull_request_threads_inspected": 1,
-    "pull_request_general_comment_delta_repositories_inspected": 1,
-    "pull_request_inline_comment_delta_repositories_inspected": 1,
-    "explicit_feedback_marker_matches": 0,
+    "pull_requests_updated_since_previous_cursor_inspected": 71,
+    "pull_request_bodies_inspected": 71,
+    "pull_request_threads_inspected": 71,
+    "pull_request_general_comment_delta_repositories_inspected": 71,
+    "pull_request_inline_comment_delta_repositories_inspected": 71,
+    "explicit_feedback_marker_matches": 8,
     "explicit_feedback_record_files_inspected": 1,
     "verifiable_user_feedback_matches": 0,
     "non_owner_authored_issue_matches": 0,
     "non_owner_authored_pull_request_matches": 0,
     "threads_with_non_owner_human_or_unknown_commenters": 0,
     "provenance_unknown_feedback_claims_traced": 0,
-    "discussion_surface": "Discussion thread listing is unavailable in the connected GitHub actions; no alternate source was specified."
+    "discussion_surface": "Discussion thread listing is unavailable in the connected GitHub actions; this is a previously known coverage gap and no alternate owner-authorized feedback source was specified."
   },
   "delta_source_classification": {
     "USER_REPORTED": 0,
-    "OBSERVED_EXECUTION": 0,
-    "SYNTHETIC_OR_AGENT": 1,
-    "PROVENANCE_UNKNOWN": 0
+    "OBSERVED_EXECUTION": 102,
+    "SYNTHETIC_OR_AGENT": 68,
+    "PROVENANCE_UNKNOWN": 0,
+    "counts_are_nonexclusive": true,
+    "count_basis": "updated issue/PR bodies containing explicit execution or synthetic/agent markers; comments were separately inspected for human/unknown provenance"
   },
   "pull_request_delta_provenance": {
-    "explicit_synthetic_or_agent_markers": 1,
-    "body_provenance_unknown_but_no_usage_experience_claim": 0,
+    "explicit_synthetic_or_agent_markers": 39,
+    "body_provenance_unknown_but_no_usage_experience_claim": 32,
     "body_provenance_unknown_with_unverified_live_acceptance_claim": 0,
     "user_reported": 0
   },
@@ -52,5 +54,5 @@
     "unknown_provenance_is_not_promoted_to_user_reported": true
   },
   "last_disposition": "NO_VERIFIABLE_FEEDBACK",
-  "notes": "Incremental scan advanced strictly after 2026-09-24T23:38:21Z through 2026-09-25T11:38:23Z. The owned unarchived inventory was refreshed and remained 41 accessible repositories. No Issues changed in the window. The only updated PR was the existing user-feedback cursor PR itself, advanced by prior report-only cursor state; its body and complete available conversation/review surface supplied no new original product-use experience. The existing public UkePack teacher feedback form was re-read and remains an unfilled template, so it is not USER_REPORTED evidence. No source supplied a verifiable first-person use experience, manual workaround, or post-fix real-use regression. Discussion thread listing remains unavailable through the connected GitHub actions and no alternate owner-authorized feedback source was specified. No product Issue/PR scope was changed and no feedback Issue was created."
+  "notes": "Incremental scan advanced strictly after 2026-09-25T11:38:23Z through 2026-09-26T17:39:51Z. Fresh owner enumeration returned 42 repositories, 41 unarchived and one archived, with the second page empty. Time-sliced owner-scoped searches avoided the 100-result PR cap: 38 existing Issues changed, zero new Issues were created, and 71 PRs changed. All 38 updated Issue threads and all 71 updated PR conversation/review surfaces available through the connector were inspected. No updated Issue or PR was authored by a non-owner account, and no thread contained a non-owner human or provenance-unknown commenter; observed third-party comments were automated review bots. Feedback-like markers in eight updated bodies resolved to automated review/test language, operational run evidence, or report-only cursor text rather than original first-person product-use experience. The existing public UkePack teacher feedback form was re-read and remains unfilled, so it is not USER_REPORTED evidence. Concrete CI/runtime/smoke receipts remain OBSERVED_EXECUTION only and do not establish user demand, frequency, satisfaction, or post-fix real-use regression. Discussion thread listing remains unavailable through the connected GitHub actions; this is the same previously known source gap, not evidence that no Discussions or users exist. No product Issue/PR scope was changed and no feedback Issue was created."
 }
