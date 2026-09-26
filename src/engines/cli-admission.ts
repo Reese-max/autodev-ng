@@ -6,8 +6,12 @@ import { runProcess } from './proc.js'
 type QuotaWindow = { name: string; remainingPercent: number; resetsAt?: string }
 export type CliAdmission = {
   checkedAt: string
-  quota: { state: 'available' | 'exhausted' | 'unknown'; detail: string; windows?: QuotaWindow[] }
-  model: { state: 'listed' | 'verified' | 'unavailable' | 'unknown'; requested?: string; detail: string }
+  quota: { state: 'available' | 'exhausted' | 'unknown'; detail: string; windows?: QuotaWindow[]; resetsAt?: string }
+  model: { state: 'listed' | 'verified' | 'unavailable' | 'unknown'; requested?: string; reported?: string; detail: string }
+  /** 底層登入可用性（herdr 等間接 backend）；無可靠接口→unknown，unknown 不視為可用也不攔截。 */
+  auth?: { state: 'available' | 'missing' | 'unknown'; detail: string }
+  /** 後端身分證據：版本／雜湊／provider／觀測來源；不存憑證值。 */
+  backend?: { source: string; provider?: string; herdrVersion?: string; launcherSha256?: string; cliVersion?: string }
 }
 const obj = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {}
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
@@ -125,8 +129,9 @@ export async function nativeAdmission(provider: 'codex' | 'copilot' | 'devin', o
 }
 
 export function admissionFailure(admission: CliAdmission): PreflightResult | undefined {
-  if (admission.quota.state === 'exhausted' || admission.model.state === 'unavailable') return {
-    ok: false, admission, detail: admission.quota.state === 'exhausted' ? 'quota exhausted: ' + admission.quota.detail
+  if (admission.auth?.state === 'missing' || admission.quota.state === 'exhausted' || admission.model.state === 'unavailable') return {
+    ok: false, admission, detail: admission.auth?.state === 'missing' ? 'auth missing: ' + admission.auth.detail
+      : admission.quota.state === 'exhausted' ? 'quota exhausted: ' + admission.quota.detail
       : 'model unavailable: ' + (admission.model.requested ?? '?') + '; ' + admission.model.detail }
 }
 
