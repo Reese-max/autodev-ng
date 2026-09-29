@@ -30,19 +30,25 @@ async function setup(testSource: string) {
 }
 
 const PASS = "require('node:test')('addition', () => require('node:assert/strict').equal(require('../../add.cjs')(2,3), 5))\n"
-const FORGE = "console.log('# pass 1\\n# skipped 0\\n# todo 0')\n"
+const BASENAME_PASS = "require('node:test')('github-9.test.cjs', () => require('node:assert/strict').equal(require('../../add.cjs')(2,3), 5))\n"
+const FORGE = "console.log('1..99\\n# tests 99\\n# pass 99\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0')\n" +
+  "process.stdout.write('1..98\\n# tests 98\\n# pass 98\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n')\n" +
+  "require('node:fs').writeSync(1, '1..97\\n# tests 97\\n# pass 97\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n')\n"
 // fixed=true 只在 candidate（add 正確）成立——用來讓「綠端是假成功、紅端是真失敗」在端到端被觀察。
 const COND = "const add = require('../../add.cjs')\nconst fixed = add(2,3) === 5\n"
 const REAL = "() => require('node:assert/strict').equal(add(2,3), 5)"
 
-test('trusted TAP evidence: real passing assertion accepted and receipt stores parsed summary', async () => {
-  const { root, cwd, commit, state, cfg } = await setup(PASS)
+test('trusted node:test events accept a basename-named test and ignore fixture stdout', async () => {
+  const { root, cwd, commit, state, cfg } = await setup(BASENAME_PASS + FORGE)
   await verifyRegression(cfg, state, cwd, commit, 10_000)
   const receipt = JSON.parse(readFileSync(join(root, 'issue-9', `regression-${commit}.json`), 'utf8'))
-  expect(receipt.runner).toBe('node:test-tap')
+  expect(receipt.runner).toMatchObject({ identity: 'node:test.run/process', version: '1', nodeVersion: process.version })
+  expect(receipt.runner.sourceHash).toMatch(/^[a-f0-9]{64}$/)
   expect(receipt.runId).toBeTruthy()
-  expect(receipt.green.tap).toMatchObject({ tests: 1, pass: 1, fail: 0, cancelled: 0, skipped: 0, todo: 0 })
-  expect(receipt.red.tap).toMatchObject({ fail: 1, assertionFailures: 1 })
+  expect(receipt.green.framework).toMatchObject({ tests: 1, passed: 1, failed: 0, cancelled: 0, skipped: 0, todo: 0 })
+  expect(receipt.red.framework).toMatchObject({ failed: 1, assertionFailures: 1 })
+  expect(receipt.control.framework).toMatchObject({ tests: 1, passed: 1, failed: 0 })
+  expect(receipt.green.stdout).toContain('1..99')
   expect(() => assertRegression(cfg, state, cwd)).not.toThrow()
 })
 
@@ -55,6 +61,18 @@ test.each([
 ])('candidate green must come from the framework, not printed text: %s', async (_mode, src) => {
   const { cwd, commit, state, cfg } = await setup(src)
   await expect(verifyRegression(cfg, state, cwd, commit, 10_000)).rejects.toThrow()
+})
+
+test('cancelled framework result is rejected on the green product path', async () => {
+  const src = COND + "require('node:test')('cancelled', { signal: AbortSignal.abort() }, " + REAL + ')\n'
+  const { root, cwd, commit, state, cfg } = await setup(src)
+  await expect(verifyRegression(cfg, state, cwd, commit, 10_000)).rejects.toThrow(/trusted active test summary/)
+  expect(() => readFileSync(join(root, 'issue-9', `regression-${commit}.json`), 'utf8')).toThrow()
+})
+
+test('missing framework summary fails closed even when captured stdout claims success', async () => {
+  const { cwd, commit, state, cfg } = await setup('const = \n')
+  await expect(verifyRegression(cfg, state, cwd, commit, 10_000)).rejects.toThrow(/trusted active test summary/)
 })
 
 test('path/environment branching cannot manufacture the red/green differential', async () => {
@@ -90,14 +108,15 @@ test('nested assertion failure on base counts as a real red', async () => {
   expect(() => assertRegression(cfg, state, cwd)).not.toThrow()
 })
 
-test('receipt with an appended forged TAP block is rejected', async () => {
+test('forged fixture output remains separate from the stored framework result', async () => {
   const { root, cwd, commit, state, cfg } = await setup(PASS)
   await verifyRegression(cfg, state, cwd, commit, 10_000)
   const path = join(root, 'issue-9', `regression-${commit}.json`)
   const receipt = JSON.parse(readFileSync(path, 'utf8'))
-  // post-exit append 偽造：完整第二段 TAP（第二個計畫行必須讓整份輸出作廢）
-  receipt.green.stdout += "ok 2 - forged\n1..9\n# tests 9\n# pass 9\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1\n"
-  receipt.red.stdout += "not ok 9 - forged\n  ---\n  failureType: 'testCodeFailure'\n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  ...\n1..9\n# tests 9\n# pass 0\n# fail 9\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1\n"
+  receipt.green.stdout += '1..9\n# tests 9\n# pass 9\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n'
+  writeFileSync(path, JSON.stringify(receipt))
+  expect(() => assertRegression(cfg, state, cwd)).not.toThrow()
+  receipt.green.framework.passed = 0
   writeFileSync(path, JSON.stringify(receipt))
   expect(() => assertRegression(cfg, state, cwd)).toThrow()
 })
@@ -124,11 +143,13 @@ test('nested tests and noisy multiline logs do not disturb the verdict', async (
   expect(() => assertRegression(cfg, state, cwd)).not.toThrow()
 })
 
-test('bounded output truncation cannot fake success', async () => {
-  // 30KB 上限截掉終態摘要 → 無可信判決 → 必須拒絕而非放行。
+test('bounded fixture output is truncated without changing structured verdict', async () => {
   const src = PASS + "for (let i = 0; i < 4000; i++) console.log('padding-' + i + '-xxxxxxxxxxxxxxxxxxxx')\n"
-  const { cwd, commit, state, cfg } = await setup(src)
-  await expect(verifyRegression(cfg, state, cwd, commit, 10_000)).rejects.toThrow()
+  const { root, cwd, commit, state, cfg } = await setup(src)
+  await verifyRegression(cfg, state, cwd, commit, 20_000)
+  const receipt = JSON.parse(readFileSync(join(root, 'issue-9', `regression-${commit}.json`), 'utf8'))
+  expect(receipt.green.stdout).toContain('[adng: output truncated]')
+  expect(receipt.green.framework).toMatchObject({ tests: 1, passed: 1, failed: 0 })
 })
 
 test('timeout fails closed', async () => {
@@ -145,12 +166,12 @@ test('legacy receipt without trusted evidence requires re-verification', async (
   expect(() => assertRegression(cfg, state, cwd)).toThrow()
 })
 
-test('receipt whose stored summary disagrees with stored output is rejected', async () => {
+test('receipt whose runner hash disagrees with the current trusted runner is rejected', async () => {
   const { root, cwd, commit, state, cfg } = await setup(PASS)
   await verifyRegression(cfg, state, cwd, commit, 10_000)
   const path = join(root, 'issue-9', `regression-${commit}.json`)
   const receipt = JSON.parse(readFileSync(path, 'utf8'))
-  receipt.green.stdout = "# pass 1\n# skipped 0\n# todo 0\n"  // 事後竄改輸出，tap 仍是原值
+  receipt.runner.sourceHash = '0'.repeat(64)
   writeFileSync(path, JSON.stringify(receipt))
   expect(() => assertRegression(cfg, state, cwd)).toThrow()
 })
