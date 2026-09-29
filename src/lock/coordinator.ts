@@ -240,7 +240,16 @@ export function releaseLockLease(dir: string, token?: string | null): void {
 
 /** Supervisor-only cleanup. The caller never becomes owner; an uncertain backend stays put. */
 export function releaseDeadLockLease(dir: string, staleMs: number): boolean {
-  const { db, lockDir, lockKey } = coordinatorFor(dir, DEAD_LOCK_BUSY_TIMEOUT_MS)
+  let coordinator: Coordinator
+  try {
+    coordinator = coordinatorFor(dir, DEAD_LOCK_BUSY_TIMEOUT_MS)
+  } catch (error) {
+    // A missing lock directory and parent mean there is nothing for the
+    // supervisor to release. Keep cleanup fail-closed for every other error.
+    if (errno(error) === 'ENOENT') return false
+    throw error
+  }
+  const { db, lockDir, lockKey } = coordinator
   let transactionStarted = false
   try {
     try {

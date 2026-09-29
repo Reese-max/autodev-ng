@@ -8,9 +8,14 @@
  */
 import { beforeEach, expect, test, vi } from 'vitest'
 
-const { readFileSync, statSync } = vi.hoisted(() => ({
+const { readFileSync, statSync, realpathSync } = vi.hoisted(() => ({
   readFileSync: vi.fn(),
   statSync: vi.fn(),
+  realpathSync: vi.fn(() => {
+    const error = new Error('ENOENT') as NodeJS.ErrnoException
+    error.code = 'ENOENT'
+    throw error
+  }),
 }))
 
 vi.mock('node:fs', () => ({
@@ -21,6 +26,7 @@ vi.mock('node:fs', () => ({
   openSync: vi.fn(),
   readFileSync,
   readdirSync: vi.fn(),
+  realpathSync,
   statSync,
 }))
 
@@ -49,6 +55,12 @@ const STALE_MS = 60_000
 beforeEach(() => {
   readFileSync.mockReset()
   statSync.mockReset()
+  realpathSync.mockReset()
+  realpathSync.mockImplementation(() => {
+    const error = new Error('ENOENT') as NodeJS.ErrnoException
+    error.code = 'ENOENT'
+    throw error
+  })
 })
 
 function installHealthyFsMocks(options: { lockReadFail?: boolean; lockStatFail?: boolean; heartbeatFail?: boolean } = {}): void {
