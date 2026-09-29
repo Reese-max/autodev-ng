@@ -72,9 +72,11 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
       try {
         if (options.policyCheck && !options.policyCheck()) break // 授權撤回：不再為剩餘 repo 收發鎖
         const result = await run(child, { syncOnly: scanOnly || executed, policyCheck: options.policyCheck })
-        if (!['synced', 'idle', 'paused', 'locked'].includes(result)) executed = true
+        const baseResult = result.split(';', 1)[0]!
+        if (!['synced', 'idle', 'paused', 'locked'].includes(baseResult)) executed = true
         report.repositories.push({ repo: repo.full_name, result, issues: states(child) })
-        if (/blocked$/.test(result)) report.status = 'blocked'
+        if (/; partial coverage/.test(result) && report.status === 'ok') report.status = 'partial'
+        if (/(?:^|: )blocked(?:$|;)/.test(result)) report.status = 'blocked'
       } catch (err) {
         report.status = 'error'
         report.repositories.push({ repo: repo.full_name, result: err instanceof Error ? err.message : String(err) })
@@ -96,5 +98,5 @@ export async function ownerCli(mode: string, file: string, deps: { discover?: ty
         lastRun: existsSync(statusFile) ? JSON.parse(readFileSync(statusFile, 'utf8')) : null }
     : await runOwner(cfg, mode === 'owner-sync', deps.discover, deps.run, { policyCheck: policyFileCheck(resolve(file), policyContent) })
   console.log(JSON.stringify(result, null, 2))
-  if ('status' in result && ['blocked', 'error'].includes(result.status)) process.exitCode = 1
+  if ('status' in result && ['blocked', 'error', 'partial'].includes(result.status)) process.exitCode = 1
 }
