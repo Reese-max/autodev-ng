@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, utimesSync, existsSync, readdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, utimesSync, existsSync, readdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -16,10 +16,9 @@ test('第二次 acquire 失敗；release 後可再取', () => {
 
 test('過期鎖可被接管', () => {
   const dir = join(mkdtempSync(join(tmpdir(), 'adng-lk-')), 'lock')
-  expect(acquireLock(dir)).toBeTruthy()
-  rmSync(join(dir, 'pid.json'), { force: true }) // 模擬 pid.json 缺失，測試 mtime fallback 路徑（PID 存活優先判定見專門測試）
+  mkdirSync(dir) // 模擬前代留下的 unknown owner
   const old = new Date(Date.now() - 60 * 60 * 1000)
-  utimesSync(dir, old, old) // 假裝鎖已一小時
+  utimesSync(dir, old, old)
   expect(acquireLock(dir, 30 * 60 * 1000)).toBeTruthy()
 })
 
@@ -31,34 +30,26 @@ test('父目錄不存在時 acquireLock 必 throw（ENOENT rethrow，不是回 f
 
 test('stale 接管成功後，第二個呼叫者立即再 acquire 必回 false（新鎖 age 已重置）', () => {
   const dir = join(mkdtempSync(join(tmpdir(), 'adng-lk-')), 'lock')
-  expect(acquireLock(dir)).toBeTruthy()
-  rmSync(join(dir, 'pid.json'), { force: true }) // 同上：測試 mtime fallback 路徑
-  const old = new Date(Date.now() - 60 * 60 * 1000)
-  utimesSync(dir, old, old) // 假裝鎖已一小時
-
-  expect(acquireLock(dir, 30 * 60 * 1000)).toBeTruthy() // 接管成功，建立全新鎖（含自己的新 pid.json）
-  expect(acquireLock(dir, 30 * 60 * 1000)).toBeNull() // 新鎖 PID 是自己且活著，必須讓步
-})
-
-test('對已被 rename 走的殘留 .stale-* 目錄不影響後續 acquire/release', () => {
-  const parent = mkdtempSync(join(tmpdir(), 'adng-lk-'))
-  const dir = join(parent, 'lock')
-  expect(acquireLock(dir)).toBeTruthy()
-  rmSync(join(dir, 'pid.json'), { force: true }) // 同上：測試 mtime fallback 路徑
+  mkdirSync(dir)
   const old = new Date(Date.now() - 60 * 60 * 1000)
   utimesSync(dir, old, old)
+
   const token = acquireLock(dir, 30 * 60 * 1000)
-  expect(token).toBeTruthy() // 觸發回收互斥 → rename → rmSync 殘留清理
-
-  // 確認沒有殘留的 .stale-* 目錄留在 parent 底下
-  const leftovers = readdirSync(parent).filter((name) => name.includes('.stale-'))
-  expect(leftovers).toEqual([])
-  expect(existsSync(dir)).toBe(true)
-
-  // 殘留（若有）不應影響正常 acquire/release 流程
+  expect(token).toBeTruthy()
   expect(acquireLock(dir, 30 * 60 * 1000)).toBeNull()
   releaseLock(dir, token)
-  expect(acquireLock(dir)).toBeTruthy()
+})
+
+test('SQLite coordinator remains outside the removable lock directory', () => {
+  const parent = mkdtempSync(join(tmpdir(), 'adng-lk-'))
+  const dir = join(parent, 'lock')
+  const first = acquireLock(dir)!
+  releaseLock(dir, first)
+  expect(existsSync(dir)).toBe(false)
+  expect(readdirSync(parent)).toContain('.autodev-lock-coordination.sqlite')
+  const second = acquireLock(dir)
+  expect(second).toBeTruthy()
+  releaseLock(dir, second)
 })
 
 // --- HIGH-1: PID-in-lock 驗活取代純 mtime 判 stale ---
@@ -131,23 +122,22 @@ test('死 PID steal 成功後，第二個 acquireLock 立即回 false（新主�
   expect(acquireLock(dir, 30 * 60 * 1000)).toBeNull() // 新鎖 PID 是自己且活著，必須讓步
 })
 
-test('死 PID steal 成功後，無殘留 .stale-* 目錄', () => {
+test('dead PID reclaim updates the existing lock directory in place', () => {
   const parent = mkdtempSync(join(tmpdir(), 'adng-lk-'))
   const dir = join(parent, 'lock')
-  mkdirSync(dir) // 手動建鎖目錄（不經過 acquireLock，避免此處寫入自己的 pid.json）
+  mkdirSync(dir)
 
   const dead = spawnSync(process.execPath, ['-e', '0'])
   const deadPid = dead.pid
   expect(typeof deadPid).toBe('number')
   assertPidIsDead(deadPid as number)
-
   writeFileSync(join(dir, 'pid.json'), JSON.stringify({ pid: deadPid, startedAt: new Date().toISOString() }))
 
-  expect(acquireLock(dir, 30 * 60 * 1000)).toBeTruthy() // 觸發回收互斥 → rename → rmSync 殘留清理
-
-  const leftovers = readdirSync(parent).filter((name) => name.includes('.stale-'))
-  expect(leftovers).toEqual([])
-  expect(existsSync(dir)).toBe(true)
+  const token = acquireLock(dir, 30 * 60 * 1000)
+  expect(token).toBeTruthy()
+  expect(JSON.parse(readFileSync(join(dir, 'pid.json'), 'utf8')).token).toBe(token)
+  expect(readdirSync(parent).some((name) => name.includes('.stale-') || name.endsWith('.reclaim'))).toBe(false)
+  releaseLock(dir, token)
 })
 
 test('pid.json 損壞（非 JSON）時 fallback 舊 mtime 邏輯：新鮮不 steal', () => {

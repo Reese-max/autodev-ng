@@ -1,21 +1,17 @@
 import { rmSync, statSync, renameSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
 /** lock.ts 與 reclaim.ts 共用的內部機制；不屬於公開 API（外部模組只應 import ../lock.js）。 */
-
-/** 測試縫：insideReclaim=互斥取得後世代複核前；beforeRename=複核通過後原子搬走前。
- *  正式呼叫端不得注入。 */
-export interface LockHooks {
-  insideReclaim?: () => void
-  beforeRename?: () => void
-}
 
 export interface PidInfo {
   pid: number
   startedAt: string
   token?: string
 }
+
+type ProcessStartTimeReader = (pid: number) => string
 
 /** process.kill(pid, 0) 不拋=活、EPERM=活（無權限但存在）、ESRCH=死。其餘未知例外 fail-safe 視為活著（不誤搶）。 */
 export function isPidAlive(pid: number): boolean {
@@ -28,19 +24,22 @@ export function isPidAlive(pid: number): boolean {
 }
 
 /** Windows 會重用 PID；若目前程序的啟動時間晚於鎖建立時間，它不可能是原持鎖者。 */
-export function isReusedWindowsPid(pid: number, lockStartedAt: string): boolean {
+function windowsProcessStartTime(pid: number): string {
+  return execFileSync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
+  ], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
+}
+
+export function isReusedWindowsPid(pid: number, lockStartedAt: string, readProcessStartTime: ProcessStartTimeReader = windowsProcessStartTime): boolean {
   if (process.platform !== 'win32') return false
   const lockStartedAtMs = Date.parse(lockStartedAt)
   if (!Number.isFinite(lockStartedAtMs)) return false
 
   try {
-    const raw = execFileSync('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
-    ], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
-    const processStartedAtMs = Date.parse(raw.trim())
+    const processStartedAtMs = Date.parse(readProcessStartTime(pid).trim())
     return Number.isFinite(processStartedAtMs) && processStartedAtMs > lockStartedAtMs + 5_000
   } catch {
     // ponytail: Windows-only identity check; fail-safe as alive if the probe is unavailable.
@@ -50,19 +49,28 @@ export function isReusedWindowsPid(pid: number, lockStartedAt: string): boolean 
 
 /** 讀取 dir/pid.json；缺失/損壞/pid 非正整數一律回 null（驗活是盡力而為，不 rethrow）。 */
 export function readPidFile(dir: string): PidInfo | null {
+  let raw: string
   try {
-    const parsed = JSON.parse(readFileSync(join(dir, 'pid.json'), 'utf8')) as Partial<PidInfo>
+    raw = readFileSync(join(dir, 'pid.json'), 'utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw err
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<PidInfo> | null
+    if (!parsed || typeof parsed !== 'object') return null
     const pid = parsed.pid
     if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return null
     return { pid, startedAt: typeof parsed.startedAt === 'string' ? parsed.startedAt : '', token: typeof parsed.token === 'string' ? parsed.token : undefined }
   } catch {
+    // Malformed JSON retains the legacy unknown/mtime fallback; filesystem errors above propagate.
     return null
   }
 }
 
 /** pid.json 持有者是否仍活著（含 Windows PID 重用複活檢查）。 */
-export function ownerAlive(info: PidInfo): boolean {
-  return isPidAlive(info.pid) && !(info.startedAt && isReusedWindowsPid(info.pid, info.startedAt))
+export function ownerAlive(info: PidInfo, readProcessStartTime?: ProcessStartTimeReader): boolean {
+  return isPidAlive(info.pid) && !(info.startedAt && isReusedWindowsPid(info.pid, info.startedAt, readProcessStartTime))
 }
 
 /** 讀 dir/pid.json 判定鎖主人是否存活。缺失/損壞/pid 非正整數一律回 'unknown'（fallback 舊 mtime 邏輯）。 */
@@ -88,14 +96,14 @@ export function dirAgeMs(dir: string): number | null {
 }
 
 export function writeFileAtomic(file: string, content: string): void {
-  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`
+  const tmp = `${file}.tmp-${process.pid}-${randomUUID()}`
   writeFileSync(tmp, content)
   renameSync(tmp, file)
 }
 
 /** 比照 events.ts heartbeat 的 tmp+rename 原子寫慣例，記錄目前持鎖者身分供下次驗活與世代比對。 */
-export function writeOwnPidFile(dir: string, token: string): void {
-  writeFileAtomic(join(dir, 'pid.json'), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), token }))
+export function writeOwnPidFile(dir: string, token: string, startedAt = new Date().toISOString()): void {
+  writeFileAtomic(join(dir, 'pid.json'), JSON.stringify({ pid: process.pid, startedAt, token }))
 }
 
 /** 判定「dir 裡沒有已提交世代」才可刪：有 pid.json（別人的世代）或 recovery-required 標記都拒絕。
@@ -113,9 +121,9 @@ export function removeIfUnclaimed(dir: string): void {
 /** writeOwnPidFile 失敗（ENOSPC/EIO 等）時，剛建立的 dir 已是「無 pid.json、無主」的幽靈鎖，
  *  會擋住後續所有 acquire（含自己重試）長達 staleMs。此處補償刪除該 dir 再 rethrow 原錯；
  *  但只在 dir 仍未被他人提交世代時刪——盲 rm 可能刪掉在空窗內搶佔成功的新世代。 */
-export function writeOwnPidFileOrCleanup(dir: string, token: string): void {
+export function writeOwnPidFileOrCleanup(dir: string, token: string, startedAt?: string): void {
   try {
-    writeOwnPidFile(dir, token)
+    writeOwnPidFile(dir, token, startedAt)
   } catch (err) {
     removeIfUnclaimed(dir)
     throw err
