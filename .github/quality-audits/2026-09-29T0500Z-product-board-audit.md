@@ -74,7 +74,7 @@ PR #44 的新增 race／epoch finding 已逐步由後續 commits 回覆；最新
 
 ### project-doctor-web / police-exam-archive
 
-`project-doctor-web#12` 最新 head `ec83986b063d21e44e15619a4b426487b86ddd56` 已將先前 P2 threads 標為 resolved，但仍缺 real MiniMax、fixed-persona 與 deployment evidence；`police-exam-archive#76/#77` 仍為未合併 PR。皆不把 code review 或綠燈當 default-branch runtime 修復。
+`project-doctor-web#12` 在本輪收尾時已前進至 head `a9062101e7784edae6e5c8ff45b632db254e503a`；`ec83986` 的 no-exam trailing-modifier P2 thread 已因新提交 outdated，owner 宣稱於 `a906210` 修正，但新 head 尚未完成同等 review，且仍缺 real MiniMax、fixed-persona 與 deployment evidence，故標記 `EVIDENCE_INVALIDATED_BY_NEW_HEAD / NEEDS_REVIEW`。`police-exam-archive#76/#77` 仍為未合併 PR。皆不把 code review 或綠燈當 default-branch runtime 修復。
 
 ## 產品董事會 delta（模型多視角推演）
 
