@@ -67,7 +67,7 @@ class BarrierEngine implements Engine {
   private entered = 0
   private release!: () => void
   private readonly gate = new Promise<void>(resolve => { this.release = resolve })
-  constructor(private readonly outsideScope = false) {}
+  constructor(private readonly outsideScope = false, private readonly reportVerifiedExit = false) {}
   async preflight() { return { ok: true, detail: 'ok' } }
   async run(job: Job): Promise<RunResult> {
     const before = git(job.projectPath, ['rev-parse', 'HEAD'])
@@ -78,6 +78,7 @@ class BarrierEngine implements Engine {
     writeFileSync(join(job.projectPath, name), `${job.task.text}\n`)
     git(job.projectPath, ['add', name]); git(job.projectPath, ['commit', '-m', `feat: ${job.task.text}`])
     this.active--
+    if (this.reportVerifiedExit) job.control?.onEvent?.({ type: 'exit', code: 0, reason: 'exit' })
     return { ok: true, output: `created ${name}`, costUsd: 0, baseCommitHash: before, commitHash: git(job.projectPath, ['rev-parse', 'HEAD']) }
   }
 }
@@ -102,7 +103,7 @@ test('observed scheduler keeps its receipt through verification and closes it af
   let observedExecutionId = ''
   try {
   f.deps.cfg.engines[f.deps.cfg.defaultEngine]!.executionMode = 'observed'
-  const engine = new BarrierEngine(true)
+  const engine = new BarrierEngine(true, true)
   f.deps.engines = { resolve: () => engine }
   f.deps.verifier = { check: async job => {
     observedExecutionId = job.executionId!

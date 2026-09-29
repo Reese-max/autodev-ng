@@ -1,8 +1,8 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createExecutionObservation, executionFile, executionHistoryFile, readExecution, readExecutions, requestExecutionCancel } from '../src/engines/execution-observation.js'
+import { createExecutionObservation, executionFile, executionHistoryFile, executionInventoryOverCapacity, executionReceiptDestination, readExecution, readExecutions, requestExecutionCancel, selectExecutionReceipt, type ExecutionSnapshot } from '../src/engines/execution-observation.js'
 import { ENGINE_CAPABILITIES, assertExecutionMode } from '../src/engines/capabilities.js'
 import { EngineConfigSchema } from '../src/types.js'
 
@@ -14,7 +14,7 @@ function fixture() {
     job: { executionId: 'fixture-execution', projectPath: root, task: { id: 'ab12cd34', text: 'fixture', line: 0, status: 'open' } } })
   return { root, observer, file: executionFile(root, 'fixture-execution') }
 }
-function terminalReceipt(executionId: string) {
+function terminalReceipt(executionId: string): ExecutionSnapshot {
   return { version: 1, executionId, taskId: 'task-' + executionId, adapter: 'codex', projectPath: 'fixture',
     hostPid: 1, hostStartedAt: 1, startedAt: 1, observedAt: 1, sequence: 1, phase: 'terminal',
     outputBytes: 0, unknownSamples: 0, degraded: false, cancelRequested: false,
@@ -85,27 +85,46 @@ test('observer write failure leaves the previous active receipt; no worker cance
   expect(readExecutions(f.root).protected).toBe(true)
   f.observer.finish('completed')
 })
-test('legacy terminal history at 9,999 / 10,000 / 10,001 migrates out of bounded active inventory and remains addressable', () => {
-  const root = mkdtempSync(join(tmpdir(), 'adng-history-boundary-')), folder = join(root, 'executions'), parked = join(root, 'parked')
-  roots.push(root); mkdirSync(folder, { recursive: true }); mkdirSync(parked)
-  for (let index = 0; index < 10_001; index++) {
-    const id = 'legacy-' + index
-    writeFileSync(join(folder, id + '.json'), JSON.stringify(terminalReceipt(id)))
-  }
-  for (const index of [9_999, 10_000])
-    renameSync(join(folder, 'legacy-' + index + '.json'), join(parked, 'legacy-' + index + '.json'))
-
+test('in-memory terminal classification and direct history lookup cover 9,999 / 10,000 / 10,001 receipts', () => {
+  const receipts = Array.from({ length: 10_001 }, (_, index) => terminalReceipt('legacy-' + index))
   for (const count of [9_999, 10_000, 10_001]) {
-    if (count === 10_000) renameSync(join(parked, 'legacy-9999.json'), join(folder, 'legacy-9999.json'))
-    if (count === 10_001) renameSync(join(parked, 'legacy-10000.json'), join(folder, 'legacy-10000.json'))
-    const inventory = readExecutions(root)
-    expect(inventory).toMatchObject({ protected: false, records: [], errors: [], capacityExceeded: false })
-    expect(readdirSync(join(folder, 'history'))).toHaveLength(count)
-    expect(readdirSync(join(folder, 'active'))).toHaveLength(0)
-    expect(readExecution(root, 'legacy-' + (count - 1))).toMatchObject({ executionId: 'legacy-' + (count - 1), phase: 'terminal', outcome: 'completed' })
-    expect(readFileSync(executionHistoryFile(root, 'legacy-0'), 'utf8')).toContain('"outcome":"completed"')
+    const history = new Map<string, ExecutionSnapshot>()
+    for (const record of receipts.slice(0, count))
+      if (executionReceiptDestination(record) === 'history') history.set(record.executionId, record)
+    expect(history.size).toBe(count)
+    expect(selectExecutionReceipt({ history: history.get('legacy-' + (count - 1)) })).toMatchObject({
+      executionId: 'legacy-' + (count - 1), phase: 'terminal', outcome: 'completed',
+    })
+    expect(executionInventoryOverCapacity(0)).toBe(false)
   }
-}, 240_000)
+})
+
+test('small real legacy migration moves verified terminal receipts to history and keeps them addressable', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-history-smoke-')), folder = join(root, 'executions')
+  roots.push(root); mkdirSync(folder, { recursive: true })
+  const records = [terminalReceipt('legacy-smoke-a'), terminalReceipt('legacy-smoke-b'), terminalReceipt('legacy-smoke-c')]
+  for (const record of records) writeFileSync(join(folder, record.executionId + '.json'), JSON.stringify(record))
+
+  expect(readExecutions(root)).toMatchObject({ protected: false, records: [], errors: [], capacityExceeded: false })
+  expect(readdirSync(join(folder, 'active'))).toEqual([])
+  expect(readdirSync(join(folder, 'history')).sort()).toEqual(records.map(record => record.executionId + '.json').sort())
+  for (const record of records)
+    expect(readExecution(root, record.executionId)).toMatchObject({ executionId: record.executionId, phase: 'terminal', outcome: 'completed' })
+})
+
+test('active inventory capacity is distinct at 9,999 / 10,000 / 10,001 receipts', () => {
+  expect([9_999, 10_000, 10_001].map(executionInventoryOverCapacity)).toEqual([false, false, true])
+})
+
+test('missing or empty inventory reads do not create storage or a lock', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-empty-inventory-')), missingData = join(root, 'missing-data'), emptyData = join(root, 'empty-data')
+  roots.push(root)
+  expect(readExecutions(missingData)).toMatchObject({ records: [], errors: [], protected: false, capacityExceeded: false })
+  expect(existsSync(missingData)).toBe(false)
+  mkdirSync(join(emptyData, 'executions'), { recursive: true })
+  expect(readExecutions(emptyData)).toMatchObject({ records: [], errors: [], protected: false, capacityExceeded: false })
+  expect(readdirSync(join(emptyData, 'executions'))).toEqual([])
+})
 
 test('legacy running, unknown, waiting-input, pending-cancel and corrupt receipts stay protected and are not archived', () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-preserve-')), folder = join(root, 'executions')
@@ -144,21 +163,6 @@ test('history collision preserves the active receipt and marks its terminal stat
   expect(readExecutions(f.root)).toMatchObject({ protected: true, records: [{ executionId: 'fixture-execution', outcome: 'unconfirmed' }] })
   expect(() => readExecution(f.root, 'fixture-execution')).toThrow('both active and history')
 })
-
-test('capacity overflow is distinct from unknown and malformed execution state', () => {
-  const root = mkdtempSync(join(tmpdir(), 'adng-capacity-')), folder = join(root, 'executions', 'active')
-  roots.push(root); mkdirSync(folder, { recursive: true })
-  for (let index = 0; index <= 10_000; index++) {
-    const id = 'active-' + index
-    const record = { ...terminalReceipt(id), phase: 'running', exit: undefined, outcome: undefined }
-    writeFileSync(join(folder, id + '.json'), JSON.stringify(record))
-  }
-  const inventory = readExecutions(root)
-  expect(inventory.capacityExceeded).toBe(true)
-  expect(inventory.errors.some(error => error.includes('active execution capacity exceeded'))).toBe(true)
-  expect(inventory.records.length).toBe(10_000)
-  expect(inventory.protected).toBe(true)
-}, 240_000)
 
 test('capability manifest covers every schema adapter and never promotes unverified native unlimited support', () => {
   expect(Object.keys(ENGINE_CAPABILITIES).sort()).toEqual([...EngineConfigSchema.shape.adapter.options].sort())

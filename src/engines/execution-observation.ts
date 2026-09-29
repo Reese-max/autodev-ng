@@ -28,6 +28,7 @@ const SnapshotSchema = z.object({
 })
 export type ExecutionSnapshot = z.infer<typeof SnapshotSchema>
 export type ExecutionInventory = { records: ExecutionSnapshot[]; errors: string[]; protected: boolean; diagnosisDue: boolean; capacityExceeded: boolean }
+export type ExecutionReceiptDestination = 'active' | 'history'
 
 type MigrationMarker = { version: 1; migratedAt: number; quarantined: string[] }
 
@@ -58,6 +59,15 @@ function boundedEntries(folder: string, limit: number): { entries: Dirent[]; ove
     }
     return { entries, overflow: true }
   } finally { directory.closeSync() }
+}
+
+function inventoryDirectoryHasEntries(folder: string): boolean {
+  let directory: Dir
+  try { directory = opendirSync(folder) } catch (error) {
+    // A missing inventory is a valid empty state; other I/O failures must fail closed below.
+    return (error as NodeJS.ErrnoException).code !== 'ENOENT'
+  }
+  try { return directory.readSync() !== null } finally { directory.closeSync() }
 }
 
 function processIsAlive(pid: number): boolean {
@@ -109,6 +119,24 @@ function withInventoryLock<T>(dataDir: string, action: () => T): T {
 function archiveable(record: ExecutionSnapshot): boolean {
   return record.phase === 'terminal' && (record.outcome === 'completed' || record.outcome === 'failed') &&
     record.exit?.reason === 'exit' && !record.cancelRequested && !record.degraded
+}
+
+/** Shared classification seam for legacy migration and in-memory boundary tests. */
+export function executionReceiptDestination(record: ExecutionSnapshot, hasCancelRequest = false): ExecutionReceiptDestination {
+  return archiveable(record) && !hasCancelRequest ? 'history' : 'active'
+}
+
+/** Keep direct ID lookup independent of the size of the history store. */
+export function selectExecutionReceipt<T>(candidates: { active?: T; history?: T; legacy?: T }): T | undefined {
+  if (candidates.active !== undefined && candidates.history !== undefined)
+    throw new Error('Execution exists in both active and history storage')
+  if ((candidates.active !== undefined || candidates.history !== undefined) && candidates.legacy !== undefined)
+    throw new Error('Execution exists in multiple inventory locations')
+  return candidates.active ?? candidates.history ?? candidates.legacy
+}
+
+export function executionInventoryOverCapacity(activeCount: number): boolean {
+  return activeCount > MAX_ACTIVE_EXECUTIONS
 }
 
 function moveWithoutOverwrite(source: string, target: string): void {
@@ -185,7 +213,7 @@ function ensureLegacyLayout(dataDir: string, nowMs: number): { errors: string[];
         snapshot = SnapshotSchema.parse(JSON.parse(readFileSync(source, 'utf8')))
         if (snapshot.executionId !== id) throw new Error('identity mismatch')
       } catch { /* Keep validly named but corrupt records in active storage for direct review. */ }
-      const destination = snapshot && archiveable(snapshot) && !hasCancel
+      const destination = snapshot && executionReceiptDestination(snapshot, hasCancel) === 'history'
         ? join(executionHistoryDir(dataDir), id + '.json') : executionFile(dataDir, id)
       try {
         moveWithoutOverwrite(source, destination)
@@ -246,7 +274,7 @@ function readExecutionsUnlocked(dataDir: string, nowMs: number): ExecutionInvent
     try {
       if (!activeEntries.get(name)?.isFile()) throw new Error('non-regular execution entry')
       const record = parseReceipt(file, id)
-      if (archiveable(record) && !hasCancel) {
+      if (executionReceiptDestination(record, hasCancel) === 'history') {
         try { moveWithoutOverwrite(file, join(executionHistoryDir(dataDir), id + '.json')); activeFiles-- }
         catch {
           if (records.length < MAX_ACTIVE_EXECUTIONS) records.push(record)
@@ -263,7 +291,7 @@ function readExecutionsUnlocked(dataDir: string, nowMs: number): ExecutionInvent
     const id = name.slice(0, -'.cancel.json'.length)
     if (!SAFE_ID.test(id) || !receiptNames.includes(id + '.json')) errors.push('orphan cancellation request: ' + name.slice(0, 110))
   }
-  if (activeFiles > MAX_ACTIVE_EXECUTIONS) { errors.push('active execution capacity exceeded (' + activeFiles + ' > ' + MAX_ACTIVE_EXECUTIONS + ')'); capacityExceeded = true }
+  if (executionInventoryOverCapacity(activeFiles)) { errors.push('active execution capacity exceeded (' + activeFiles + ' > ' + MAX_ACTIVE_EXECUTIONS + ')'); capacityExceeded = true }
   return { records, errors, protected: capacityExceeded || errors.length > 0 || records.length > 0,
     diagnosisDue: capacityExceeded || errors.length > 0 || records.some(record => record.phase === 'unknown' || record.phase === 'waiting_input' || record.degraded || record.unknownSamples >= UNKNOWN_SAMPLES_BEFORE_DIAGNOSIS || nowMs - record.observedAt >= OBSERVATION_INTERVAL_MS * UNKNOWN_SAMPLES_BEFORE_DIAGNOSIS),
     capacityExceeded }
@@ -281,7 +309,10 @@ export function executionHistoryFile(dataDir: string, id: string): string {
 
 /** No stdout, prompt, commands, credentials or tool arguments are persisted. */
 export function readExecutions(dataDir: string, nowMs = Date.now()): ExecutionInventory {
-  try { return withInventoryLock(dataDir, () => readExecutionsUnlocked(dataDir, nowMs)) }
+  try {
+    if (!inventoryDirectoryHasEntries(executionRoot(dataDir))) return emptyInventory()
+    return withInventoryLock(dataDir, () => readExecutionsUnlocked(dataDir, nowMs))
+  }
   catch { return emptyInventory(['execution inventory unavailable']) }
 }
 
@@ -290,11 +321,10 @@ export function readExecution(dataDir: string, id: string): ExecutionSnapshot | 
   if (!SAFE_ID.test(id)) throw new Error('Invalid execution ID')
   return withInventoryLock(dataDir, () => {
     const active = executionFile(dataDir, id), history = executionHistoryFile(dataDir, id)
-    if (existsSync(active) && existsSync(history)) throw new Error('Execution exists in both active and history storage')
-    if (existsSync(active)) return parseReceipt(active, id)
-    if (existsSync(history)) return parseReceipt(history, id)
     const legacy = join(executionRoot(dataDir), id + '.json')
-    return existsSync(legacy) ? parseReceipt(legacy, id) : undefined
+    const file = selectExecutionReceipt({ active: existsSync(active) ? active : undefined,
+      history: existsSync(history) ? history : undefined, legacy: existsSync(legacy) ? legacy : undefined })
+    return file ? parseReceipt(file, id) : undefined
   })
 }
 
