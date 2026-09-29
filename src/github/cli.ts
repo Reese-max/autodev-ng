@@ -69,11 +69,12 @@ export async function githubCli(argv: string[]): Promise<void> {
   if (mode!.startsWith('repair') && !cfg.repair) throw new Error('Repair CLI requires a local report/probe policy in configuration')
   if (mode === 'scan' || (mode === 'repair' && extra[0] === '--dry-run')) {
     const batch = await issueBatchFor(githubClient(cfg))
-    console.log(JSON.stringify({ coverage: batch.partial ? 'partial' : 'complete', pagesRead: batch.pagesRead,
-      pageLimitReached: batch.pageLimitReached,
-      issues: batch.issues.filter(i => eligibleForRun(i, cfg)).map(i => ({ number: i.number, title: i.title })),
+    const issues = batch.issues.filter(i => eligibleForRun(i, cfg)).map(i => ({ number: i.number, title: i.title }))
+    const result = batch.partial ? { coverage: 'partial', pagesRead: batch.pagesRead,
+      pageLimitReached: batch.pageLimitReached, issues,
       rejected: batch.rejected.slice(0, 20), omittedRejectedCount: Math.max(0, batch.rejected.length - 20),
-      summary: describeIssueBatchCoverage(batch) ?? null }, null, 2))
+      summary: describeIssueBatchCoverage(batch) ?? null } : issues
+    console.log(JSON.stringify(result, null, 2))
   } else if (mode === 'status' || mode === 'repair-status') {
     console.log(JSON.stringify({ enabled: cfg.enabled, publish: cfg.publish, paused: !cfg.enabled || existsSync(githubStopFile(cfg)), repo: cfg.repo,
       issues: states(cfg).map(s => ({ number: s.issue.number, status: s.status, runs: s.runs, detail: s.detail, commit: s.commit, directory: issueDir(cfg, s.issue.number), pr: s.pr })) }, null, 2))

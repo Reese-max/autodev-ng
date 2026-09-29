@@ -6,7 +6,7 @@ import { GithubConfigSchema, type Issue } from '../src/github/config.js'
 import { ReportConfigSchema } from '../src/github/report-config.js'
 import { readReportState, reportBody, saveReportState } from '../src/github/report.js'
 import { eligibleForRun, prepareRepair, reviewRepair } from '../src/github/repair.js'
-import { command, type GithubClient } from '../src/github/client.js'
+import { command, type GithubClient, type IssueBatch } from '../src/github/client.js'
 import { assertPublishable, checkoutDir, git, runtimeConfig } from '../src/github/job.js'
 import { publishIssue, runGithub } from '../src/github/runner.js'
 import { branchFor, fingerprint, readState, saveState, type IssueState } from '../src/github/state.js'
@@ -310,6 +310,23 @@ test('repair --dry-run reads eligibility without changing state, invoking models
   await githubCli(['repair', '--config', f.configPath, '--dry-run'])
   expect(JSON.parse(output.mock.calls[0]![0])).toEqual([{ number: 4, title: f.issue.title }])
   expect(run).not.toHaveBeenCalled(); expect(readFileSync(join(f.dir, 'issue-4', 'state.json'), 'utf8')).toBe(before)
+})
+
+test('repair --dry-run includes coverage metadata for a partial issue batch', async () => {
+  const f = await setup()
+  const batch: IssueBatch = { issues: [f.issue], rejected: [{ number: 9, field: 'body', reason: 'value exceeds the schema limit' }],
+    pagesRead: 1, partial: true, pageLimitReached: false }
+  vi.spyOn(github, 'githubClient').mockReturnValue({ ...f.client, listBatch: async () => batch })
+  const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+  await githubCli(['repair', '--config', f.configPath, '--dry-run'])
+
+  expect(JSON.parse(output.mock.calls[0]![0])).toMatchObject({
+    coverage: 'partial', pagesRead: 1, pageLimitReached: false,
+    issues: [{ number: 4, title: f.issue.title }],
+    rejected: [{ number: 9, field: 'body', reason: 'value exceeds the schema limit' }],
+    omittedRejectedCount: 0, summary: 'partial coverage (rejected 1 invalid item(s) [#9 body: value exceeds the schema limit])',
+  })
 })
 
 test('CLI failed attempt is nonzero while retaining its bounded retry queue', async () => {
