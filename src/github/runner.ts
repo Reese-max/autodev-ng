@@ -116,10 +116,10 @@ export async function runGithub(cfg: GithubConfig, options: {
         state.detail = result.detail
         state.commit = result.commit
         if (result.alternativeRetryPending) state.alternativeRetryPending = alternativeRunPending(cfg, { ...state, alternativeRetryPending: true })
-        state.status = result.done ? 'ready' : state.runs >= cfg.maxRuns && !state.alternativeRetryPending && !result.reviewPending ? 'blocked' : 'queued'
+        state.status = result.blocked ? 'blocked' : result.done ? 'ready' : state.runs >= cfg.maxRuns && !state.alternativeRetryPending && !result.reviewPending ? 'blocked' : 'queued'
         // #49：前置拒絕用控制端連續次數做有界指數退避（最遲 16×retryMs），不讓同一案
         // 每輪搶先其他 issue；明確 retryAt（如 pending review 的到期點）優先。
-        state.nextRunAt = result.retryAt && result.retryAt > Date.now() ? result.retryAt
+        if (!result.blocked) state.nextRunAt = result.retryAt && result.retryAt > Date.now() ? result.retryAt
           : Date.now() + cfg.retryMs * (result.attempted === false ? 1 << Math.min((state.controlRuns ?? 1) - 1, 4) : 1)
         saveState(cfg, state)
       }

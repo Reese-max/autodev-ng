@@ -39,10 +39,19 @@ function fixture(opts: { maxRuns?: number } = {}) {
   const client: GithubClient = { list: vi.fn(async () => [issue]), issue: vi.fn(async () => issue),
     findPr: vi.fn(async () => undefined), findLinkedPr: vi.fn(async () => undefined),
     createPr: vi.fn(async () => { throw new Error('unexpected publish') }) }
-  const execute = (engine: MockEngine) => (c: typeof cfg, s: Parameters<typeof executeIssue>[1]) => executeIssue(c, s, (runtime, cfgPath) => {
+  const execute = (engine: MockEngine, verifier?: { check(): Promise<{ pass: boolean; blockedReason?: 'review-unavailable' | 'verification-infra'; reason?: string; alerts: string[] }> }) => (c: typeof cfg, s: Parameters<typeof executeIssue>[1]) => executeIssue(c, s, (runtime, cfgPath) => {
     const app = assembleConfig(runtime, cfgPath)
     app.deps.engines = { resolve: () => engine }
-    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    app.deps.verifier = verifier ?? new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    if (verifier) {
+      app.deps.cfg.tierMode = 'free-only'
+      app.deps.cfg.defaultEngine = 'oc-worker'
+      app.deps.cfg.engineRotation = ['oc-worker']
+      app.deps.cfg.engines = { 'oc-worker': { adapter: 'mock', model: 'test/writer:free', costPerRunUsd: 0, dailyAttemptCap: 1 } }
+      app.deps.evidence = undefined
+      app.deps.team?.close()
+      app.deps.team = undefined
+    }
     return app
   })
   return { cfg, issue, client, execute }
@@ -149,4 +158,38 @@ test('backlog 任務已終態 blocked：issue 直達 blocked，不留在 queued 
   const s = readState(cfg, 7)!
   expect(s.status).toBe('blocked')
   expect(engine.calls).toHaveLength(0)
+})
+
+test('review resume 遇 terminal block：保留 writer 次數退款並同步 Issue blocked', async () => {
+  const { cfg, client, execute } = fixture({ maxRuns: 1 })
+  const engine = new MockEngine()
+  vi.spyOn(engine, 'run').mockImplementation(async job => {
+    engine.calls.push(job)
+    const base = git(job.projectPath, ['rev-parse', 'HEAD'])
+    writeFileSync(join(job.projectPath, 'add.cjs'), 'module.exports = (a, b) => a + b\n')
+    git(job.projectPath, ['add', 'add.cjs'])
+    git(job.projectPath, ['commit', '-m', 'candidate for review'])
+    return { ok: true, output: 'mock done', costUsd: 0.01, commitHash: git(job.projectPath, ['rev-parse', 'HEAD']), baseCommitHash: base }
+  })
+  let checks = 0
+  const verifier = { check: vi.fn(async () => ++checks === 1
+    ? { pass: false, blockedReason: 'review-unavailable' as const, reason: 'review temporarily unavailable', alerts: [] }
+    : { pass: false, blockedReason: 'verification-infra' as const, reason: 'recovered candidate verification failed', alerts: [] }) }
+  const run = execute(engine, verifier)
+
+  const firstResult = await runGithub(cfg, { client, execute: run })
+  expect({ firstResult, state: readState(cfg, 7), writerCalls: engine.calls.length }).toMatchObject({
+    firstResult: '7: queued', state: { runs: 1, status: 'queued', detail: 'deferred' }, writerCalls: 1,
+  }) // first cycle really started the writer and saved the candidate
+  expect(verifier.check).toHaveBeenCalledTimes(1) // confirms the first run reached and deferred review
+
+  forceDue(cfg)
+  vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60 * 60_000)
+  expect(await runGithub(cfg, { client, execute: run })).toBe('7: blocked')
+  const state = readState(cfg, 7)!
+  expect(state.status).toBe('blocked')
+  expect(state.runs).toBe(1) // recovered review does not consume a second writer attempt
+  expect(state.detail).toContain('verification-infra')
+  expect(engine.calls).toHaveLength(1) // no writer run during review resume
+  expect(verifier.check).toHaveBeenCalledTimes(2)
 })
