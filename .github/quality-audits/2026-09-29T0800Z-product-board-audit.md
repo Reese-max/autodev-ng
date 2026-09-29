@@ -1,6 +1,6 @@
 # 產品董事會增量稽核：taichung-police-intel 事件身分與 registry 邊界
 
-- 查閱時間：2026-09-29 08:00–08:18 UTC
+- 查閱時間：2026-09-29 08:00–08:12 UTC
 - 狀態：**PARTIAL / 2 NEW ACTIONABLE PRE-MERGE FINDINGS / SKIPPED_LOCKED_ACTIVE_PR / NOT CLEAN**
 - 本輪只做稽核與分流；未改產品程式、CI、設定、權限或正式資料，未 merge、deploy、啟動 worker/GOAL，也未做正式環境失敗注入。
 - Issue-quality v2：Reese-max/autodev-ng/docs/portfolio-audit/2026-09-14-issue-quality-v2.md
@@ -280,7 +280,7 @@ Synthetic Preference Share：**未計算**。沒有真人樣本，亦不把上�
 - Verified Fixed：0
 - Confirmed regression on default branch：0
 - PR #81 exact-head CI：success，但不是 product/live verification。
-- 寫結論前需再次核對 PR #81 HEAD 與 thread state；若 head 改變，應以新 head 重驗，不沿用本輪結論。
+- 最終競態檢查（2026-09-29T08:11Z）：PR #81 仍為 open draft，head 仍是 aabd839fc5b49ad2cc8e95bcad7fbeb782ecd269；兩個 review threads 仍 unresolved、not outdated。
 - Portfolio：**NOT CLEAN**。本輪不是固定 A01–J05 完整輪，也沒有兩個完整合格輪次與必要 runtime 證據。
 
 ## 強制統計與游標
@@ -298,6 +298,6 @@ Synthetic Preference Share：**未計算**。沒有真人樣本，亦不把上�
 - Verified fixed：0
 - Confirmed default-branch regression：0
 - Issue write blocked：0
-- Report write：本檔案以獨立 audit branch/PR 寫入，待 read-back 驗證
+- Report write：已讀回驗證；Draft PR #101 open，僅 1 個 audit 檔案，未改產品程式
 - Remaining：PR #81 新 head 回歸、production alias/shared registry runtime、PR #80 Issue #20 runtime、全量 portfolio continuation
 - Fair-rotation cursor：本輪優先 taichung-police-intel active P1；下一輪從未完成長尾游標續行，不把本輪當完整 inventory CLEAN round。
