@@ -87,6 +87,12 @@ Windows 可用 `scripts/install-github-issues-task.ps1 -Config <設定檔>` 安�
 `scripts/watch-github-owner.ps1 -Config <設定檔>`，並由使用者 Startup 捷徑登入啟動。
 watcher 使用 mutex 防止重複，每輪結束後等待 retryMs；登出或關機時不執行。
 watcher 的 `-Mode issues` 也可直接讀取單一 repo 設定，僅輪詢該 repo。
+若需在 watcher 意外退出後恢復，可用 `scripts/supervise-github-owner.ps1 -Config <設定檔>`
+啟動 watcher。supervisor 對同一設定檔與 mode 只管理一個 child，使用系統安裝的
+Windows PowerShell，意外退出後等待預設 5 秒才重啟；`-RestartDelayMs` 限 1 秒至 1 小時。
+`enabled=false`、dataDir 的 `.adng.stop` 或設定的 `stopFile` 會阻止啟動並停止已啟動的
+child。狀態寫在相同 dataDir 的 `supervisor.json`，只包含 PID、狀態、重啟次數、結束碼與時間。
+由 supervisor 啟動時，勿另以 Startup 捷徑或排程器啟動同一 watcher。
 
 ## 狀態與停止
 
