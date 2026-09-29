@@ -111,9 +111,10 @@ function rejectedEvidence(steps: readonly string[]): VerifyStepResult[] {
  * 與既有 tokenizer 一致，歧義輸入走拒絕而非猜測。
  */
 export function splitSteps(cmd: string): { ok: true; steps: string[] } | { ok: false; detail: string; steps: string[] } {
-  // Escaped quotes are outside this parser's intentionally small quoting model.
-  // Reject before scanning && so their literal contents cannot become fake steps.
-  if (/\\"/.test(cmd)) {
+  // Escaped quotes are outside this parser's intentionally small chain model.
+  // Reject before scanning && so literal contents cannot become fake steps;
+  // preserve existing single-step behavior when no chain boundary can be misread.
+  if (cmd.includes('&&') && /\\"/.test(cmd)) {
     return { ok: false, detail: 'verify infra failure（escaped quote in verifyCommand）', steps: [cmd] }
   }
   const steps: string[] = []
