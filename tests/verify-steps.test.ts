@@ -86,6 +86,28 @@ test('引號內的 && 是普通參數，不切步、不誤判為串接', async (
   expect(r.steps).toHaveLength(1)
 })
 
+test('反斜線跳脫雙引號在掃描 && 前即拒絕，第一步不執行', async () => {
+  const cwd = workdir()
+  const r = await runVerify({
+    command: `${q(NODE)} -e "require('fs').writeFileSync('escaped-quote-ran','1')" "before \\\"literal && text\\\""`,
+    cwd, timeoutMs: 30_000,
+  })
+  expect(r.status).toBe('blocked')
+  expect(r.executed).toBe(false)
+  expect(existsSync(join(cwd, 'escaped-quote-ran'))).toBe(false)
+  expect(r.steps).toMatchObject([{ step: 1, executed: false, skipped: 'rejected' }])
+})
+
+test('遇到不支援語法時保留前置 && 步驟及完整的拒絕步驟', async () => {
+  const r = await runVerify({ command: 'tool-a && tool-b | tool-c', cwd: process.cwd(), timeoutMs: 30_000 })
+  expect(r.status).toBe('blocked')
+  expect(r.executed).toBe(false)
+  expect(r.steps?.map(({ step, command, executed, skipped }) => ({ step, command: command.trim(), executed, skipped }))).toEqual([
+    { step: 1, command: 'tool-a', executed: false, skipped: 'rejected' },
+    { step: 2, command: 'tool-b | tool-c', executed: false, skipped: 'rejected' },
+  ])
+})
+
 test.each(['', ' ', '&&', `x &&`, `&& y`, `x && && y`])('空步驟或殘缺鏈 %j → blocked，不執行', async (cmd) => {
   const cwd = workdir()
   const inner = cmd === '' ? '' : cmd.replace('x', `${q(NODE)} -e "process.exit(0)"`).replace('y', `${q(NODE)} -e "process.exit(0)"`)

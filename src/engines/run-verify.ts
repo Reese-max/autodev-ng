@@ -32,22 +32,25 @@ const COMMAND_NOT_FOUND_RE = /not recognized|不是內部或外部命令|command
 
 export async function runVerify(opts: { command: string | readonly string[] | undefined; cwd: string; timeoutMs: number; env?: Record<string, string> }): Promise<VerifyOutcome> {
   const raw = typeof opts.command === 'string' ? [opts.command] : [...(opts.command ?? [])]
-  const declared = raw.map((s, i): VerifyStepResult => ({ step: i + 1, command: s, executed: false, skipped: 'rejected' }))
   if (raw.length === 0 || raw.every(s => s.trim() === '')) return { status: 'skip', detail: 'no verifyCommand configured', executed: false, exitCode: null }
 
   // #48：先把整組命令解析成步驟清單——`&&` 是唯一支援的串接（序接 fail-fast，
   // 與 shell 語意一致）；其他 shell 元字元在任何一步執行前明確拒絕，
   // 不默默只跑第一步。空步驟／殘缺鏈同樣先拒絕。
   const steps: string[] = []
-  for (const part of raw) {
+  for (let i = 0; i < raw.length; i++) {
+    const part = raw[i]!
     const split = splitSteps(part)
-    if (!split.ok) return { status: 'blocked', detail: split.detail, executed: false, exitCode: null, steps: declared }
+    if (!split.ok) {
+      const rejected = [...steps, ...split.steps, ...raw.slice(i + 1)]
+      return { status: 'blocked', detail: split.detail, executed: false, exitCode: null, steps: rejectedEvidence(rejected) }
+    }
     steps.push(...split.steps)
   }
   const stepTokens: string[][] = []
   for (const s of steps) {
     const tokens = tokenize(s)
-    if (!tokens[0]) return { status: 'blocked', detail: `unparseable verifyCommand（step: ${s.slice(0, 80)}）`, executed: false, exitCode: null, steps: declared }
+    if (!tokens[0]) return { status: 'blocked', detail: 'unparseable verifyCommand', executed: false, exitCode: null, steps: rejectedEvidence(steps) }
     stepTokens.push(tokens)
   }
 
@@ -96,6 +99,10 @@ function markSkipped(results: VerifyStepResult[], steps: string[], from: number,
   for (let i = from; i < steps.length; i++) results.push({ step: i + 1, command: steps[i]!, executed: false, skipped })
 }
 
+function rejectedEvidence(steps: readonly string[]): VerifyStepResult[] {
+  return steps.map((command, i) => ({ step: i + 1, command, executed: false, skipped: 'rejected' }))
+}
+
 /**
  * 切出 `&&` 序接步驟；引號（"..."）內的內容原樣保留不當指令。
  * 其他 shell 元字元（||、;、|、>、<、&、`、$(、換行）一律拒絕——
@@ -103,22 +110,31 @@ function markSkipped(results: VerifyStepResult[], steps: string[], from: number,
  * 引號模型刻意極簡：只認 " 成對切換、無 \" 轉義、單引號不當引號——
  * 與既有 tokenizer 一致，歧義輸入走拒絕而非猜測。
  */
-export function splitSteps(cmd: string): { ok: true; steps: string[] } | { ok: false; detail: string } {
+export function splitSteps(cmd: string): { ok: true; steps: string[] } | { ok: false; detail: string; steps: string[] } {
+  // Escaped quotes are outside this parser's intentionally small quoting model.
+  // Reject before scanning && so their literal contents cannot become fake steps.
+  if (/\\"/.test(cmd)) {
+    return { ok: false, detail: 'verify infra failure（escaped quote in verifyCommand）', steps: [cmd] }
+  }
   const steps: string[] = []
   let cur = '', inQuote = false
+  let unsupported: string | undefined
   for (let i = 0; i < cmd.length; i++) {
     const ch = cmd[i]!
     if (ch === '"') { inQuote = !inQuote; cur += ch; continue }
     if (inQuote) { cur += ch; continue }
     if (ch === '&' && cmd[i + 1] === '&') { steps.push(cur); cur = ''; i++; continue }
     if ('|;><&`\n\r'.includes(ch) || (ch === '$' && cmd[i + 1] === '(')) {
-      return { ok: false, detail: `verify infra failure（unsupported shell syntax ${JSON.stringify(ch === '$' ? '$(' : ch)}——只支援 && 序接；多步驟請用陣列設定）` }
+      unsupported ??= ch === '$' ? '$(' : ch
     }
     cur += ch
   }
-  if (inQuote) return { ok: false, detail: 'verify infra failure（unterminated quote in verifyCommand）' }
+  if (inQuote) return { ok: false, detail: 'verify infra failure（unterminated quote in verifyCommand）', steps: [...steps, cur] }
   steps.push(cur)
-  if (steps.some(s => s.trim() === '')) return { ok: false, detail: 'verify infra failure（empty step in && chain）' }
+  if (unsupported !== undefined) {
+    return { ok: false, detail: `verify infra failure（unsupported shell syntax ${JSON.stringify(unsupported)}——只支援 && 序接；多步驟請用陣列設定）`, steps }
+  }
+  if (steps.some(s => s.trim() === '')) return { ok: false, detail: 'verify infra failure（empty step in && chain）', steps }
   return { ok: true, steps }
 }
 
