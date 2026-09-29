@@ -109,6 +109,24 @@ test('全域拒絕走 runGithub 全鏈路：runs 不被消耗、issue 保持 que
   expect(engine.calls).toHaveLength(0)
 })
 
+test('worker 已啟動後 runOnce 回 stopped → runs 保留，不因結果名稱回退嘗試次數', async () => {
+  const { cfg, issue } = fixture()
+  const engine = new MockEngine([{ ok: true, beforeResult: () => { writeFileSync(join(cfg.dataDir, '.adng.stop'), 'pause') } }])
+  const client: GithubClient = { list: vi.fn(async () => [issue]), issue: vi.fn(async () => issue),
+    findPr: vi.fn(async () => undefined), findLinkedPr: vi.fn(async () => undefined),
+    createPr: vi.fn(async () => { throw new Error('unexpected publish') }) }
+  const execute = (c: typeof cfg, s: Parameters<typeof executeIssue>[1]) => executeIssue(c, s, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    app.deps.engines = { resolve: () => engine }
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+
+  expect(await runGithub(cfg, { client, execute })).toBe('cancelled')
+  expect(engine.calls).toHaveLength(1)
+  expect(readState(cfg, 7)!.runs).toBe(1)
+})
+
 test('Issue 動態帳務納入 scope：另一個 issue 的 run.db 花費把全域推過上限', async () => {
   const { cfg, state } = fixture({ globalLimit: 60, siblingSpent: 50 })
   // 同 repo 另一個 issue 已燒 $20——不納入 scope 時只有 50<60 會放行
@@ -151,6 +169,23 @@ test('owner 佈局：billingScope 指向 owner dataDir，repo-*/issue-*/run.db �
     return app
   })
   expect(result.detail).toBe('cost-hard-stop')
+  expect(engine.calls).toHaveLength(0)
+})
+
+test('owner per-repo billingScopeResolver is used by the pre-worker global cap', async () => {
+  const { cfg, state } = fixture({ globalLimit: 10, siblingSpent: 0 })
+  const ownerDataDir = mkdtempSync(join(tmpdir(), 'adng-owner-policy-scope-')); dirs.push(ownerDataDir)
+  seedDb(join(ownerDataDir, 'repo-other', 'issue-3'), [{ ts: new Date().toISOString(), cost: 20, engine: 'writer' }])
+  const engine = new MockEngine([{ ok: true }])
+  const ownerChild = { ...cfg, billingScopeResolver: () => [{ dir: ownerDataDir, offset: 8, subscriptions: [] }] }
+  const result = await executeIssue(ownerChild, state, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    app.deps.engines = { resolve: () => engine }
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+  expect(result.detail).toBe('cost-hard-stop')
+  expect(result.attempted).toBe(false)
   expect(engine.calls).toHaveLength(0)
 })
 
