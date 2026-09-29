@@ -66,7 +66,7 @@ export interface Deps {
 /** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
  * ——不是每種 blocked 都是「連敗」，含糊文案會誤導人工介入的方向。 */
 // infra codes distinguish retryable worktree／外部終止，其他 reason 維持既有終態。
-export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'completion-gate' | 'verification-infra' | 'review-unavailable' | 'release-approval' | 'ownership-drift' | 'merge-queue-recovery' | 'team-state-quarantined' | 'dirty-worktree' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
+export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'completion-gate' | 'verification-infra' | 'review-unavailable' | 'release-approval' | 'ownership-drift' | 'merge-queue-recovery' | 'team-state-quarantined' | 'execution-inventory-capacity' | 'dirty-worktree' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
@@ -142,6 +142,8 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   }
   const { task, engine, engineTag, fixedCost } = picked
   const priorExecutions = readExecutions(cfg.dataDir)
+  if (priorExecutions.capacityExceeded)
+    return blockTask({ store, events }, task, 'execution-inventory-capacity', '活動執行容量已滿；保留所有回執，僅封存已確認終結的紀錄後再派工')
   if (priorExecutions.errors.length || priorExecutions.records.some(record => record.phase !== 'terminal' && (record.taskId === task.id || record.phase === 'unknown')))
     return blockTask({ store, events }, task, 'team-state-quarantined', '既有執行尚未確認結束；保留工作區，需先核對後端狀態')
   const executionId = newExecutionId()

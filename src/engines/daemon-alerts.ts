@@ -72,6 +72,7 @@ function blockedReasonText(reason: BlockedReason, detail?: string): string {
     case 'ownership-drift': return detail ?? '實際變更超出核發 ownership，成果未合回'
     case 'merge-queue-recovery': return detail ?? '持久化 merge queue 無法安全復原，成果分支已保留'
     case 'team-state-quarantined': return detail ?? '前次執行租約過期且狀態不明，已隔離避免覆寫成果'
+    case 'execution-inventory-capacity': return detail ?? '活動執行紀錄達到容量上限；已保留回執，需檢查容量後再派工'
     case 'dirty-worktree': return detail ?? '主工作目錄有未提交變更檔阻擋合併，需先提交或移至分支保存'
     case 'branch-switched': return '主 repo 分支已切換或處於 detached HEAD，成果未合回，需人工介入合併'
     case 'engine-not-allowed': return '任務指定引擎不在本專案 engines 白名單（或引擎無法建立），需人工修 tag 或 config'

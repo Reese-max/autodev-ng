@@ -7,7 +7,7 @@ import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { TeamState } from '../src/engines/team-state.js'
 import { cancelledRun } from '../src/engines/run-control.js'
-import { readExecutions } from '../src/engines/execution-observation.js'
+import { readExecution, readExecutions } from '../src/engines/execution-observation.js'
 import { EventLog } from '../src/events.js'
 import { runOnce, type Deps } from '../src/scheduler.js'
 import { ConfigSchema, type Engine, type Job, type RunResult } from '../src/types.js'
@@ -99,16 +99,19 @@ class StopAfterCommitEngine implements Engine {
 
 test('observed scheduler keeps its receipt through verification and closes it after the merged result', async () => {
   const f = fixture('- [ ] observed work\n', 1)
+  let observedExecutionId = ''
   try {
   f.deps.cfg.engines[f.deps.cfg.defaultEngine]!.executionMode = 'observed'
   const engine = new BarrierEngine(true)
   f.deps.engines = { resolve: () => engine }
   f.deps.verifier = { check: async job => {
+    observedExecutionId = job.executionId!
     expect(readExecutions(f.deps.cfg.dataDir).records).toMatchObject([{ executionId: job.executionId, phase: 'running' }])
     return { pass: true, alerts: [] }
   } }
     expect(await runOnce(f.deps)).toBe('done')
-    expect(readExecutions(f.deps.cfg.dataDir)).toMatchObject({ protected: false, records: [{ phase: 'terminal', outcome: 'completed' }] })
+    expect(readExecutions(f.deps.cfg.dataDir)).toMatchObject({ protected: false, records: [], capacityExceeded: false })
+    expect(readExecution(f.deps.cfg.dataDir, observedExecutionId)).toMatchObject({ phase: 'terminal', outcome: 'completed' })
   } finally { f.db.close(); f.team.close() }
 })
 
