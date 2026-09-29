@@ -114,7 +114,7 @@ export function splitSteps(cmd: string): { ok: true; steps: string[] } | { ok: f
   // Escaped quotes are outside this parser's intentionally small chain model.
   // Reject before scanning && so literal contents cannot become fake steps;
   // preserve existing single-step behavior when no chain boundary can be misread.
-  if (cmd.includes('&&') && /\\"/.test(cmd)) {
+  if (/\\"/.test(cmd) && cmd.includes('&&')) {
     return { ok: false, detail: 'verify infra failure（escaped quote in verifyCommand）', steps: [cmd] }
   }
   const steps: string[] = []
