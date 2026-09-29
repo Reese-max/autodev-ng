@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createExecutionObservation, executionFile, executionHistoryFile, executionInventoryOverCapacity, executionReceiptDestination, readExecution, readExecutions, requestExecutionCancel, selectExecutionReceipt, type ExecutionSnapshot } from '../src/engines/execution-observation.js'
+import { createExecutionObservation, executionFile, executionHistoryFile, executionInventoryFull, executionReceiptDestination, readExecution, readExecutions, requestExecutionCancel, selectExecutionReceipt, type ExecutionSnapshot } from '../src/engines/execution-observation.js'
 import { ENGINE_CAPABILITIES, assertExecutionMode } from '../src/engines/capabilities.js'
 import { EngineConfigSchema } from '../src/types.js'
 
@@ -95,7 +95,7 @@ test('in-memory terminal classification and direct history lookup cover 9,999 / 
     expect(selectExecutionReceipt({ history: history.get('legacy-' + (count - 1)) })).toMatchObject({
       executionId: 'legacy-' + (count - 1), phase: 'terminal', outcome: 'completed',
     })
-    expect(executionInventoryOverCapacity(0)).toBe(false)
+    expect(executionInventoryFull(0)).toBe(false)
   }
 })
 
@@ -113,7 +113,7 @@ test('small real legacy migration moves verified terminal receipts to history an
 })
 
 test('active inventory capacity is distinct at 9,999 / 10,000 / 10,001 receipts', () => {
-  expect([9_999, 10_000, 10_001].map(executionInventoryOverCapacity)).toEqual([false, false, true])
+  expect([9_999, 10_000, 10_001].map(executionInventoryFull)).toEqual([false, true, true])
 })
 
 test('missing or empty inventory reads do not create storage or a lock', () => {

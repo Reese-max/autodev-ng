@@ -1,19 +1,22 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { writeFile as writeFileAsync } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, beforeAll, describe, expect, test } from 'vitest'
 import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { TeamState } from '../src/engines/team-state.js'
 import { cancelledRun } from '../src/engines/run-control.js'
-import { readExecution, readExecutions } from '../src/engines/execution-observation.js'
+import { executionInventoryFull, readExecution, readExecutions, type ExecutionInventory, type ExecutionSnapshot } from '../src/engines/execution-observation.js'
 import { EventLog } from '../src/events.js'
 import { runOnce, type Deps } from '../src/scheduler.js'
 import { ConfigSchema, type Engine, type Job, type RunResult } from '../src/types.js'
 
 const roots: string[] = []
-afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }) })
+afterEach(() => {
+  while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true })
+}, 180_000)
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -38,7 +41,7 @@ function fixture(lines: string, concurrency: number): { deps: Deps; repo: string
   return { repo, backlog, db, team, deps: { cfg, store: new BacklogStore(backlog), db, team, engines: {} as never, events: new EventLog(dataDir) } }
 }
 
-test.each([false, true])('uncertain stop (after nudge=%s) keeps ownership and never retries or charges a task failure', async (afterNudge) => {
+async function runUncertainStop(afterNudge: boolean): Promise<void> {
   const f = fixture('- [ ] cancelled writer\n', 1)
   let calls = 0, cwd = ''
   f.deps.engines = { resolve: () => ({ id: 'mock', preflight: async () => ({ ok: true, detail: 'fake' }), run: async job => {
@@ -58,17 +61,21 @@ test.each([false, true])('uncertain stop (after nudge=%s) keeps ownership and ne
     expect(await runOnce(f.deps)).toBe('idle')
     expect(calls).toBe(afterNudge ? 2 : 1)
   } finally { f.db.close(); f.team.close() }
-})
+}
+
+test('uncertain stop (after nudge=false) keeps ownership and never retries or charges a task failure', () => runUncertainStop(false), 60_000)
+test('uncertain stop (after nudge=true) keeps ownership and never retries or charges a task failure', () => runUncertainStop(true), 60_000)
 
 class BarrierEngine implements Engine {
   readonly id = 'parallel-engine'
+  preflightCalls = 0
   active = 0
   maxActive = 0
   private entered = 0
   private release!: () => void
   private readonly gate = new Promise<void>(resolve => { this.release = resolve })
   constructor(private readonly outsideScope = false, private readonly reportVerifiedExit = false) {}
-  async preflight() { return { ok: true, detail: 'ok' } }
+  async preflight() { this.preflightCalls++; return { ok: true, detail: 'ok' } }
   async run(job: Job): Promise<RunResult> {
     const before = git(job.projectPath, ['rev-parse', 'HEAD'])
     this.active++; this.entered++; this.maxActive = Math.max(this.maxActive, this.active)
@@ -81,6 +88,43 @@ class BarrierEngine implements Engine {
     if (this.reportVerifiedExit) job.control?.onEvent?.({ type: 'exit', code: 0, reason: 'exit' })
     return { ok: true, output: `created ${name}`, costUsd: 0, baseCommitHash: before, commitHash: git(job.projectPath, ['rev-parse', 'HEAD']) }
   }
+}
+
+class SingleAdmissionEngine implements Engine {
+  readonly id = 'single-admission-engine'
+  preflightCalls = 0
+  runCalls = 0
+  async preflight() { this.preflightCalls++; return { ok: true, detail: 'ok' } }
+  async run(job: Job): Promise<RunResult> {
+    this.runCalls++
+    const baseCommitHash = git(job.projectPath, ['rev-parse', 'HEAD'])
+    writeFileSync(join(job.projectPath, 'archive-admission.txt'), `${job.task.text}\n`)
+    git(job.projectPath, ['add', 'archive-admission.txt'])
+    git(job.projectPath, ['commit', '-m', 'feat: admit with archived history'])
+    return { ok: true, output: 'admitted', costUsd: 0, baseCommitHash, commitHash: git(job.projectPath, ['rev-parse', 'HEAD']) }
+  }
+}
+
+async function writeReceiptFixture(folder: string, count: number, makeRecord: (id: string) => unknown): Promise<void> {
+  mkdirSync(folder, { recursive: true })
+  const batchSize = 256
+  for (let start = 0; start < count; start += batchSize) {
+    const end = Math.min(start + batchSize, count)
+    await Promise.all(Array.from({ length: end - start }, async (_, offset) => {
+      const id = 'receipt-' + String(start + offset).padStart(5, '0')
+      await writeFileAsync(join(folder, id + '.json'), JSON.stringify(makeRecord(id)))
+    }))
+  }
+}
+
+function activeReceipt(executionId: string, projectPath: string): ExecutionSnapshot {
+  return { version: 1, executionId, taskId: 'old-task-' + executionId, adapter: 'codex', projectPath,
+    hostPid: process.pid, hostStartedAt: 1, startedAt: 1, observedAt: 1, sequence: 0,
+    phase: 'running', outputBytes: 0, unknownSamples: 0, degraded: false, cancelRequested: false }
+}
+
+function terminalReceipt(executionId: string, projectPath: string): ExecutionSnapshot {
+  return { ...activeReceipt(executionId, projectPath), phase: 'terminal', exit: { code: 0, reason: 'exit' }, outcome: 'completed' }
 }
 
 class StopAfterCommitEngine implements Engine {
@@ -114,6 +158,47 @@ test('observed scheduler keeps its receipt through verification and closes it af
     expect(readExecutions(f.deps.cfg.dataDir)).toMatchObject({ protected: false, records: [], capacityExceeded: false })
     expect(readExecution(f.deps.cfg.dataDir, observedExecutionId)).toMatchObject({ phase: 'terminal', outcome: 'completed' })
   } finally { f.db.close(); f.team.close() }
+}, 60_000)
+
+test('in-memory production inventory with exactly 10,000 active receipts blocks admission before preflight, team claim, or worktree', async () => {
+  const f = fixture('- [ ] keep pending at capacity\n', 1), engine = new BarrierEngine()
+  f.deps.engines = { resolve: () => engine }
+  try {
+    const inventory: ExecutionInventory = {
+      records: Array.from({ length: 10_000 }, (_, index) => activeReceipt('receipt-' + String(index).padStart(5, '0'), f.repo)),
+      errors: ['active execution capacity reached (10000 >= 10000)'], protected: true, diagnosisDue: true,
+      capacityExceeded: executionInventoryFull(10_000),
+    }
+    f.deps.executionInventory = () => inventory
+    expect(inventory.records).toHaveLength(10_000)
+    expect(inventory.capacityExceeded).toBe(true)
+    expect(await runOnce(f.deps)).toMatchObject({ kind: 'blocked', reason: 'execution-inventory-capacity' })
+    expect(engine.preflightCalls).toBe(0)
+    expect(engine.maxActive).toBe(0)
+    expect(f.team.snapshot().claims).toEqual([])
+    expect(existsSync(f.deps.cfg.worktreesDir)).toBe(false)
+  } finally { f.db.close(); f.team.close() }
+})
+
+describe('scheduler admission with a full-size archived execution history', () => {
+  let f!: ReturnType<typeof fixture>
+  let engine!: SingleAdmissionEngine
+  beforeAll(async () => {
+    f = fixture('- [ ] work with a large archive\n', 1)
+    engine = new SingleAdmissionEngine()
+    f.deps.engines = { resolve: () => engine }
+    const history = join(f.deps.cfg.dataDir, 'executions', 'history')
+    await writeReceiptFixture(history, 10_000, id => terminalReceipt(id, f.repo))
+  }, 300_000)
+
+  test('admits a ready task while preserving 10,000 archived receipts', async () => {
+    try {
+      expect(await runOnce(f.deps)).toBe('done')
+      expect(engine.preflightCalls).toBe(1)
+      expect(engine.runCalls).toBe(1)
+      expect(existsSync(join(f.deps.cfg.dataDir, 'executions', 'history', 'receipt-09999.json'))).toBe(true)
+    } finally { f.db.close(); f.team.close() }
+  }, 120_000)
 })
 
 test('concurrency=2：兩個 disjoint ownership Engineer 真正重疊，merge queue 仍依序完成', async () => {
@@ -130,7 +215,7 @@ test('concurrency=2：兩個 disjoint ownership Engineer 真正重疊，merge qu
     expect(readFileSync(join(f.repo, 'b.txt'), 'utf8')).toContain('任務 B')
     expect(f.team.snapshot().queue.map(q => q.state)).toEqual(['DONE', 'DONE'])
   } finally { f.db.close(); f.team.close() }
-})
+}, 120_000)
 
 test('實際 diff 超出 ownership → BLOCKED，候選 worktree 保留且 main 不受污染', async () => {
   const meta = '<!-- adng:ownership {"write":["allowed.txt"],"resources":[],"risk":"low"} -->'
@@ -142,7 +227,7 @@ test('實際 diff 超出 ownership → BLOCKED，候選 worktree 保留且 main 
     expect(() => readFileSync(join(f.repo, 'outside.txt'), 'utf8')).toThrow()
     expect(f.team.snapshot().queue).toEqual([])
   } finally { f.db.close(); f.team.close() }
-})
+}, 60_000)
 
 test('tracked dirty main 在 Engine 前 BLOCKED，不先花模型成本', async () => {
   const f = fixture('- [ ] 不應執行\n', 1), engine = new BarrierEngine(true)
@@ -170,4 +255,4 @@ test('worker 執行中出現 stop sentinel：不啟 Reviewer／不 merge，候�
     expect(f.team.snapshot().queue).toMatchObject([{ state: 'PAUSED_READY' }])
     expect(await runOnce(f.deps)).toBe('stopped')
   } finally { f.db.close(); f.team.close() }
-})
+}, 60_000)

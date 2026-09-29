@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, opendirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, type Dir, type Dirent } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, renameSync, statSync, type Dir, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { writeJsonAtomic } from '../guardian/incident.js'
 import type { Job } from '../types.js'
+import { withInventoryLock } from './inventory-lock.js'
 import { observeRun, type RunControl, type RunEvent } from './run-control.js'
 
 export const OBSERVATION_INTERVAL_MS = 60_000
@@ -13,7 +14,6 @@ export const MAX_TRACKED_EXECUTION_FILES = 20_000
 const MAX_LEGACY_DIRECTORY_ENTRIES = MAX_TRACKED_EXECUTION_FILES * 2 + 32
 const MAX_RECEIPT_BYTES = 16_384
 const SAFE_ID = /^[A-Za-z0-9_-]{1,100}$/
-const PROCESS_STARTED_AT = Date.now() - process.uptime() * 1000
 const SnapshotSchema = z.object({
   version: z.literal(1), executionId: z.string().regex(SAFE_ID), taskId: z.string(), adapter: z.string(),
   projectPath: z.string(), hostPid: z.number().int().positive(), hostStartedAt: z.number().finite(),
@@ -70,52 +70,6 @@ function inventoryDirectoryHasEntries(folder: string): boolean {
   try { return directory.readSync() !== null } finally { directory.closeSync() }
 }
 
-function processIsAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
-  }
-}
-
-function staleInventoryLock(lockFile: string): boolean {
-  let stat
-  try { stat = statSync(lockFile) } catch { return false }
-  try {
-    const owner = JSON.parse(readFileSync(lockFile, 'utf8')) as { pid?: unknown; processStartedAt?: unknown }
-    if (typeof owner.pid !== 'number' || !Number.isInteger(owner.pid) || typeof owner.processStartedAt !== 'number' || !Number.isFinite(owner.processStartedAt))
-      return Date.now() - stat.mtimeMs > 60_000
-    const pid = owner.pid as number
-    if (pid === process.pid) return Math.abs(owner.processStartedAt - PROCESS_STARTED_AT) > 2_000
-    return !processIsAlive(pid)
-  } catch { return Date.now() - stat.mtimeMs > 60_000 }
-}
-
-function withInventoryLock<T>(dataDir: string, action: () => T): T {
-  const root = executionRoot(dataDir), lockFile = join(root, '.inventory.lock')
-  mkdirSync(root, { recursive: true })
-  let descriptor: number | undefined
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      descriptor = openSync(lockFile, 'wx')
-      writeFileSync(descriptor, JSON.stringify({ pid: process.pid, processStartedAt: PROCESS_STARTED_AT, acquiredAt: Date.now() }))
-      break
-    } catch (error) {
-      if (descriptor !== undefined) {
-        try { closeSync(descriptor) } catch { /* best effort after failed lock initialization */ }
-        descriptor = undefined
-        try { unlinkSync(lockFile) } catch { /* lock owner will report unknown below */ }
-      }
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || attempt > 0 || !staleInventoryLock(lockFile))
-        throw new Error('execution inventory update is in progress or its owner is unknown')
-      unlinkSync(lockFile)
-    }
-  }
-  if (descriptor === undefined) throw new Error('execution inventory lock could not be acquired')
-  try { return action() } finally {
-    closeSync(descriptor)
-    unlinkSync(lockFile)
-  }
-}
-
 function archiveable(record: ExecutionSnapshot): boolean {
   return record.phase === 'terminal' && (record.outcome === 'completed' || record.outcome === 'failed') &&
     record.exit?.reason === 'exit' && !record.cancelRequested && !record.degraded
@@ -135,8 +89,8 @@ export function selectExecutionReceipt<T>(candidates: { active?: T; history?: T;
   return candidates.active ?? candidates.history ?? candidates.legacy
 }
 
-export function executionInventoryOverCapacity(activeCount: number): boolean {
-  return activeCount > MAX_ACTIVE_EXECUTIONS
+export function executionInventoryFull(activeCount: number): boolean {
+  return activeCount >= MAX_ACTIVE_EXECUTIONS
 }
 
 function moveWithoutOverwrite(source: string, target: string): void {
@@ -291,7 +245,7 @@ function readExecutionsUnlocked(dataDir: string, nowMs: number): ExecutionInvent
     const id = name.slice(0, -'.cancel.json'.length)
     if (!SAFE_ID.test(id) || !receiptNames.includes(id + '.json')) errors.push('orphan cancellation request: ' + name.slice(0, 110))
   }
-  if (executionInventoryOverCapacity(activeFiles)) { errors.push('active execution capacity exceeded (' + activeFiles + ' > ' + MAX_ACTIVE_EXECUTIONS + ')'); capacityExceeded = true }
+  if (executionInventoryFull(activeFiles)) { errors.push('active execution capacity reached (' + activeFiles + ' >= ' + MAX_ACTIVE_EXECUTIONS + ')'); capacityExceeded = true }
   return { records, errors, protected: capacityExceeded || errors.length > 0 || records.length > 0,
     diagnosisDue: capacityExceeded || errors.length > 0 || records.some(record => record.phase === 'unknown' || record.phase === 'waiting_input' || record.degraded || record.unknownSamples >= UNKNOWN_SAMPLES_BEFORE_DIAGNOSIS || nowMs - record.observedAt >= OBSERVATION_INTERVAL_MS * UNKNOWN_SAMPLES_BEFORE_DIAGNOSIS),
     capacityExceeded }
@@ -472,21 +426,25 @@ export function createExecutionObservation(args: { dataDir: string; job: Job; ad
       clearInterval(timer); finished = true; state.observedAt = Date.now(); state.sequence++
       state.cancelRequested ||= signal.aborted
       state.outcome = this.recoveryRequired ? 'unconfirmed' : outcome
-      state.phase = state.outcome === 'unconfirmed' ? 'unknown' : 'terminal'; persist()
-      if (!archiveable(state) || state.degraded) return
+      state.phase = state.outcome === 'unconfirmed' ? 'unknown' : 'terminal'
       try {
         withInventoryLock(args.dataDir, () => {
           if (existsSync(cancellationFile)) {
             state.cancelRequested = true; state.outcome = 'unconfirmed'; state.phase = 'unknown'; persist()
             return
           }
+          // Persist and archive as one serialized inventory update. A reader must not
+          // move the terminal receipt between these two operations.
+          persist()
+          if (!archiveable(state) || state.degraded) return
           try { moveWithoutOverwrite(file, executionHistoryFile(args.dataDir, id)) }
           catch {
             state.degraded = true; state.outcome = 'unconfirmed'; state.phase = 'unknown'; persist()
           }
         })
       } catch {
-        state.degraded = true; state.outcome = 'unconfirmed'; state.phase = 'unknown'; persist()
+        // Leave the last durable active receipt untouched when ownership is unknown.
+        state.degraded = true; state.outcome = 'unconfirmed'; state.phase = 'unknown'
       }
     },
   }
