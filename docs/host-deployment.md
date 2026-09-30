@@ -92,4 +92,6 @@ health 在 paused／not-running／stale／unknown／blocked 時 exit 2；讀取�
 4. 新路徑還原後成本／重試次數／Issue 收據一致；更新失敗可回切舊版本。
 5. 舊主機停止接單，最後備份／還原後才啟用新主機；回切先停止新主機並核對已完成工作。
 
+單機試行的驗收紀錄格式、五組驗收鍵、硬性停止條件與判定規則見 [host-trial-acceptance.md](host-trial-acceptance.md)；未逐項取得證據前不得宣稱穩定。
+
 跨機共享租約與 fencing、跨機總預算、Linux CI 及自動故障接手屬後續階段。尚無第二台主機與真實測試 repo 收據時，只能標記本機元件驗收。
