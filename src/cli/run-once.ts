@@ -4,7 +4,7 @@ import { withAssembled } from './assemble.js'
 export function formatCycleResult(result: CycleResult): string {
   return typeof result === 'string' ? result
     : result.kind === 'blocked' ? `blocked（任務：${result.taskText}）`
-    : `not-started（${result.reason}）`
+    : result.reason
 }
 
 export async function cmdRunOnce(cfgPath: string): Promise<void> {
