@@ -526,6 +526,26 @@ test('M5：configs/ 下所有現役真檔 schema 全過，且 registry 能建出
     const cfg = ConfigSchema.parse(JSON.parse(readFileSync(join(cfgDir, f), 'utf8')))
     expect(cfg.engines[cfg.defaultEngine], `${f} 的 defaultEngine 必須在自己的 engines 白名單內`).toBeDefined()
     const registry = makeEngineRegistry({ ...cfg, dataDir: mkdtempSync(join(tmpdir(), 'adng-cfg-')) })
-    expect(registry.resolve(cfg.defaultEngine)).toBeDefined() // lazy：只 resolve defaultEngine，不需要其他引擎的 env
+    try {
+      expect(registry.resolve(cfg.defaultEngine)).toBeDefined() // lazy：只 resolve defaultEngine，不需要其他引擎的 env
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new Error(`${f}: defaultEngine "${cfg.defaultEngine}" resolve 失敗——${detail}`)
+    }
   }
+})
+
+test('note-filler mixed rotation builds normally while unsupported routes remain denied by free-only', () => {
+  const cfgPath = resolve(import.meta.dirname, '..', 'configs', 'note-filler.json')
+  const cfg = ConfigSchema.parse(JSON.parse(readFileSync(cfgPath, 'utf8')))
+  const selectedRotationTag = 'oc-mimo'
+  expect(cfg.engineRotation).toContain(selectedRotationTag)
+  expect(cfg.tierMode).toBeUndefined()
+
+  const dataDir = mkdtempSync(join(tmpdir(), 'adng-note-filler-'))
+  expect(makeEngineRegistry({ ...cfg, dataDir }).resolve(selectedRotationTag)).toBeDefined()
+
+  const strictFreeOnly = ConfigSchema.parse({ ...cfg, tierMode: 'free-only' })
+  expect(() => makeEngineRegistry({ ...strictFreeOnly, dataDir: mkdtempSync(join(tmpdir(), 'adng-note-filler-free-')) })
+    .resolve(selectedRotationTag)).toThrow(/engine "oc-mimo" .*free-policy/)
 })
