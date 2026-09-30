@@ -8,9 +8,10 @@
  */
 import { beforeEach, expect, test, vi } from 'vitest'
 
-const { readFileSync, statSync } = vi.hoisted(() => ({
+const { readFileSync, statSync, opendirSync } = vi.hoisted(() => ({
   readFileSync: vi.fn(),
   statSync: vi.fn(),
+  opendirSync: vi.fn(() => ({ readSync: () => null, closeSync: vi.fn() })),
 }))
 
 vi.mock('node:fs', () => ({
@@ -19,6 +20,7 @@ vi.mock('node:fs', () => ({
   mkdirSync: vi.fn(),
   rmSync: vi.fn(),
   openSync: vi.fn(),
+  opendirSync,
   readFileSync,
   readdirSync: vi.fn(),
   statSync,

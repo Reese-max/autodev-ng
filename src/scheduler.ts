@@ -28,7 +28,7 @@ import { checkOwnership, compatibleTasks } from './engines/ownership.js'
 import type { TeamState } from './engines/team-state.js'
 import { trackedDirtyFiles } from './engines/main-admission.js'
 import { observeLearning } from './learn/outcomes.js'
-import { createExecutionObservation, readExecutions } from './engines/execution-observation.js'
+import { createExecutionObservation, readExecutions, type ExecutionInventory } from './engines/execution-observation.js'
 import type { RunControl } from './engines/run-control.js'
 import { assertPendingCandidate, readPendingReview, savePendingReview, closePendingReview, type PendingReview } from './engines/pending-review.js'
 
@@ -41,6 +41,8 @@ export interface LessonsPort {
 
 export interface Deps {
   runControl?: RunControl
+  /** Optional inventory adapter for embedded callers and deterministic admission tests. */
+  executionInventory?: (dataDir: string) => ExecutionInventory
   cfg: Config
   store: BacklogStore
   db: RunDb
@@ -66,7 +68,7 @@ export interface Deps {
 /** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
  * ——不是每種 blocked 都是「連敗」，含糊文案會誤導人工介入的方向。 */
 // infra codes distinguish retryable worktree／外部終止，其他 reason 維持既有終態。
-export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'completion-gate' | 'verification-infra' | 'review-unavailable' | 'release-approval' | 'ownership-drift' | 'merge-queue-recovery' | 'team-state-quarantined' | 'dirty-worktree' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
+export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'completion-gate' | 'verification-infra' | 'review-unavailable' | 'release-approval' | 'ownership-drift' | 'merge-queue-recovery' | 'team-state-quarantined' | 'execution-inventory-capacity' | 'dirty-worktree' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
@@ -128,6 +130,9 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   if (dups.length > 0) quiet(() => events.appendOnce('duplicate-tasks', { ids: dups }))
 
   const candidates = retry.taskId ? openTasks.filter(task => task.id === retry.taskId) : openTasks; if (candidates.length === 0) return 'idle'
+  const priorExecutions = (deps.executionInventory ?? readExecutions)(cfg.dataDir)
+  if (priorExecutions.capacityExceeded)
+    return blockTask({ store, events }, candidates[0]!, 'execution-inventory-capacity', '活動執行容量已滿；保留所有回執，僅封存已確認終結的紀錄後再派工')
   let pending: PendingReview | undefined, pendingTask: Task | undefined
   for (const candidate of candidates) {
     try { pending = readPendingReview(cfg, candidate) } catch (err) { return blockTask({ store, events }, candidate, 'team-state-quarantined', String(err)) }
@@ -141,7 +146,6 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     return picked
   }
   const { task, engine, engineTag, fixedCost } = picked
-  const priorExecutions = readExecutions(cfg.dataDir)
   if (priorExecutions.errors.length || priorExecutions.records.some(record => record.phase !== 'terminal' && (record.taskId === task.id || record.phase === 'unknown')))
     return blockTask({ store, events }, task, 'team-state-quarantined', '既有執行尚未確認結束；保留工作區，需先核對後端狀態')
   const executionId = newExecutionId()
