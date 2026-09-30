@@ -20,13 +20,17 @@ function freshDir(): { parent: string; dir: string } {
   return { parent, dir: join(parent, 'lock') }
 }
 
-function makeSentinelTarget(): { parent: string; dir: string; target: string; sentinel: string } {
+function makeSentinelPaths(): { parent: string; dir: string; target: string; sentinel: string } {
   const { parent, dir } = freshDir()
   const target = join(parent, 'unrelated-target')
-  mkdirSync(target)
-  const sentinel = join(target, 'sentinel.txt')
-  writeFileSync(sentinel, 'keep')
-  return { parent, dir, target, sentinel }
+  return { parent, dir, target, sentinel: join(target, 'sentinel.txt') }
+}
+
+function makeSentinelTarget(): { parent: string; dir: string; target: string; sentinel: string } {
+  const paths = makeSentinelPaths()
+  mkdirSync(paths.target)
+  writeFileSync(paths.sentinel, 'keep')
+  return paths
 }
 
 function linkLockLeaf(dir: string, target: string): void {
@@ -60,11 +64,15 @@ function deadPid(): number {
   return result.pid
 }
 
-function makeDeadLock(dir: string, token = 'dead-generation'): { pid: number; startedAt: string; token: string } {
-  mkdirSync(dir)
+function writeDeadOwner(dir: string, token = 'dead-generation'): { pid: number; startedAt: string; token: string } {
   const info = { pid: deadPid(), startedAt: new Date(Date.now() - 120_000).toISOString(), token }
   writeFileSync(join(dir, 'pid.json'), JSON.stringify(info))
   return info
+}
+
+function makeDeadLock(dir: string, token = 'dead-generation'): { pid: number; startedAt: string; token: string } {
+  mkdirSync(dir)
+  return writeDeadOwner(dir, token)
 }
 
 test('acquisition and failed-write cleanup reject a symlink or junction leaf without touching its target', () => {
@@ -81,9 +89,10 @@ test('acquisition and failed-write cleanup reject a symlink or junction leaf wit
 })
 
 test('token release rejects a symlink or junction leaf without deleting its target', () => {
-  const { dir, target, sentinel } = makeSentinelTarget()
+  const { dir, target, sentinel } = makeSentinelPaths()
   const token = acquireLock(target)
   expect(token).toBeTruthy()
+  writeFileSync(sentinel, 'keep')
   linkLockLeaf(dir, target)
 
   expectUnsafeLockPath(() => releaseLock(dir, token))
@@ -95,7 +104,7 @@ test('token release rejects a symlink or junction leaf without deleting its targ
 
 test('dead-lock cleanup rejects a symlink or junction leaf without deleting its target', () => {
   const { dir, target, sentinel } = makeSentinelTarget()
-  makeDeadLock(target)
+  writeDeadOwner(target)
   const old = new Date(Date.now() - 60 * 60 * 1000)
   utimesSync(target, old, old)
   linkLockLeaf(dir, target)
