@@ -15,6 +15,10 @@ import { branchFor, fingerprint, readState, saveState } from '../src/github/stat
 // 已啟動或結果未知的輪次不退款。全部走真 executeIssue→runOnce→runGithub 組裝鏈，
 // 不靠錯誤字串猜「worker 是否啟動」——由 CycleResult 的型別化 not-started 承載。
 
+// These tests create temporary Git repositories and exercise the SQLite-backed runner.
+// On Windows, process startup makes the integration path exceed Vitest's 20s default.
+vi.setConfig({ testTimeout: 120_000 })
+
 const dirs: string[] = []
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
