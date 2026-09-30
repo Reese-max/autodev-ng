@@ -214,4 +214,109 @@ describe('callRoutedAgent', () => {
     expect(out.error).toMatch(/dataDir/i)
     expect(existsSync('route-breakers')).toBe(false)
   })
+
+  test('attempt-timeout falls back to the next candidate; timed-out cost stays unknown', async () => {
+    const dir = dataDir()
+    const seen: string[] = []
+    const fetchFn = (async (url: unknown, init?: RequestInit) => {
+      const u = String(url)
+      seen.push(u)
+      if (u.includes('u0')) {
+        // Never resolves on its own; rejects when the per-attempt signal aborts.
+        return await new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal
+          if (signal?.aborted) return reject(new DOMException('The operation was aborted', 'AbortError'))
+          signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')))
+        })
+      }
+      return new Response(JSON.stringify({
+        model: 'm1', choices: [{ message: { content: 'done' } }], usage: { total_tokens: 3 },
+      }), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const out = await callRoutedAgent({
+        route: policy({ perAttemptTimeoutMs: 25 }, [{}, {}]), dataDir: dir, model: 'alias', fetchFn, callId: 'timeout-call',
+      }, 'p')
+      expect(out).toMatchObject({ text: 'done', actualModel: 'm1' })
+      expect(seen.filter(u => u.includes('u0')).length).toBe(1)
+      expect(seen.filter(u => u.includes('u1')).length).toBe(1)
+      const lines = readFileSync(join(dir, 'route-calls.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))
+      const failed = lines.find((l: { phase?: string }) => l.phase === 'attempt-failed')
+      // A timeout does not mean the upstream never billed: the unknown cost stays in the receipt.
+      expect(failed).toMatchObject({ candidateId: 'c0', failureClass: 'attempt-timeout', cost: 'unknown', callId: 'timeout-call' })
+      expect(Number.isFinite(failed.retryAt)).toBe(true)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  test('gateway candidate is the single retry owner: one outer call, upstreamAttempts unknown', async () => {
+    const dir = dataDir()
+    let calls = 0
+    const fetchFn = (async () => {
+      calls++
+      return new Response(JSON.stringify({
+        model: 'inner-real-model', choices: [{ message: { content: 'combo-ok' } }], usage: { total_tokens: 9 },
+      }), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const out = await callRoutedAgent({
+        route: policy({}, [{ gateway: true }]), dataDir: dir, model: 'combo-alias', fetchFn,
+      }, 'p')
+      expect(out.text).toBe('combo-ok')
+      expect(calls).toBe(1) // the outer layer never amplifies a gateway's hidden internal retries
+      const lines = readFileSync(join(dir, 'route-calls.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))
+      const done = lines.find((l: { phase?: string }) => l.phase === 'completed')
+      expect(done.upstreamAttempts).toBe('unknown')
+      expect(done.actualModelSource).toBe('upstream-reported')
+      expect(done.actualModel).toBe('inner-real-model')
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  test('HALF_OPEN probe failure re-opens the breaker; a racing caller never amplifies attempts', async () => {
+    const dir = dataDir()
+    try {
+      const route = policy({ cooldownMs: 150 }, [{}, {}])
+      const first = await callRoutedAgent({ route, dataDir: dir, model: 'a', fetchFn: statusFetch(429) }, 'p')
+      expect(first.error).toBeTruthy()
+      await new Promise(r => setTimeout(r, 190)) // let the bounded cooldown expire
+      let hits = 0
+      const still503 = (async (url: unknown) => {
+        if (String(url).includes('u0')) hits++
+        return String(url).includes('u0')
+          ? new Response('{}', { status: 503 })
+          : new Response(JSON.stringify({ model: 'm1', choices: [{ message: { content: 'b' } }] }), { status: 200 })
+      }) as unknown as typeof fetch
+      const probe = await callRoutedAgent({ route, dataDir: dir, model: 'a', fetchFn: still503 }, 'p')
+      expect(probe.text).toBe('b')
+      expect(hits).toBe(1)
+      const key = breakerKey({ url: 'http://u0/v1', model: 'm0', apiKey: 'k0', credentialRef: 'cr0' })
+      expect(readBreaker(dir, key)).toMatchObject({ kind: 'open' })
+      // The re-opened breaker keeps cooling the candidate: the next logical call must not dispatch to it.
+      const again = await callRoutedAgent({ route, dataDir: dir, model: 'a', fetchFn: still503 }, 'p')
+      expect(again.text).toBe('b')
+      expect(hits).toBe(1)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  test('redirect refusal is transport-bounded and never forwards the credential', async () => {
+    const dir = dataDir()
+    const seenInit: RequestInit[] = []
+    const fetchFn = (async (url: unknown, init?: RequestInit) => {
+      seenInit.push(init ?? {})
+      if (String(url).includes('u0')) {
+        // undici honours redirect:'error' by rejecting on a 3xx instead of following it.
+        expect(init?.redirect).toBe('error')
+        throw new TypeError('fetch failed')
+      }
+      return new Response(JSON.stringify({
+        model: 'm1', choices: [{ message: { content: 'b-ok' } }], usage: { total_tokens: 2 },
+      }), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const out = await callRoutedAgent({ route: policy({}, [{}, {}]), dataDir: dir, model: 'a', fetchFn }, 'p')
+      expect(out.text).toBe('b-ok')
+      // Each candidate attempt carries only its own credential reference — never cross-sent.
+      const authHeaders = seenInit.map(i => new Headers(i?.headers).get('authorization'))
+      expect(authHeaders).toEqual(['Bearer k0', 'Bearer k1'])
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
 })
