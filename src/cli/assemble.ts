@@ -84,6 +84,16 @@ export function expandConfigPaths(baseDir: string, cfg: Config): Config {
     releaseApprovalFile: cfg.releaseApprovalFile ? resolve(baseDir, cfg.releaseApprovalFile) : undefined,
     judgeApiKey: cfg.llmTransport === 'cli' && cfg.tierMode !== 'free-only' ? '' : resolveSecretString(cfg.judgeApiKey, baseDir) ?? 'sk-any',
     telegramBotToken: resolveSecretString(cfg.telegramBotToken, baseDir),
+    // routePolicy 候選金鑰走同一 {env:}/{file:} 展開；引用不可用時保留原樣，
+    // 由 dispatch 前的 credential 檢查阻擋（不讓一個壞候選拖垮 assemble）。
+    routePolicy: cfg.routePolicy === undefined ? undefined : {
+      ...cfg.routePolicy,
+      candidates: cfg.routePolicy.candidates.map(candidate => {
+        if (candidate.apiKey === undefined) return candidate
+        try { return { ...candidate, apiKey: resolveSecretString(candidate.apiKey, baseDir) } }
+        catch { return candidate }
+      }),
+    },
   }
 }
 

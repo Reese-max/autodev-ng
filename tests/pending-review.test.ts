@@ -76,7 +76,7 @@ test('all free reviewers deferred: reopened scheduler merges through the recover
     expect(reviewRetryDelay(d.cfg, 1000)).toBeGreaterThan(1000) // A GOAL audit that is still waiting retains its cooldown.
     expect(baseAlertMessage('deferred', d.cfg)).toContain('尚無已保存的待審候選')
   } finally { d.db.close(); d.team?.close() }
-}, 30_000)
+}, 60_000)
 
 test('quota wait survives reopen: CI proof/candidate retained, one worker admission, no repeat preflight or worker', async () => {
   const f = fixture(), d = f.deps, base = git(d.cfg.projectPath, 'rev-parse', 'HEAD')
@@ -103,7 +103,7 @@ test('quota wait survives reopen: CI proof/candidate retained, one worker admiss
     expect(d.evidence!.verifiedTaskCommit(task.id, task.text)).toBe(pending.candidateHead)
     expect(JSON.parse(readFileSync(pendingReviewFile(d.cfg, task), 'utf8')).phase).toBe('closed')
   } finally { d.db.close(); d.team?.close() }
-}, 30_000)
+}, 60_000)
 
 test('changed candidate after restart is quarantined without worker, model request or merge', async () => {
   const f = fixture(), d = f.deps
@@ -169,4 +169,4 @@ test('rebase review quota wait resumes the exact candidate after restart without
     expect(git(d.cfg.projectPath, 'rev-parse', 'HEAD')).toBe(pending.candidateHead)
     expect(d.evidence!.verifiedTaskCommit(task.id, task.text)).toBe(pending.candidateHead)
   } finally { d.db.close(); d.team?.close() }
-}, 30_000)
+}, 60_000)

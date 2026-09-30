@@ -55,6 +55,8 @@ export async function publishIssue(cfg: GithubConfig, state: IssueState, client:
 }
 export async function runGithub(cfg: GithubConfig, options: {
   syncOnly?: boolean; client?: GithubClient; execute?: typeof executeIssue; publish?: typeof publishIssue; configPath?: string
+  /** 授權政策的持續重核對（如 owner 設定檔）。撤回/不可讀/拋錯一律 fail-closed。 */
+  policyCheck?: () => boolean
 } = {}): Promise<string> {
   if (!cfg.enabled || existsSync(githubStopFile(cfg))) return 'paused'
   const original = options.configPath ? readFileSync(options.configPath, 'utf8') : undefined
@@ -64,9 +66,11 @@ export async function runGithub(cfg: GithubConfig, options: {
   const lock = join(cfg.dataDir, 'runner.lock')
   if (!acquireLock(lock)) return 'locked'
   const client = options.client ?? githubClient(cfg)
+  const policyOk = () => { try { return (options.policyCheck?.() ?? true) === true } catch { return false } }
   const active = () => !existsSync(githubStopFile(cfg)) && (!options.configPath || readFileSync(options.configPath, 'utf8') === original)
-    && inputs.every(([file, snapshot]) => readFileSync(file, 'utf8') === snapshot)
+    && inputs.every(([file, snapshot]) => readFileSync(file, 'utf8') === snapshot) && policyOk()
   try {
+    if (!policyOk()) return 'paused' // 子 repo 啟動即核對：授權在派工前被撤回
     await syncIssues(cfg, client)
     if (options.syncOnly) return 'synced'
     for (const published of states(cfg).filter(s => s.status === 'published')) {

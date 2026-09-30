@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { GithubConfigSchema, eligible, type Issue } from '../src/github/config.js'
+import { GithubConfigSchema, IssueSchema, eligible, type Issue } from '../src/github/config.js'
 import { type GithubClient } from '../src/github/client.js'
 import { branchFor, fingerprint, readState, saveState, states, runDir, type IssueState } from '../src/github/state.js'
 import { issueTask } from '../src/github/job.js'
@@ -26,6 +26,10 @@ test('eligibility requires open Issue, selected author and exact opt-in label', 
   expect(eligible(issue, cfg)).toBe(true)
   for (const patch of [{ state: 'closed' as const }, { user: { login: 'stranger' } }, { labels: [] }, { pull_request: {} }]) expect(eligible({ ...issue, ...patch }, cfg)).toBe(false)
   expect(() => GithubConfigSchema.parse({ ...cfg, repo: 'owner/..' })).toThrow()
+})
+test('intake accepts GitHub Issues with legitimate long bodies', () => {
+  const { issue } = fixture()
+  expect(IssueSchema.parse({ ...issue, body: 'x'.repeat(25_431) }).body).toHaveLength(25_431)
 })
 test('Issue markup cannot forge engine, ownership, or a second backlog task', () => {
   const { state } = fixture()

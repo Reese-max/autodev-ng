@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { TextDecoder } from 'node:util'
 import { z } from 'zod'
 import { acquireLock, releaseLock } from '../lock.js'
 import { api, command } from './client.js'
@@ -37,7 +38,21 @@ export function repoConfig(cfg: OwnerConfig, repo: Repo): GithubConfig {
     dataDir: join(cfg.dataDir, 'repo-' + createHash('sha256').update(repo.full_name.toLowerCase()).digest('hex').slice(0, 16)),
     stopFile: join(cfg.dataDir, '.adng.stop') })
 }
-export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = discoverRepos, run = runGithub) {
+/** 以「當初解析過的檔案內容快照」做授權重核對：內容位元組有任何變動（含改壞、改回、刪除）一律 fail-closed。
+ *  快照必須是產生 cfg 的那份內容——在入口重讀會漏掉 parse→run 之間的撤回。 */
+export function policyFileCheck(file: string, snapshot: Buffer): () => boolean {
+  return () => {
+    try {
+      return readFileSync(file).equals(snapshot)
+    } catch {
+      return false
+    }
+  }
+}
+
+export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = discoverRepos,
+  run: (child: GithubConfig, options: { syncOnly?: boolean; policyCheck?: () => boolean }) => Promise<string> = runGithub,
+  options: { policyCheck?: () => boolean } = {}) {
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'owner.lock')
   // ponytail: one account lock and one Issue per tick; add concurrency only if queue latency warrants it.
@@ -55,7 +70,8 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
       }
       const child = repoConfig(cfg, repo)
       try {
-        const result = await run(child, { syncOnly: scanOnly || executed })
+        if (options.policyCheck && !options.policyCheck()) break // 授權撤回：不再為剩餘 repo 收發鎖
+        const result = await run(child, { syncOnly: scanOnly || executed, policyCheck: options.policyCheck })
         if (!['synced', 'idle', 'paused', 'locked'].includes(result)) executed = true
         report.repositories.push({ repo: repo.full_name, result, issues: states(child) })
         if (/blocked$/.test(result)) report.status = 'blocked'
@@ -69,15 +85,16 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
     return report
   } finally { releaseLock(lock) }
 }
-export async function ownerCli(mode: string, file: string): Promise<void> {
-  const raw = OwnerConfigSchema.parse(JSON.parse(readFileSync(file, 'utf8')))
+export async function ownerCli(mode: string, file: string, deps: { discover?: typeof discoverRepos; run?: typeof runGithub } = {}): Promise<void> {
+  const policyContent = readFileSync(file) // 快照產生 cfg 的那份位元組，供執行中重核對（issue #41）
+  const raw = OwnerConfigSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(policyContent)))
   const cfg = { ...raw, sourceConfig: resolve(dirname(file), raw.sourceConfig), dataDir: resolve(dirname(file), raw.dataDir),
     projects: raw.projects ? Object.fromEntries(Object.entries(raw.projects).map(([repo, path]) => [repo, resolve(dirname(file), path)])) : undefined }
   const statusFile = join(cfg.dataDir, 'status.json')
   const result = mode === 'owner-status'
     ? { enabled: cfg.enabled, publish: cfg.publish, label: cfg.label, authors: cfg.authors, paused: !cfg.enabled || existsSync(join(cfg.dataDir, '.adng.stop')),
         lastRun: existsSync(statusFile) ? JSON.parse(readFileSync(statusFile, 'utf8')) : null }
-    : await runOwner(cfg, mode === 'owner-sync')
+    : await runOwner(cfg, mode === 'owner-sync', deps.discover, deps.run, { policyCheck: policyFileCheck(resolve(file), policyContent) })
   console.log(JSON.stringify(result, null, 2))
   if ('status' in result && ['blocked', 'error'].includes(result.status)) process.exitCode = 1
 }

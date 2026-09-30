@@ -50,6 +50,26 @@ Freebuff 可由本機設定明確選用，見 [Freebuff 使用方式](freebuff.m
 
 此入口目前只接受新增回歸測試，不接受修改、刪除或改名既有測試；需要改動既有測試的案件交由人工處理。原版、候選 commit 與測試雜湊綁定收據，發布時再次核對。模型仍須審查測試是否對應問題，測試執行不代表具備 OS 沙箱。
 
+### Quality gate 與失敗學習
+
+`quality` 是每個 integration 的可選 quality contract；設定後會在 red→green 回歸與專案驗收後執行固定順序的 `unit`、`coverage`、`crap`、`mutation` 命令。`required` 列出的檢查若未設定會是 `unverified`，不是通過；任何已設定命令失敗都會阻止候選進入 `ready` 或發布。receipt 綁定候選 commit 與 contract hash，只保存 exit code、逾時、耗時與輸出雜湊，不保存原始命令輸出。
+
+需要四道閘門時，設定檔可採用下列形狀；命令必須是 repository 本身已有且可重現的驗收命令：
+
+```json
+{
+  "quality": {
+    "required": ["unit", "coverage", "crap", "mutation"],
+    "unit": { "command": "npm.cmd", "args": ["test"] },
+    "coverage": { "command": "npm.cmd", "args": ["run", "test:coverage"] },
+    "crap": { "command": "npm.cmd", "args": ["run", "quality:crap"] },
+    "mutation": { "command": "npm.cmd", "args": ["run", "test:mutation"] }
+  }
+}
+```
+
+每輪 Issue 的 `learnings.md` 與既有 `learning-started`／`learning-outcome`／`lesson-added` 事件會保留失敗學習；反思故障 fail-open，不得反殺 Issue 主流程。quality 或 red→green 失敗仍保留 checkout、state 與 receipt，下一輪只依狀態與明確 retry 規則恢復。
+
 ## 執行
 
 ```powershell

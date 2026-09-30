@@ -125,6 +125,11 @@ test('managed worktree：Codex 只留檔案變更，宿主代為提交且不納�
   writeFileSync(join(dir, '.adng-worktree'), '{}')
   writeFileSync(join(dir, '.git', 'info', 'exclude'), '.adng-worktree\n.serena/\n.devin/config.local.json\n')
   writeFileSync(join(dir, 'tracked.txt'), 'after\n')
+  execFileSync('git', ['config', '--unset', 'user.name'], { cwd: dir })
+  execFileSync('git', ['config', '--unset', 'user.email'], { cwd: dir })
+  const previousGlobal = process.env.GIT_CONFIG_GLOBAL, previousNoSystem = process.env.GIT_CONFIG_NOSYSTEM
+  process.env.GIT_CONFIG_GLOBAL = join(dir, 'missing-global-gitconfig')
+  process.env.GIT_CONFIG_NOSYSTEM = '1'
   process.env.FAKE_CODEX_MODE = 'ok'
   const homeDir = join(mkdtempSync(join(tmpdir(), 'adng-cx-host-home-')), 'codex-home')
   const e = new CodexEngine({
@@ -132,11 +137,18 @@ test('managed worktree：Codex 只留檔案變更，宿主代為提交且不納�
     cache: new PreflightCache(join(dir, 'pf.json')),
   })
 
-  const r = await e.run({ task: T, projectPath: dir })
+  let r
+  try { r = await e.run({ task: T, projectPath: dir }) } finally {
+    if (previousGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL
+    else process.env.GIT_CONFIG_GLOBAL = previousGlobal
+    if (previousNoSystem === undefined) delete process.env.GIT_CONFIG_NOSYSTEM
+    else process.env.GIT_CONFIG_NOSYSTEM = previousNoSystem
+  }
 
   expect(r.ok).toBe(true)
   expect(r.baseCommitHash).not.toBe(r.commitHash)
   expect(execFileSync('git', ['show', '--pretty=', '--name-only', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()).toBe('tracked.txt')
+  expect(execFileSync('git', ['show', '-s', '--format=%an <%ae>', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()).toBe('AutoDev <autodev@localhost>')
   expect(execFileSync('git', ['status', '--short'], { cwd: dir, encoding: 'utf8' }).trim()).toBe('')
 })
 

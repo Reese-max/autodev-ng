@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible defect for the guarded IssueOps loop.
+title: "[bug] "
+labels: ["autodev"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please provide enough evidence for a regression test. Do not include credentials or private data.
+  - type: checkboxes
+    id: duplicate
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing Issues and did not find a duplicate.
+          required: true
+        - label: I removed secrets, tokens, and private data from this report.
+          required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened, including the exact error or observable result.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Give the smallest command, input, or sequence that reproduces the problem.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, runtime version, commit or release.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable checks that prove the fix, including regression-test expectations.
+    validations:
+      required: true

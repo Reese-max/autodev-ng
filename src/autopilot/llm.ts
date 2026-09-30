@@ -2,8 +2,17 @@ import { z } from 'zod'
 import type { Config } from '../types.js'
 import { codexJson } from '../engines/cli-json.js'
 import { callFreeModel, FreeModelUnavailable, type FreeModelOptions } from '../engines/free-model-policy.js'
+import { callRoutedAgent, type RoutePolicy } from '../engines/model-route-policy.js'
 
-export interface LlmOpts extends FreeModelOptions { transport?: 'http' | 'cli'; apiKey: string }
+export interface LlmOpts extends FreeModelOptions {
+  transport?: 'http' | 'cli'
+  apiKey: string
+  /** Issue #51 opt-in 有界備援；只在非 free-only、非 CLI 的 HTTP 路徑生效。 */
+  route?: RoutePolicy
+  role?: string
+  requireActualModel?: boolean
+  signal?: AbortSignal
+}
 
 export interface LlmResult { text: string; totalTokens: number; error?: string; retryAt?: number; actualModel?: string }
 
@@ -20,6 +29,15 @@ export async function callAgent(opts: LlmOpts, prompt: string): Promise<LlmResul
         z.object({ text: z.string() }).strict(), prompt + '\nReturn your entire answer in the text field.')
       return { text: answer.text, totalTokens }
     } catch (error) { return { text: '', totalTokens, error: String(error) } }
+  }
+  if (opts.route?.enabled === true) {
+    try {
+      return await callRoutedAgent({
+        route: opts.route, dataDir: opts.dataDir, model: opts.model, role: opts.role, effort: opts.effort,
+        timeoutMs: opts.timeoutMs, fetchFn: opts.fetchFn, callId: opts.callId, signal: opts.signal,
+        requireActualModel: opts.requireActualModel, excludedModels: opts.excludedModels, onModel: opts.onModel,
+      }, prompt)
+    } catch (error) { return { text: '', totalTokens: 0, error: String(error) } }
   }
   if (!opts.url) return { text: '', totalTokens: 0 }
   const f = opts.fetchFn ?? fetch
@@ -54,12 +72,16 @@ export async function callAgent(opts: LlmOpts, prompt: string): Promise<LlmResul
   }
 }
 
-export function llmFromConfig(cfg: Pick<Config, 'tierMode' | 'llmTransport' | 'dataDir' | 'judgeUrl' | 'judgeModel' | 'judgeApiKey' | 'judgeEffort' | 'judgeTimeoutMs'>, model = cfg.judgeModel, url = cfg.judgeUrl): LlmOpts {
-  return { tierMode: cfg.tierMode, transport: cfg.llmTransport, dataDir: cfg.dataDir, url, model, apiKey: cfg.judgeApiKey, effort: cfg.judgeEffort, timeoutMs: cfg.judgeTimeoutMs }
+export function llmFromConfig(cfg: Pick<Config, 'tierMode' | 'llmTransport' | 'dataDir' | 'judgeUrl' | 'judgeModel' | 'judgeApiKey' | 'judgeEffort' | 'judgeTimeoutMs' | 'routePolicy'>, model = cfg.judgeModel, url = cfg.judgeUrl): LlmOpts {
+  return { tierMode: cfg.tierMode, transport: cfg.llmTransport, dataDir: cfg.dataDir, url, model, apiKey: cfg.judgeApiKey, effort: cfg.judgeEffort, timeoutMs: cfg.judgeTimeoutMs, route: cfg.routePolicy }
 }
 
 export function reviewLlmFromConfig(cfg: Config, model = cfg.reviewEngine ?? cfg.auditModel ?? '', url = cfg.reviewUrl ?? cfg.judgeUrl): LlmOpts {
-  return { ...llmFromConfig(cfg, model, url), ...(cfg.tierMode === 'free-only' ? {
-    fallbackModels: cfg.freeReviewFallbacks, excludedModels: [cfg.judgeModel, ...Object.values(cfg.engines).map(engine => engine.model ?? '')],
-  } : {}) }
+  const excluded = [cfg.judgeModel, ...Object.values(cfg.engines).map(engine => engine.model ?? '')]
+  return { ...llmFromConfig(cfg, model, url), role: 'review',
+    // reviewer 必須排除實際 writer／planner 模型；路由模式下 gateway 別名不算身分證據。
+    ...(cfg.routePolicy?.enabled ? { requireActualModel: true, excludedModels: excluded } : {}),
+    ...(cfg.tierMode === 'free-only' ? {
+      fallbackModels: cfg.freeReviewFallbacks, excludedModels: excluded,
+    } : {}) }
 }

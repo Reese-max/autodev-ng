@@ -15,6 +15,10 @@
     "routing-status": "tsc -p tsconfig.build.json && node dist/engines/routing-status.js",
     "check-secrets": "node scripts/check-secrets.mjs",
     "test": "vitest run",
+    "test:coverage": "vitest run --testTimeout=60000 --coverage.enabled --coverage.provider=v8 --coverage.reporter=json --coverage.reporter=text --coverage.reportsDirectory=coverage",
+    "quality:crap": "node scripts/crap-report.mjs --files src/github/quality.ts",
+    "test:mutation": "stryker run",
+    "quality:gate": "npm run test && npm run test:coverage && npm run quality:crap && npm run test:mutation",
     "test:flaky-regression": "npm run build && node dist/engines/flaky-regression.js",
     "typecheck": "node scripts/check-secrets.mjs && tsc --noEmit"
   },
@@ -27,8 +31,12 @@
     "undici": "^6.27.0"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/typescript-checker": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^26.1.0",
+    "@vitest/coverage-v8": "^4.1.9",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },

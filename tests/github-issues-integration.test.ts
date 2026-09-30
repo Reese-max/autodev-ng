@@ -8,7 +8,7 @@ import { KernelVerifier } from '../src/engines/kernel-verifier.js'
 import { GithubConfigSchema, type Issue } from '../src/github/config.js'
 import { command, type GithubClient } from '../src/github/client.js'
 import { assertPublishable, executeIssue, git } from '../src/github/job.js'
-import { branchFor, fingerprint, readState, saveState, type IssueState } from '../src/github/state.js'
+import { branchFor, fingerprint, readState, runDir, saveState, type IssueState } from '../src/github/state.js'
 import { publishIssue, runGithub } from '../src/github/runner.js'
 import { acceptDelivery, recoverIssue } from '../src/github/operations.js'
 import * as github from '../src/github/client.js'
@@ -73,7 +73,7 @@ test('三次真實驗收紅燈後，runner 接續一次替代方案並通過原�
 test('Issue → real scheduler/worktree → failing-to-passing test → evidence → local push → one PR', async () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-gh-flow-'))
   try {
-    const cfg = GithubConfigSchema.parse({ repo: 'owner/project', authors: ['owner'], sourceConfig: join(root, 'source.json'), dataDir: root, engine: 'writer', enabled: true, publish: true, label: null, verifyCommand: `"${process.execPath}" check.cjs` })
+    const cfg = GithubConfigSchema.parse({ repo: 'owner/project', authors: ['owner'], sourceConfig: join(root, 'source.json'), dataDir: root, engine: 'writer', enabled: true, publish: true, label: null, verifyCommand: `"${process.execPath}" check.cjs`, quality: { unit: { command: process.execPath, args: ['-e', 'process.stdout.write("quality-ok")'] } } })
     const issue: Issue = { number: 1, title: 'Fix addition', body: 'add(2, 3) must return 5', state: 'open', user: { login: 'owner' }, labels: [] }
     const cwd = join(root, 'issue-1', 'repo'); mkdirSync(cwd, { recursive: true })
     git(cwd, ['init', '-b', branchFor(1)])
@@ -98,6 +98,7 @@ test('Issue → real scheduler/worktree → failing-to-passing test → evidence
       git(job.projectPath, ['add', '.']); git(job.projectPath, ['commit', '-m', 'fix addition'])
       return base
     } }])
+    const reflected: unknown[] = []
     const client: GithubClient = { list: async () => [issue], issue: async () => issue, findPr: vi.fn(async () => undefined), findLinkedPr: vi.fn(async () => undefined),
       createPr: vi.fn(async (branch: string, _title: string, body: string) => {
         expect(body).toContain('Closes #1')
@@ -107,6 +108,7 @@ test('Issue → real scheduler/worktree → failing-to-passing test → evidence
     const execute: typeof executeIssue = (c, s) => executeIssue(c, s, runtime => {
       const app = assembleConfig(runtime)
       app.deps.engines = { resolve: () => engine }
+      app.deps.lessons = { inject: () => '', reflect: async result => { reflected.push(result) } }
       app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async ({ diff }) => {
         expect(diff).toContain('a + b'); return 'REVIEW: PASS'
       } })
@@ -115,7 +117,10 @@ test('Issue → real scheduler/worktree → failing-to-passing test → evidence
     const publish: typeof publishIssue = (c, s, api) => publishIssue(c, s, api, assertPublishable,
       () => git(cwd, ['push', bare, `${s.commit}:refs/heads/${branchFor(1)}`]))
     expect(await runGithub(cfg, { client, execute, publish })).toBe('1: published')
+    expect(reflected).toContain('done')
     expect(readState(cfg, 1)!.commit).not.toBe(initialSha)
+    const qualityReceipt = join(runDir(cfg, readState(cfg, 1)!), `quality-${readState(cfg, 1)!.commit}.json`)
+    expect(JSON.parse(readFileSync(qualityReceipt, 'utf8'))).toMatchObject({ schema: 'github-quality/v1', status: 'passed' })
     expect(git(bare, ['rev-parse', `refs/heads/${branchFor(1)}`])).toBe(readState(cfg, 1)!.commit)
     expect(readFileSync(join(cwd, 'add.cjs'), 'utf8')).toContain('a + b')
     await runGithub(cfg, { client, execute, publish })

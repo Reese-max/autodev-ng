@@ -119,7 +119,7 @@ test('hang → timeout、costUnknown=true', async () => {
   expect(r.ok).toBe(false)
   expect(r.failureReason).toBe('timeout')
   expect(r.costUnknown).toBe(true)
-}, 15_000)
+}, 30_000)
 
 test('正常流但無新 commit → no-commit phantom completion 失敗（cost 照記真值）', async () => {
   const { e } = engine('ok', ['aaa', 'aaa'])

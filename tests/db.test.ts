@@ -194,6 +194,15 @@ test('lastFailureFor：最近一筆失敗回 detail；最近一筆成功或無�
   db.close()
 })
 
+test('lastAttemptFailureFor：保留供應失敗的精確原因給 self-optimization', () => {
+  const db = freshDb()
+  db.record({ taskId: 'supply', ok: false, costUsd: 0, detail: 'timeout:wall', failureClass: 'supply' })
+  expect(db.lastAttemptFailureFor('supply')).toBe('timeout:wall')
+  db.record({ taskId: 'supply', ok: true, costUsd: 0, detail: 'done' })
+  expect(db.lastAttemptFailureFor('supply')).toBeNull()
+  db.close()
+})
+
 test('durationMs：record 落地 duration_ms，歷史列（未帶）為 NULL', () => {
   const db = freshDb()
   db.record({ taskId: 'd1', ok: true, costUsd: 0, detail: 'x', durationMs: 12345 })
