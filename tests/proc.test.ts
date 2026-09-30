@@ -196,8 +196,8 @@ test.skipIf(process.platform !== 'win32')('hang-tree：雙層樹斬——父子�
   expect(isPidAlive(grandchildPid)).toBe(false)
 }, 15_000)
 
-test('hang-worktree-lock：實機引擎逾時斬樹完成後，worktree 目錄可立即刪除', async () => {
-  if (process.platform !== 'win32') return
+// 此規格需要 powershell.exe 檔案鎖（見 tests/fixtures/fake-cli.mjs FAKE_MODE=hang-worktree-lock），僅 Windows 可驗
+test.skipIf(process.platform !== 'win32')('hang-worktree-lock：實機引擎逾時斬樹完成後，worktree 目錄可立即刪除', async () => {
   const worktree = mkdtempSync(join(process.cwd(), '.tmp-proc-timeout-worktree-'))
   const lockedFile = join(worktree, 'result.txt')
   writeFileSync(lockedFile, 'locked')

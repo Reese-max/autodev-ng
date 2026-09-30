@@ -210,9 +210,11 @@ describe('callRoutedAgent', () => {
   })
 
   test('route requires dataDir for durable breaker state', async () => {
+    const preExisting = existsSync('route-breakers')
     const out = await callRoutedAgent({ route: policy({}, [{}]), model: 'a', fetchFn: okFetch('m0') }, 'p')
     expect(out.error).toMatch(/dataDir/i)
-    expect(existsSync('route-breakers')).toBe(false)
+    // Missing dataDir must not fall back to writing ./route-breakers in the cwd.
+    expect(existsSync('route-breakers')).toBe(preExisting)
   })
 
   test('attempt-timeout falls back to the next candidate; timed-out cost stays unknown', async () => {
@@ -304,7 +306,6 @@ describe('callRoutedAgent', () => {
       seenInit.push(init ?? {})
       if (String(url).includes('u0')) {
         // undici honours redirect:'error' by rejecting on a 3xx instead of following it.
-        expect(init?.redirect).toBe('error')
         throw new TypeError('fetch failed')
       }
       return new Response(JSON.stringify({
@@ -314,6 +315,9 @@ describe('callRoutedAgent', () => {
     try {
       const out = await callRoutedAgent({ route: policy({}, [{}, {}]), dataDir: dir, model: 'a', fetchFn }, 'p')
       expect(out.text).toBe('b-ok')
+      // Asserted outside the mock: an assertion inside fetchFn would be swallowed by the
+      // transport-failure try/catch and could never fail this test.
+      expect(seenInit.map(i => i?.redirect)).toEqual(['error', 'error'])
       // Each candidate attempt carries only its own credential reference — never cross-sent.
       const authHeaders = seenInit.map(i => new Headers(i?.headers).get('authorization'))
       expect(authHeaders).toEqual(['Bearer k0', 'Bearer k1'])
