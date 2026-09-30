@@ -232,7 +232,8 @@ test('supervisor 使用 config 的 staleThresholdMs', () => {
   expect(result.action).toBe('reap')
 })
 
-test('30 分鐘 watchdog：PID 活著且 heartbeat 逾期時殺樹、清鎖、記錄凍結分鐘並重拉', () => {
+// taskkill 殺樹路徑由 reapDaemonTree 的 win32 分支執行（POSIX 為 SIGKILL 後備），僅 Windows 可驗
+test.skipIf(process.platform !== 'win32')('30 分鐘 watchdog：PID 活著且 heartbeat 逾期時殺樹、清鎖、記錄凍結分鐘並重拉', () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-supervise-watchdog-'))
   const { configPath, dataDir } = writeConfig(root)
   const pid = 77
@@ -386,7 +387,13 @@ function supervisorFixture(scenario: SupervisorScenario) {
   return { result, effects }
 }
 
-test.each(SUPERVISOR_SCENARIOS)('$name', scenario => {
+// 期望 taskkill 效果的情境依賴 reapDaemonTree 的 win32 分支；POSIX 後備走 SIGKILL
+// 不發 taskkill 命令——非 win32 環境先略過該列，其餘情境照常驗
+const RUNNABLE_SCENARIOS = SUPERVISOR_SCENARIOS.filter(
+  scenario => process.platform === 'win32' || !scenario.expectedEffects.some(effect => effect.startsWith('taskkill')),
+)
+
+test.each(RUNNABLE_SCENARIOS)('$name', scenario => {
   const { result, effects } = supervisorFixture(scenario)
 
   expect(result).toMatchObject({
