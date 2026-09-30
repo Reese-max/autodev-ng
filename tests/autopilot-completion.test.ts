@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, test, vi } from 'vitest'
 import { BacklogStore } from '../src/backlog.js'
-import { ConfigSchema } from '../src/types.js'
+import { RunDb } from '../src/db.js'
+import { EventLog } from '../src/events.js'
+import { ConfigSchema, type Engine } from '../src/types.js'
 import type { Deps } from '../src/scheduler.js'
 import { runGoalSession } from '../src/autopilot/orchestrator.js'
 import { verifyAndSupplement } from '../src/autopilot/supplement.js'
@@ -14,7 +16,12 @@ vi.mock('../src/autopilot/orchestrator.js', () => ({ runGoalSession: vi.fn() }))
 vi.mock('../src/autopilot/supplement.js', () => ({ verifyAndSupplement: vi.fn() }))
 vi.mock('../src/scheduler.js', () => ({ runOnce: vi.fn(async () => 'failed'), finalizeRunOnceHeartbeat: vi.fn() }))
 const dirs: string[] = []
-afterEach(() => { vi.resetAllMocks(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
+const databases: RunDb[] = []
+afterEach(() => {
+  vi.resetAllMocks()
+  for (const db of databases.splice(0)) db.close()
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
 
 function setup(verify = true) {
   const dir = mkdtempSync(join(tmpdir(), 'adng-completion-')); dirs.push(dir)
@@ -24,7 +31,17 @@ function setup(verify = true) {
     defaultEngine: 'astra', engines: { astra: { adapter: 'codex', model: 'gpt-6-astra', costPerRunUsd: 0 } },
     llmTransport: 'cli', judgeModel: 'gpt-6-astra', auditModel: 'gpt-5.6-sol' })
   writeFileSync(cfg.backlogFile, '')
-  const reflect = vi.fn(async () => {}), deps = { cfg, store: new BacklogStore(cfg.backlogFile), lessons: { inject: () => '', reflect }, events: { append: vi.fn() } } as unknown as Deps
+  const db = new RunDb(join(dataDir, 'run.db')); databases.push(db)
+  const engine: Engine = { id: 'test', preflight: async () => ({ ok: true, detail: 'test fixture' }), run: async () => ({ ok: false, output: '', costUsd: 0 }) }
+  const reflect = vi.fn(async () => {})
+  const deps: Deps = {
+    cfg,
+    store: new BacklogStore(cfg.backlogFile),
+    db,
+    engines: { resolve: () => engine },
+    lessons: { inject: () => '', reflect },
+    events: new EventLog(dataDir),
+  }
   return { cfg, deps, reflect, notifier: { send: vi.fn(async () => true) } }
 }
 
