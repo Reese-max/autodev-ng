@@ -31,7 +31,7 @@ function setup(verify = true) {
     defaultEngine: 'astra', engines: { astra: { adapter: 'codex', model: 'gpt-6-astra', costPerRunUsd: 0 } },
     llmTransport: 'cli', judgeModel: 'gpt-6-astra', auditModel: 'gpt-5.6-sol' })
   writeFileSync(cfg.backlogFile, '')
-  const db = new RunDb(join(dataDir, 'run.db')); databases.push(db)
+  const db = new RunDb(':memory:'); databases.push(db)
   const engine: Engine = { id: 'test', preflight: async () => ({ ok: true, detail: 'test fixture' }), run: async () => ({ ok: false, output: '', costUsd: 0 }) }
   const reflect = vi.fn(async () => {})
   const deps: Deps = {
