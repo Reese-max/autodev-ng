@@ -118,7 +118,7 @@ export function generationOf(info: PidInfo): string {
 /** dir 年齡；ENOENT（檢查前已被清走）回 null 交由呼叫端讓步。 */
 export function dirAgeMs(dir: string): number | null {
   const stat = safeLockDirStat(dir)
-  return stat ? Date.now() - stat.mtimeMs : null
+  return stat ? Date.now() - Number(stat.mtimeMs) : null
 }
 
 export function writeFileAtomic(file: string, content: string): void {
