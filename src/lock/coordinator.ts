@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { realpathSync, statSync, mkdirSync, rmSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
-  dirAgeMs, generationOf, ownerAlive, readPidFile,
+  dirAgeMs, generationOf, ownerAlive, readPidFile, safeLockDirStat,
   removeIfUnclaimed, writeOwnPidFileOrCleanup,
 } from './internal.js'
 import type { PidInfo } from './internal.js'
@@ -47,11 +47,8 @@ function pathExists(path: string): boolean {
 
 function canonicalLockDir(dir: string): string {
   const absolute = resolve(dir)
-  try {
-    return realpathSync(absolute)
-  } catch (error) {
-    if (errno(error) !== 'ENOENT') throw error
-  }
+  // Resolve the parent for stable coordination identity, but preserve the leaf
+  // so a symlink or junction cannot redirect lock I/O or recursive cleanup.
   return resolve(realpathSync(dirname(absolute)), basename(absolute))
 }
 
@@ -96,28 +93,19 @@ function ownerInfo(lease: LeaseRow): PidInfo {
 }
 
 function recoveryRequired(lockDir: string): boolean {
+  if (!safeLockDirStat(lockDir)) return false
   return pathExists(join(lockDir, 'recovery-required.json'))
 }
 
 function lockDirStats(lockDir: string): ReturnType<typeof statSync> | null {
-  try {
-    const stat = statSync(lockDir)
-    if (!stat.isDirectory()) {
-      const error = new Error(`Lock path is not a directory: ${lockDir}`) as NodeJS.ErrnoException
-      error.code = 'ENOTDIR'
-      throw error
-    }
-    return stat
-  } catch (error) {
-    if (errno(error) === 'ENOENT') return null
-    throw error
-  }
+  return safeLockDirStat(lockDir)
 }
 
 function removeOwnGeneration(lockDir: string, token: string): void {
   try {
     const current = readPidFile(lockDir)
     if (current && current.pid === process.pid && generationOf(current) === token) {
+      lockDirStats(lockDir)
       rmSync(lockDir, { recursive: true, force: true })
     }
   } catch {
@@ -146,10 +134,10 @@ export function acquireLockLease(dir: string, staleMs: number, testHooks?: Acqui
       throw error
     }
 
-    if (recoveryRequired(lockDir)) return null
+    const stat = lockDirStats(lockDir)
+    if (stat && recoveryRequired(lockDir)) return null
 
     const lease = leaseFor(db, lockKey)
-    const stat = lockDirStats(lockDir)
     const diskOwner = stat ? readPidFile(lockDir) : null
 
     // Honor both the transactional owner record and pre-upgrade pid.json locks. A live
@@ -224,6 +212,7 @@ export function releaseLockLease(dir: string, token?: string | null): void {
     const legacyMatches = !lease && token.startsWith('legacy:') && diskOwner?.pid === process.pid && generationOf(diskOwner) === token
     if ((!rowMatches && !legacyMatches) || !diskOwner || generationOf(diskOwner) !== token) return
 
+    lockDirStats(lockDir)
     rmSync(lockDir, { recursive: true, force: true })
     if (rowMatches) db.prepare('DELETE FROM lock_leases WHERE lock_key = ? AND token = ?').run(lockKey, token)
     db.exec('COMMIT')
@@ -260,9 +249,9 @@ export function releaseDeadLockLease(dir: string, staleMs: number): boolean {
       throw error
     }
 
-    if (recoveryRequired(lockDir)) return false
-    const lease = leaseFor(db, lockKey)
     const stat = lockDirStats(lockDir)
+    if (stat && recoveryRequired(lockDir)) return false
+    const lease = leaseFor(db, lockKey)
     const diskOwner = stat ? readPidFile(lockDir) : null
     if (!lease && !stat) return false
     if (lease && ownerAlive(ownerInfo(lease))) return false
@@ -272,7 +261,10 @@ export function releaseDeadLockLease(dir: string, staleMs: number): boolean {
       if (age === null || age <= staleMs) return false
     }
 
-    if (stat) rmSync(lockDir, { recursive: true, force: true })
+    if (stat) {
+      lockDirStats(lockDir)
+      rmSync(lockDir, { recursive: true, force: true })
+    }
     if (lease) db.prepare('DELETE FROM lock_leases WHERE lock_key = ? AND token = ?').run(lockKey, lease.token)
     db.exec('COMMIT')
     transactionStarted = false

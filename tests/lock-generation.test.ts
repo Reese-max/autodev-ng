@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, utimesSync, existsSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, utimesSync, existsSync, writeFileSync, readFileSync, readdirSync, symlinkSync } from 'node:fs'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { acquireLock, releaseDeadLock, releaseLock } from '../src/lock.js'
 import { acquireLockLease } from '../src/lock/coordinator.js'
+import { removeIfUnclaimed, writeOwnPidFileOrCleanup } from '../src/lock/internal.js'
 
 const STALE = 30 * 60 * 1000
 const tempParents: string[] = []
@@ -17,6 +18,34 @@ function freshDir(): { parent: string; dir: string } {
   const parent = mkdtempSync(join(tmpdir(), 'adng-lkg-'))
   tempParents.push(parent)
   return { parent, dir: join(parent, 'lock') }
+}
+
+function makeSentinelTarget(): { parent: string; dir: string; target: string; sentinel: string } {
+  const { parent, dir } = freshDir()
+  const target = join(parent, 'unrelated-target')
+  mkdirSync(target)
+  const sentinel = join(target, 'sentinel.txt')
+  writeFileSync(sentinel, 'keep')
+  return { parent, dir, target, sentinel }
+}
+
+function linkLockLeaf(dir: string, target: string): void {
+  symlinkSync(target, dir, process.platform === 'win32' ? 'junction' : 'dir')
+}
+
+function expectUnsafeLockPath(action: () => unknown): void {
+  let caught: unknown
+  try {
+    action()
+  } catch (error) {
+    caught = error
+  }
+  expect(caught).toMatchObject({ code: 'ERR_UNSAFE_LOCK_PATH' })
+}
+
+function expectSentinelOnly(target: string, sentinel: string): void {
+  expect(readFileSync(sentinel, 'utf8')).toBe('keep')
+  expect(readdirSync(target).sort()).toEqual(['sentinel.txt'])
 }
 
 function deadPid(): number {
@@ -37,6 +66,44 @@ function makeDeadLock(dir: string, token = 'dead-generation'): { pid: number; st
   writeFileSync(join(dir, 'pid.json'), JSON.stringify(info))
   return info
 }
+
+test('acquisition and failed-write cleanup reject a symlink or junction leaf without touching its target', () => {
+  const { dir, target, sentinel } = makeSentinelTarget()
+  const old = new Date(Date.now() - 60 * 60 * 1000)
+  utimesSync(target, old, old)
+  linkLockLeaf(dir, target)
+
+  expectUnsafeLockPath(() => acquireLock(dir, 0))
+  expectUnsafeLockPath(() => writeOwnPidFileOrCleanup(dir, 'unsafe-generation'))
+  removeIfUnclaimed(dir)
+
+  expectSentinelOnly(target, sentinel)
+})
+
+test('token release rejects a symlink or junction leaf without deleting its target', () => {
+  const { dir, target, sentinel } = makeSentinelTarget()
+  const token = acquireLock(target)
+  expect(token).toBeTruthy()
+  linkLockLeaf(dir, target)
+
+  expectUnsafeLockPath(() => releaseLock(dir, token))
+  expect(readFileSync(sentinel, 'utf8')).toBe('keep')
+  expect(existsSync(join(target, 'pid.json'))).toBe(true)
+
+  releaseLock(target, token)
+})
+
+test('dead-lock cleanup rejects a symlink or junction leaf without deleting its target', () => {
+  const { dir, target, sentinel } = makeSentinelTarget()
+  makeDeadLock(target)
+  const old = new Date(Date.now() - 60 * 60 * 1000)
+  utimesSync(target, old, old)
+  linkLockLeaf(dir, target)
+
+  expectUnsafeLockPath(() => releaseDeadLock(dir, 0))
+  expect(readFileSync(sentinel, 'utf8')).toBe('keep')
+  expect(existsSync(join(target, 'pid.json'))).toBe(true)
+})
 
 test('acquire writes a generation token and release removes only that generation', () => {
   const { dir } = freshDir()

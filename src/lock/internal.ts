@@ -1,4 +1,4 @@
-import { rmSync, statSync, renameSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
+import { rmSync, lstatSync, renameSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
@@ -47,8 +47,38 @@ export function isReusedWindowsPid(pid: number, lockStartedAt: string, readProce
   }
 }
 
+/** Return null for a missing lock directory and reject unsafe leaf paths without following them. */
+export function safeLockDirStat(dir: string): ReturnType<typeof lstatSync> | null {
+  let stat: ReturnType<typeof lstatSync>
+  try {
+    stat = lstatSync(dir)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  }
+  if (stat.isSymbolicLink()) {
+    const error = new Error(`Lock path must not be a symlink or junction: ${dir}`) as NodeJS.ErrnoException
+    error.code = 'ERR_UNSAFE_LOCK_PATH'
+    throw error
+  }
+  if (!stat.isDirectory()) {
+    const error = new Error(`Lock path is not a directory: ${dir}`) as NodeJS.ErrnoException
+    error.code = 'ENOTDIR'
+    throw error
+  }
+  return stat
+}
+
+function requireSafeLockDir(dir: string): void {
+  if (safeLockDirStat(dir)) return
+  const error = new Error(`Lock directory does not exist: ${dir}`) as NodeJS.ErrnoException
+  error.code = 'ENOENT'
+  throw error
+}
+
 /** 讀取 dir/pid.json；缺失/損壞/pid 非正整數一律回 null（驗活是盡力而為，不 rethrow）。 */
 export function readPidFile(dir: string): PidInfo | null {
+  if (!safeLockDirStat(dir)) return null
   let raw: string
   try {
     raw = readFileSync(join(dir, 'pid.json'), 'utf8')
@@ -87,12 +117,8 @@ export function generationOf(info: PidInfo): string {
 
 /** dir 年齡；ENOENT（檢查前已被清走）回 null 交由呼叫端讓步。 */
 export function dirAgeMs(dir: string): number | null {
-  try {
-    return Date.now() - statSync(dir).mtimeMs
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
-    throw err
-  }
+  const stat = safeLockDirStat(dir)
+  return stat ? Date.now() - stat.mtimeMs : null
 }
 
 export function writeFileAtomic(file: string, content: string): void {
@@ -103,6 +129,7 @@ export function writeFileAtomic(file: string, content: string): void {
 
 /** 比照 events.ts heartbeat 的 tmp+rename 原子寫慣例，記錄目前持鎖者身分供下次驗活與世代比對。 */
 export function writeOwnPidFile(dir: string, token: string, startedAt = new Date().toISOString()): void {
+  requireSafeLockDir(dir)
   writeFileAtomic(join(dir, 'pid.json'), JSON.stringify({ pid: process.pid, startedAt, token }))
 }
 
@@ -110,8 +137,10 @@ export function writeOwnPidFile(dir: string, token: string, startedAt = new Date
  *  我們失敗的寫入只會留下 pid.json.tmp-* 孤兒或空目錄，不會出現已提交的 pid.json。 */
 export function removeIfUnclaimed(dir: string): void {
   try {
+    if (!safeLockDirStat(dir)) return
     const entries = readdirSync(dir)
     if (entries.includes('pid.json') || entries.includes('recovery-required.json')) return
+    if (!safeLockDirStat(dir)) return
     rmSync(dir, { recursive: true, force: true })
   } catch {
     // 目錄已消失或不可讀：保守不動。
