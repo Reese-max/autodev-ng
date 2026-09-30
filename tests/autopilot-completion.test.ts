@@ -6,14 +6,17 @@ import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
 import { ConfigSchema, type Engine } from '../src/types.js'
+import { pendingReviewFile } from '../src/engines/pending-review.js'
 import type { Deps } from '../src/scheduler.js'
 import { runGoalSession } from '../src/autopilot/orchestrator.js'
 import { verifyAndSupplement } from '../src/autopilot/supplement.js'
+import { discoverProblems } from '../src/autopilot/discover.js'
 import { runGoalWithDeps } from '../src/autopilot/session.js'
 
 vi.mock('../src/autopilot/git-workspace.js', () => ({ inspectGitWorkspace: () => ({ ok: true }) }))
 vi.mock('../src/autopilot/orchestrator.js', () => ({ runGoalSession: vi.fn() }))
 vi.mock('../src/autopilot/supplement.js', () => ({ verifyAndSupplement: vi.fn() }))
+vi.mock('../src/autopilot/discover.js', () => ({ discoverProblems: vi.fn() }))
 vi.mock('../src/scheduler.js', () => ({ runOnce: vi.fn(async () => 'failed'), finalizeRunOnceHeartbeat: vi.fn() }))
 const dirs: string[] = []
 const databases: RunDb[] = []
@@ -62,6 +65,22 @@ test.each(['reject', 'exception'])('補充審查 %s 不得保留 achieved，最�
   const log = readdirSync(a.cfg.dataDir).find(name => /^goal-.*jsonl$/.test(name))!
   const outcomes = readFileSync(join(a.cfg.dataDir, log), 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(row => row.outcome)
   expect(outcomes.map(row => row.outcome.kind)).toEqual(['stuck'])
+})
+
+test('有待審任務時跳過專案 discovery，仍進入 GOAL session', async () => {
+  const a = setup()
+  a.cfg.surveyCommand = 'survey fixture'
+  writeFileSync(a.cfg.backlogFile, '- [ ] candidate waiting for review\n')
+  const task = a.deps.store.read()[0]!
+  mkdirSync(join(a.cfg.dataDir, 'pending-review'))
+  writeFileSync(pendingReviewFile(a.cfg, task), JSON.stringify({ phase: 'review' }))
+  vi.mocked(runGoalSession).mockResolvedValue({ kind: 'no-progress', rounds: 1 })
+
+  const result = await runGoalWithDeps(a.deps, a.notifier, a.cfg)
+
+  expect(discoverProblems).not.toHaveBeenCalled()
+  expect(runGoalSession).toHaveBeenCalledTimes(1)
+  expect(result).toMatchObject({ outcome: { kind: 'no-progress', rounds: 1 } })
 })
 
 test('自主派工與補足派工都觸發既有反思，反思故障不改寫結果', async () => {
