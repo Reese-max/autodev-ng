@@ -12,6 +12,29 @@ import { executeIssue, git } from '../src/github/job.js'
 import { runGithub } from '../src/github/runner.js'
 import { branchFor, fingerprint, readState, saveState } from '../src/github/state.js'
 
+const repairHarness = vi.hoisted(() => ({
+  preflight: vi.fn(async () => ({ ok: true, detail: 'mock repair preflight' })),
+  engineRun: vi.fn(async () => ({ ok: true, output: '', costUsd: 0 })),
+  prepareRepair: vi.fn(async () => {}),
+  reviewRepair: vi.fn(async () => 'REVIEW: PASS'),
+  verifyRepairProbe: vi.fn(async () => true),
+  assertRepairEvidence: vi.fn(),
+}))
+vi.mock('../src/engines/registry.js', () => ({
+  makeEngineRegistry: () => ({ resolve: () => ({
+    id: 'mock-repair-writer',
+    preflight: repairHarness.preflight,
+    run: repairHarness.engineRun,
+  }) }),
+}))
+vi.mock('../src/github/repair.js', () => ({
+  eligibleForRun: vi.fn(() => true),
+  prepareRepair: repairHarness.prepareRepair,
+  reviewRepair: repairHarness.reviewRepair,
+  verifyRepairProbe: repairHarness.verifyRepairProbe,
+  assertRepairEvidence: repairHarness.assertRepairEvidence,
+}))
+
 // Issue #40：GitHub Issue 入口 executeIssue→assemble 未傳 cfgPath，scheduler 的
 // globalDailyHardUsd 全域查帳被靜默略過。且 Issue/revision 的 run.db 落在
 // cfg.dataDir 的 issue-* 樹下，不在任何被掃描的專案 dataDir——必須顯式納入 scope。
@@ -70,6 +93,44 @@ function fixture(opts: { globalLimit?: number; siblingSpent?: number; billingSco
     engines: { writer: { adapter: 'opencode', model: 'fixture' } }, defaultEngine: 'writer', reviewEngine: 'fixture-reviewer' }))
   return { root, cfg, issue, state, sourceConfig }
 }
+
+test('report repair reaches the same global cap and stops before worker start', async () => {
+  const { cfg, state, sourceConfig, root } = fixture({ globalLimit: 10, siblingSpent: 50 })
+  const source = JSON.parse(readFileSync(sourceConfig, 'utf8'))
+  source.engines.writer.adapter = 'codex'
+  writeFileSync(sourceConfig, JSON.stringify(source))
+  repairHarness.preflight.mockClear()
+  repairHarness.prepareRepair.mockClear()
+  repairHarness.engineRun.mockClear()
+  const repairCfg = GithubConfigSchema.parse({ ...cfg,
+    repair: { reportConfig: join(root, 'reports.json'), probeIds: ['add'], prepareCommand: 'mocked prepare command' } })
+  const onWorkerStart = vi.fn()
+  const result = await executeIssue(repairCfg, state, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    app.deps.engines = { resolve: () => ({
+      id: 'mock-repair-writer',
+      preflight: repairHarness.preflight,
+      run: repairHarness.engineRun,
+    }) }
+    Object.defineProperty(app.deps, 'onWorkerStart', {
+      configurable: true,
+      get: () => onWorkerStart,
+      set: (callback: (taskId: string) => void) => onWorkerStart.mockImplementation(callback),
+    })
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+
+  expect(repairHarness.preflight).toHaveBeenCalledTimes(1)
+  expect(repairHarness.prepareRepair).toHaveBeenCalledTimes(1) // setup/baseline may precede the worker gate
+  expect(result.done).toBe(false)
+  expect(result.detail).toBe('cost-hard-stop')
+  expect(result.attempted).toBe(false)
+  expect(onWorkerStart).not.toHaveBeenCalled()
+  expect(repairHarness.engineRun).not.toHaveBeenCalled()
+  const events = readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')
+  expect(events).toContain('"type":"cost-hard-stop-global"')
+})
 
 test('全域已達上限、局部有空間：executeIssue 在 worker 啟動前拒絕（cfgPath 接線）', async () => {
   const { cfg, state } = fixture({ globalLimit: 10, siblingSpent: 50 })
