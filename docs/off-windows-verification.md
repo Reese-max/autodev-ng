@@ -39,6 +39,6 @@ CI 是 `windows-latest`（`.github/workflows/ci.yml`），但驗收也會在 Lin
 
 ## 順帶修掉的真缺陷：run.db 雙證閘的邊界假紅
 
-`tests/supervisor-health/reap-rundb-liveness.test.ts` 的 (b) 情境把 run.db 的 attempt 停在「恰好等於心跳凍結點」。`src/supervisor/supervise.ts:385` 的判斷是 `lastEndMs > nowMs - heartbeatAgeMs`，嚴格大於；檔案系統 mtime 精度的取捨決定它落在哪一側，實測約三分之一執行結果翻成 `keep`（預期 `reap`），是貨真價實的假紅。
+`tests/supervisor-health/reap-rundb-liveness.test.ts` 的 (b) 情境把 run.db 的 attempt 停在「恰好等於心跳凍結點」。`src/supervisor/supervise.ts:383` 的判斷是 `lastEndMs > nowMs - heartbeatAgeMs`，嚴格大於；檔案系統 mtime 精度的取捨決定它落在哪一側，實測約三分之一執行結果翻成 `keep`（預期 `reap`），是貨真價實的假紅。
 
 修法是把 attempt 往前挪一分鐘（`nowMs - 101 分`），保留「run.db 靜默逾寬限」的原意，遠離邊界。這不是為了讓測試變綠而放寬斷言——情境本來就是要在 `attemptAfterFreeze` 明確為 false 下走 reap。
