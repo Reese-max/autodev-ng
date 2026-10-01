@@ -28,6 +28,7 @@ function staleLock(deadline: number): boolean {
 /** mkdir 原子互斥（同 repo 其他狀態檔的作法）：避免多個 spec 同時啟動 tsc 互相覆寫 dist/。
  * 取得鎖者建置，其餘等待產物出現；建置者被強殺留下的鎖逾時後由後來者接手。 */
 function buildExclusive(): void {
+  mkdirSync(dirname(lockDir), { recursive: true })
   const deadline = Date.now() + LOCK_TIMEOUT_MS
   for (;;) {
     try { mkdirSync(lockDir); break }
