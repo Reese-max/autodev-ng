@@ -45,6 +45,20 @@ test('多步全數通過 → pass，且每一步都有 executed/exitCode 證據'
   for (const [i, s] of r.steps!.entries()) expect(s).toMatchObject({ step: i + 1, executed: true, exitCode: 0 })
 })
 
+test.skipIf(process.platform !== 'win32')('Windows npm.cmd shim 與後續原生 node.exe 分步執行', async () => {
+  const cwd = workdir()
+  const r = await runVerify({
+    command: `npm --version && ${q(NODE)} -e "process.exit(17)"`,
+    cwd, timeoutMs: 30_000,
+  })
+  expect(r.status).toBe('fail')
+  expect(r.exitCode).toBe(17)
+  expect(r.steps).toMatchObject([
+    { step: 1, executed: true, exitCode: 0 }, // npm.cmd -> cmd.exe /c
+    { step: 2, executed: true, exitCode: 17 }, // native node.exe
+  ])
+})
+
 test('第一步失敗 → 後續步驟不執行、不冒充成功', async () => {
   const cwd = workdir()
   const r = await runVerify({
