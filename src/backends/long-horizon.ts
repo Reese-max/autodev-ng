@@ -358,6 +358,10 @@ export class LongHorizonBackend implements ExecutionBackend {
             claimOnly = true
           } else {
             step = result.plan.step
+            // Defense in depth for custom Manager implementations that bypass the strict LLM schema.
+            if (Object.prototype.hasOwnProperty.call(step, 'verifyCommand')) {
+              return park('blocked', 'manager step may not define verifyCommand; use the trusted goal/config command')
+            }
           }
         }
 

@@ -15,14 +15,15 @@ import {
   runDir,
   summarizeRuns,
 } from '../src/backends/long-horizon.js'
-import type {
-  AuditorFn,
-  ExecutorFn,
-  InterruptInstruction,
-  ManagerBundle,
-  ManagerFn,
-  RunEvidence,
-  RunState,
+import {
+  BoundedStepSchema,
+  type AuditorFn,
+  type ExecutorFn,
+  type InterruptInstruction,
+  type ManagerBundle,
+  type ManagerFn,
+  type RunEvidence,
+  type RunState,
 } from '../src/backends/types.js'
 import { MockEngine } from '../src/engines/mock.js'
 import type { LlmResult } from '../src/autopilot/llm.js'
@@ -184,6 +185,56 @@ describe('fresh bounded context', () => {
 })
 
 describe('approval gate', () => {
+  test('model-controlled verifyCommand is rejected before executor or host verification', async () => {
+    const { project, dataDir, cleanup } = fixture()
+    const injectedStep = { text: 'inspect service status', risk: 'low', verifyCommand: 'high-risk sentinel' }
+    expect(BoundedStepSchema.safeParse(injectedStep).success).toBe(false)
+    const execCalls: string[] = []
+    const verifyCalls: string[] = []
+    const auditor = mechanicalAuditor({
+      runVerifyFn: (async ({ command }: { command?: string }) => {
+        verifyCalls.push(command ?? '')
+        return { status: 'pass', detail: 'spy pass', executed: true, exitCode: 0 }
+      }) as never,
+      gitHead: () => undefined,
+    })
+    const executor: ExecutorFn = async req => {
+      execCalls.push(req.step.text)
+      return { ok: true, output: '', costUsd: 0 }
+    }
+    try {
+      const modelManager = llmManager(
+        { apiKey: 'k', model: 'm' } as never,
+        (async () => ({ text: JSON.stringify({ kind: 'step', step: injectedStep }), totalTokens: 1 })) as never,
+      )
+      const modelRun = await backend(dataDir, { manager: modelManager, executor, auditor })
+        .start({ objective: 'routine maintenance' }, { cwd: project })
+      expect((await modelRun.done).phase).toBe('blocked')
+      expect(execCalls).toEqual([])
+      expect(verifyCalls).toEqual([])
+
+      // Also fail closed if a custom Manager bypasses the LLM schema at runtime.
+      const forgedManager: ManagerFn = async () => ({
+        plan: { kind: 'step', step: injectedStep as never },
+      })
+      const forgedRun = await backend(dataDir, { manager: forgedManager, executor, auditor })
+        .start({ objective: 'routine maintenance' }, { cwd: project })
+      expect((await forgedRun.done).phase).toBe('blocked')
+      expect(execCalls).toEqual([])
+      expect(verifyCalls).toEqual([])
+
+      // The Auditor itself only accepts the trusted goal/config command.
+      const directVerdict = await auditor({
+        runId: 'auditor-direct', goal: { objective: 'routine maintenance' }, round: 1,
+        step: injectedStep as never, exec: { ok: true, output: '', costUsd: 0 }, cwd: project, claim: false,
+      })
+      expect(directVerdict.outcome).toBe('rejected')
+      expect(verifyCalls).toEqual([])
+    } finally {
+      cleanup()
+    }
+  })
+
   test('high-risk step parks at needs-approval and never reaches the executor until approved + resumed', async () => {
     const { project, dataDir, cleanup } = fixture()
     try {

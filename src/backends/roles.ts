@@ -47,6 +47,9 @@ const ManagerReplySchema = {
       if (value.kind === 'step') {
         const raw = value.step
         const step = typeof raw === 'string' ? { text: raw } : raw
+        if (step && typeof step === 'object' && Object.prototype.hasOwnProperty.call(step, 'verifyCommand')) {
+          return { kind: 'blocked', reason: 'manager step may not define verifyCommand' }
+        }
         const parsed = BoundedStepSchema.safeParse(step)
         if (parsed.success) return { kind: 'step', step: parsed.data }
       }
@@ -121,7 +124,7 @@ export function mechanicalAuditor(opts: {
       const detail = (req.exec.failureReason ?? req.exec.output).slice(0, 500) || 'executor failed without detail'
       return { outcome: 'rejected', detail: `executor 失敗：${detail}`, gitSha }
     }
-    const cmd = req.step.verifyCommand ?? req.goal.verifyCommand
+    const cmd = req.goal.verifyCommand
     if (!cmd?.trim()) {
       return { outcome: 'rejected', detail: '未設定 verifyCommand；自我宣告不構成完成證據', gitSha }
     }

@@ -31,7 +31,6 @@ export type BackendGoal = z.infer<typeof BackendGoalSchema>
 export const BoundedStepSchema = z.object({
   text: z.string().min(1).max(8000),
   risk: z.enum(['low', 'high']).optional(),
-  verifyCommand: z.string().optional(),
 }).strict()
 export type BoundedStep = z.infer<typeof BoundedStepSchema>
 
