@@ -140,7 +140,6 @@ test('maxAttempts caps the switch chain even when more candidates remain', async
 
 test('all candidates unavailable reports the earliest retryAt across differing Retry-After values', async () => {
   const dataDir = tmpDataDir()
-  const now = Date.now()
   const down = (retryAfter: string) => makeEndpoint((_req, res) => send(res, 503, '{}', { 'retry-after': retryAfter }))
   const [x, y, z] = [await down('300'), await down('45'), await down('120')]
   const out = await callAgent({
@@ -151,8 +150,14 @@ test('all candidates unavailable reports the earliest retryAt across differing R
   expect(out.error).toMatch(/unavailable/)
   expect(x.hits.length + y.hits.length + z.hits.length).toBe(3)
   // 三個冷卻各不相同；回報的必須是最早可重試的那個，不是最後一個也不是任一個。
-  expect(out.retryAt).toBeGreaterThanOrEqual(now + 45_000)
-  expect(out.retryAt).toBeLessThan(now + 46_000)
+  // 以 receipt 裡各 attempt 的 retryAt 取最小值比對，不綁牆上時鐘，慢機器上也不會假紅。
+  const attemptRetryAts = receipts(dataDir)
+    .filter(line => line.phase === 'attempt-failed')
+    .map(line => Number(line.retryAt))
+  expect(attemptRetryAts).toHaveLength(3)
+  expect(new Set(attemptRetryAts).size).toBe(3)
+  expect(out.retryAt).toBe(Math.min(...attemptRetryAts))
+  expect(out.retryAt).toBeLessThan(Math.max(...attemptRetryAts))
   expect(receipts(dataDir).find(line => line.phase === 'blocked')).toMatchObject({ failureClass: 'unavailable', attempts: 3 })
 })
 
