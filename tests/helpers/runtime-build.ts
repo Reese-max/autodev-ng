@@ -1,5 +1,6 @@
-import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, type Dirent } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, type Dirent } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -12,14 +13,20 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const runtimeRoot = join(repoRoot, 'dist')
 const entry = join(runtimeRoot, 'autopilot', 'llm.js')
 const lockDir = join(repoRoot, 'node_modules', '.cache', 'adng-runtime-build')
+const ownerFile = join(lockDir, 'owner.json')
 
 const POLL_MS = 50
-const OWNER_WAIT_MS = 180_000
-const OWNER_GRACE_MS = 5_000
+const HEARTBEAT_MS = 2_000
+// 持有者每 HEARTBEAT_MS 更新一次 owner.json；超過 STALE_MS 沒更新就當它被強殺了，後來者接手。
+// 用「持有者自己續命」判斷存活，而不是 pid 存活：pid 會被回收重用，Windows 上跨行程
+// process.kill(pid, 0) 還可能回 EPERM，兩者都會把死掉的持有者看成活著，卡滿等待上限。
+const STALE_MS = 15_000
+const WAIT_CEILING_MS = 300_000
 
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
-}
+/** 給呼叫端（beforeAll / 單條規格）用的逾時：涵蓋等待他人建置 + 自己跑一次完整 tsc。 */
+export const BUILD_HOOK_TIMEOUT_MS = 420_000
+
+const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
 /** src/ 下最新的原始檔修改時間；沒有 src/ 時回 0。 */
 function newestSourceMtime(dir: string): number {
@@ -50,64 +57,109 @@ function isStale(): boolean {
   try { return newestSourceMtime(join(repoRoot, 'src')) > statSync(entry).mtimeMs } catch { return true }
 }
 
-/** 鎖的持有者是否還活著。讀不到 owner.json 一律當活著（保守），只有明確 process 不存在才接手。
- *  比 mtime 陳舊度可靠：被強殺的建置者留下的鎖 mtime 可能很新，但行程已經沒了。 */
-function lockOwnerAlive(): boolean {
-  let raw: string
-  try { raw = readFileSync(join(lockDir, 'owner.json'), 'utf8') } catch {
-    // mkdir 與寫 owner 之間有個空窗；過了寬限期還沒有 owner 就是被殺在空窗裡。
-    try { return Date.now() - statSync(lockDir).mtimeMs < OWNER_GRACE_MS } catch { return true }
-  }
-  let pid: unknown
-  try { pid = (JSON.parse(raw) as { pid?: unknown }).pid } catch { return true }
-  if (typeof pid !== 'number' || pid <= 0) return true
-  if (pid === process.pid) return false
-  try { process.kill(pid, 0); return true }
-  catch (err) { return (err as NodeJS.ErrnoException).code === 'EPERM' }
+interface LockOwner { token: string; pid: number }
+
+function readOwner(): LockOwner | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(ownerFile, 'utf8')) as Partial<LockOwner>
+    if (typeof parsed.token === 'string' && typeof parsed.pid === 'number') return { token: parsed.token, pid: parsed.pid }
+    return undefined
+  } catch { return undefined }
+}
+
+/** owner.json 原子寫入：先寫同目錄暫存檔再 rename，讀者不會看到寫到一半的內容。 */
+function writeOwner(token: string): void {
+  const staging = `${ownerFile}.${randomUUID().slice(0, 8)}.tmp`
+  writeFileSync(staging, JSON.stringify({ token, pid: process.pid, at: Date.now() }))
+  renameSync(staging, ownerFile)
+}
+
+/** 鎖的持有者是否還在續命。讀不到 owner.json 以鎖目錄的 mtime 當心跳，讓「剛 mkdir 還沒寫完」
+ *  與「被殺在 mkdir 與寫之間」兩種情況都判得對。 */
+function lockIsLive(): boolean {
+  const owner = readOwner()
+  try {
+    const mtime = owner ? statSync(ownerFile).mtimeMs : statSync(lockDir).mtimeMs
+    return Date.now() - mtime < STALE_MS
+  } catch { return false }
+}
+
+/** 持有者的行程已經不存在（ESRCH）——被強殺的典型情形，立刻接手不必等心跳過期。
+ *  刻意只認 ESRCH：EPERM 代表行程存在只是沒權限探詢，pid 也可能被回收重用，那兩種交給心跳判定。 */
+function ownerProcessGone(owner: LockOwner): boolean {
+  if (owner.pid === process.pid) return false
+  try { process.kill(owner.pid, 0); return false }
+  catch (err) { return (err as NodeJS.ErrnoException).code === 'ESRCH' }
 }
 
 /** mkdir 原子互斥（同 repo 其他狀態檔的作法）：避免多個 spec 同時啟動 tsc 互相覆寫 dist/。
- *  取得鎖者建置，其餘等待產物出現；持有者若中途被強殺，後來者依行程存活判定接手，不會卡住。 */
-function acquireLock(): void {
+ *  回傳自己的 token；取得失敗代表別人正在建置且產物可用，直接回 undefined 即可。 */
+async function acquireLock(): Promise<string | undefined> {
   mkdirSync(dirname(lockDir), { recursive: true })
-  const deadline = Date.now() + OWNER_WAIT_MS
+  const token = randomUUID()
+  const deadline = Date.now() + WAIT_CEILING_MS
   for (;;) {
     try {
       mkdirSync(lockDir)
-      writeFileSync(join(lockDir, 'owner.json'), JSON.stringify({ pid: process.pid, at: Date.now() }))
-      return
+      writeOwner(token)
+      // 確認這把鎖真的還在我手上：若在我 mkdir 與寫入之間有別人搶先搶走並重建，這裡就會
+      // 讀到別人的 token，放棄重建並交回迴圈，避免兩個 tsc 同時寫同一個 dist/。
+      if (readOwner()?.token !== token) continue
+      return token
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
-      if (existsSync(entry) && !isStale()) return
-      if (!lockOwnerAlive() || Date.now() > deadline) {
+      if (existsSync(entry) && !isStale()) return undefined
+      const owner = readOwner()
+      if ((owner !== undefined && ownerProcessGone(owner)) || !lockIsLive() || Date.now() > deadline) {
+        // 持有者行程已消失、心跳不再更新、或已逾等待上限：清掉它的鎖再試一次。
+        // 重取後仍會驗證 token，所以多個後來者同時搶也只會有一個真的動手建置。
         rmSync(lockDir, { recursive: true, force: true })
         continue
       }
-      sleepSync(POLL_MS)
+      await sleep(POLL_MS)
     }
   }
 }
 
-function buildExclusive(): void {
-  acquireLock()
+function releaseLock(token: string): void {
+  // 只在鎖仍屬於自己時才清：否則會把接手者的鎖刪掉，讓後續等待者誤以為沒人在建置。
+  if (readOwner()?.token !== token) return
+  rmSync(lockDir, { recursive: true, force: true })
+}
+
+function runTsc(onHeartbeat: () => void): Promise<{ code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }> {
+  const tsc = join(repoRoot, 'node_modules', 'typescript', 'bin', 'tsc')
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(process.execPath, [tsc, '-p', join(repoRoot, 'tsconfig.build.json')], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8'); child.stdout.on('data', chunk => { stdout += chunk })
+    child.stderr.setEncoding('utf8'); child.stderr.on('data', chunk => { stderr += chunk })
+    const heartbeat = setInterval(onHeartbeat, HEARTBEAT_MS)
+    const expiry = setTimeout(() => child.kill('SIGKILL'), WAIT_CEILING_MS)
+    child.on('error', error => { clearInterval(heartbeat); clearTimeout(expiry); rejectPromise(error) })
+    child.on('close', (code, signal) => { clearInterval(heartbeat); clearTimeout(expiry); resolvePromise({ code, signal, stdout, stderr }) })
+  })
+}
+
+async function buildExclusive(): Promise<void> {
+  const token = await acquireLock()
+  if (!token) return
   try {
     if (existsSync(entry) && !isStale()) return
-    const tsc = join(repoRoot, 'node_modules', 'typescript', 'bin', 'tsc')
-    const result = spawnSync(process.execPath, [tsc, '-p', join(repoRoot, 'tsconfig.build.json')], {
-      cwd: repoRoot, encoding: 'utf8', timeout: OWNER_WAIT_MS, windowsHide: true,
-    })
-    if (result.status !== 0) {
-      throw new Error(`tsc -p tsconfig.build.json failed (${result.status ?? result.signal}): ${(result.stdout ?? '') + (result.stderr ?? '')}`)
+    const result = await runTsc(() => { try { writeOwner(token) } catch { /* 心跳失敗不影響建置 */ } })
+    if (result.code !== 0) {
+      throw new Error(`tsc -p tsconfig.build.json failed (${result.code ?? result.signal}): ${result.stdout + result.stderr}`)
     }
   } finally {
-    rmSync(lockDir, { recursive: true, force: true })
+    releaseLock(token)
   }
 }
 
 /** 保證 dist/ 編譯產物存在且不比 src/ 舊；回傳是否可用。 */
-export function ensureRuntimeBuilt(): boolean {
+export async function ensureRuntimeBuilt(): Promise<boolean> {
   if (existsSync(entry) && !isStale()) return true
-  buildExclusive()
+  await buildExclusive()
   return existsSync(entry)
 }
 

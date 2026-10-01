@@ -72,13 +72,15 @@ function breakerState(dataDir: string, endpoint: Endpoint, id: string): string |
 }
 
 /** 等冷卻到期為止，依產品自己寫下的 retryAt 判定，不用固定 sleep——固定 sleep 在慢機器上會
- *  提前放行、在快機器上只是白等，兩種都會讓這條規格的行為隨機器速度漂移。 */
+ *  提前放行、在快機器上只是白等，兩種都會讓這條規格的行為隨機器速度漂移。
+ *  候選沒在冷卻中就直接出錯，而不是當成「已經可以探測」——否則呼叫端會拿到一個空洞的通過。 */
 async function waitForCooldown(dataDir: string, endpoint: Endpoint, id: string, ceilingMs = 30_000): Promise<void> {
   const key = breakerKey({ url: endpoint.url, model: `m-${id}`, apiKey: `k-secret-${id}`, credentialRef: `cred-${id}` })
   const deadline = Date.now() + ceilingMs
   for (;;) {
     const snapshot = readBreaker(dataDir, key)
-    if (snapshot.kind !== 'open' || snapshot.retryAt <= Date.now()) return
+    if (snapshot.kind === 'open' && snapshot.retryAt <= Date.now()) return
+    if (snapshot.kind !== 'open') throw new Error(`expected ${id} to be in cooldown, saw ${snapshot.kind}`)
     if (Date.now() > deadline) throw new Error(`cooldown did not expire within ${ceilingMs}ms (retryAt=${snapshot.retryAt})`)
     await sleep(Math.min(20, Math.max(1, snapshot.retryAt - Date.now())))
   }
@@ -204,7 +206,7 @@ test('a permanent failure class never issues a fallback request', async () => {
 })
 
 test('a cooldown survives a real process restart', async () => {
-  expect(ensureRuntimeBuilt()).toBe(true)
+  expect(await ensureRuntimeBuilt()).toBe(true)
   const a = await makeEndpoint((_req, res) => send(res, 429, '{}', { 'retry-after': '120' }))
   const b = await makeEndpoint((_req, res) => send(res, 200, okBody('b-actual-model', 'B-OK')))
   const opts: LlmOpts = {

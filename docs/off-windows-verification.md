@@ -13,8 +13,11 @@ CI 是 `windows-latest`（`.github/workflows/ci.yml`），但驗收也會在 Lin
 | `tests/learn-store.test.ts` | 子行程直接 import `dist/learn/store.js` |
 | `tests/learning-outcomes.test.ts` | `scripts/learning-report.mjs` → `dist/learn/outcomes.js`、`dist/github/*` |
 | `tests/host-deployment.test.ts` | `scripts/host.mjs:53` 要求 `dist/cli.js` 存在 |
+| `tests/model-route-policy-http.test.ts` | 「冷卻跨行程重啟後仍有效」那條以子行程 import `dist/autopilot/llm.js`。這是唯一**在測試內**（非載入時）呼叫 `ensureRuntimeBuilt()` 的地方，所以等待時間會以該條規格的逾時呈現 |
 
-這些檔案在頂層呼叫 `tests/helpers/runtime-build.ts` 的 `ensureRuntimeBuilt()`：缺 `dist/`、或 `src/` 有任一檔案比產物新，就就地 `tsc -p tsconfig.build.json`（過期重編是必要的——跨行程重啟測試會 import 編譯產物，舊產物等於測到舊程式碼）。只寫 gitignored 的 `dist/`，不改任何受版控檔案。**選擇建置而不是略過**，是因為略過等於在非 Windows 主機上永久失去這些斷言。
+這些檔案在 `beforeAll` 呼叫 `tests/helpers/runtime-build.ts` 的 `ensureRuntimeBuilt()`：缺 `dist/`、或 `src/` 有任一檔案比產物新，就就地 `tsc -p tsconfig.build.json`（過期重編是必要的——跨行程重啟測試會 import 編譯產物，舊產物等於測到舊程式碼）。只寫 gitignored 的 `dist/`，不改任何受版控檔案。
+
+互斥用 `node_modules/.cache/adng-runtime-build` 的 `mkdir` 原子性：持有者每 2 秒把自己的 `owner.json` 重新寫一次當心跳，後來者只看心跳是否還在更新（超過 15 秒沒更新就接手），並在取得鎖後回頭確認 token 仍是自己才動手建置。刻意不用 pid 存活判斷——pid 會被回收重用，Windows 上跨行程 `process.kill(pid, 0)` 還可能回 `EPERM`，兩者都會把死掉的持有者誤判為活著而卡滿等待上限。釋放時也只在 token 仍是自己才清鎖，避免刪掉接手者的鎖。**選擇建置而不是略過**，是因為略過等於在非 Windows 主機上永久失去這些斷言。
 
 ## 平台綁定規格
 
@@ -47,4 +50,4 @@ CI 是 `windows-latest`（`.github/workflows/ci.yml`），但驗收也會在 Lin
 
 ## 已知缺口：`isExternalEngineTermination` 的 signed 形式永遠比不中
 
-`src/engines/infra-retry.ts:34` 的 regex 寫成 `\b(?:1073807364|3221225786|-1073741510)\b`。`-` 不是單詞字元，前面的 `\b` 在任何實際輸入下都不成立——註解宣稱支援的 signed（負值）形式恆為 false。unsigned、`0x` hex 與 `STATUS_CONTROL_C_EXIT` 皆正常，由 `tests/infra-retry.test.ts` 覆蓋；負值形式暫時沒有測試，以免把缺陷固化為期望。修法是把該項改寫成 `(?:-1073741510)\b` 之類不帶前導邊界的比對。
+`src/engines/infra-retry.ts:34` 的 regex 寫成 `\b(?:1073807364|3221225786|-1073741510)\b`。`-` 不是單詞字元，這一項前面的 `\b` 幾乎不可能成立——只有當 `7` 前剛好緊接著一個單詞字元時才會命中（例如把這串數字接在 `x` 後面），而終止碼不會以那種形式出現——註解宣稱支援的 signed（負值）形式恆為 false。unsigned、`0x` hex 與 `STATUS_CONTROL_C_EXIT` 皆正常，由 `tests/infra-retry.test.ts` 覆蓋；負值形式暫時沒有測試，以免把缺陷固化為期望。修法是把該項改寫成 `(?:-1073741510)\b` 之類不帶前導邊界的比對。
