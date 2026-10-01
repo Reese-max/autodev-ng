@@ -71,6 +71,19 @@ function breakerState(dataDir: string, endpoint: Endpoint, id: string): string |
   return kind === 'closed' ? undefined : kind === 'open' ? 'OPEN' : kind.toUpperCase()
 }
 
+/** 等冷卻到期為止，依產品自己寫下的 retryAt 判定，不用固定 sleep——固定 sleep 在慢機器上會
+ *  提前放行、在快機器上只是白等，兩種都會讓這條規格的行為隨機器速度漂移。 */
+async function waitForCooldown(dataDir: string, endpoint: Endpoint, id: string, ceilingMs = 30_000): Promise<void> {
+  const key = breakerKey({ url: endpoint.url, model: `m-${id}`, apiKey: `k-secret-${id}`, credentialRef: `cred-${id}` })
+  const deadline = Date.now() + ceilingMs
+  for (;;) {
+    const snapshot = readBreaker(dataDir, key)
+    if (snapshot.kind !== 'open' || snapshot.retryAt <= Date.now()) return
+    if (Date.now() > deadline) throw new Error(`cooldown did not expire within ${ceilingMs}ms (retryAt=${snapshot.retryAt})`)
+    await sleep(Math.min(20, Math.max(1, snapshot.retryAt - Date.now())))
+  }
+}
+
 afterAll(async () => {
   for (const server of servers) { try { await new Promise<void>(resolve => { server.close(() => resolve()) }) } catch { /* best effort */ } }
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5 })
@@ -226,7 +239,7 @@ test('only one caller holds the HALF_OPEN probe lease after a cooldown expires',
   }
   expect((await callAgent(opts, 'p')).text).toBe('B-OK')
   expect(breakerState(dataDir, a, 'a')).toBe('OPEN')
-  await sleep(220)
+  await waitForCooldown(dataDir, a, 'a')
   recovering = true
   const [first, second] = await Promise.all([callAgent(opts, 'p'), callAgent(opts, 'p')])
   expect(a.hits).toHaveLength(2)
