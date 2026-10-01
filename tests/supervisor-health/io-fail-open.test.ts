@@ -120,15 +120,17 @@ function runProbe(failure: IoFailure | 'none'): ProbeFixture {
   return { result, commands, commandLines, launchCalls }
 }
 
-// reapDaemonTree 的 taskkill 路徑只存在於 win32 分支（POSIX 為 SIGKILL 後備），
 // 故基準情境的 taskkill 斷言僅 Windows 可成立。
-test.skipIf(!win32Only)('基準：探測全成功且 heartbeat 過期無 child → reap + taskkill + launch', () => {
+test('基準：探測全成功且 heartbeat 過期無 child → reap + taskkill + launch', () => {
   const { result, commands, commandLines, launchCalls } = runProbe('none')
 
   expect(result.action).toBe('reap')
   expect(result.probeErrors).toEqual([])
-  expect(commands).toContain('taskkill')
-  expect(commandLines.some(line => line.includes(`taskkill /PID ${PID} /T /F`))).toBe(true)
+  // reapDaemonTree 只有 win32 分支發 taskkill；POSIX 走 SIGKILL 後備（沒有命令可觀測）。
+  if (win32Only) {
+    expect(commands).toContain('taskkill')
+    expect(commandLines.some(line => line.includes(`taskkill /PID ${PID} /T /F`))).toBe(true)
+  } else expect(commands).not.toContain('taskkill')
   expect(launchCalls).toBe(1)
   expect(result.launchedPid).toBe(9_001)
 })

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { callAgent, type LlmOpts } from '../src/autopilot/llm.js'
-import { RoutePolicySchema, type RouteCandidate, type RoutePolicy } from '../src/engines/model-route-policy.js'
+import { breakerKey, readBreaker, RoutePolicySchema, type RouteCandidate, type RoutePolicy } from '../src/engines/model-route-policy.js'
 import { ensureRuntimeBuilt, runtimeModuleUrl } from './helpers/runtime-build.js'
 
 // Issue #51 的驗收需要真實的 loopback HTTP 行為：URL 組裝、認證標頭、redirect 拒絕、
@@ -65,6 +65,12 @@ const candidates = (endpoints: Endpoint[], ids: string[]): RouteCandidate[] =>
 const route = (routeId: string, list: RouteCandidate[], extra: Record<string, unknown> = {}): RoutePolicy =>
   RoutePolicySchema.parse({ enabled: true, routeId, policyVersion: '1', candidates: list, ...extra })
 
+/** 某個候選目前的熔斷狀態；CLOSED 不寫檔，回 undefined。 */
+function breakerState(dataDir: string, endpoint: Endpoint, id: string): string | undefined {
+  const kind = readBreaker(dataDir, breakerKey({ url: endpoint.url, model: `m-${id}`, apiKey: `k-secret-${id}`, credentialRef: `cred-${id}` })).kind
+  return kind === 'closed' ? undefined : kind === 'open' ? 'OPEN' : kind.toUpperCase()
+}
+
 afterAll(async () => {
   for (const server of servers) { try { await new Promise<void>(resolve => { server.close(() => resolve()) }) } catch { /* best effort */ } }
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5 })
@@ -116,10 +122,27 @@ test('an attempt timeout may fall back but keeps the timed-out attempt cost unkn
     .toMatchObject({ failureClass: 'attempt-timeout', cost: 'unknown' })
 })
 
-test('all candidates unavailable stops inside the attempt cap and reports the earliest retryAt', async () => {
-  const down = () => makeEndpoint((_req, res) => send(res, 503, '{}', { 'retry-after': '60' }))
-  const [x, y, z] = [await down(), await down(), await down()]
+test('maxAttempts caps the switch chain even when more candidates remain', async () => {
+  const down = () => makeEndpoint((_req, res) => send(res, 503, '{}', { 'retry-after': '30' }))
+  const [a, b, c, d] = [await down(), await down(), await down(), await down()]
+  const out = await callAgent({
+    url: a.url, model: 'alias', apiKey: 'k-single-path', dataDir: tmpDataDir(),
+    route: route('http-cap', candidates([a, b, c, d], ['a', 'b', 'c', 'd']), { maxAttempts: 2 }),
+  }, 'prompt')
+  expect(out.text).toBe('')
+  expect(out.error).toMatch(/unavailable/)
+  // 上限 2（含首次）：第三個候選完全不該被碰過——否則 maxAttempts 只是候選耗盡的同義詞。
+  expect(a.hits).toHaveLength(1)
+  expect(b.hits).toHaveLength(1)
+  expect(c.hits).toHaveLength(0)
+  expect(d.hits).toHaveLength(0)
+})
+
+test('all candidates unavailable reports the earliest retryAt across differing Retry-After values', async () => {
   const dataDir = tmpDataDir()
+  const now = Date.now()
+  const down = (retryAfter: string) => makeEndpoint((_req, res) => send(res, 503, '{}', { 'retry-after': retryAfter }))
+  const [x, y, z] = [await down('300'), await down('45'), await down('120')]
   const out = await callAgent({
     url: x.url, model: 'alias', apiKey: 'k-single-path', dataDir,
     route: route('http-down', candidates([x, y, z], ['x', 'y', 'z']), { maxAttempts: 3 }),
@@ -127,7 +150,9 @@ test('all candidates unavailable stops inside the attempt cap and reports the ea
   expect(out.text).toBe('')
   expect(out.error).toMatch(/unavailable/)
   expect(x.hits.length + y.hits.length + z.hits.length).toBe(3)
-  expect(out.retryAt).toBeGreaterThan(Date.now())
+  // 三個冷卻各不相同；回報的必須是最早可重試的那個，不是最後一個也不是任一個。
+  expect(out.retryAt).toBeGreaterThanOrEqual(now + 45_000)
+  expect(out.retryAt).toBeLessThan(now + 46_000)
   expect(receipts(dataDir).find(line => line.phase === 'blocked')).toMatchObject({ failureClass: 'unavailable', attempts: 3 })
 })
 
@@ -189,11 +214,13 @@ test('only one caller holds the HALF_OPEN probe lease after a cooldown expires',
     send(res, 200, okBody('a-actual-model', 'A-OK'))
   })
   const b = await makeEndpoint((_req, res) => send(res, 200, okBody('b-actual-model', 'B-OK')))
+  const dataDir = tmpDataDir()
   const opts: LlmOpts = {
-    url: a.url, model: 'alias', apiKey: 'k-single-path', dataDir: tmpDataDir(),
+    url: a.url, model: 'alias', apiKey: 'k-single-path', dataDir,
     route: route('http-probe', candidates([a, b], ['a', 'b']), { cooldownMs: 150 }),
   }
   expect((await callAgent(opts, 'p')).text).toBe('B-OK')
+  expect(breakerState(dataDir, a, 'a')).toBe('OPEN')
   await sleep(220)
   recovering = true
   const [first, second] = await Promise.all([callAgent(opts, 'p'), callAgent(opts, 'p')])
@@ -202,6 +229,8 @@ test('only one caller holds the HALF_OPEN probe lease after a cooldown expires',
   const fallback = [first.actualModel, second.actualModel].filter(model => model === 'b-actual-model')
   expect(probed).toHaveLength(1)
   expect(fallback).toHaveLength(1)
+  // 探測成功必須清掉熔斷狀態檔（CLOSED），否則下一輪會繼續把它當冷卻中的候選。
+  expect(breakerState(dataDir, a, 'a')).toBeUndefined()
 })
 
 test('caller abort and an expired total deadline issue no further request', async () => {

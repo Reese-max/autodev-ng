@@ -68,10 +68,10 @@
 驗收拆成兩層，都不碰真實 provider、帳號或網路：
 
 - `tests/model-route-policy.test.ts`：純 policy 單元測試（schema 上限、失敗分類、`Retry-After` 解析、熔斷鍵、receipt 欄位）。以注入的 `fetchFn` 斷言行為。
-- `tests/model-route-policy-http.test.ts`：**本機真 HTTP fixture**，走真實 `node:http` loopback 伺服器與真實 `undici` fetch，覆蓋 Issue 驗收條件中只有真實傳輸才成立的部分——`/chat/completions` URL 組裝、每候選只用自己的認證標頭、redirect 不外洩認證、attempt timeout 可備援但逾時成本記 `unknown`、全部候選不可用時在 attempt 上限內停下並回最早 `retryAt`、401 不發備援請求、跨行程重啟後冷卻仍有效、冷卻到期只有一個 `HALF_OPEN` probe lease、caller abort／總 deadline 不再發請求、HTTP 200 但 body 不可用不算完成、reviewer 的 gateway 別名與 writer 身分 BLOCKED/隔離、`route.enabled: false` 維持原單一路徑、free-only 在送出請求前拒絕 loopback 端點、receipt 不含金鑰/prompt/Authorization。
+- `tests/model-route-policy-http.test.ts`：**本機真 HTTP fixture**，走真實 `node:http` loopback 伺服器與真實 `undici` fetch，覆蓋 Issue 驗收條件中只有真實傳輸才成立的部分——`/chat/completions` URL 組裝、每候選只用自己的認證標頭、redirect 不外洩認證、attempt timeout 可備援但逾時成本記 `unknown`、候選多於 `maxAttempts` 時在上限內停下、三個候選冷卻時間不同時回報**最早**可重試時間、401 不發備援請求、跨行程重啟後冷卻仍有效、冷卻到期只有一個 `HALF_OPEN` probe lease 且探測成功後熔斷狀態清除、caller abort／總 deadline 不再發請求、HTTP 200 但 body 不可用不算完成、reviewer 的 gateway 別名與 writer 身分 BLOCKED/隔離、`route.enabled: false` 維持原單一路徑、free-only 在送出請求前拒絕 loopback 端點、receipt 不含金鑰/prompt/Authorization。
 - `tests/regressions/github-51.test.cjs`：同一組情境的 `node:test` 版本，只在 `.github/workflows/ci.yml` 的 Windows 步驟執行（`node --test`）。預設 `vitest run` 不收 `.cjs`，兩份刻意分開。
 
-跨行程那條需要編譯產物，故以 `tests/helpers/runtime-build.ts` 在缺 `dist/` 時就地 `tsc -p tsconfig.build.json`——`npm test` 不保證 `dist/` 存在（profile 先跑 test 再跑 build），helper 只寫 gitignored 的 `dist/`，不改受版控檔案。非 Windows 主機上的驗收前提、平台綁定規格與已知 POSIX 缺口見 [非 Windows 主機上的驗收](off-windows-verification.md)。
+跨行程那條需要編譯產物，故以 `tests/helpers/runtime-build.ts` 在缺 `dist/`、或 `src/` 有任一檔案比產物新時就地 `tsc -p tsconfig.build.json`（`npm test` 是裸 `vitest run`，自己不建置）。helper 只寫 gitignored 的 `dist/`，不改受版控檔案。非 Windows 主機上的驗收前提、平台綁定規格與已知缺口見 [非 Windows 主機上的驗收](off-windows-verification.md)。
 
 ## 9Router 相容性狀態：**UNVERIFIED**
 

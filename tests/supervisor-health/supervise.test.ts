@@ -233,8 +233,7 @@ test('supervisor 使用 config 的 staleThresholdMs', () => {
   expect(result.action).toBe('reap')
 })
 
-// taskkill 殺樹路徑由 reapDaemonTree 的 win32 分支執行（POSIX 為 SIGKILL 後備），僅 Windows 可驗
-test.skipIf(!win32Only)('30 分鐘 watchdog：PID 活著且 heartbeat 逾期時殺樹、清鎖、記錄凍結分鐘並重拉', () => {
+test('30 分鐘 watchdog：PID 活著且 heartbeat 逾期時殺樹、清鎖、記錄凍結分鐘並重拉', () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-supervise-watchdog-'))
   const { configPath, dataDir } = writeConfig(root)
   const pid = 77
@@ -261,7 +260,9 @@ test.skipIf(!win32Only)('30 分鐘 watchdog：PID 活著且 heartbeat 逾期時�
 
   expect(result.action).toBe('reap')
   expect(result.heartbeatAgeMs).toBeGreaterThan(HEARTBEAT_WATCHDOG_MS)
-  expect(commands).toContain(`taskkill /PID ${pid} /T /F`)
+  // reapDaemonTree 只有 win32 分支發 taskkill，POSIX 走 SIGKILL 後備（沒有命令可觀測）。
+  if (win32Only) expect(commands).toContain(`taskkill /PID ${pid} /T /F`)
+  else expect(commands).not.toContain('taskkill')
   expect(effects).toEqual(['launch'])
   expect(existsSync(join(dataDir, 'daemon.lock'))).toBe(false)
   const events = readFileSync(join(dataDir, 'events.jsonl'), 'utf8')
@@ -388,13 +389,7 @@ function supervisorFixture(scenario: SupervisorScenario) {
   return { result, effects }
 }
 
-// 期望 taskkill 效果的情境依賴 reapDaemonTree 的 win32 分支；POSIX 後備走 SIGKILL 不發 taskkill——
-// 非 win32 略過該列，其餘情境（keep/relock 等）照常驗。
-const RUNNABLE_SCENARIOS = SUPERVISOR_SCENARIOS.filter(
-  scenario => win32Only || !scenario.expectedEffects.some(effect => effect.startsWith('taskkill')),
-)
-
-test.each(RUNNABLE_SCENARIOS)('$name', scenario => {
+test.each(SUPERVISOR_SCENARIOS)('$name', scenario => {
   const { result, effects } = supervisorFixture(scenario)
 
   expect(result).toMatchObject({
@@ -403,7 +398,10 @@ test.each(RUNNABLE_SCENARIOS)('$name', scenario => {
     action: scenario.expectedAction,
   })
   expect(result.heartbeatAgeMs).toBeGreaterThan(60_000)
-  expect(effects).toEqual(scenario.expectedEffects)
+  // reapDaemonTree 只有 win32 分支發 taskkill；POSIX 走 SIGKILL 後備。動作與重拉仍然必須成立，
+  // 只有「命令是 taskkill」這個觀測點是平台限定——逐平台比對而不是整列略過。
+  const expectedEffects = win32Only ? scenario.expectedEffects : scenario.expectedEffects.filter(effect => !effect.startsWith('taskkill'))
+  expect(effects).toEqual(expectedEffects)
 })
 
 test('探測命令失敗時保守 keep，不誤殺存活 PID', () => {
