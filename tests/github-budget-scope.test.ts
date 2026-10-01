@@ -109,6 +109,36 @@ test('全域拒絕走 runGithub 全鏈路：runs 不被消耗、issue 保持 que
   expect(engine.calls).toHaveLength(0)
 })
 
+test('owner billingScopeResolver 拋錯 → 明確 cost-hard-stop、不派工且不消耗 maxRuns', async () => {
+  const { cfg: baseCfg, issue } = fixture({ globalLimit: 10, siblingSpent: 0 })
+  const cfg = { ...baseCfg, maxRuns: 1, billingScopeResolver: () => { throw new Error('Unmapped owner billing database') } }
+  const engine = new MockEngine([{ ok: true }])
+  const client: GithubClient = { list: vi.fn(async () => [issue]), issue: vi.fn(async () => issue),
+    findPr: vi.fn(async () => undefined), findLinkedPr: vi.fn(async () => undefined),
+    createPr: vi.fn(async () => { throw new Error('unexpected publish') }) }
+  let execution: Awaited<ReturnType<typeof executeIssue>> | undefined
+  const execute = async (c: typeof cfg, s: Parameters<typeof executeIssue>[1]) => {
+    execution = await executeIssue(c, s, (runtime, cfgPath) => {
+      const app = assembleConfig(runtime, cfgPath)
+      app.deps.engines = { resolve: () => engine }
+      app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+      return app
+    })
+    return execution
+  }
+
+  expect(await runGithub(cfg, { client, execute })).toBe('7: queued')
+  expect(execution?.detail).toBe('cost-hard-stop')
+  expect(execution?.attempted).toBe(false)
+  expect(engine.calls).toHaveLength(0)
+  const state = readState(cfg, 7)!
+  expect(state.runs).toBe(0)
+  expect(state.status).toBe('queued')
+  const events = readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')
+  expect(events).toContain('"type":"cost-accounting-incomplete"')
+  expect(events).toContain('"state":"cost-stopped"')
+})
+
 test('worker 已啟動後 runOnce 回 stopped → runs 保留，不因結果名稱回退嘗試次數', async () => {
   const { cfg, issue } = fixture()
   const engine = new MockEngine([{ ok: true, beforeResult: () => { writeFileSync(join(cfg.dataDir, '.adng.stop'), 'pause') } }])

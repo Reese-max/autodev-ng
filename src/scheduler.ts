@@ -119,10 +119,16 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
       writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
       return 'cost-hard-stop'
     }
-    const extra = typeof deps.billingScopes === 'function' ? deps.billingScopes()
-      : deps.billingScopes ?? extraBillingScopes(cfg, deps.billingScopeDirs)
     let g = 0
-    try { g = globalBilledToday(deps.cfgPath, new Date().toISOString(), extra) } catch { quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global' })); writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent }); return 'cost-hard-stop' }
+    try {
+      const extra = typeof deps.billingScopes === 'function' ? deps.billingScopes()
+        : deps.billingScopes ?? extraBillingScopes(cfg, deps.billingScopeDirs)
+      g = globalBilledToday(deps.cfgPath, new Date().toISOString(), extra)
+    } catch {
+      quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global' }))
+      writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
+      return 'cost-hard-stop'
+    }
     if (g >= cfg.globalDailyHardUsd) {
       quiet(() => events.appendOnce('cost-hard-stop-global', { spent: g }))
       writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
