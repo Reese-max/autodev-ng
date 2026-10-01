@@ -98,6 +98,7 @@ test('report repair reaches the same global cap and stops before worker start', 
   const { cfg, state, sourceConfig, root } = fixture({ globalLimit: 10, siblingSpent: 50 })
   const source = JSON.parse(readFileSync(sourceConfig, 'utf8'))
   source.engines.writer.adapter = 'codex'
+  source.engines.writer.costPerRunUsd = 0 // Schema fixture only; worker execution remains asserted unreachable.
   writeFileSync(sourceConfig, JSON.stringify(source))
   repairHarness.preflight.mockClear()
   repairHarness.prepareRepair.mockClear()
