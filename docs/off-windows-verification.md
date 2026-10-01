@@ -36,3 +36,9 @@ CI 是 `windows-latest`（`.github/workflows/ci.yml`），但驗收也會在 Lin
 ## 主機環境相依：真實 CLI 額度
 
 `tests/github-repair.test.ts` 以 `vi.mock` 把 `src/engines/cli-admission.js` 的 `nativeAdmission` 換成 `unknownAdmission`。原因：規格 mock 了 `proc.runProcess`，但 admission 走 `src/engines/cli-rpc.ts:10` 的 raw `spawn`，會打到開發機上真實登入的 codex CLI；真額度用盡時整條修復路徑被 admission 擋下，與規格斷言無關。原生額度判讀本身由 `tests/cli-admission.test.ts` 單元覆蓋，不受影響。
+
+## 順帶修掉的真缺陷：run.db 雙證閘的邊界假紅
+
+`tests/supervisor-health/reap-rundb-liveness.test.ts` 的 (b) 情境把 run.db 的 attempt 停在「恰好等於心跳凍結點」。`src/supervisor/supervise.ts:385` 的判斷是 `lastEndMs > nowMs - heartbeatAgeMs`，嚴格大於；檔案系統 mtime 精度的取捨決定它落在哪一側，實測約三分之一執行結果翻成 `keep`（預期 `reap`），是貨真價實的假紅。
+
+修法是把 attempt 往前挪一分鐘（`nowMs - 101 分`），保留「run.db 靜默逾寬限」的原意，遠離邊界。這不是為了讓測試變綠而放寬斷言——情境本來就是要在 `attemptAfterFreeze` 明確為 false 下走 reap。

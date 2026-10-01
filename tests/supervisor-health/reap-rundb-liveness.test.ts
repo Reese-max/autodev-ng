@@ -78,7 +78,10 @@ test('(b) 心跳凍 100 分且 run.db 靜默逾寬限：雙證齊全，reap', ()
   const { configPath, dataDir } = setup(root)
   const nowMs = Date.now()
   freezeHeartbeat(dataDir, nowMs, 100 * 60_000)
-  seedRunDb(dataDir, nowMs - 100 * 60_000)
+  // attempt 比心跳凍結再早 1 分：supervise.ts 的 attemptAfterFreeze 判斷是
+  // lastEndMs > nowMs - heartbeatAgeMs，把 run.db 停在「恰好等於凍結點」會讓結論
+  // 飄在檔案系統 mtime 精度的另一側（實測約 1/3 執行結果翻成 keep）。
+  seedRunDb(dataDir, nowMs - 101 * 60_000)
   const effects: string[] = []
   const result = superviseConfig(configPath, {
     nowMs, runCommand: aliveRunner(4321, 1),
