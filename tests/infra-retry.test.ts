@@ -36,8 +36,10 @@ test('逾時碼與非 worktree 失敗分流：逾時→基建重試，其餘→�
 
 test('Windows 外部終止碼：unsigned／hex／具名皆視為基建失敗', () => {
   // 註：src/engines/infra-retry.ts 的 regex 寫成 \b-1073741510\b，而「-」非單詞字元，
-  // 前面的 \b 在任何實際輸入下都不成立——註解宣稱支援的 signed 形式目前永遠比不中。
+  // 這一項前面的 \b 只有在「7」前緊接著一個單詞字元時才成立（例如把數字接在 x 後面），
+  // 終止碼不會以那種形式出現，所以註解宣稱支援的 signed 形式實際上比不中。
   // 那是產品缺陷，修它要動 src/，不夾帶在本次測試／文件變更裡；見 docs/off-windows-verification.md。
+  // 這裡刻意不把 signed 形式寫成期望值，免得把缺陷固化成「應該這樣」。
   for (const code of ['1073807364', '3221225786', '0x40010004', '0xc000013a', 'STATUS_CONTROL_C_EXIT']) {
     expect(isExternalEngineTermination({ code }), code).toBe(true)
   }

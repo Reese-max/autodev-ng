@@ -17,7 +17,7 @@ CI 是 `windows-latest`（`.github/workflows/ci.yml`），但驗收也會在 Lin
 
 這些檔案在 `beforeAll` 呼叫 `tests/helpers/runtime-build.ts` 的 `ensureRuntimeBuilt()`：缺 `dist/`、或 `src/` 有任一檔案比產物新，就就地 `tsc -p tsconfig.build.json`（過期重編是必要的——跨行程重啟測試會 import 編譯產物，舊產物等於測到舊程式碼）。只寫 gitignored 的 `dist/`，不改任何受版控檔案。
 
-互斥用 `node_modules/.cache/adng-runtime-build` 的 `mkdir` 原子性：持有者每 2 秒把自己的 `owner.json` 重新寫一次當心跳，後來者只看心跳是否還在更新（超過 15 秒沒更新就接手），並在取得鎖後回頭確認 token 仍是自己才動手建置。刻意不用 pid 存活判斷——pid 會被回收重用，Windows 上跨行程 `process.kill(pid, 0)` 還可能回 `EPERM`，兩者都會把死掉的持有者誤判為活著而卡滿等待上限。釋放時也只在 token 仍是自己才清鎖，避免刪掉接手者的鎖。**選擇建置而不是略過**，是因為略過等於在非 Windows 主機上永久失去這些斷言。
+互斥用 `node_modules/.cache/adng-runtime-build` 的 `mkdir` 原子性：持有者每 2 秒把自己的 `owner.json` 重新寫一次當心跳，後來者只看心跳是否還在更新（超過 60 秒沒更新就接手，閒置 30 倍），並在取得鎖後回頭確認 token 仍是自己才動手建置。刻意不用 pid 存活判斷——pid 會被回收重用，Windows 上跨行程 `process.kill(pid, 0)` 還可能回 `EPERM`，兩者都會把死掉的持有者誤判為活著而卡滿等待上限。釋放時也只在 token 仍是自己才清鎖，避免刪掉接手者的鎖。完整跑完的建置會在 `node_modules/.cache/adng-runtime-build-ok.json` 留下「src/ 最新 mtime + dist/ 檔案數與總位元組」的指紋；指紋對不上就重建，所以被逾時砍殺的 tsc 留下的半套產物不會被下一次呼叫當成新鮮可用。**選擇建置而不是略過**，是因為略過等於在非 Windows 主機上永久失去這些斷言。
 
 ## 平台綁定規格
 
