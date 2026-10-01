@@ -323,7 +323,6 @@ test.runIf(process.platform === 'win32')('Windows subprocess interleave: only on
   const contenderScript = `
     import { acquireLock } from ${JSON.stringify(LOCK_URL)};
     const dir = process.argv[1];
-    console.log(JSON.stringify({ stage: 'attempting' }));
     const token = acquireLock(dir, 0);
     console.log(JSON.stringify({ stage: token ? 'acquired' : 'busy', token }));
     process.exit(0);
@@ -334,15 +333,23 @@ test.runIf(process.platform === 'win32')('Windows subprocess interleave: only on
     await waitForFile(readyFile)
 
     contender = spawn(process.execPath, [...CHILD_ARGS, '-e', contenderScript, dir], { stdio: ['pipe', 'pipe', 'pipe'] })
-    const attempting = JSON.parse(await nextLine(contender)) as { stage: string }
-    expect(attempting).toEqual({ stage: 'attempting' })
+    // BEGIN IMMEDIATE is held by the paused reclaimer. acquireLock returns busy only
+    // after its SQLite busy timeout, so this result proves the contender reached the
+    // coordinator while the stale observation is still in flight.
+    const blocked = JSON.parse(await nextLine(contender)) as { stage: string; token: string | null }
+    expect(blocked).toEqual({ stage: 'busy', token: null })
+    expect(await waitForClose(contender, 30_000)).toBe(0)
+    expect(reclaimer.exitCode).toBeNull()
 
     writeFileSync(continueFile, 'continue')
     const reclaimed = JSON.parse(await nextLine(reclaimer)) as { stage: string; token: string | null }
     expect(reclaimed.stage).toBe('acquired')
     expect(reclaimed.token).toBeTruthy()
+
+    contender = spawn(process.execPath, [...CHILD_ARGS, '-e', contenderScript, dir], { stdio: ['pipe', 'pipe', 'pipe'] })
     const competing = JSON.parse(await nextLine(contender)) as { stage: string; token: string | null }
     expect(competing).toEqual({ stage: 'busy', token: null })
+    expect(await waitForClose(contender, 30_000)).toBe(0)
     expect(JSON.parse(readFileSync(join(dir, 'pid.json'), 'utf8')).token).toBe(reclaimed.token)
 
     await terminate(reclaimer)
