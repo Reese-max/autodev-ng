@@ -1,4 +1,4 @@
-import { expect, test, vi } from 'vitest'
+import { beforeAll, expect, test, vi } from 'vitest'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -12,6 +12,12 @@ import { backupState, restoreState } from '../scripts/host-state.mjs'
 import { checkHeartbeat } from '../scripts/check-host-heartbeat.mjs'
 // @ts-expect-error operator scripts intentionally expose plain JavaScript
 import { publishSnapshot } from '../scripts/memory-snapshot.mjs'
+import { ensureRuntimeBuilt, BUILD_HOOK_TIMEOUT_MS } from './helpers/runtime-build.js'
+
+// scripts/*.mjs 與 web/server.mjs 都以 dist/ 為單一事實來源；npm test 不保證先建置，
+// 缺產物就地建置（只寫 gitignored 的 dist/），斷言不減。
+// 首次建置加上等待被別的 spec 建置，可能遠超過 vitest 預設的 10 秒 hookTimeout。
+beforeAll(async () => { expect(await ensureRuntimeBuilt()).toBe(true) }, BUILD_HOOK_TIMEOUT_MS)
 
 function fixture() {
   const root = fs.mkdtempSync(join(tmpdir(), 'adng-host-')), project = join(root, 'source project')

@@ -13,6 +13,7 @@ import { MockEngine } from '../src/engines/mock.js'
 import { ConfigSchema } from '../src/types.js'
 import { KernelVerifier } from '../src/verifier.js'
 import { acquireWindowsFileLock } from './helpers/windows-file-lock.js'
+import { win32Only } from './helpers/platform.js'
 import type { TaskTerminalNotice } from '../src/engines/notify.js'
 
 /** M4 Task 6：scheduler 現在對每個任務執行 prepareWorktree/mergeBack，需要 projectPath 是
@@ -597,7 +598,8 @@ test('非 git 專案：prepareWorktree 上拋 → scheduler 歸 blocked+告警�
   expect(readFileSync(backlogFile, 'utf8')).toContain('adng:blocked')
 })
 
-test('worktree 殘留目錄被鎖定（前次中斷進程仍佔用檔案，rmSync 清不掉）→ blocked reason 為 worktree-locked，不誤掛 not-a-git-repo', async () => {
+// 同 worktree 回歸測試：鎖由 powershell.exe 的 .NET FileStream 構造，POSIX 無法重現「rmSync 清不掉」
+test.skipIf(!win32Only)('worktree 殘留目錄被鎖定（前次中斷進程仍佔用檔案，rmSync 清不掉）→ blocked reason 為 worktree-locked，不誤掛 not-a-git-repo', async () => {
   const e = new MockEngine([{ ok: true }])
   const d = deps(e)
   const wtId = taskId('任務一')

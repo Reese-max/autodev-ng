@@ -23,6 +23,14 @@ import { PreflightCache } from '../src/preflight.js'
 const dirs: string[] = []
 afterEach(() => { vi.restoreAllMocks(); process.exitCode = undefined; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
+// 這些規格 mock 了 proc.runProcess，但 admission 走 cli-rpc 的 raw spawn，會打到開發機上
+// 真實登入的 codex CLI——真額度用盡時整條修復路徑被 admission 擋下，斷言與本規格無關。
+// 只 stub 這個主機相依的邊界（原生額度查詢），其餘邏輯仍走真實程式碼。
+vi.mock('../src/engines/cli-admission.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/engines/cli-admission.js')>()
+  return { ...actual, nativeAdmission: vi.fn(async (provider: string, opts: { model?: string } = {}) => actual.unknownAdmission(provider, opts.model)) }
+})
+
 async function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'adng-repair-')); dirs.push(dir)
   const cwd = join(dir, 'issue-4', 'repo'); mkdirSync(cwd, { recursive: true })

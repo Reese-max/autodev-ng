@@ -2,6 +2,7 @@ import { expect, test } from 'vitest'
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
+import { win32Only } from '../helpers/platform.js'
 import { createExecutionObservation } from '../../src/engines/execution-observation.js'
 import {
   countChildProcesses,
@@ -259,7 +260,9 @@ test('30 分鐘 watchdog：PID 活著且 heartbeat 逾期時殺樹、清鎖、�
 
   expect(result.action).toBe('reap')
   expect(result.heartbeatAgeMs).toBeGreaterThan(HEARTBEAT_WATCHDOG_MS)
-  expect(commands).toContain(`taskkill /PID ${pid} /T /F`)
+  // reapDaemonTree 只有 win32 分支發 taskkill，POSIX 走 SIGKILL 後備（沒有命令可觀測）。
+  if (win32Only) expect(commands).toContain(`taskkill /PID ${pid} /T /F`)
+  else expect(commands).not.toContain('taskkill')
   expect(effects).toEqual(['launch'])
   expect(existsSync(join(dataDir, 'daemon.lock'))).toBe(false)
   const events = readFileSync(join(dataDir, 'events.jsonl'), 'utf8')
@@ -395,7 +398,10 @@ test.each(SUPERVISOR_SCENARIOS)('$name', scenario => {
     action: scenario.expectedAction,
   })
   expect(result.heartbeatAgeMs).toBeGreaterThan(60_000)
-  expect(effects).toEqual(scenario.expectedEffects)
+  // reapDaemonTree 只有 win32 分支發 taskkill；POSIX 走 SIGKILL 後備。動作與重拉仍然必須成立，
+  // 只有「命令是 taskkill」這個觀測點是平台限定——逐平台比對而不是整列略過。
+  const expectedEffects = win32Only ? scenario.expectedEffects : scenario.expectedEffects.filter(effect => !effect.startsWith('taskkill'))
+  expect(effects).toEqual(expectedEffects)
 })
 
 test('探測命令失敗時保守 keep，不誤殺存活 PID', () => {

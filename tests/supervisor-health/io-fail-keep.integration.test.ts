@@ -14,6 +14,7 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { win32Only } from '../helpers/platform.js'
 
 const { statSyncMock } = vi.hoisted(() => ({
   statSyncMock: vi.fn(),
@@ -194,8 +195,11 @@ test('整合基準：探測成功 + stale + 無 child → reap 並 taskkill + la
 
   expect(result.action).toBe('reap')
   expect(result.probeErrors).toEqual([])
-  expect(commands).toContain('taskkill')
-  expect(commandLines.some(line => line.includes(`taskkill /PID ${PID} /T /F`))).toBe(true)
+  // reapDaemonTree 只有 win32 分支發 taskkill；POSIX 走 SIGKILL 後備（沒有命令可觀測）。
+  if (win32Only) {
+    expect(commands).toContain('taskkill')
+    expect(commandLines.some(line => line.includes(`taskkill /PID ${PID} /T /F`))).toBe(true)
+  } else expect(commands).not.toContain('taskkill')
   expect(launchCalls).toBe(1)
   expect(result.launchedPid).toBe(8_001)
 })

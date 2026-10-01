@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync,
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { superviseConfig, type CommandRunner } from '../../src/supervisor/supervise.js'
+import { win32Only } from '../helpers/platform.js'
 
 type Scenario = {
   name: string
@@ -109,14 +110,16 @@ test.each(scenarios)('supervise 整合驗收：$name', scenario => {
   expect(result.launchedPid).toBe(scenario.expectLaunch ? 42_000 : undefined)
   expect(existsSync(join(dataDir, 'daemon.lock'))).toBe(scenario.expectLock)
   expect(effects).toEqual(scenario.expectLaunch ? ['launch'] : [])
+  // reapDaemonTree 只有 win32 分支發 taskkill；POSIX 走 SIGKILL 後備。
+  const expectTaskkill = scenario.expectTaskkill && win32Only
   expect(timeline).toEqual(
-    scenario.expectTaskkill
+    expectTaskkill
       ? ['taskkill', 'launch-lock-clear']
       : scenario.expectLaunch
       ? ['launch-lock-clear']
       : [],
   )
-  expect(commands.some(command => command === `taskkill /PID ${pid} /T /F`)).toBe(scenario.expectTaskkill)
+  expect(commands.some(command => command === `taskkill /PID ${pid} /T /F`)).toBe(expectTaskkill)
 
   const eventsPath = join(dataDir, 'events.jsonl')
   expect(existsSync(eventsPath)).toBe(scenario.expectWedgeEvent)

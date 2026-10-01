@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 import { formatVerifyFailureDetail } from '../src/engines/verify-detail.js'
 import { runVerify } from '../src/verify.js'
+import { win32Only } from './helpers/platform.js'
 
 const NODE = process.execPath
 
@@ -135,12 +136,18 @@ test('timeout → blocked（附 detail）', async () => {
   expect(r.detail).toContain('timeout')
 }, 15_000)
 
-test('exit 9009/127（command not found）→ blocked', async () => {
+// 9009 是 cmd.exe 的 command-not-found；POSIX exit status 只保低 8 bits
+// （process.exit(9009) 實際觀測為 49），該值只有 Windows 能產生。
+test.skipIf(!win32Only)('exit 9009（cmd.exe command not found）→ blocked', async () => {
   const r9009 = await runVerify({ command: `"${NODE}" -e "process.exit(9009)"`, cwd: process.cwd(), timeoutMs: 10_000 })
   expect(r9009.status).toBe('blocked')
   expect(r9009.detail).toContain('command-not-found')
+})
+
+test('exit 127（command not found）→ blocked', async () => {
   const r127 = await runVerify({ command: `"${NODE}" -e "process.exit(127)"`, cwd: process.cwd(), timeoutMs: 10_000 })
   expect(r127.status).toBe('blocked')
+  expect(r127.detail).toContain('command-not-found')
 })
 
 test('指令不存在（bare name 亂打）→ blocked', async () => {

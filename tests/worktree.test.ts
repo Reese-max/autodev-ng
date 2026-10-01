@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assertWorktreeCheckout, cleanupWorktree, mergeBack, prepareWorktree, WorktreeCleanupPartialError } from '../src/worktree.js'
 import { acquireWindowsFileLock } from './helpers/windows-file-lock.js'
+import { win32Only } from './helpers/platform.js'
 
 function initGitRepo(dir: string): void {
   execFileSync('git', ['init', '-b', 'main'], { cwd: dir, stdio: 'ignore' })
@@ -88,7 +89,9 @@ test('prepareWorktree：殘留（前次崩潰留下未清的 worktree 目錄+分
   // 真 git worktree I/O，24/7 機器負載下 5s 不夠（非產品 bug）→ 針對性 timeout 20s
 }, 20000)
 
-test('prepareWorktree：殘留目錄被鎖住(前次中斷進程未退)時上拋且不砍分支——成果分支與 HEAD 完好保留；解鎖後重試自癒成功（2a929ec9 產線事故回歸測試）', async () => {
+// acquireWindowsFileLock 經 powershell.exe 造 Windows FileShare 語意；POSIX 可 unlink 已開檔案，
+// 這個前提在 Linux 上無法構造（worktree-locked 分類本身仍由未鎖定路徑覆蓋）。
+test.skipIf(!win32Only)('prepareWorktree：殘留目錄被鎖住(前次中斷進程未退)時上拋且不砍分支——成果分支與 HEAD 完好保留；解鎖後重試自癒成功（2a929ec9 產線事故回歸測試）', async () => {
   useFixedClock()
   const { repo, worktreesDir } = newRepo()
 
