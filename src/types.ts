@@ -202,7 +202,19 @@ export const ConfigSchema = z.object({
   // M10.0 永續外環：perpetual 未設（false）＝外環完全停用，daemon 行為與 M9.9 一致（硬回歸線）。
   perpetual: z.boolean().default(false),
   perpetualCooldownMs: z.number().int().positive().default(6 * 60 * 60 * 1000),
-  perpetualValueThreshold: z.number().int().min(0).max(10).default(6)
+  perpetualValueThreshold: z.number().int().min(0).max(10).default(6),
+  // issue #55：可插拔長時程執行後端。三角色各自獨立設定（不綁同一 provider）：
+  // managerModel/auditorModel 走 LLM（judgeUrl/judgeApiKey 檔位），executorEngine/escalationEngine
+  // 引用 engines 白名單 tag（如 herdr）；未設時 executor 用 defaultEngine、無 LLM 角色、無升級。
+  executionBackend: z.object({
+    adapter: z.enum(['long-horizon']).default('long-horizon'),
+    managerModel: z.string().optional(),
+    auditorModel: z.string().optional(),
+    executorEngine: z.string().optional(),
+    escalationEngine: z.string().optional(),
+    maxRounds: z.number().int().positive().default(10),
+    maxSameFingerprint: z.number().int().positive().default(3),
+  }).strict().optional()
 })
   .superRefine((c, ctx) => {
     if (!c.engines && !c.engine) ctx.addIssue({ code: 'custom', path: ['engine'], message: 'engines map 與 legacy engine 欄位至少須設一個' })
@@ -217,4 +229,5 @@ export const ConfigSchema = z.object({
   .transform(c => ({ ...c, engines: c.engines ?? { claude: { adapter: c.engine ?? 'claude-cli' } } }))
   .refine(c => c.defaultEngine in c.engines, { message: 'defaultEngine 必須存在於 engines 白名單內', path: ['defaultEngine'] })
   .refine(c => (c.engineRotation ?? []).every(t => t in c.engines), { message: 'engineRotation 每個 tag 必須存在於 engines 白名單內', path: ['engineRotation'] })
+  .refine(c => [c.executionBackend?.executorEngine, c.executionBackend?.escalationEngine].every(t => !t || t in c.engines), { message: 'executionBackend 引用的 engine tag 必須存在於 engines 白名單內', path: ['executionBackend'] })
 export type Config = z.infer<typeof ConfigSchema>
