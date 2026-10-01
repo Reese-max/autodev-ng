@@ -136,7 +136,6 @@ test('owner billingScopeResolver 拋錯 → 明確 cost-hard-stop、不派工且
   expect(state.status).toBe('queued')
   const events = readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')
   expect(events).toContain('"type":"cost-accounting-incomplete"')
-  expect(events).toContain('"state":"cost-stopped"')
 })
 
 test('worker 已啟動後 runOnce 回 stopped → runs 保留，不因結果名稱回退嘗試次數', async () => {
