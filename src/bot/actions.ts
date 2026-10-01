@@ -2,13 +2,14 @@ import {
   appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync,
   renameSync, statSync, unlinkSync, writeFileSync
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { setSilence, clearSilence } from './silence.js'
 import { callAgent } from '../autopilot/llm.js'
 import { withBacklogLock } from '../backlog.js'
 import { withPauseGate } from '../supervisor/pause-gate.js'
+import { ControlStore, formatControls } from '../engines/steering.js'
 import type { BotDeps, CmdResult } from './handlers.js'
 
 const TASK_TEXT_NEWLINE_ERR = '任務內容不可含換行'
@@ -86,6 +87,34 @@ export async function doSilence(d: BotDeps, arg: string): Promise<CmdResult> {
   } catch {
     return { ok: false, text: '靜音設定失敗，請稍後再試' }
   }
+}
+
+// ── Issue #11：/steer、/enqueue、/controls——target-bound 控制信封 ──
+// 只需 cfg.dataDir（檔案型 ControlStore）＋執行快照；不依賴 store/db/llm，
+// 因此 monitorOnly 專案亦可使用（route.ts handleProject 有對應放行）。
+const CONTROL_USAGE = '用法：/steer|enqueue <executionId> <指示內容>（executionId 見 /status 或 /controls）'
+
+async function doControl(d: Pick<BotDeps, 'cfg' | 'cfgPath'>, arg: string, mode: 'STEER' | 'QUEUE', issuer: string): Promise<CmdResult> {
+  const { sub: executionId, rest: instruction } = splitGoalArg(arg)
+  if (!executionId || !instruction) return { ok: false, text: CONTROL_USAGE }
+  const reply = new ControlStore(d.cfg.dataDir).submit({
+    project: basename(d.cfgPath, '.json'), executionId, mode,
+    instruction, issuer: `discord:${issuer}`, channel: 'discord',
+  })
+  return { ok: reply.ok, text: reply.text }
+}
+
+export async function doSteer(d: Pick<BotDeps, 'cfg' | 'cfgPath'>, arg: string, issuer = 'operator'): Promise<CmdResult> {
+  try { return await doControl(d, arg, 'STEER', issuer) } catch { return { ok: false, text: 'steer 指令失敗，請稍後再試' } }
+}
+
+export async function doEnqueue(d: Pick<BotDeps, 'cfg' | 'cfgPath'>, arg: string, issuer = 'operator'): Promise<CmdResult> {
+  try { return await doControl(d, arg, 'QUEUE', issuer) } catch { return { ok: false, text: 'enqueue 指令失敗，請稍後再試' } }
+}
+
+export async function doControls(d: Pick<BotDeps, 'cfg'>): Promise<CmdResult> {
+  try { return { ok: true, text: formatControls(new ControlStore(d.cfg.dataDir).list()) } }
+  catch { return { ok: false, text: '控制信封查詢失敗，請稍後再試' } }
 }
 
 export async function doTask(d: BotDeps, arg: string): Promise<CmdResult> {

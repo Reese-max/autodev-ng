@@ -5,6 +5,7 @@ import { parseBacklog } from '../backlog.js'
 import { githubConsole } from '../github/console.js'
 import { ConfigSchema, type Config } from '../types.js'
 import { readExecutions } from '../engines/execution-observation.js'
+import { ControlStore } from '../engines/steering.js'
 
 export function loadMonitorConfig(file: string): Config {
   const cfg = ConfigSchema.parse(JSON.parse(readFileSync(file, 'utf8')))
@@ -75,13 +76,25 @@ export function readMonitor(cfg: Config, cfgPath: string, now = Date.now()) {
   const paused = flag(cfg.stopFile), fleetPaused = flag(resolve(dirname(cfgPath), '.adng.stop'))
   const executions = readExecutions(cfg.dataDir, now)
   errors.push(...executions.errors)
+  // Issue #11：控制信封計數（pending/delivered/stale 供操作面分辨）；信封檔損毀屬觀測告警。
+  const controls = new ControlStore(cfg.dataDir).list(now)
+  errors.push(...controls.errors)
   const health = paused || fleetPaused ? 'paused'
     : errors.length || processState === 'unknown' ? 'unknown'
     : processState === 'absent' ? 'not-running'
     : !heartbeat ? 'unknown' : heartbeat.stale ? 'stale'
     : ['cost-stopped', 'preflight-failed', 'stopped'].includes(heartbeat.state) ? 'blocked' : 'observed'
   return { project: basename(cfgPath, '.json'), checkedAt: new Date(now).toISOString(), health, paused, fleetPaused,
-    process: { pid, state: processState, identityVerified: false }, heartbeat, backlog, dlqCount, errors, executions }
+    process: { pid, state: processState, identityVerified: false }, heartbeat, backlog, dlqCount, errors, executions,
+    controls: { pending: controls.pending.length, resolved: controls.resolved.length } }
+}
+
+/** active executions 的 taskId/executionId 短碼（operator 用來對 /steer、/enqueue 指定目標）。 */
+function activeExecutionIds(m: ReturnType<typeof readMonitor>): string {
+  const active = m.executions.records.filter(r => r.phase !== 'terminal')
+  if (!active.length) return ''
+  const shown = active.slice(0, 5).map(r => `${r.taskId}/${r.executionId.slice(0, 8)}`).join('、')
+  return `｜${shown}${active.length > 5 ? ` 等 ${active.length} 項` : ''}`
 }
 
 export function monitorRuntimeLines(m: ReturnType<typeof readMonitor>): string[] {
@@ -90,7 +103,10 @@ export function monitorRuntimeLines(m: ReturnType<typeof readMonitor>): string[]
     `監控：${m.health}｜${m.checkedAt}`,
     hb ? `heartbeat：${hb.ts}｜state=${hb.state}｜${Math.floor(hb.ageMs / 1000)} 秒前${hb.stale ? '（心跳過期，請檢查）' : ''}${hb.currentTask ? `｜任務=${hb.currentTask}` : ''}` : '尚無 heartbeat 紀錄或資料無效',
     `daemon 進程：${m.process.state === 'present' ? 'PID 存在（未核對程序身分）' : m.process.state === 'absent' ? '未偵測到' : '未知'}`,
-    ...(m.executions.protected ? [`執行觀測：${m.executions.records.filter(r => r.phase !== 'terminal').length} 項待收斂｜${m.executions.diagnosisDue ? '需要診斷，保留寫入權' : '持續觀測'} `] : []),
+    // Issue #11：active taskId/executionId 直接列出，operator 不必猜 steer/enqueue 的目標。
+    ...(m.executions.protected ? [`執行觀測：${m.executions.records.filter(r => r.phase !== 'terminal').length} 項待收斂${activeExecutionIds(m)}｜${m.executions.diagnosisDue ? '需要診斷，保留寫入權' : '持續觀測'} `] : []),
+    // 待處理控制信封（/controls 查明細）；0 筆時不佔行。
+    ...(m.controls.pending > 0 ? [`控制信封：${m.controls.pending} 筆待處理（/controls 查看）`] : []),
     `派工：${m.paused || m.fleetPaused ? `已暫停${m.fleetPaused ? '（車隊旗標）' : ''}` : m.paused === null || m.fleetPaused === null ? '未知' : '未暫停'}`,
   ]
 }

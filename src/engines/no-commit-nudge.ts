@@ -40,7 +40,8 @@ export async function nudgeNoCommit(
   return { ...combined, ok: true, commitHash, baseCommitHash, failureReason: undefined }
 }
 
-function combineRuns(first: RunResult, second: RunResult): RunResult {
+/** 同 execution 多回合結果合併（nudge 與 Issue #11 queue follow-up 共用）：保留雙方輸出與成本系譜。 */
+export function combineRuns(first: RunResult, second: RunResult): RunResult {
   return {
     ...second,
     actualModel: first.actualModel === second.actualModel ? first.actualModel : 'multiple/unknown',
