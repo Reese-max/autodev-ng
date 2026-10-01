@@ -38,11 +38,15 @@ function listen(server) {
 async function makeEndpoint(handler) {
   const hits = []
   const server = http.createServer((req, res) => {
+    // Timeout/deadline fixtures answer after the client aborted: writes land on a
+    // destroyed socket, so errors must not crash the fixture process.
+    res.on('error', () => {})
     const chunks = []
     req.on('data', c => chunks.push(c))
     req.on('end', () => {
       hits.push({ url: req.url, auth: req.headers.authorization, body: Buffer.concat(chunks).toString('utf8') })
-      Promise.resolve(handler(req, res)).catch(() => { if (!res.writableEnded) { res.writeHead(500); res.end('{}') } })
+      Promise.resolve().then(() => handler(req, res))
+        .catch(() => { if (!res.writableEnded && !res.destroyed) { res.writeHead(500); res.end('{}') } })
     })
   })
   const port = await listen(server)
@@ -69,8 +73,13 @@ before(async () => {
   callAgent = (await import(pathToFileURL(LLM_JS).href)).callAgent
 })
 
-after(() => {
-  for (const server of servers) { try { server.close() } catch { /* best effort */ } }
+after(async () => {
+  // close() waits on keep-alive sockets held by undici's global agent; drop them
+  // explicitly so process exit is not delayed by the agent's idle timeout.
+  for (const server of servers) { try { server.closeAllConnections() } catch { /* best effort */ } }
+  await Promise.all(servers.map(server => new Promise(resolve => {
+    try { server.close(() => resolve()) } catch { resolve() }
+  })))
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5 })
 })
 

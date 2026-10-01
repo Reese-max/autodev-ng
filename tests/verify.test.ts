@@ -135,14 +135,15 @@ test('timeout → blocked（附 detail）', async () => {
   expect(r.detail).toContain('timeout')
 }, 15_000)
 
-test('exit 9009/127（command not found）→ blocked', async () => {
-  // POSIX exit status 只保低 8 bits：process.exit(9009) 觀測為 41，9009 語意
-  // （cmd.exe command-not-found）僅 Windows 可驗；127 兩平台一致保留。
-  if (process.platform === 'win32') {
-    const r9009 = await runVerify({ command: `"${NODE}" -e "process.exit(9009)"`, cwd: process.cwd(), timeoutMs: 10_000 })
-    expect(r9009.status).toBe('blocked')
-    expect(r9009.detail).toContain('command-not-found')
-  }
+// POSIX exit status 只保低 8 bits：process.exit(9009) 觀測為 41，9009 語意
+// （cmd.exe command-not-found）僅 Windows 可驗；獨立 spec 讓平台略過在報告中可見。
+test.skipIf(process.platform !== 'win32')('exit 9009（cmd.exe command not found）→ blocked', async () => {
+  const r9009 = await runVerify({ command: `"${NODE}" -e "process.exit(9009)"`, cwd: process.cwd(), timeoutMs: 10_000 })
+  expect(r9009.status).toBe('blocked')
+  expect(r9009.detail).toContain('command-not-found')
+})
+
+test('exit 127（command not found）→ blocked', async () => {
   const r127 = await runVerify({ command: `"${NODE}" -e "process.exit(127)"`, cwd: process.cwd(), timeoutMs: 10_000 })
   expect(r127.status).toBe('blocked')
 })

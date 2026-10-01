@@ -18,7 +18,7 @@ function done(code = 0) {
 }
 
 function main(prompt) {
-  if (mode === 'empty') process.exit(0) // silent-fail 形貌 1：exit 0 零輸出
+  if (mode === 'empty') return done() // silent-fail 形貌 1：exit 0 零輸出
   if (mode === 'fail') {
     // 規格卡探針 1 形貌：exit 1 且錯誤走 stdout 的 result 事件（is_error＋error.message）
     process.stdout.write(JSON.stringify([{
