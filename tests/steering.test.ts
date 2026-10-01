@@ -14,7 +14,14 @@ import { ControlStore, CONTROL_TTL_MS, type ControlEnvelope } from '../src/engin
 import { ConfigSchema } from '../src/types.js'
 
 const roots: string[] = []
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
+const runDbs: RunDb[] = []
+afterEach(() => {
+  try {
+    for (const db of runDbs.splice(0)) db.close()
+  } finally {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  }
+})
 
 function root(): string {
   const dir = mkdtempSync(join(tmpdir(), 'adng-steer-')); roots.push(dir)
@@ -252,7 +259,9 @@ function e2eDeps(dir: string, engine: MockEngine): Deps {
     engines: { mock: { adapter: 'mock', executionMode: 'observed' } }, defaultEngine: 'mock',
     stopFile: join(dir, '.adng.stop'), worktreesDir: join(dir, 'worktrees'), timezoneOffsetHours: 0,
   })
-  return { cfg, store: new BacklogStore(backlogFile), db: new RunDb(join(dir, 'run.db')), engines: { resolve: () => engine }, events: new EventLog(cfg.dataDir) }
+  const db = new RunDb(join(dir, 'run.db'))
+  runDbs.push(db)
+  return { cfg, store: new BacklogStore(backlogFile), db, engines: { resolve: () => engine }, events: new EventLog(cfg.dataDir) }
 }
 
 test('e2e：執行中收到 QUEUE → 同 execution 的下一回合帶入指示，信封 DELIVERED、receipt 可追溯', async () => {
