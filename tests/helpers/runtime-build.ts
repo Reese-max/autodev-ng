@@ -132,7 +132,10 @@ async function acquireLock(): Promise<string | undefined> {
       if ((owner !== undefined && ownerProcessGone(owner)) || !lockIsLive() || Date.now() > deadline) {
         // 持有者行程已消失、心跳不再更新、或已逾等待上限：清掉它的鎖再試一次。
         // 重取後仍會驗證 token，所以多個後來者同時搶也只會有一個真的動手建置。
+        // 睡一個輪詢間隔再重試：多個呼叫者的期限可能同時到期，沒有這個間隔就會
+        // mkdir → EEXIST → 清鎖 → mkdir 空轉下去。
         rmSync(lockDir, { recursive: true, force: true })
+        await sleep(POLL_MS)
         continue
       }
       await sleep(POLL_MS)
