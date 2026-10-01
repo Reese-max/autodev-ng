@@ -55,6 +55,7 @@ Evidence:
 - Generator: https://github.com/Reese-max/police-exam-archive/blob/bbfb7b02e688e03e64240cbe91cf3cfe36094be3/scripts/sync_analytics_frontend.py
 - Service worker: https://github.com/Reese-max/police-exam-archive/blob/bbfb7b02e688e03e64240cbe91cf3cfe36094be3/%E8%80%83%E5%8F%A4%E9%A1%8C%E7%B6%B2%E7%AB%99/sw.js
 - Existing pair issue: https://github.com/Reese-max/police-exam-archive/issues/74
+- Exact-head hosted status: CI run `36894063537`, Data Quality `36894063510`, and Ingest `36894063577` all concluded `action_required` with zero jobs returned. The PR body's local test claims are not independent hosted evidence for head `bbfb7b02e688e03e64240cbe91cf3cfe36094be3`.
 
 ### Impact and severity rationale
 
@@ -245,7 +246,7 @@ Portfolio recommendation for this product: **MAINTAIN + SIMPLIFY**. This is not 
 | Item | Classification | Evidence limit |
 |---|---|---|
 | #69 resume timer candidate | `PARTIALLY_FIXED` candidate / not default | Exact-head CI passed; delayed prompt remains; browser/deployed evidence missing. |
-| #74 chart code/data pair candidate | `PARTIALLY_FIXED` candidate / not default | Internal pair is source-confirmed; deployed offline evidence missing. |
+| #74 chart code/data pair candidate | `PARTIALLY_FIXED` candidate / not default | Internal pair is source-confirmed; exact-head hosted workflows are `action_required` with no jobs, and deployed offline evidence is missing. |
 | F-01 HTML/bundle generation | `STILL_REACHABLE_IN_CANDIDATE` | Source causal chain only; isolated browser/service-worker and deployed evidence required. |
 | exam-archive sidebar/hash suspicion | `REJECTED_BY_RED_TEAM` | Full source event chain loads before scroll; no finding. |
 | Portfolio CLEAN | `NOT_CLEAN` | Fixed A01–J05 stopping conditions, two complete qualifying rounds, and required runtime receipts were not established. |
@@ -260,4 +261,3 @@ Portfolio recommendation for this product: **MAINTAIN + SIMPLIFY**. This is not 
 - New actionable candidate finding: 1 (F-01), centrally recorded and explicitly blocked from Issue mutation by the active PR.
 - Product implementation/merge/deploy/worker runs: 0.
 - Remaining: unreviewed lower-signal open candidates, deployed runtime for existing fixes, full fixed-persona CLEAN rounds, and the next fair-rotation deep repository slice.
-
