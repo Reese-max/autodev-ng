@@ -117,7 +117,7 @@ test('owner billingScopeResolver 拋錯 → 明確 cost-hard-stop、不派工且
     findPr: vi.fn(async () => undefined), findLinkedPr: vi.fn(async () => undefined),
     createPr: vi.fn(async () => { throw new Error('unexpected publish') }) }
   let execution: Awaited<ReturnType<typeof executeIssue>> | undefined
-  const execute = async (c: typeof cfg, s: Parameters<typeof executeIssue>[1]) => {
+  const execute: typeof executeIssue = async (c, s) => {
     execution = await executeIssue(c, s, (runtime, cfgPath) => {
       const app = assembleConfig(runtime, cfgPath)
       app.deps.engines = { resolve: () => engine }
