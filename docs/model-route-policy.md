@@ -63,6 +63,16 @@
 
 `dataDir/route-calls.jsonl` 每次嘗試與結果各記一行：`callId`、`routeId`／`policyVersion`、`role`、`requestedModel`、`candidateId`、`attempt`、`breakerState`、`failureClass`、`httpStatus`、`durationMs`、`actualModel`（`actualModelSource: upstream-reported|unknown`）、`totalTokens`、`cost`（缺漏記 `unknown`，非 0）、`retryAt`、`upstreamAttempts`。不寫入 prompt、程式碼、API key、Authorization header 或 provider 完整 error body。
 
+## 驗收覆蓋
+
+驗收拆成兩層，都不碰真實 provider、帳號或網路：
+
+- `tests/model-route-policy.test.ts`：純 policy 單元測試（schema 上限、失敗分類、`Retry-After` 解析、熔斷鍵、receipt 欄位）。以注入的 `fetchFn` 斷言行為。
+- `tests/model-route-policy-http.test.ts`：**本機真 HTTP fixture**，走真實 `node:http` loopback 伺服器與真實 `undici` fetch，覆蓋 Issue 驗收條件中只有真實傳輸才成立的部分——`/chat/completions` URL 組裝、每候選只用自己的認證標頭、redirect 不外洩認證、attempt timeout 可備援但逾時成本記 `unknown`、全部候選不可用時在 attempt 上限內停下並回最早 `retryAt`、401 不發備援請求、跨行程重啟後冷卻仍有效、冷卻到期只有一個 `HALF_OPEN` probe lease、caller abort／總 deadline 不再發請求、HTTP 200 但 body 不可用不算完成、reviewer 的 gateway 別名與 writer 身分 BLOCKED/隔離、`route.enabled: false` 維持原單一路徑、free-only 在送出請求前拒絕 loopback 端點、receipt 不含金鑰/prompt/Authorization。
+- `tests/regressions/github-51.test.cjs`：同一組情境的 `node:test` 版本，只在 `.github/workflows/ci.yml` 的 Windows 步驟執行（`node --test`）。預設 `vitest run` 不收 `.cjs`，兩份刻意分開。
+
+跨行程那條需要編譯產物，故以 `tests/helpers/runtime-build.ts` 在缺 `dist/` 時就地 `tsc -p tsconfig.build.json`——`npm test` 不保證 `dist/` 存在（profile 先跑 test 再跑 build），helper 只寫 gitignored 的 `dist/`，不改受版控檔案。非 Windows 主機上的驗收前提、平台綁定規格與已知 POSIX 缺口見 [非 Windows 主機上的驗收](off-windows-verification.md)。
+
 ## 9Router 相容性狀態：**UNVERIFIED**
 
 本案只借鏡 9Router 的 Combo／Fallback 架構概念。對真實 9Router 的相容性只有在使用者授權的隔離環境、固定版本、明示模型與預算下做 bounded canary 後才可標 `VERIFIED`；本機 mock HTTP fixture 通過不代表 9Router 已驗證。當前狀態：UNVERIFIED（未接真實 9Router）。

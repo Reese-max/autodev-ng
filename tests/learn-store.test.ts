@@ -6,6 +6,11 @@ import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LessonStore, parseLessons, MAX_LESSONS } from '../src/learn/store.js'
+import { ensureRuntimeBuilt } from './helpers/runtime-build.js'
+
+// scripts/*.mjs 與 web/server.mjs 都以 dist/ 為單一事實來源；npm test 不保證先建置，
+// 缺產物就地建置（只寫 gitignored 的 dist/），斷言不減。
+ensureRuntimeBuilt()
 
 function dir(): string { return mkdtempSync(join(tmpdir(), 'adng-learn-')) }
 

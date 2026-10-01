@@ -2,6 +2,7 @@ import { expect, test } from 'vitest'
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
+import { win32Only } from '../helpers/platform.js'
 import { createExecutionObservation } from '../../src/engines/execution-observation.js'
 import {
   countChildProcesses,
@@ -232,7 +233,8 @@ test('supervisor 使用 config 的 staleThresholdMs', () => {
   expect(result.action).toBe('reap')
 })
 
-test('30 分鐘 watchdog：PID 活著且 heartbeat 逾期時殺樹、清鎖、記錄凍結分鐘並重拉', () => {
+// taskkill 殺樹路徑由 reapDaemonTree 的 win32 分支執行（POSIX 為 SIGKILL 後備），僅 Windows 可驗
+test.skipIf(!win32Only)('30 分鐘 watchdog：PID 活著且 heartbeat 逾期時殺樹、清鎖、記錄凍結分鐘並重拉', () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-supervise-watchdog-'))
   const { configPath, dataDir } = writeConfig(root)
   const pid = 77
@@ -386,7 +388,13 @@ function supervisorFixture(scenario: SupervisorScenario) {
   return { result, effects }
 }
 
-test.each(SUPERVISOR_SCENARIOS)('$name', scenario => {
+// 期望 taskkill 效果的情境依賴 reapDaemonTree 的 win32 分支；POSIX 後備走 SIGKILL 不發 taskkill——
+// 非 win32 略過該列，其餘情境（keep/relock 等）照常驗。
+const RUNNABLE_SCENARIOS = SUPERVISOR_SCENARIOS.filter(
+  scenario => win32Only || !scenario.expectedEffects.some(effect => effect.startsWith('taskkill')),
+)
+
+test.each(RUNNABLE_SCENARIOS)('$name', scenario => {
   const { result, effects } = supervisorFixture(scenario)
 
   expect(result).toMatchObject({

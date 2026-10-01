@@ -7,6 +7,7 @@
  * 以證明 keep 來自 fail-open，而非 classify 的自然 keep。
  */
 import { beforeEach, expect, test, vi } from 'vitest'
+import { win32Only } from '../helpers/platform.js'
 
 const { readFileSync, statSync } = vi.hoisted(() => ({
   readFileSync: vi.fn(),
@@ -119,7 +120,9 @@ function runProbe(failure: IoFailure | 'none'): ProbeFixture {
   return { result, commands, commandLines, launchCalls }
 }
 
-test('基準：探測全成功且 heartbeat 過期無 child → reap + taskkill + launch', () => {
+// reapDaemonTree 的 taskkill 路徑只存在於 win32 分支（POSIX 為 SIGKILL 後備），
+// 故基準情境的 taskkill 斷言僅 Windows 可成立。
+test.skipIf(!win32Only)('基準：探測全成功且 heartbeat 過期無 child → reap + taskkill + launch', () => {
   const { result, commands, commandLines, launchCalls } = runProbe('none')
 
   expect(result.action).toBe('reap')

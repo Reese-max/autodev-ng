@@ -7,6 +7,11 @@ import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { GithubConfigSchema } from '../src/github/config.js'
 import { saveState } from '../src/github/state.js'
+import { ensureRuntimeBuilt } from './helpers/runtime-build.js'
+
+// scripts/*.mjs 與 web/server.mjs 都以 dist/ 為單一事實來源；npm test 不保證先建置，
+// 缺產物就地建置（只寫 gitignored 的 dist/），斷言不減。
+ensureRuntimeBuilt()
 
 test('同任務/模型/版本才能比較；中斷、未驗收與少量樣本不得宣稱改善', () => {
   const events: object[] = [], log: Pick<EventLog, 'append'> = { append: (type, data) => { events.push({ type, ...data }) } }

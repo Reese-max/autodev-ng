@@ -14,6 +14,7 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { win32Only } from '../helpers/platform.js'
 
 const { statSyncMock } = vi.hoisted(() => ({
   statSyncMock: vi.fn(),
@@ -189,7 +190,8 @@ beforeEach(async () => {
   await resetFsMocksToActual()
 })
 
-test('整合基準：探測成功 + stale + 無 child → reap 並 taskkill + launch', () => {
+// reapDaemonTree 的 taskkill 路徑只存在於 win32 分支（POSIX 為 SIGKILL 後備）。
+test.skipIf(!win32Only)('整合基準：探測成功 + stale + 無 child → reap 並 taskkill + launch', () => {
   const { result, commands, commandLines, launchCalls } = runIntegration('none')
 
   expect(result.action).toBe('reap')

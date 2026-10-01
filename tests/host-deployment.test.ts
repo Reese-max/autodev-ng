@@ -12,6 +12,11 @@ import { backupState, restoreState } from '../scripts/host-state.mjs'
 import { checkHeartbeat } from '../scripts/check-host-heartbeat.mjs'
 // @ts-expect-error operator scripts intentionally expose plain JavaScript
 import { publishSnapshot } from '../scripts/memory-snapshot.mjs'
+import { ensureRuntimeBuilt } from './helpers/runtime-build.js'
+
+// scripts/*.mjs 與 web/server.mjs 都以 dist/ 為單一事實來源；npm test 不保證先建置，
+// 缺產物就地建置（只寫 gitignored 的 dist/），斷言不減。
+ensureRuntimeBuilt()
 
 function fixture() {
   const root = fs.mkdtempSync(join(tmpdir(), 'adng-host-')), project = join(root, 'source project')

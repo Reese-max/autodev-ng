@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { reapDaemonTree } from '../../src/supervisor/supervise.js'
+import { win32Only } from '../helpers/platform.js'
 
 // 2026-08-03 迴歸防護：taskkill /T /F 對卡死樹「存取被拒」時，舊版讓錯誤外拋
 // → supervise decision=error → 不 relaunch → 孤兒抱住 worktree（playbook §2.3）。
@@ -30,7 +31,8 @@ describe('reapDaemonTree', () => {
     })
   })
 
-  it('taskkill 拋錯且目標存活：後備樹斬把進程殺掉', { timeout: 15_000 }, () => {
+  // taskkill 拋錯後的後備樹斬走 CIM 枚舉＋process.kill，僅 reapDaemonTree 的 win32 分支會呼叫。
+  it.skipIf(!win32Only)('taskkill 拋錯且目標存活：後備樹斬把進程殺掉', { timeout: 15_000 }, () => {
     const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { windowsHide: true })
     const pid = child.pid!
     const runCommand = (command: string): string => {

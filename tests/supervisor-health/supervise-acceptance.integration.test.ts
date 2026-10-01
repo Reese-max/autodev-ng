@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync,
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { superviseConfig, type CommandRunner } from '../../src/supervisor/supervise.js'
+import { win32Only } from '../helpers/platform.js'
 
 type Scenario = {
   name: string
@@ -75,7 +76,10 @@ function writeFixture(scenario: Scenario): { configPath: string; dataDir: string
   return { configPath, dataDir, pid, nowMs }
 }
 
-test.each(scenarios)('supervise 整合驗收：$name', scenario => {
+// expectTaskkill 的情境依賴 reapDaemonTree 的 win32 分支；POSIX 後備走 SIGKILL 不發 taskkill。
+const runnableScenarios = scenarios.filter(scenario => win32Only || !scenario.expectTaskkill)
+
+test.each(runnableScenarios)('supervise 整合驗收：$name', scenario => {
   const { configPath, dataDir, pid, nowMs } = writeFixture(scenario)
   const effects: string[] = []
   const timeline: string[] = []
