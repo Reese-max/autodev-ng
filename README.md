@@ -147,6 +147,7 @@ Pop-Location
 - `concurrency`：預設 `1`。大於 `1` 時只讓明示 `risk:"low"` 且 ownership 不重疊的任務進平行 lane；未宣告或不合法的 ownership 會安全降級為全 repo 獨佔。
 - `reviewEngine`：中高風險必須有 Reviewer；未設時可沿用既有 `auditModel`，兩者皆缺或 Reviewer 無法完成時為 `BLOCKED`。
 - `releaseApprovalFile`：發布型任務的人工作業核可 JSON；`candidateCommit` 必須精確等於待合併 commit，否則為 `BLOCKED`。一般 scheduler 不會自行 push 或部署；GitHub Issue 整合另以 `enabled`／`publish` 控制修復分支推送與草稿 PR，見 [接單文件](docs/github-issues.md)。
+- `routePolicy`：非 `free-only`、非 CLI 的 HTTP 模型呼叫的 opt-in 有界備援＋持久熔斷（預設關閉，未設時維持單一路徑）。明示候選清單、最多 3 次嘗試、CLOSED／OPEN／HALF_OPEN／QUARANTINED 狀態持久化於 `<dataDir>/route-breakers/`；候選金鑰走 `{env:}`／`{file:}` 引用，不交叉傳送也不經 redirect 洩漏。完整契約與驗收對應見 [docs/model-route-policy.md](docs/model-route-policy.md)；9Router 相容性標記為 UNVERIFIED。
 
 任務 ownership 使用行尾 JSON，不支援 glob；指定的寫入路徑若經過 symlink／junction，會在取得團隊寫入權前拒絕，候選變更也會再次檢查：
 

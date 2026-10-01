@@ -63,6 +63,24 @@
 
 `dataDir/route-calls.jsonl` 每次嘗試與結果各記一行：`callId`、`routeId`／`policyVersion`、`role`、`requestedModel`、`candidateId`、`attempt`、`breakerState`、`failureClass`、`httpStatus`、`durationMs`、`actualModel`（`actualModelSource: upstream-reported|unknown`）、`totalTokens`、`cost`（缺漏記 `unknown`，非 0）、`retryAt`、`upstreamAttempts`。不寫入 prompt、程式碼、API key、Authorization header 或 provider 完整 error body。
 
+## 驗收 ↔ 測試證據對應
+
+Issue #51 的驗收條件由兩層測試覆蓋：`tests/model-route-policy.test.ts`（純政策單元）與 `tests/regressions/github-51.test.cjs`（本機真 HTTP fixture，含跨 process 重啟與並行，CI 以 `node --test` 執行）。
+
+| 驗收行為 | 證據 |
+|---|---|
+| 未啟用時單一路徑語意不變 | cjs `route disabled: existing single-path semantics are unchanged` |
+| 429+Retry-After → 備援，各候選最多一次、receipt 可追溯 | cjs `transient 429 … falls back once`；unit `falls back only on transient classes` |
+| 冷卻跨重啟保留；HALF_OPEN 單一探測 lease | cjs `cooldown persists … real process restart`、`single retry owner: one HALF_OPEN probe lease`；unit `single probe lease` |
+| 全不可用時有界停止、明示 retryAt | cjs `all candidates unavailable: bounded stop` |
+| 401/403／身分／成本違規不備援；QUARANTINED 不自解 | cjs `permanent failure classes … never trigger fallback`（401）、`reviewer role … quarantine survives`；unit `transient set is exactly…`（401/403→auth）、`requireActualModel blocks`、`cost hard cap` |
+| attempt-timeout 可備援；abort／總期限不再發請求；逾時成本保留 unknown | cjs `attempt timeout over real HTTP falls back once`、`caller abort and total deadline`；unit `attempt-timeout falls back` |
+| free-only 指向 localhost／gateway 於送出前拒絕 | cjs `free-only still rejects non-OpenRouter endpoints`；`tests/free-only-policy.test.ts` |
+| gateway 別名／writer 身分 → reviewer BLOCKED | cjs `reviewer role: gateway alias or writer-model identity yields BLOCKED` |
+| 秘密引用不可用於 dispatch 前阻擋；金鑰不交叉、redirect 不洩認證 | unit `unresolved credential reference`；cjs `redirect is never followed`；unit `redirect refusal` |
+| 單一 retry owner；gateway 隱藏 attempts 記 UNKNOWN | cjs `gateway candidate is a single retry owner`；unit `gateway candidate is the single retry owner` |
+| receipt 無秘密洩漏、可分辨 phase | cjs `receipts attribute attempts without leaking secrets` |
+
 ## 9Router 相容性狀態：**UNVERIFIED**
 
 本案只借鏡 9Router 的 Combo／Fallback 架構概念。對真實 9Router 的相容性只有在使用者授權的隔離環境、固定版本、明示模型與預算下做 bounded canary 後才可標 `VERIFIED`；本機 mock HTTP fixture 通過不代表 9Router 已驗證。當前狀態：UNVERIFIED（未接真實 9Router）。

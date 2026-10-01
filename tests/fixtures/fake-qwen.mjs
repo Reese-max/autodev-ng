@@ -11,26 +11,32 @@ if (mode === 'hang') {
   process.stdin.on('end', () => main(prompt))
 }
 
+// POSIX pipe 不保證 process.exit 前沖完 buffer（poison 超長行曾吃掉 result 事件）——
+// 所有 exit 一律走最後一筆 stdout write 的 callback，確認排空才退，忠實模擬真 CLI 行為。
+function done(code = 0) {
+  process.exit(code)
+}
+
 function main(prompt) {
-  if (mode === 'empty') process.exit(0) // silent-fail 形貌 1：exit 0 零輸出
+  if (mode === 'empty') return done() // silent-fail 形貌 1：exit 0 零輸出
   if (mode === 'fail') {
     // 規格卡探針 1 形貌：exit 1 且錯誤走 stdout 的 result 事件（is_error＋error.message）
     process.stdout.write(JSON.stringify([{
       type: 'result', subtype: 'error_during_execution', is_error: true,
       error: { message: 'Qwen OAuth 免費額度已於 2026-04-15 停用 (simulated)' }
-    }]) + '\n')
-    process.exit(1)
+    }]) + '\n', () => done(1))
+    return
   }
   const init = { type: 'init', session_id: 's-fake' }
   if (mode === 'no-result') { // silent-fail 形貌 2：有事件但無 result 事件
-    process.stdout.write(JSON.stringify([init, { type: 'assistant', message: 'working...' }]) + '\n')
-    process.exit(0)
+    process.stdout.write(JSON.stringify([init, { type: 'assistant', message: 'working...' }]) + '\n', () => done())
+    return
   }
   if (mode === 'is-error-exit0') { // 防禦分支：exit 0 但 result 自報 is_error
     process.stdout.write(JSON.stringify([init, {
       type: 'result', subtype: 'error_max_turns', is_error: true, error: { message: 'max turns exceeded (simulated)' }
-    }]) + '\n')
-    process.exit(0)
+    }]) + '\n', () => done())
+    return
   }
   if (mode === 'poison') { // 毒行：非 JSON/截斷殘行/空白行混雜，合法 JSON 陣列縮在其中一行
     process.stdout.write('Loaded cached credentials.\n')
@@ -51,6 +57,5 @@ function main(prompt) {
     },
     permission_denials: []
   }]
-  process.stdout.write(JSON.stringify(events) + '\n')
-  process.exit(0)
+  process.stdout.write(JSON.stringify(events) + '\n', () => done())
 }

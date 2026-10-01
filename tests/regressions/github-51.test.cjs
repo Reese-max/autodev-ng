@@ -38,11 +38,15 @@ function listen(server) {
 async function makeEndpoint(handler) {
   const hits = []
   const server = http.createServer((req, res) => {
+    // Timeout/deadline fixtures answer after the client aborted: writes land on a
+    // destroyed socket, so errors must not crash the fixture process.
+    res.on('error', () => {})
     const chunks = []
     req.on('data', c => chunks.push(c))
     req.on('end', () => {
       hits.push({ url: req.url, auth: req.headers.authorization, body: Buffer.concat(chunks).toString('utf8') })
-      Promise.resolve(handler(req, res)).catch(() => { if (!res.writableEnded) { res.writeHead(500); res.end('{}') } })
+      Promise.resolve().then(() => handler(req, res))
+        .catch(() => { if (!res.writableEnded && !res.destroyed) { res.writeHead(500); res.end('{}') } })
     })
   })
   const port = await listen(server)
@@ -69,8 +73,13 @@ before(async () => {
   callAgent = (await import(pathToFileURL(LLM_JS).href)).callAgent
 })
 
-after(() => {
-  for (const server of servers) { try { server.close() } catch { /* best effort */ } }
+after(async () => {
+  // close() waits on keep-alive sockets held by undici's global agent; drop them
+  // explicitly so process exit is not delayed by the agent's idle timeout.
+  for (const server of servers) { try { server.closeAllConnections() } catch { /* best effort */ } }
+  await Promise.all(servers.map(server => new Promise(resolve => {
+    try { server.close(() => resolve()) } catch { resolve() }
+  })))
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5 })
 })
 
@@ -260,6 +269,71 @@ test('caller abort and total deadline never issue another request', async () => 
   assert.equal(out.text, '')
   assert.ok(/deadline/i.test(out.error ?? ''), `expired deadline must stop the call, got: ${out.error}`)
   assert.equal(b2.hits.length, 0, 'no request may be issued after the total deadline')
+})
+
+test('attempt timeout over real HTTP falls back once; timed-out cost stays unknown', async () => {
+  const a = await makeEndpoint(async (req, res) => { await sleep(250); send(res, 200, okBody('a-late', 'A-LATE')) })
+  const b = await makeEndpoint((req, res) => send(res, 200, okBody('b-actual', 'B-OK')))
+  const dataDir = tmpDataDir()
+  const out = await callAgent({
+    url: a.url, model: 'alias', apiKey: 'k', dataDir,
+    route: {
+      enabled: true, routeId: 'gh51-timeout', policyVersion: '1', perAttemptTimeoutMs: 60,
+      candidates: [
+        { id: 'a', url: a.url, model: 'm-a', apiKey: 'k-a', credentialRef: 'ca' },
+        { id: 'b', url: b.url, model: 'm-b', apiKey: 'k-b', credentialRef: 'cb' },
+      ],
+    },
+  }, 'p')
+  assert.equal(out.text, 'B-OK', 'a per-attempt timeout is a bounded fallback class')
+  assert.equal(a.hits.length, 1)
+  assert.equal(b.hits.length, 1)
+  const lines = readFileSync(path.join(dataDir, 'route-calls.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))
+  const failed = lines.find(l => l.phase === 'attempt-failed' && l.candidateId === 'a')
+  assert.equal(failed.failureClass, 'attempt-timeout')
+  assert.equal(failed.cost, 'unknown', 'a timed-out attempt may still bill upstream — cost is retained as unknown, never zeroed')
+})
+
+test('redirect is never followed: credentials do not leak across candidate boundaries', async () => {
+  const b = await makeEndpoint((req, res) => send(res, 200, okBody('b-actual', 'B-OK')))
+  // A answers with a redirect at B — a compliant client must refuse it outright
+  // (redirect:'error'), classify it as a bounded transport failure, and never let
+  // A's credential reach B through the redirect chain.
+  const a = await makeEndpoint((req, res) => send(res, 302, '', { location: `${b.url}/chat/completions` }))
+  const dataDir = tmpDataDir()
+  const out = await callAgent({
+    url: a.url, model: 'alias', apiKey: 'k', dataDir,
+    route: {
+      enabled: true, routeId: 'gh51-redirect', policyVersion: '1',
+      candidates: [
+        { id: 'a', url: a.url, model: 'm-a', apiKey: 'k-secret-aaaa', credentialRef: 'ca' },
+        { id: 'b', url: b.url, model: 'm-b', apiKey: 'k-secret-bbbb', credentialRef: 'cb' },
+      ],
+    },
+  }, 'p')
+  assert.equal(out.text, 'B-OK', 'redirect refusal is a bounded transport failure; the next candidate still serves')
+  assert.equal(a.hits.length, 1)
+  assert.equal(b.hits.length, 1, 'B sees only its own direct attempt — a followed redirect would add a hit')
+  assert.equal(b.hits[0].auth, 'Bearer k-secret-bbbb', "B must never receive A's credential via a redirect")
+})
+
+test('gateway candidate is a single retry owner: one outer call, upstreamAttempts UNKNOWN', async () => {
+  const gw = await makeEndpoint((req, res) => send(res, 200, okBody('inner-real-model', 'GW-OK')))
+  const dataDir = tmpDataDir()
+  const out = await callAgent({
+    url: gw.url, model: 'combo-judge', apiKey: 'k', dataDir, callId: 'gh51-gw-call',
+    route: {
+      enabled: true, routeId: 'gh51-gw-route', policyVersion: '1',
+      candidates: [{ id: 'gw', url: gw.url, model: 'combo-judge', apiKey: 'k-gw', credentialRef: 'cg', gateway: true }],
+    },
+  }, 'p')
+  assert.equal(out.text, 'GW-OK')
+  assert.equal(gw.hits.length, 1, 'the outer layer is the only retry owner — no 3×3 amplification')
+  const lines = readFileSync(path.join(dataDir, 'route-calls.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))
+  const done = lines.find(l => l.phase === 'completed')
+  assert.equal(done.upstreamAttempts, 'unknown', 'gateway-internal attempts are unobservable → UNKNOWN, never a claimed bound')
+  assert.equal(done.actualModel, 'inner-real-model')
+  assert.equal(done.actualModelSource, 'upstream-reported')
 })
 
 test('route disabled: existing single-path semantics are unchanged', async () => {
