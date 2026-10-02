@@ -24,7 +24,8 @@ const FrameworkSummary = z.object({
   cancelled: z.number().int().nonnegative(),
   skipped: z.number().int().nonnegative(),
   todo: z.number().int().nonnegative(),
-  assertionFailures: z.number().int().nonnegative()
+  assertionFailures: z.number().int().nonnegative(),
+  realTests: z.number().int().nonnegative()
 })
 const RUNNER_ID = 'node:test.run/process'
 const RUNNER_VERSION = '1'
@@ -78,11 +79,15 @@ function runTrustedNodeTests(cwd: string, file: string, timeoutMs: number): Prom
     execPath: process.execPath,
     execArgv: [],
     env: { ...process.env, NODE_OPTIONS: '' },
-    stdio: ['ignore', 'ignore', 'ignore', 'ipc']
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc']
   })
   return new Promise(resolve => {
     let messageCount = 0
     let message: z.infer<typeof RunnerMessage> | undefined
+    let stdout = ''
+    let stderr = ''
+    let stdoutTruncated = false
+    let stderrTruncated = false
     let timedOut = false
     let settled = false
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -92,11 +97,30 @@ function runTrustedNodeTests(cwd: string, file: string, timeoutMs: number): Prom
       if (timer) clearTimeout(timer)
       resolve(outcome)
     }
+    const appendOutput = (current: string, value: string, truncated: boolean) => {
+      const marker = '\n[adng: output truncated]'
+      if (truncated) return { output: current, truncated }
+      const available = Math.max(0, 30_000 - marker.length - current.length)
+      if (value.length <= available) return { output: current + value, truncated: false }
+      return { output: current + value.slice(0, available) + marker, truncated: true }
+    }
+    child.stdout?.setEncoding('utf8')
+    child.stdout?.on('data', chunk => {
+      const capture = appendOutput(stdout, String(chunk), stdoutTruncated)
+      stdout = capture.output
+      stdoutTruncated = capture.truncated
+    })
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', chunk => {
+      const capture = appendOutput(stderr, String(chunk), stderrTruncated)
+      stderr = capture.output
+      stderrTruncated = capture.truncated
+    })
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
         timedOut = true
         void killTree(child.pid, { command: process.execPath }).catch(() => undefined).finally(() => {
-          finish({ exitCode: null, timedOut: true, stdout: message?.stdout ?? '', stderr: message?.stderr ?? 'Trusted regression runner timed out' })
+          finish({ exitCode: null, timedOut: true, stdout, stderr: stderr || 'Trusted regression runner timed out' })
         })
       }, timeoutMs)
     }
@@ -113,10 +137,10 @@ function runTrustedNodeTests(cwd: string, file: string, timeoutMs: number): Prom
       if (timedOut || settled) return
       if (messageCount !== 1 || !message || !message.framework
         || code !== (message.framework.success ? 0 : 1)) {
-        finish({ exitCode: null, timedOut: false, stdout: message?.stdout ?? '', stderr: [message?.stderr, message?.runnerError, `Trusted runner summary missing or invalid (exit ${code})`].filter(Boolean).join('\n') })
+        finish({ exitCode: null, timedOut: false, stdout, stderr: [stderr, message?.runnerError, `Trusted runner summary missing or invalid (exit ${code})`].filter(Boolean).join('\n') })
         return
       }
-      finish({ exitCode: message.framework.success ? 0 : 1, timedOut: false, stdout: message.stdout, stderr: message.stderr,
+      finish({ exitCode: message.framework.success ? 0 : 1, timedOut: false, stdout, stderr,
         framework: message.framework, runId: message.runId, nodeVersion: message.nodeVersion, runnerHash })
     })
   })
@@ -126,12 +150,12 @@ function greenOk(r: RegressionOutcome, cfg: GithubConfig) {
   if (cfg.regression) return !r.timedOut && r.exitCode === 0 && new RegExp(cfg.regression.passPattern).test(r.stdout + r.stderr)
   const summary = r.framework
   return !r.timedOut && r.exitCode === 0 && !!summary && summary.success && summary.tests >= 1 && summary.passed >= 1
-    && summary.failed === 0 && summary.cancelled === 0 && summary.skipped === 0 && summary.todo === 0
+    && summary.realTests >= 1 && summary.failed === 0 && summary.cancelled === 0 && summary.skipped === 0 && summary.todo === 0
 }
 function redOk(r: RegressionOutcome, cfg: GithubConfig) {
   if (cfg.regression) return !r.timedOut && r.exitCode === 1 && new RegExp(cfg.regression.failPattern).test(r.stdout + r.stderr)
   const summary = r.framework
-  return !r.timedOut && r.exitCode === 1 && !!summary && !summary.success && summary.failed >= 1 && summary.assertionFailures >= 1
+  return !r.timedOut && r.exitCode === 1 && !!summary && !summary.success && summary.realTests >= 1 && summary.failed >= 1 && summary.assertionFailures >= 1
 }
 function consistent(r: RegressionOutcome, runner: RunnerMetadata) {
   return runner.identity === RUNNER_ID && !!runner.nodeVersion && !!runner.sourceHash
