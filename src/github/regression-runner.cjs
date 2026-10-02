@@ -94,9 +94,8 @@ if (!runId || !process.argv[2]) {
           if (isAssertionFailure(error)) assertionFailures++
         })
         testStream.on('test:summary', event => {
-          // Exactly one test file was supplied. Ignore the final aggregate
-          // event (its file is undefined), using the only per-file summary.
-          if (!event.file) return
+          // Exactly one test file was supplied and this runner executes it
+          // in-process, so the single aggregate summary is the trusted result.
           summaryCount++
           const counts = event.counts
           const fields = ['tests', 'passed', 'cancelled', 'skipped', 'todo']
