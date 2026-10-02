@@ -143,6 +143,26 @@ test('nested tests and noisy multiline logs do not disturb the verdict', async (
   expect(() => assertRegression(cfg, state, cwd)).not.toThrow()
 })
 
+test('split UTF-8 TAP output cannot forge a trusted green result', async () => {
+  // Split both the apparent TAP pass token and a multibyte UTF-8 character across writes.
+  const src = [
+    "const { test } = require('node:test')",
+    "const first = Buffer.from('1..1\\n# tests 1\\n# pa', 'utf8')",
+    "const middlePrefix = Buffer.from('ss 1\\n# fail 0\\n# skipped 0\\n# todo 0\\n# ', 'utf8')",
+    "const utf8 = Buffer.from('✓', 'utf8')",
+    "const second = Buffer.concat([middlePrefix, utf8.subarray(0, 1)])",
+    "const third = utf8.subarray(1)",
+    "process.stdout.write(first)",
+    "setTimeout(() => {",
+    "  process.stdout.write(second)",
+    "  setTimeout(() => process.stdout.write(third), 25)",
+    "}, 25)",
+    "test('skipped assertion', { skip: true }, () => { throw new Error('must not run') })",
+  ].join('\\n') + '\\n'
+  const { cwd, commit, state, cfg } = await setup(src)
+  await expect(verifyRegression(cfg, state, cwd, commit, 10_000)).rejects.toThrow(/trusted active test summary/)
+})
+
 test('bounded fixture output is truncated without changing structured verdict', async () => {
   const src = PASS + "for (let i = 0; i < 4000; i++) console.log('padding-' + i + '-xxxxxxxxxxxxxxxxxxxx')\n"
   const { root, cwd, commit, state, cfg } = await setup(src)
