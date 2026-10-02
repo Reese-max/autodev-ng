@@ -100,7 +100,7 @@ test('red side rejects a thrown error with a forged ERR_ASSERTION code', async (
 test('red side rejects a generic environment error dressed as an AssertionError', async () => {
   const src = "const add = require('../../add.cjs')\n" +
     "require('node:test')('addition', () => {\n" +
-    "  if (add(2,3) !== 5) { const e = new Error('environment unavailable'); e.name = 'AssertionError'; e.code = 'ERR_ASSERTION'; throw e }\n" +
+    "  if (add(2,3) !== 5) { const e = new Error('environment unavailable'); e.name = 'AssertionError'; e.code = 'ERR_ASSERTION'; e.operator = 'strictEqual'; e.actual = -1; e.expected = 5; throw e }\n" +
     "  require('node:assert/strict').equal(add(2,3), 5)\n" +
     "})\n"
   const { cwd, commit, state, cfg } = await setup(src)
