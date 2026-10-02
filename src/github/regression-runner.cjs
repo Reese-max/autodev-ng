@@ -5,6 +5,7 @@
 // Keep the host result channel private while untrusted test code is loaded.
 const { AssertionError } = require('node:assert')
 const { run } = require('node:test')
+const { resolve } = require('node:path')
 const parentSend = typeof process.send === 'function' ? process.send.bind(process) : undefined
 const parentDisconnect = typeof process.disconnect === 'function' ? process.disconnect.bind(process) : undefined
 Object.defineProperty(process, 'send', { configurable: false, enumerable: false, value: undefined, writable: false })
@@ -13,24 +14,21 @@ const protocol = 'autodev.node-test-runner'
 const protocolVersion = 1
 const runId = process.argv[3] || ''
 const file = process.argv[2] || ''
-const outputLimit = 30_000
-let stdout = ''
-let stderr = ''
+const testFile = file ? resolve(file) : ''
 let summaryCount = 0
 let framework
 let assertionFailures = 0
+let realTests = 0
 let runnerError
 
-function append(target, message) {
-  const current = target === 'stdout' ? stdout : stderr
-  const remaining = outputLimit - current.length
-  if (remaining <= 0) return
-  const value = String(message)
-  const next = value.length > remaining
-    ? current + value.slice(0, remaining) + '\n[adng: output truncated]'
-    : current + value
-  if (target === 'stdout') stdout = next
-  else stderr = next
+function isFileLoadPoint(event) {
+  // With isolation disabled, Node reports a file as one passing test when it
+  // registers no node:test cases. That synthetic event has the source file as
+  // its name and no source call site (line 1, column 1). Use that event shape
+  // rather than the basename, which can also be a legitimate test name.
+  return event?.line === 1 && event?.column === 1
+    && typeof event?.file === 'string' && resolve(event.file) === testFile
+    && typeof event?.name === 'string' && resolve(event.name) === testFile
 }
 
 function isAssertionFailure(error) {
@@ -54,8 +52,8 @@ function send(result) {
     protocolVersion,
     runId,
     nodeVersion: process.version,
-    stdout,
-    stderr,
+    stdout: '',
+    stderr: '',
     ...(framework ? { framework: { ...framework, assertionFailures } } : {}),
     ...(runnerError ? { runnerError } : {}),
   }
@@ -83,13 +81,11 @@ if (!runId || !process.argv[2]) {
       // `setup` attaches listeners before any test file can finish. Attaching
       // after run() returns can miss fast per-file summaries in host runners.
       setup(testStream) {
-        testStream.on('test:stdout', event => {
-          append('stdout', event.message)
-        })
-        testStream.on('test:stderr', event => {
-          append('stderr', event.message)
+        testStream.on('test:pass', event => {
+          if (!isFileLoadPoint(event) && event.details?.type === 'test') realTests++
         })
         testStream.on('test:fail', event => {
+          if (!isFileLoadPoint(event) && event.details?.type === 'test') realTests++
           const error = event.details?.error
           if (isAssertionFailure(error)) assertionFailures++
         })
@@ -120,6 +116,7 @@ if (!runId || !process.argv[2]) {
             cancelled: counts.cancelled,
             skipped: counts.skipped,
             todo: counts.todo,
+            realTests,
           }
         })
         testStream.on('error', error => { runnerError = String(error) })
