@@ -363,3 +363,41 @@ test.runIf(process.platform === 'win32')('Windows subprocess interleave: only on
     await terminate(reclaimer)
   }
 }, 120_000)
+
+test.runIf(process.platform === 'win32')('a slow Windows owner probe does not make a sibling lock report busy', async () => {
+  const { parent, dir } = freshDir()
+  const siblingDir = join(parent, 'sibling-lock')
+  const readyFile = join(parent, 'owner-probe-ready')
+  const ownerScript = `
+    import { mkdirSync, writeFileSync } from 'node:fs';
+    import { join } from 'node:path';
+    import { acquireLockLease } from ${JSON.stringify(COORDINATOR_URL)};
+    const [dir, readyFile] = process.argv.slice(1);
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'pid.json'), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+    const token = acquireLockLease(dir, 0, { readProcessStartTime: () => {
+      writeFileSync(readyFile, 'ready');
+      const cell = new Int32Array(new SharedArrayBuffer(4));
+      const deadline = Date.now() + 2_000;
+      while (Date.now() < deadline) Atomics.wait(cell, 0, 0, 10);
+      return new Date(Date.now() - 60_000).toISOString();
+    }});
+    console.log(JSON.stringify({ stage: token ? 'acquired' : 'busy', token }));
+  `
+  const owner = spawn(process.execPath, [...CHILD_ARGS, '-e', ownerScript, dir, readyFile], { stdio: ['pipe', 'pipe', 'pipe'] })
+
+  try {
+    await waitForFile(readyFile)
+
+    // The owner probe holds BEGIN IMMEDIATE for longer than the former 1s
+    // timeout. This is a distinct key in the same coordinator database.
+    const siblingToken = acquireLock(siblingDir)
+    expect(siblingToken).toBeTruthy()
+    expect(JSON.parse(await nextLine(owner))).toEqual({ stage: 'busy', token: null })
+    expect(await waitForClose(owner, 30_000)).toBe(0)
+    expect(JSON.parse(readFileSync(join(dir, 'pid.json'), 'utf8')).pid).toBe(owner.pid)
+    releaseLock(siblingDir, siblingToken)
+  } finally {
+    await terminate(owner)
+  }
+}, 30_000)

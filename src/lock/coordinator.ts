@@ -4,13 +4,22 @@ import { realpathSync, statSync, mkdirSync, rmSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
   dirAgeMs, generationOf, ownerAlive, readPidFile, safeLockDirStat,
-  removeIfUnclaimed, writeOwnPidFileOrCleanup,
+  removeIfUnclaimed, WINDOWS_PID_PROBE_TIMEOUT_MS, writeOwnPidFileOrCleanup,
 } from './internal.js'
 import type { PidInfo } from './internal.js'
 
 const COORDINATOR_FILE = '.autodev-lock-coordination.sqlite'
-const ACQUIRE_BUSY_TIMEOUT_MS = 1_000
-const RELEASE_BUSY_TIMEOUT_MS = 5_000
+// A transaction can probe both the database owner and legacy pid.json owner.
+// On Windows each PID-reuse probe may synchronously run PowerShell for up to 5s;
+// leave bounded room for both so unrelated sibling lock keys do not fail busy
+// before their owner state is examined.
+const WINDOWS_OWNER_PROBE_BUDGET_MS = 2 * WINDOWS_PID_PROBE_TIMEOUT_MS
+const COORDINATOR_BUSY_MARGIN_MS = 1_000
+const COORDINATOR_BUSY_TIMEOUT_MS = process.platform === 'win32'
+  ? WINDOWS_OWNER_PROBE_BUDGET_MS + COORDINATOR_BUSY_MARGIN_MS
+  : 1_000
+const ACQUIRE_BUSY_TIMEOUT_MS = COORDINATOR_BUSY_TIMEOUT_MS
+const RELEASE_BUSY_TIMEOUT_MS = COORDINATOR_BUSY_TIMEOUT_MS
 const DEAD_LOCK_BUSY_TIMEOUT_MS = 100
 
 interface LeaseRow {

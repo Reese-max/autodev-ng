@@ -12,6 +12,7 @@ export interface PidInfo {
 }
 
 type ProcessStartTimeReader = (pid: number) => string
+export const WINDOWS_PID_PROBE_TIMEOUT_MS = 5_000
 
 /** process.kill(pid, 0) 不拋=活、EPERM=活（無權限但存在）、ESRCH=死。其餘未知例外 fail-safe 視為活著（不誤搶）。 */
 export function isPidAlive(pid: number): boolean {
@@ -30,7 +31,7 @@ function windowsProcessStartTime(pid: number): string {
     '-NonInteractive',
     '-Command',
     `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
-  ], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
+  ], { encoding: 'utf8', timeout: WINDOWS_PID_PROBE_TIMEOUT_MS, windowsHide: true })
 }
 
 export function isReusedWindowsPid(pid: number, lockStartedAt: string, readProcessStartTime: ProcessStartTimeReader = windowsProcessStartTime): boolean {

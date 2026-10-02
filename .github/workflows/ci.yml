@@ -22,7 +22,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - name: Run lock ownership regressions
-        run: npm test -- tests/lock.test.ts tests/lock-generation.test.ts tests/lock-errors.test.ts tests/lock-pidfile-cleanup.test.ts
+        run: npm test -- tests/lock.test.ts tests/lock-generation.test.ts tests/lock-errors.test.ts tests/lock-pidfile-cleanup.test.ts tests/github-owner-lock-team.integration.test.ts
       - run: npm run test:flaky-regression
       - name: Run retained GitHub regression tests
         shell: pwsh
