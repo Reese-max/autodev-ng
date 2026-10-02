@@ -26,8 +26,10 @@ function isFileLoadPoint(event) {
   // registers no node:test cases. That synthetic event has the source file as
   // its name and no source call site (line 1, column 1). Use that event shape
   // rather than the basename, which can also be a legitimate test name.
-  return event?.line === 1 && event?.column === 1
-    && typeof event?.file === 'string' && resolve(event.file) === testFile
+  const fileOrigin = event?.line === 1 && event?.column === 1
+  const missingSourceLocation = event?.line === undefined && event?.column === undefined
+  return (fileOrigin || missingSourceLocation)
+    && (typeof event?.file !== 'string' || resolve(event.file) === testFile)
     && typeof event?.name === 'string' && resolve(event.name) === testFile
 }
 
