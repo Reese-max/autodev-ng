@@ -1,9 +1,13 @@
 'use strict'
 
-// This file is part of the trusted Autodev host. Test files run in Node's
-// process-isolated workers; their stdout/stderr are emitted as typed events
-// and never share this runner's IPC channel or verdict stream.
+// The trusted host forks this runner for each regression check. Test files run
+// inside this isolated process so assertion errors keep their actual class.
+// Keep the host result channel private while untrusted test code is loaded.
+const { AssertionError } = require('node:assert')
 const { run } = require('node:test')
+const parentSend = typeof process.send === 'function' ? process.send.bind(process) : undefined
+const parentDisconnect = typeof process.disconnect === 'function' ? process.disconnect.bind(process) : undefined
+Object.defineProperty(process, 'send', { configurable: false, enumerable: false, value: undefined, writable: false })
 
 const protocol = 'autodev.node-test-runner'
 const protocolVersion = 1
@@ -33,6 +37,7 @@ function isAssertionFailure(error) {
   const cause = error && error.cause
   return error?.code === 'ERR_TEST_FAILURE'
     && error?.failureType === 'testCodeFailure'
+    && cause instanceof AssertionError
     && cause?.name === 'AssertionError'
     && cause?.code === 'ERR_ASSERTION'
     // Node serializes test-process errors across its worker boundary. Require
@@ -54,14 +59,14 @@ function send(result) {
     ...(framework ? { framework: { ...framework, assertionFailures } } : {}),
     ...(runnerError ? { runnerError } : {}),
   }
-  if (typeof process.send !== 'function') {
+  if (typeof parentSend !== 'function') {
     process.exitCode = 70
     return
   }
-  process.send(message, error => {
+  parentSend(message, error => {
     if (error) process.exitCode = 70
     else process.exitCode = result
-    process.disconnect()
+    parentDisconnect?.()
   })
 }
 
@@ -73,7 +78,7 @@ if (!runId || !process.argv[2]) {
     const stream = run({
       files: [file],
       concurrency: 1,
-      isolation: 'process',
+      isolation: 'none',
       execArgv: [],
       // `setup` attaches listeners before any test file can finish. Attaching
       // after run() returns can miss fast per-file summaries in host runners.
