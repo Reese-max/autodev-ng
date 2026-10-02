@@ -82,3 +82,28 @@ test('owner billing fails closed when historical repo attempts have no source po
   expect(() => ownerBillingScopes(owner, repos, 'owner/current')).toThrow('Unmapped owner billing database')
   expect(existsSync(join(unknown, 'run.db'))).toBe(true)
 })
+
+test('shared owner Issue database seen through owner root and repo scope is billed once', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-owner-budget-overlap-')); dirs.push(root)
+  const configDir = join(root, 'configs'), ownerDataDir = join(root, 'owner-data')
+  const sourceDataDir = join(root, 'source-data'), repoDataDir = join(ownerDataDir, 'repo-0123456789abcdef')
+  mkdirSync(configDir, { recursive: true })
+  seedDb(sourceDataDir)
+  seedDb(join(repoDataDir, 'issue-9'), [
+    { ts: '2026-09-29T00:00:00.000Z', cost: 20, engine: 'writer' },
+  ])
+  const currentConfig = join(configDir, 'current.json')
+  writeFileSync(currentConfig, JSON.stringify({ dataDir: '../source-data', timezoneOffsetHours: 8,
+    engines: { writer: { adapter: 'mock' } } }))
+
+  // The owner-root walk discovers repo-*/issue-*/run.db; the child scope discovers
+  // that same physical SQLite file again. The shared overlap must be deduplicated.
+  const report = globalCostReport(currentConfig, '2026-09-29T02:00:00.000Z', [
+    { dir: ownerDataDir, offset: 8, subscriptions: [] },
+    { dir: repoDataDir, offset: 8, subscriptions: [] },
+  ])
+
+  expect(report.complete).toBe(true)
+  expect(report.databases).toBe(2) // source run.db plus the shared Issue run.db, counted once
+  expect(report.bookedUsd).toBe(20) // not 40 from the overlapping owner/repo scopes
+})
