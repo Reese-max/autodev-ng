@@ -233,6 +233,29 @@ test('Issue 動態帳務納入 scope：另一個 issue 的 run.db 花費把全�
   expect(engine.calls).toHaveLength(0)
 })
 
+test('distinct billingScope 仍計入 cfg.dataDir 的既有 Issue 帳務', async () => {
+  const customScope = mkdtempSync(join(tmpdir(), 'adng-budget-extra-scope-')); dirs.push(customScope)
+  const { cfg, state } = fixture({ globalLimit: 30, billingScope: customScope })
+  // Each root contributes $20; scanning only billingScope would see $20 < $30 and dispatch.
+  seedDb(join(cfg.dataDir, 'issue-9'), [{ ts: new Date().toISOString(), cost: 20, engine: 'writer' }])
+  seedDb(join(customScope, 'issue-3'), [{ ts: new Date().toISOString(), cost: 20, engine: 'writer' }])
+  const engine = new MockEngine([{ ok: true }])
+
+  const result = await executeIssue(cfg, state, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    app.deps.engines = { resolve: () => engine }
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+
+  expect(result.detail).toBe('cost-hard-stop')
+  expect(result.attempted).toBe(false)
+  expect(engine.calls).toHaveLength(0)
+  const events = readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')
+  expect(events).toContain('"type":"cost-hard-stop-global"')
+  expect(events).toContain('"spent":40')
+})
+
 test('修訂輪次帳務不能逃離：issue-*/revisions/*/run.db 也計入', async () => {
   const { cfg, state } = fixture({ globalLimit: 60, siblingSpent: 50 })
   seedDb(join(cfg.dataDir, 'issue-9', 'revisions', '2'), [{ ts: new Date().toISOString(), cost: 20, engine: 'writer' }])

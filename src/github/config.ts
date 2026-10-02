@@ -11,7 +11,7 @@ export const GithubConfigSchema = z.object({
   authors: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/)).min(1),
   sourceConfig: z.string().min(1),
   dataDir: z.string().min(1),
-  /** 全域計帳額外 scope 根目錄（預設 dataDir）；owner 模式由內部 resolver 依 repo 套用政策。 */
+  /** 額外全域計帳根目錄；GitHub Issue 的 dataDir 仍必計入。owner 模式由內部 resolver 依 repo 套用政策。 */
   billingScope: z.string().min(1).optional(),
   engine: z.string().min(1),
   verifyCommand: z.string().trim().min(1).optional(),

@@ -108,7 +108,9 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
   const app = assemble(runtime, resolve(cfg.sourceConfig)) // #40：全域查帳 scope＝sourceConfig 同層的艦隊 configs
   const billingScopeResolver = (cfg as GithubConfig & { billingScopeResolver?: () => ExtraBillingScope[] }).billingScopeResolver
   if (billingScopeResolver) app.deps.billingScopes = billingScopeResolver
-  else app.deps.billingScopeDirs = [cfg.billingScope ?? cfg.dataDir] // Issue/revision 動態帳務納入全域查帳
+  else app.deps.billingScopeDirs = cfg.billingScope && cfg.billingScope !== cfg.dataDir
+    ? [cfg.dataDir, cfg.billingScope]
+    : [cfg.dataDir] // 同時計入執行資料與額外 scope；globalCostReport 依 SQLite inode 去重
   if (worker) app.deps.engines = { resolve: () => worker }
   if (cfg.repair) {
     const verifier = new KernelVerifier({ cfg: runtime, reviewRun: args => reviewRepair({ ...reviewLlmFromConfig(runtime), onModel: args.onModel, dataDir: runtime.dataDir,
