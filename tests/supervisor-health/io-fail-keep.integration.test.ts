@@ -189,7 +189,7 @@ beforeEach(async () => {
   await resetFsMocksToActual()
 })
 
-test('整合基準：探測成功 + stale + 無 child → reap 並 taskkill + launch', () => {
+test.skipIf(process.platform !== 'win32')('整合基準：探測成功 + stale + 無 child → reap 並 taskkill + launch', () => {
   const { result, commands, commandLines, launchCalls } = runIntegration('none')
 
   expect(result.action).toBe('reap')

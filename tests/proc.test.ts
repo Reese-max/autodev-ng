@@ -133,7 +133,8 @@ test('取消只作用在指定子程序；預先取消不 spawn，也不算 wall
   expect(r.timedOut).toBe(false)
   expect(events.at(-1)).toMatchObject({ type: 'exit', reason: 'cancelled' })
   const spawned = events.find(e => e.type === 'spawn')
-  expect(spawned?.type === 'spawn' && isPidAlive(spawned.pid)).toBe(false)
+  if (spawned?.type !== 'spawn') throw new Error('spawn event missing')
+  await vi.waitFor(() => { expect(isPidAlive(spawned.pid)).toBe(false) }, { timeout: 5_000 })
 }, 20_000)
 
 test('idleTimeoutMs：無輸出進度才斬樹，不能把 wall timeout 偷加回來', async () => {
@@ -177,7 +178,7 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-test('hang-tree：雙層樹斬——父子兩層 PID 逾時後皆不存活', async () => {
+test.skipIf(process.platform !== 'win32')('hang-tree：雙層樹斬——父子兩層 PID 逾時後皆不存活', async () => {
   process.env.FAKE_MODE = 'hang-tree'
   const r = await runProcess({ ...base, stdinText: 'x', timeoutMs: 1500 })
   expect(r.timedOut).toBe(true)

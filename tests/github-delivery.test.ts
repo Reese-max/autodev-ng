@@ -13,7 +13,9 @@ import { assertRegression, verifyRegression } from '../src/github/regression.js'
 import { assertAcceptance, verifyAcceptance } from '../src/github/acceptance.js'
 import { runGithub } from '../src/github/runner.js'
 import { repairMetrics } from '../src/github/operations.js'
+import { RUNTIME_BUILT } from './helpers/runtime-build.js'
 
+const PYTHON = process.platform === 'win32' ? 'python' : 'python3'
 const dirs: string[] = []
 afterEach(() => { vi.restoreAllMocks(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 function setup() {
@@ -70,7 +72,7 @@ test('console restricts configuration selection and reports unverified evidence 
   expect(result.integrations).toHaveLength(1); expect(result.integrations[0]!.issues[0]!.verified).toBe(false)
   await expect(githubConsole(f.source, { action: 'retry', integration: '../source.json', issue: 7 })).rejects.toThrow()
 })
-test('HTTP console requires token for reads and writes, limits config selection, and serves its browser module', async () => {
+test.skipIf(!RUNTIME_BUILT)('HTTP console requires token for reads and writes, limits config selection, and serves its browser module', async () => {
   const f = setup(), path = '../web/server.mjs', { createServer } = await import(path)
   const server = createServer({ cfgPath: f.source, token: 'fixture-token', indexHtml: '<html>fixture</html>' })
   await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
@@ -90,7 +92,7 @@ test('custom Python regression proves red/green and acceptance binds the exact c
   git(cwd, ['init', '-b', 'main']); git(cwd, ['config', 'user.name', 'Test']); git(cwd, ['config', 'user.email', 'test@example.invalid'])
   writeFileSync(join(cwd, 'addition.py'), 'def add(a,b): return a-b\n')
   git(cwd, ['add', '.']); git(cwd, ['commit', '-qm', 'base']); f.state.baseSha = git(cwd, ['rev-parse', 'HEAD'])
-  const cfg = GithubConfigSchema.parse({ ...f.cfg, regression: { file: 'tests/regressions/github-{issue}-{revision}.py', command: 'python', args: ['{file}'], passPattern: 'ADNG_TEST_OK', failPattern: 'AssertionError' }, acceptance: { command: 'python', args: ['-c', 'from addition import add; assert add(2,3)==5'] } })
+  const cfg = GithubConfigSchema.parse({ ...f.cfg, regression: { file: 'tests/regressions/github-{issue}-{revision}.py', command: PYTHON, args: ['{file}'], passPattern: 'ADNG_TEST_OK', failPattern: 'AssertionError' }, acceptance: { command: PYTHON, args: ['-c', 'from addition import add; assert add(2,3)==5'] } })
   mkdirSync(join(cwd, 'tests/regressions'), { recursive: true })
   writeFileSync(join(cwd, 'tests/regressions/github-7-0.py'), "import sys\nsys.dont_write_bytecode = True\nsys.path.insert(0, '.')\nfrom addition import add\nassert add(2,3) == 5\nprint('ADNG_TEST_OK')\n")
   writeFileSync(join(cwd, 'addition.py'), 'def add(a,b): return a+b\n')

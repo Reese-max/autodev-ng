@@ -1,4 +1,4 @@
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -19,8 +19,10 @@ import { delivery, recoverIssue, repairDoctor, repairMetrics } from '../src/gith
 import * as incident from '../src/guardian/incident.js'
 import { FreebuffEngine } from '../src/engines/freebuff.js'
 import { PreflightCache } from '../src/preflight.js'
+import * as cliAdmission from '../src/engines/cli-admission.js'
 
 const dirs: string[] = []
+beforeEach(() => { vi.spyOn(cliAdmission, 'nativeAdmission').mockResolvedValue(cliAdmission.unknownAdmission('codex')) })
 afterEach(() => { vi.restoreAllMocks(); process.exitCode = undefined; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
 async function setup() {

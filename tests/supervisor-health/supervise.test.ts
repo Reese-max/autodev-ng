@@ -232,7 +232,7 @@ test('supervisor 使用 config 的 staleThresholdMs', () => {
   expect(result.action).toBe('reap')
 })
 
-test('30 分鐘 watchdog：PID 活著且 heartbeat 逾期時殺樹、清鎖、記錄凍結分鐘並重拉', () => {
+test.skipIf(process.platform !== 'win32')('30 分鐘 watchdog：PID 活著且 heartbeat 逾期時殺樹、清鎖、記錄凍結分鐘並重拉', () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-supervise-watchdog-'))
   const { configPath, dataDir } = writeConfig(root)
   const pid = 77
@@ -386,7 +386,7 @@ function supervisorFixture(scenario: SupervisorScenario) {
   return { result, effects }
 }
 
-test.each(SUPERVISOR_SCENARIOS)('$name', scenario => {
+test.each(SUPERVISOR_SCENARIOS.filter(scenario => process.platform === 'win32' || scenario.expectedEffects.every(effect => effect !== 'taskkill:/PID 41 /T /F')))('$name', scenario => {
   const { result, effects } = supervisorFixture(scenario)
 
   expect(result).toMatchObject({

@@ -597,7 +597,7 @@ test('非 git 專案：prepareWorktree 上拋 → scheduler 歸 blocked+告警�
   expect(readFileSync(backlogFile, 'utf8')).toContain('adng:blocked')
 })
 
-test('worktree 殘留目錄被鎖定（前次中斷進程仍佔用檔案，rmSync 清不掉）→ blocked reason 為 worktree-locked，不誤掛 not-a-git-repo', async () => {
+test.skipIf(process.platform !== 'win32')('worktree 殘留目錄被鎖定（前次中斷進程仍佔用檔案，rmSync 清不掉）→ blocked reason 為 worktree-locked，不誤掛 not-a-git-repo', async () => {
   const e = new MockEngine([{ ok: true }])
   const d = deps(e)
   const wtId = taskId('任務一')

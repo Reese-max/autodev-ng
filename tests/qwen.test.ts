@@ -41,6 +41,13 @@ test('毒行容錯（照 copilot 標準）：非 JSON/截斷殘行/空白行/超
   expect(r.output).not.toContain('yyyyy') // 超長行沒滲進 output
 })
 
+test('poison fixture drains the final JSON event before exiting', async () => {
+  const e = engine('poison', ['aaa', 'bbb'])
+  const r = await e.run({ task: T, projectPath: process.cwd() })
+  expect(r.ok).toBe(true)
+  expect(r.output).toContain('done len=')
+})
+
 test('stdin prompt 送達：directive 優先、commit 硬話在 prompt 內（fixture 回聲驗證）', async () => {
   const e = engine('ok', ['aaa', 'bbb'])
   const r = await e.run({ task: T, projectPath: process.cwd(), directive: '修好登入頁\nDIRECTIVE-MARKER：port 3210 不要殺' })

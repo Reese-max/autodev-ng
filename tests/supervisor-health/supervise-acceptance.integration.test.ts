@@ -75,7 +75,7 @@ function writeFixture(scenario: Scenario): { configPath: string; dataDir: string
   return { configPath, dataDir, pid, nowMs }
 }
 
-test.each(scenarios)('supervise 整合驗收：$name', scenario => {
+test.each(scenarios.filter(scenario => process.platform === 'win32' || !scenario.expectTaskkill))('supervise 整合驗收：$name', scenario => {
   const { configPath, dataDir, pid, nowMs } = writeFixture(scenario)
   const effects: string[] = []
   const timeline: string[] = []

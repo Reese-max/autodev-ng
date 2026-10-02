@@ -136,9 +136,11 @@ test('timeout → blocked（附 detail）', async () => {
 }, 15_000)
 
 test('exit 9009/127（command not found）→ blocked', async () => {
-  const r9009 = await runVerify({ command: `"${NODE}" -e "process.exit(9009)"`, cwd: process.cwd(), timeoutMs: 10_000 })
-  expect(r9009.status).toBe('blocked')
-  expect(r9009.detail).toContain('command-not-found')
+  if (process.platform === 'win32') {
+    const r9009 = await runVerify({ command: `"${NODE}" -e "process.exit(9009)"`, cwd: process.cwd(), timeoutMs: 10_000 })
+    expect(r9009.status).toBe('blocked')
+    expect(r9009.detail).toContain('command-not-found')
+  }
   const r127 = await runVerify({ command: `"${NODE}" -e "process.exit(127)"`, cwd: process.cwd(), timeoutMs: 10_000 })
   expect(r127.status).toBe('blocked')
 })

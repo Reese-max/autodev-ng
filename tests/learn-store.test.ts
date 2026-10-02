@@ -6,6 +6,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LessonStore, parseLessons, MAX_LESSONS } from '../src/learn/store.js'
+import { RUNTIME_BUILT } from './helpers/runtime-build.js'
 
 function dir(): string { return mkdtempSync(join(tmpdir(), 'adng-learn-')) }
 
@@ -20,7 +21,7 @@ describe('parseLessons', () => {
 })
 
 describe('LessonStore.add', () => {
-  test('跨程序新增不覆蓋其他寫入者，讀取失敗保留原始檔案', async () => {
+  test.skipIf(!RUNTIME_BUILT)('跨程序新增不覆蓋其他寫入者，讀取失敗保留原始檔案', async () => {
     const file = join(dir(), 'shared.md'), moduleUrl = new URL('../dist/learn/store.js', import.meta.url).href
     const script = `import { LessonStore } from ${JSON.stringify(moduleUrl)}; const s=new LessonStore(process.argv[1]); for(let i=0;i<12;i++) if(!s.add(process.argv[2]+' item '+i+' end')) process.exit(1)`
     await Promise.all(['writer-a', 'writer-b'].map(id => new Promise<void>((done, fail) => {
