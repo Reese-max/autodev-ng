@@ -35,6 +35,12 @@ function isAssertionFailure(error) {
     && error?.failureType === 'testCodeFailure'
     && cause?.name === 'AssertionError'
     && cause?.code === 'ERR_ASSERTION'
+    // Node serializes test-process errors across its worker boundary. Require
+    // the assertion metadata too, so a generic Error with only a forged name
+    // and code cannot satisfy the base-red contract.
+    && typeof cause?.operator === 'string'
+    && Object.prototype.hasOwnProperty.call(cause, 'actual')
+    && Object.prototype.hasOwnProperty.call(cause, 'expected')
 }
 
 function send(result) {
