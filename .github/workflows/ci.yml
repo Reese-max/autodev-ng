@@ -19,6 +19,13 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
+      - name: Verify Node.js 22 runtime
+        shell: pwsh
+        run: |
+          $version = node --version
+          if ($LASTEXITCODE -ne 0) { throw "node --version failed" }
+          if ($version -notmatch '^v22\.') { throw "Expected Node.js 22; got '$version'" }
+          Write-Output "Verified Node.js $version"
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:flaky-regression
