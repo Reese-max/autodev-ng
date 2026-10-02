@@ -158,7 +158,7 @@ test('split UTF-8 TAP output cannot forge a trusted green result', async () => {
     "  setTimeout(() => process.stdout.write(third), 25)",
     "}, 25)",
     "test('skipped assertion', { skip: true }, () => { throw new Error('must not run') })",
-  ].join('\\n') + '\\n'
+  ].join('\n') + '\n'
   const { cwd, commit, state, cfg } = await setup(src)
   await expect(verifyRegression(cfg, state, cwd, commit, 10_000)).rejects.toThrow(/trusted active test summary/)
 })
