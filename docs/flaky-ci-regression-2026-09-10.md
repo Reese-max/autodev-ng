@@ -14,6 +14,19 @@
 
 Run `34469734636` 的 job `102846569277` 確實完成 checkout、Node setup、`npm ci`、typecheck 與回歸命令，不是 runner admission 或 Actions budget 失敗。精確保留的結果是 201 個 test files 中 3 個失敗、1,977 個 tests 中 5 個失敗；兩輪的診斷均包含固定 completion/config/repair clusters 與一個第二輪才通過的 watcher case。其固定根因已由後續變更對齊目前的 `Deps`、free-policy fixture 與 repair gate detail 契約。
 
+## 精確失敗證據
+
+| round | spec | assertion/error | timeout/fixture |
+|---|---|---|---|
+| 1/2 | `autopilot-completion.test.ts > 補充審查 reject 不得保留 achieved` | `TypeError: Cannot read properties of undefined (reading 'read')` @ `src/autopilot/session.ts:113` | `exit=1`, `timedOut=false`, `failureSignal=none` |
+| 1/2 | `autopilot-completion.test.ts > 補充審查 exception 不得保留 achieved` | same shared `TypeError` block | `exit=1`, `timedOut=false`, `failureSignal=none` |
+| 1/2 | `autopilot-completion.test.ts > 自主派工與補足派工都觸發既有反思` | same shared `TypeError` block | `exit=1`, `timedOut=false`, `failureSignal=none` |
+| 1/2 | `cli.test.ts > M5：configs/ 下所有現役真檔 schema 全過…` | `free-policy: explicit openrouter/provider/model:free and controlled CLI arguments required` @ `src/engines/opencode.ts:47` | `exit=1`, `timedOut=false`, `failureSignal=none` |
+| 1/2 | `github-regression.test.ts > single-repository watcher accepts absolute and relative data directories while disabled` | `AssertionError: expected null to be +0` after the `spawnSync` 10s limit | `exit=1`, `timedOut=false`, watcher fixture; round 2 passed |
+| 1/2 | `github-repair.test.ts > report repair follow-up preserves the original fix…` | `AssertionError: expected '4: blocked' to be '4: published'` @ line 199 | `exit=1`, `timedOut=false`, `failureSignal=none` |
+
+For the repeated completion/config/repair assertions, Vitest emitted one shared error block; the table preserves that fact rather than inventing a separate assertion message for each spec. The later fixture-contract changes are the reason current base CI is green; this issue's candidate addresses the independent cross-platform replay failures below.
+
 ## 本次修復的 gate-operability 缺口
 
 Windows workflow 本身已在目前 base 保持 blocking contract：`windows-latest`、`npm run typecheck`、兩輪 `npm run test:flaky-regression`，以及後續的 `tests/regressions/*.test.cjs` retained tests 均未改成 warning 或刪除。這個變更讓同一套 gate 能在 Linux 驗證主機與 detached replay 上可靠執行，同時保持 Windows assertion 不變：
