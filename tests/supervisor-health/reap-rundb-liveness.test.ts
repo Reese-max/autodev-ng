@@ -78,7 +78,7 @@ test('(b) 心跳凍 100 分且 run.db 靜默逾寬限：雙證齊全，reap', ()
   const { configPath, dataDir } = setup(root)
   const nowMs = Date.now()
   freezeHeartbeat(dataDir, nowMs, 100 * 60_000)
-  seedRunDb(dataDir, nowMs - 100 * 60_000)
+  seedRunDb(dataDir, nowMs - 100 * 60_000 - 1)
   const effects: string[] = []
   const result = superviseConfig(configPath, {
     nowMs, runCommand: aliveRunner(4321, 1),

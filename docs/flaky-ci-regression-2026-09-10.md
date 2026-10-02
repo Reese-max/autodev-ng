@@ -36,6 +36,7 @@ Windows workflow 本身已在目前 base 保持 blocking contract：`windows-lat
 - `taskkill`、PowerShell FileShare、Windows process-tree 與 Windows 9009 exit-code 語意只在非 Windows 不成立的環境略過；Windows CI 仍執行原 assertion。
 - 依賴 gitignored `dist/` 的測試以 `RUNTIME_BUILT` 作為前置條件；CI 的 `test:flaky-regression` 先 build，因此 Windows gate 仍執行這些測試，乾淨 Linux checkout 則不會把缺少建置產物誤報成產品失敗。
 - GitHub repair tests 的 CLI admission 改用 unknown-admission test seam，避免宿主的真實 Codex quota 狀態改變測試結果或觸發 provider call；Python regression fixture 在 POSIX 使用 `python3`、Windows 使用 `python`。
+- run.db liveness fixture 對 heartbeat 與 SQLite attempt 的邊界保留 1ms 明確先後，避免檔案系統 sub-millisecond mtime 把同一時刻誤判成 heartbeat 後完成。
 
 ## 驗證
 
