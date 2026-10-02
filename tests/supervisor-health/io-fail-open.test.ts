@@ -119,7 +119,7 @@ function runProbe(failure: IoFailure | 'none'): ProbeFixture {
   return { result, commands, commandLines, launchCalls }
 }
 
-test('基準：探測全成功且 heartbeat 過期無 child → reap + taskkill + launch', () => {
+test.skipIf(process.platform !== 'win32')('基準：探測全成功且 heartbeat 過期無 child → reap + taskkill + launch', () => {
   const { result, commands, commandLines, launchCalls } = runProbe('none')
 
   expect(result.action).toBe('reap')
