@@ -59,3 +59,49 @@ describe('resolveSecretString', () => {
     expect(() => expandConfigPaths(tmpdir(), { ...cfg, llmTransport: 'http' })).toThrow('missing or empty')
   })
 })
+
+describe('ConfigSchema secret validation', () => {
+  const baseConfig = {
+    projectPath: '.',
+    backlogFile: 'BACKLOG.md',
+    dataDir: 'data',
+    engines: { fixture: { adapter: 'mock' as const } },
+    defaultEngine: 'fixture',
+  }
+
+  it('judgeApiKey 拒絕類 credential 純字串（sk- 開頭）', () => {
+    expect(() => ConfigSchema.parse({ ...baseConfig, judgeApiKey: 'sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h' })).toThrow()
+    expect(() => ConfigSchema.parse({ ...baseConfig, judgeApiKey: 'sk-abcdefghijklmnopqrst' })).toThrow()
+  })
+
+  it('judgeApiKey 接受 {env:VAR} 參考格式', () => {
+    const cfg = ConfigSchema.parse({ ...baseConfig, judgeApiKey: '{env:JUDGE_API_KEY}' })
+    expect(cfg.judgeApiKey).toBe('{env:JUDGE_API_KEY}')
+  })
+
+  it('judgeApiKey 接受 ${env:VAR} 與 ${VAR} 參考格式', () => {
+    const cfg1 = ConfigSchema.parse({ ...baseConfig, judgeApiKey: '${env:JUDGE_API_KEY}' })
+    expect(cfg1.judgeApiKey).toBe('${env:JUDGE_API_KEY}')
+    const cfg2 = ConfigSchema.parse({ ...baseConfig, judgeApiKey: '${JUDGE_API_KEY}' })
+    expect(cfg2.judgeApiKey).toBe('${JUDGE_API_KEY}')
+  })
+
+  it('judgeApiKey 接受 {file:PATH} 參考格式', () => {
+    const cfg = ConfigSchema.parse({ ...baseConfig, judgeApiKey: '{file:/path/to/secret}' })
+    expect(cfg.judgeApiKey).toBe('{file:/path/to/secret}')
+  })
+
+  it('telegramBotToken 拒絕類 credential 純字串（bot 數字:字元 格式）', () => {
+    expect(() => ConfigSchema.parse({ ...baseConfig, telegramBotToken: 'bot123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi' })).toThrow()
+  })
+
+  it('telegramBotToken 接受 {env:VAR} 參考格式', () => {
+    const cfg = ConfigSchema.parse({ ...baseConfig, telegramBotToken: '{env:TELEGRAM_BOT_TOKEN}' })
+    expect(cfg.telegramBotToken).toBe('{env:TELEGRAM_BOT_TOKEN}')
+  })
+
+  it('judgeApiKey 預設值不應為類 credential 字串', () => {
+    const cfg = ConfigSchema.parse(baseConfig)
+    expect(cfg.judgeApiKey).not.toMatch(/^sk-[a-zA-Z0-9]{20,}$/)
+  })
+})
