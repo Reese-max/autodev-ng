@@ -40,7 +40,7 @@ function isReusedWindowsPid(pid: number, lockStartedAt: string): boolean {
 
 /** 讀 dir/pid.json 判定鎖主人是否存活。缺失/損壞/pid 非正整數一律回 'unknown'（fallback 舊 mtime 邏輯），
  *  讀取過程任何例外皆視為「損壞」（驗活是盡力而為，不 rethrow）。 */
-function checkLockOwner(dir: string): 'alive' | 'dead' | 'unknown' {
+export function checkLockOwner(dir: string): 'alive' | 'dead' | 'unknown' {
   try {
     const parsed = JSON.parse(readFileSync(join(dir, 'pid.json'), 'utf8')) as Partial<PidInfo>
     const pid = parsed.pid
