@@ -91,13 +91,34 @@ describe('ConfigSchema secret validation', () => {
     expect(cfg.judgeApiKey).toBe('{file:/path/to/secret}')
   })
 
-  it('telegramBotToken 拒絕類 credential 純字串（bot 數字:字元 格式）', () => {
-    expect(() => ConfigSchema.parse({ ...baseConfig, telegramBotToken: 'bot123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi' })).toThrow()
+  it('telegramBotToken 拒絕通知端實際使用的純 token，且錯誤不回顯 token', () => {
+    const token = '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi'
+    const result = ConfigSchema.safeParse({ ...baseConfig, telegramBotToken: token })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const errorText = result.error.issues.map(issue => issue.message).join('\n')
+      expect(errorText).toContain('telegramBotToken')
+      expect(errorText).not.toContain(token)
+    }
   })
 
-  it('telegramBotToken 接受 {env:VAR} 參考格式', () => {
-    const cfg = ConfigSchema.parse({ ...baseConfig, telegramBotToken: '{env:TELEGRAM_BOT_TOKEN}' })
-    expect(cfg.telegramBotToken).toBe('{env:TELEGRAM_BOT_TOKEN}')
+  it('telegramBotToken 不接受短的明文 placeholder，必須使用秘密參考格式', () => {
+    expect(() => ConfigSchema.parse({ ...baseConfig, telegramBotToken: '123:ABC' })).toThrow('telegramBotToken')
+  })
+
+  it.each([
+    '{env:TELEGRAM_BOT_TOKEN}',
+    '${env:TELEGRAM_BOT_TOKEN}',
+    '${TELEGRAM_BOT_TOKEN}',
+    '{file:/path/to/telegram-token}',
+  ])('telegramBotToken 接受秘密參考格式 %s', reference => {
+    const cfg = ConfigSchema.parse({ ...baseConfig, telegramBotToken: reference })
+    expect(cfg.telegramBotToken).toBe(reference)
+  })
+
+  it('telegramBotToken 省略時仍代表停用', () => {
+    const cfg = ConfigSchema.parse(baseConfig)
+    expect(cfg.telegramBotToken).toBeUndefined()
   })
 
   it('judgeApiKey 預設值不應為類 credential 字串', () => {

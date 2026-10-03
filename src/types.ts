@@ -218,7 +218,7 @@ export const ConfigSchema = z.object({
     if (c.judgeApiKey && !secretRefPattern.test(c.judgeApiKey) && /^sk-[a-zA-Z0-9-]{20,}$/.test(c.judgeApiKey)) {
       ctx.addIssue({ code: 'custom', path: ['judgeApiKey'], message: 'judgeApiKey 必須使用秘密參考格式（{env:VAR}、${env:VAR}、${VAR} 或 {file:PATH}），不可直接寫入憑證值' })
     }
-    if (c.telegramBotToken && !secretRefPattern.test(c.telegramBotToken) && /^bot\d+:[a-zA-Z0-9_-]{35}$/.test(c.telegramBotToken)) {
+    if (c.telegramBotToken && !secretRefPattern.test(c.telegramBotToken)) {
       ctx.addIssue({ code: 'custom', path: ['telegramBotToken'], message: 'telegramBotToken 必須使用秘密參考格式（{env:VAR}、${env:VAR}、${VAR} 或 {file:PATH}），不可直接寫入憑證值' })
     }
   })
