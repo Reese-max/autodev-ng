@@ -20,6 +20,7 @@
 | `src/*.ts` | kernel：backlog、排程、daemon、SQLite 成本帳、事件、鎖與 worktree；頂層總量 ≤2250 行 |
 | `src/cli/` | CLI 分派、設定解析、相依組裝與各子指令；`src/cli.ts` 保留入口與相容匯出 |
 | `src/engines/` | 引擎 adapter／路由、驗證、ownership、團隊協調、merge queue、證據鏈與通知 |
+| `src/conductor/` | Conductor/Worker 協議：Task Envelope、任務分解、驗證閘、retry/escalate、`.autodev` checkpoint 與 task ledger（見 `docs/conductor-worker-protocol.md`） |
 | `src/autopilot/` | GOAL 解析、規劃、執行、評估、問題帳本與持續迴圈 |
 | `src/learn/` | 教訓儲存、失敗反思與派工提示注入 |
 | `src/bot/`、`web/` | Discord 與本機 Web 控制台；共用查詢／控制 handler |
