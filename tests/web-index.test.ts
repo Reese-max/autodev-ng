@@ -94,7 +94,7 @@ test('Goal、任務與 Silence 欄位都有持續顯示且關聯的標籤', () =
   for (const id of ['goalInput', 'taskInput', 'silenceInput']) {
     const label = html.match(new RegExp(`<label\\b(?=[^>]*\\bfor=["']${id}["'])[^>]*>([\\s\\S]*?)<\\/label>`))
     const input = html.match(new RegExp(`<input\\b(?=[^>]*\\bid=["']${id}["'])[^>]*>`))
-    expect(label?.[1].trim()).not.toBe('')
+    expect(label?.[1]?.trim()).not.toBe('')
     expect(input).not.toBeNull()
   }
 })
