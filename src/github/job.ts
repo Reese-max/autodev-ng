@@ -5,6 +5,7 @@ import { BacklogStore } from '../backlog.js'
 import { assembleConfig, expandConfigPaths } from '../cli/assemble.js'
 import { finalizeRunOnceHeartbeat, runOnce } from '../scheduler.js'
 import { ConfigSchema } from '../types.js'
+import type { ExtraBillingScope } from '../globalcost.js'
 import { command } from './client.js'
 import { githubStopFile, type GithubConfig } from './config.js'
 import { branchFor, issueDir, runDir, saveState, type IssueState } from './state.js'
@@ -104,7 +105,12 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     writeFileSync(runtime.backlogFile, '')
     new BacklogStore(runtime.backlogFile).append(issueTask(state), { goalId: `github-${state.issue.number}`, round: 1 })
   }
-  const app = assemble(runtime)
+  const app = assemble(runtime, resolve(cfg.sourceConfig)) // #40：全域查帳 scope＝sourceConfig 同層的艦隊 configs
+  const billingScopeResolver = (cfg as GithubConfig & { billingScopeResolver?: () => ExtraBillingScope[] }).billingScopeResolver
+  if (billingScopeResolver) app.deps.billingScopes = billingScopeResolver
+  else app.deps.billingScopeDirs = cfg.billingScope && cfg.billingScope !== cfg.dataDir
+    ? [cfg.dataDir, cfg.billingScope]
+    : [cfg.dataDir] // 同時計入執行資料與額外 scope；globalCostReport 依 SQLite inode 去重
   if (worker) app.deps.engines = { resolve: () => worker }
   if (cfg.repair) {
     const verifier = new KernelVerifier({ cfg: runtime, reviewRun: args => reviewRepair({ ...reviewLlmFromConfig(runtime), onModel: args.onModel, dataDir: runtime.dataDir,
@@ -141,6 +147,8 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     const tasks = app.deps.store.read()
     if (tasks.length !== 1 || tasks[0]!.text !== issueTask(state)) throw new Error('Issue backlog contract changed')
     if (tasks[0]!.status === 'done') throw new Error('Interrupted completed cycle; manual evidence recovery required')
+    let workerStarted = false
+    app.deps.onWorkerStart = () => { workerStarted = true }
     const result = await runOnce(app.deps)
     finalizeRunOnceHeartbeat(app.deps, result)
     try { await app.deps.lessons?.reflect(result) } catch { /* Ancillary learning cannot invalidate completed work. */ }
@@ -151,7 +159,7 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     const detail = typeof result === 'string' && (result === 'failed' || result === 'engine-error')
       ? app.deps.db.lastAttemptFailureFor(tasks[0]!.id) ?? result
       : typeof result === 'string' ? result : result.reason
-    return { done, detail, ...(resumingReview ? { attempted: false } : {}),
+    return { done, detail, ...(resumingReview || result === 'cost-hard-stop' || result === 'stopped' ? { attempted: result === 'stopped' && workerStarted } : {}),
       ...(result === 'deferred' && issueReviewPending(cfg, state) ? { reviewPending: true, retryAt: Date.now() + reviewRetryDelay(runtime) } : {}),
       ...(typeof result === 'object' && result.reason === 'team-state-quarantined' ? { recoveryRequired: true } : {}), ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
   } finally { app.deps.db.close(); app.deps.team?.close() }
