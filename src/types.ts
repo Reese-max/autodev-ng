@@ -106,6 +106,10 @@ export const EngineConfigSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
   model: z.string().optional(),
   provider: z.enum(['Codex', 'Pi']).optional(), // herdr adapter；未設維持 Codex
+  /** Issue #34：herdr 專用。true＝要求 verified-free，unknown 費用路徑直接擋下（unknown ≠ confirmed-zero）。 */
+  requireVerifiedFree: z.boolean().optional(),
+  /** Issue #34：herdr 專用。事前允許的備援名單；未設＝不備援，絕不自動切新付費模型。 */
+  allowedFallbacks: z.array(z.string().min(1)).max(8).optional(),
   effort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional(), // codex CLI 接受 max；judgeEffort 走本機 proxy 且不接受 max，勿共用枚舉
   timeoutMs: z.number().int().nonnegative().optional(), pingTimeoutMs: z.number().int().positive().optional(), idleTimeoutMs: z.number().int().nonnegative().optional(), // 未設＝adapter 預設；timeoutMs/idleTimeoutMs 另允許 0 停用
   /** 單引擎每日 attempts 上限（可選）；未設＝不限。正整數，與 today-attempts 聚合對齊。 */
@@ -113,6 +117,7 @@ export const EngineConfigSchema = z.object({
 }).refine(ec => !((ec.timeoutMs === 0 || (ec.timeoutMs ?? 0) > 7_200_000) && !ec.idleTimeoutMs), { path: ['timeoutMs'], message: 'timeoutMs 為 0 或超過 7200000 時必須設定大於 0 的 idleTimeoutMs' })
   .refine(ec => ec.executionMode !== 'supervised' || (ec.adapter === 'mock' && ec.timeoutMs === 0), { message: 'supervised requires verified native unlimited/cancel/real-flow acceptance; only mock is accepted for offline tests' })
   .refine(ec => ec.adapter !== 'agy' || ec.timeoutMs !== 0, { message: 'agy zero timeout is unsupported: native --print-timeout has no verified unlimited sentinel' })
+  .refine(ec => (ec.requireVerifiedFree === undefined && ec.allowedFallbacks === undefined) || ec.adapter === 'herdr', { message: 'requireVerifiedFree/allowedFallbacks 只支援 herdr adapter' })
   .refine(ec => ec.adapter !== 'freebuff' || (ec.timeoutMs !== 0 && !ec.model && !ec.effort && !ec.env && !ec.provider && !ec.idleTimeoutMs), { message: 'Freebuff requires a wall timeout and MCP automatic model routing; model/effort/env/provider/idleTimeoutMs overrides are unsupported' })
 export type EngineConfig = z.infer<typeof EngineConfigSchema>
 // M10.6：timezoneOffsetHours 的 Zod 預設單一真相源——globalcost 讀 raw JSON 拿不到 Zod default，

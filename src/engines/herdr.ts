@@ -6,6 +6,11 @@ import type { PreflightCache } from '../preflight.js'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { commitCodexWorktree } from './codex.js'
 import { defaultCommitHash } from './commit-hash.js'
+import {
+  assertHerdrCostPolicy,
+  classifyHerdrFailure,
+  launcherFingerprint,
+} from './herdr-readiness.js'
 import { runProcess } from './proc.js'
 import { cancelledRun } from './run-control.js'
 
@@ -19,6 +24,12 @@ interface HerdrOpts {
   pingTimeoutMs?: number
   sessionName?: string
   provider?: 'Codex' | 'Pi'
+  /** 使用者指定的主力路徑模型（requested）；reported 只信執行回報，絕不推斷。 */
+  model?: string
+  /** 要求 verified-free 的設定不得放行 unknown 路徑（unknown ≠ confirmed-zero）。 */
+  requireVerifiedFree?: boolean
+  /** 備援必須事先列入允許清單；未設＝不備援，絕不自動切新付費模型。 */
+  allowedFallbacks?: string[]
   runProcess?: typeof runProcess
   getCommitHash?: typeof defaultCommitHash
   commitChanges?: typeof commitCodexWorktree
@@ -34,6 +45,10 @@ export class HerdrEngine implements Engine {
   private readonly pingTimeoutMs: number
   private readonly sessionName: string
   private readonly provider: 'Codex' | 'Pi'
+  private readonly requestedModel?: string
+  private readonly requireVerifiedFree: boolean
+  /** 事前備援白名單；未設＝單一路徑既有行為。一旦列出，連主力 provider 都必須在內，否則 fail-closed。 */
+  private readonly allowedFallbacks?: string[]
   private readonly runner: typeof runProcess
   private readonly getCommitHash: typeof defaultCommitHash
   private readonly commitChanges: typeof commitCodexWorktree
@@ -47,6 +62,9 @@ export class HerdrEngine implements Engine {
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 15_000
     this.sessionName = opts.sessionName ?? 'herdr-autopilot'
     this.provider = opts.provider ?? 'Codex'
+    this.requestedModel = opts.model?.trim() || undefined
+    this.requireVerifiedFree = opts.requireVerifiedFree ?? false
+    this.allowedFallbacks = opts.allowedFallbacks
     this.runner = opts.runProcess ?? runProcess
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
     this.commitChanges = opts.commitChanges ?? commitCodexWorktree
@@ -54,9 +72,9 @@ export class HerdrEngine implements Engine {
 
   async preflight(): Promise<PreflightResult> {
     const key = this.cacheKey()
-    const admission = unknownAdmission('herdr', undefined)
+    const admission = unknownAdmission('herdr', this.requestedModel)
     const cached = this.cache.get(key)
-    if (cached) return { ...cached, admission }
+    if (cached) return this.gateVerifiedFree({ ...cached, admission })
     let result: PreflightResult
     if (!existsSync(this.command)) {
       result = { ok: false, detail: `找不到 Herdr launcher：${this.command}` }
@@ -75,7 +93,23 @@ export class HerdrEngine implements Engine {
       }
     }
     this.cache.set(key, result)
-    return { ...result, admission, detail: result.detail + "; quota=unknown; model=unknown (launcher health only)" }
+    return this.gateVerifiedFree({ ...result, admission })
+  }
+
+  /**
+   * backend readiness 標記：server ok 只證明 launcher／server 健康，登入／模型／額度
+   * 無可靠原生唯讀接口一律 unknown，絕不冒充全路徑已驗證。verified-free 設定擋 unknown。
+   */
+  private gateVerifiedFree(result: PreflightResult): PreflightResult {
+    const suffix = result.ok
+      ? '; server=ok login=unknown model=unknown quota=unknown backend=unverified (server ok only; auth/model/quota unknown — not full-path verified); quota=unknown; model=unknown (launcher health only)'
+      : '; backend=unverified (launcher health only; re-probe); quota=unknown; model=unknown (launcher health only)'
+    const marked: PreflightResult = { ...result, detail: result.detail + suffix }
+    if (marked.ok && this.requireVerifiedFree) {
+      return { ...marked, ok: false,
+        detail: marked.detail + '; herdr cost-unknown: verified-free required; unknown cost path blocked (unknown ≠ confirmed-zero)' }
+    }
+    return marked
   }
 
   invalidatePreflight(): void {
@@ -86,6 +120,13 @@ export class HerdrEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     if (!existsSync(join(job.projectPath, '.adng-worktree')) || before === undefined) {
       return failure('unsafe-worktree：Herdr 只接受 AutoDev 建立的有效 Git worktree')
+    }
+    try {
+      // 本輪只走銷定的主力 provider；列出白名單後連主力都必須在內，否則 fail-closed（防偷切付費）。
+      assertHerdrCostPolicy({ costUnknown: true, requireVerifiedFree: this.requireVerifiedFree,
+        ...(this.allowedFallbacks ? { fallback: this.provider, allowlist: this.allowedFallbacks } : {}) })
+    } catch (err) {
+      return failure(`herdr-policy：${String(err instanceof Error ? err.message : err).slice(0, 200)}`)
     }
     const goal = [
       job.directive ?? job.task.text,
@@ -108,9 +149,26 @@ export class HerdrEngine implements Engine {
     })
     const output = tail(`${r.stdout}\n${r.stderr}`.trim())
     if (r.aborted || job.control?.signal?.aborted) return cancelledRun(output)
-    if (r.timedOut) return { ...failure('timeout', output), recoveryRequired: true }
-    if (r.exitCode !== 0) return { ...failure(`herdr-blocked：exit ${r.exitCode} ${cliDiagnostic(r, undefined, [this.sessionName, this.provider]).slice(0, 700)}`, output), recoveryRequired: true }
-    if (!r.stdout.includes('AUTOPILOT_WAIT_OK')) return { ...failure('silent-fail：缺少 AUTOPILOT_WAIT_OK', output), recoveryRequired: true }
+    // Issue #34：登入／額度／網路／模型各走各的處置；相關執行失敗即失效 preflight 快取。
+    // 登入失效等人工（不自動提交同意／登出／重寫憑證）；暫時網路故障才有限重試；
+    // 額度耗盡走有界冷卻；模型不支援是設定問題；任何分支都不自動切付費。
+    if (r.timedOut) {
+      this.invalidatePreflight()
+      return { ...failure('herdr-transient-network：timeout（有限重試≤2；不自動切付費）', output), recoveryRequired: true }
+    }
+    if (r.exitCode !== 0) {
+      const classified = classifyHerdrFailure({ exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr })
+      this.invalidatePreflight()
+      return { ...failure(`herdr-${classified.failureClass}：herdr-blocked：exit ${r.exitCode}（${classified.advice.reason}） ${cliDiagnostic(r, undefined, [this.sessionName, this.provider]).slice(0, 700)}`, output), recoveryRequired: true }
+    }
+    if (!r.stdout.includes('AUTOPILOT_WAIT_OK')) {
+      const classified = classifyHerdrFailure({ exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr })
+      this.invalidatePreflight()
+      const reason = classified.failureClass === 'unknown'
+        ? 'silent-fail：缺少 AUTOPILOT_WAIT_OK'
+        : `herdr-${classified.failureClass}：silent-fail：缺少 AUTOPILOT_WAIT_OK（${classified.advice.reason}）`
+      return { ...failure(reason, output), recoveryRequired: true }
+    }
 
     const agentHead = this.getCommitHash(job.projectPath)
     if (agentHead !== before) return failure('unexpected-commit：Herdr 越過 AutoDev 宿主提交邊界', output)
@@ -124,7 +182,11 @@ export class HerdrEngine implements Engine {
     return { ok: true, output, costUsd: 0, costUnknown: true, baseCommitHash: before, commitHash: after }
   }
 
-  private cacheKey(): string { return cliPreflightKey(this.command, [this.sessionName, this.provider]) }
+  private cacheKey(): string {
+    // 綁定精確 runtime／launcher／設定：版本、provider、requested model、auth 模式任一改變即換鍵。
+    return cliPreflightKey(this.command,
+      [this.sessionName, this.provider, this.requestedModel ?? '', launcherFingerprint(this.command)])
+  }
 }
 
 function safeId(value: string): string {
