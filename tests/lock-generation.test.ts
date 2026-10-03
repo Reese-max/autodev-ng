@@ -4,7 +4,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { acquireLock, releaseDeadLock, releaseLock } from '../src/lock.js'
+import { acquireLock, recoverRetainedLock, releaseDeadLock, releaseLock } from '../src/lock.js'
 import { acquireLockLease } from '../src/lock/coordinator.js'
 import { removeIfUnclaimed, writeOwnPidFileOrCleanup } from '../src/lock/internal.js'
 
@@ -221,6 +221,39 @@ test('recovery-required state is never taken over or automatically removed', () 
   expect(releaseDeadLock(dir, 0)).toBe(false)
   expect(existsSync(join(dir, 'pid.json'))).toBe(true)
   expect(existsSync(join(dir, 'recovery-required.json'))).toBe(true)
+})
+
+test('explicit retained-lock recovery requires its generation token and clears the row with the quarantine', () => {
+  const { dir } = freshDir()
+  const token = acquireLock(dir)!
+  writeFileSync(join(dir, 'recovery-required.json'), '{}')
+
+  expect(recoverRetainedLock(dir, 'wrong-token', { backendSafeConfirmed: true })).toBe(false)
+  expect(recoverRetainedLock(dir, token, { backendSafeConfirmed: false })).toBe(false)
+  expect(existsSync(dir)).toBe(true)
+  expect(acquireLock(dir)).toBeNull()
+
+  expect(recoverRetainedLock(dir, token, { backendSafeConfirmed: true })).toBe(true)
+  expect(existsSync(dir)).toBe(false)
+  const nextToken = acquireLock(dir)
+  expect(nextToken).toBeTruthy()
+  expect(recoverRetainedLock(dir, token, { backendSafeConfirmed: true })).toBe(false)
+  expect(acquireLock(dir)).toBeNull()
+  releaseLock(dir, nextToken)
+})
+
+test('explicit retained-lock recovery clears only its matching row after an operator already removed the quarantine', () => {
+  const { dir } = freshDir()
+  const token = acquireLock(dir)!
+  writeFileSync(join(dir, 'recovery-required.json'), '{}')
+  rmSync(dir, { recursive: true, force: true })
+
+  expect(recoverRetainedLock(dir, 'wrong-token', { backendSafeConfirmed: true })).toBe(false)
+  expect(acquireLock(dir)).toBeNull()
+  expect(recoverRetainedLock(dir, token, { backendSafeConfirmed: true })).toBe(true)
+  const nextToken = acquireLock(dir)
+  expect(nextToken).toBeTruthy()
+  releaseLock(dir, nextToken)
 })
 
 test('releaseDeadLock removes a dead legacy lock but leaves a live lock alone', () => {

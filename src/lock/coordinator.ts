@@ -236,6 +236,63 @@ export function releaseLockLease(dir: string, token?: string | null): void {
   }
 }
 
+/**
+ * Explicitly recover a retained lease after an operator confirms the Freebuff
+ * backend is safe. The token fences cleanup to that exact generation. If the
+ * quarantine directory still exists, it must carry the recovery marker and the
+ * same on-disk token; if an operator already removed it, only the matching
+ * persistent row is cleared.
+ */
+export function recoverRetainedLockLease(
+  dir: string,
+  token: string,
+  options: { backendSafeConfirmed: boolean },
+): boolean {
+  if (!token || options?.backendSafeConfirmed !== true) return false
+  let coordinator: Coordinator
+  try {
+    coordinator = coordinatorFor(dir, RELEASE_BUSY_TIMEOUT_MS)
+  } catch (error) {
+    if (errno(error) === 'ENOENT') return false
+    throw error
+  }
+  const { db, lockDir, lockKey } = coordinator
+  let transactionStarted = false
+  try {
+    try {
+      begin(db)
+      transactionStarted = true
+    } catch (error) {
+      if (busy(error)) return false
+      throw error
+    }
+
+    const lease = leaseFor(db, lockKey)
+    if (!lease || lease.token !== token) return false
+
+    const stat = lockDirStats(lockDir)
+    if (stat) {
+      if (!recoveryRequired(lockDir)) return false
+      const diskOwner = readPidFile(lockDir)
+      if (!diskOwner || diskOwner.pid !== lease.pid || generationOf(diskOwner) !== token) return false
+      lockDirStats(lockDir)
+      rmSync(lockDir, { recursive: true, force: true })
+    }
+
+    const deleted = db.prepare('DELETE FROM lock_leases WHERE lock_key = ? AND token = ?').run(lockKey, token)
+    db.exec('COMMIT')
+    transactionStarted = false
+    return deleted.changes === 1
+  } catch (error) {
+    if (transactionStarted) {
+      try { rollback(db) } catch { /* retain the original error */ }
+    }
+    throw error
+  } finally {
+    closeQuietly(db)
+  }
+}
+
 /** Supervisor-only cleanup. The caller never becomes owner; an uncertain backend stays put. */
 export function releaseDeadLockLease(dir: string, staleMs: number): boolean {
   let coordinator: Coordinator
