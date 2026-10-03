@@ -27,14 +27,17 @@ const NO_ARG_COMMANDS: Record<string, string> = {
   pause: '暫停 daemon（寫入 stop 檔）',
   resume: '恢復 daemon（清除 stop 檔）',
   lessons: '查看教訓庫（專案＋全域）',
-  problems: '列出自主工程師台帳待處理問題 top10（依 value 排序）'
+  problems: '列出自主工程師台帳待處理問題 top10（依 value 排序）',
+  controls: '查看控制信封（待處理／已送達／已結案）'
 }
 
 const ARG_COMMANDS: Record<string, string> = {
   silence: '設定或解除靜音窗（分鐘數，0 解除）',
   task: '新增一筆任務到 backlog',
   ask: '問 LLM 一個問題',
-  goal: 'GOAL autopilot：set <目標文字>／run／status／stop'
+  goal: 'GOAL autopilot：set <目標文字>／run／status／stop',
+  steer: '對指定執行送 in-flight 指示：<executionId> <指示>',
+  enqueue: '對指定執行排入下一回合指示：<executionId> <指示>'
 }
 
 /** Slash command 定義。
