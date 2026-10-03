@@ -148,9 +148,16 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
       if (hit) return hit
       const ec = cfg.engines[tag]
       if (!ec) throw new Error(`engine tag 不在 engines 白名單: ${tag}`)
-      const engine = build(tag, ec)
-      cache.set(tag, engine)
-      return engine
+      // 組裝失敗需點名 engine tag / adapter / model（不含 env/secret 材料），
+      // 讓「active config 與 admission policy 不符」在啟動前就是可定位的設定錯誤。
+      try {
+        const engine = build(tag, ec)
+        cache.set(tag, engine)
+        return engine
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err)
+        throw new Error(`engine "${tag}" (adapter=${ec.adapter}, model=${ec.model ?? 'default'}): ${detail}`)
+      }
     }
   }
 }
