@@ -12,7 +12,7 @@ export const GithubConfigSchema = z.object({
   sourceConfig: z.string().min(1),
   dataDir: z.string().min(1),
   engine: z.string().min(1),
-  verifyCommand: z.string().trim().min(1).optional(),
+  verifyCommand: z.union([z.string().trim().min(1), z.array(z.string().trim().min(1)).min(1)]).optional(),
   regressionPrepareCommand: z.string().trim().min(1).optional(),
   regression: z.object({
     file: z.string().regex(/^tests\/regressions\/[A-Za-z0-9_.{}-]+$/).refine(v => v.includes('{issue}') && v.includes('{revision}') && !/[{}]/.test(v.replaceAll('{issue}', '1').replaceAll('{revision}', '0'))),

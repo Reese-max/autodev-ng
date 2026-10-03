@@ -13,6 +13,7 @@ import { DevinEngine } from './devin.js'
 import { HerdrEngine } from './herdr.js'
 import { FreebuffEngine } from './freebuff.js'
 import { assertExecutionMode } from './capabilities.js'
+import { verifyCommandText } from '../verify.js'
 import type { Config, Engine, EngineConfig, EngineResolver } from '../types.js'
 
 /** M5 Task 1：`{env:VAR}` 展開（assemble 層）——config 只寫變數引用，真值從進程環境取，
@@ -116,7 +117,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new HerdrEngine({
           id: tag === 'herdr' ? 'herdr' : `herdr:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
-          command: ec.command, verifyCommand: cfg.verifyCommand,
+          command: ec.command, verifyCommand: verifyCommandText(cfg.verifyCommand),
           provider: ec.provider,
           timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs,
         })
