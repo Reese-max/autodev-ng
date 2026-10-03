@@ -9,16 +9,24 @@ Audited default-branch SHA: `99eba2458a82a4fb8e70c25c5a454014b568c659`
 
 ## Result
 
-**NOT CLEAN — consecutive no-new-P0/P1/P2 streak: 2/2 (streak condition now met).**
+**NOT CLEAN — current no-new-P0/P1/P2 streak: 0/2. The original 2/2 claim is invalidated by the correction below.**
 
-The audited default-branch SHA is **unchanged since Round 4** (`99eba245…` remains `main` HEAD), so this round is a re-application of the same fixed A01–J05 persona set to the same tree, with fresh local execution and tracker evidence rather than a new-code audit. **No new P0/P1/P2 finding was confirmed this round**, advancing the consecutive streak from 1/2 to 2/2.
+The audited default-branch SHA was **unchanged since Round 4** (`99eba245…` remained `main` HEAD). Round 5's local execution and tracker evidence below still document that run, but an independent review on 2026-10-03 found missed P2 findings on that same SHA. The original “no new finding” conclusion was incorrect and does not advance the streak.
 
 CLEAN remains blocked on the other protocol conditions: open tracked P1/P2 issues are still unresolved or unjustified (see "CLEAN accounting"), and the required runtime-evidence set is still incomplete.
 
-## New findings
+## Correction (2026-10-03): independent review
 
-None. The re-run produced no new reproducible P0/P1/P2 defect on the audited SHA. Below-bar observations are recorded under "Observations" and are not counted as findings.
+The original Round-5 entry below said there were no new findings and claimed a 2/2 streak. That conclusion is invalidated by an independent review of the exact audited default-branch SHA `99eba2458a82a4fb8e70c25c5a454014b568c659`:
 
+- **Repeated P2 — first-success path friction (A01, A02, B01, E03, H05).** On the audited default branch, the provider-free mock quickstart still appears after the installation and full-configuration steps in README. The mock path exists, but its placement makes first use harder than the audit claimed.
+- **P2 — missing persistent labels (G02, E03, F04).** The Web cockpit's `goalInput`, `taskInput`, and `silenceInput` fields relied on placeholders and had no associated `<label>` or `aria-labelledby`. W3C WAI guidance says placeholders do not replace labels: [Forms Instructions](https://www.w3.org/WAI/tutorials/forms/instructions/).
+
+These findings were present on the audited SHA, so the no-new-finding premise failed and the streak resets to **0/2**. This independent pass found no new P0/P1. PR #117's candidate now moves the mock quickstart earlier and adds visible associated labels plus a regression test; exact-head CI and a fresh audit of the merged default branch are still needed before counting a clean round.
+
+## Original Round-5 finding entry (superseded)
+
+The original review recorded no reproducible P0/P1/P2 findings. That statement and the 2/2 streak claim are superseded by the correction above; the execution records below are retained as evidence of the commands run.
 ## Post-fix rerun of existing findings
 
 ### #3 — committed judge credential material (P0, closed)
