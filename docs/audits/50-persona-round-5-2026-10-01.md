@@ -27,6 +27,7 @@ These findings were present on the audited SHA, so the no-new-finding premise fa
 ## Original Round-5 finding entry (superseded)
 
 The original review recorded no reproducible P0/P1/P2 findings. That statement and the 2/2 streak claim are superseded by the correction above; the execution records below are retained as evidence of the commands run.
+
 ## Post-fix rerun of existing findings
 
 ### #3 — committed judge credential material (P0, closed)
