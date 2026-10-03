@@ -61,7 +61,8 @@ export async function runGoalWithDeps(
   }
   // 單例鎖：防止 /goal run 手滑雙跑同一 GOAL session（鏡像 bot/index.ts 的 bot.lock 慣例）。
   const lockDir = join(cfg.dataDir, 'autopilot.lock')
-  if (!acquireLock(lockDir)) {
+  const lockToken = acquireLock(lockDir)
+  if (!lockToken) {
     console.log('autopilot 已在執行中（lock busy），本次啟動略過，避免雙跑')
     return 'lock-busy'
   }
@@ -174,6 +175,6 @@ export async function runGoalWithDeps(
     if (alert) await notifier.send(alert) // 一次性停機告警；send 永不 throw（fail-open）
     return { goalId, outcome, supplement }
   } finally {
-    releaseLock(lockDir)
+    releaseLock(lockDir, lockToken)
   }
 }
