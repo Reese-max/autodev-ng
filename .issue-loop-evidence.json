@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "issue": 80,
+  "base_sha": "99eba2458a82a4fb8e70c25c5a454014b568c659",
+  "red_proof": "node --test tests/regressions/github-80.test.cjs\nExit code: 1\n✖ GitHub watcher supervisor is available\nAssertionError [ERR_ASSERTION]: GitHub watcher supervisor must exist\nℹ tests 12\nℹ pass 0\nℹ fail 12\nℹ skipped 0",
+  "test_command": "node --test tests/regressions/github-80.test.cjs",
+  "test_exit": 0,
+  "tests_passed": 13,
+  "tests_failed": 0,
+  "summary": "Added a native Windows PowerShell supervisor that reuses the existing GitHub watcher and its mutex, permits one supervisor per config/mode, and uses a gated Windows Job Object to clean up owned descendants before a bounded restart. Disabled settings, stop files, clean exits, ownership changes, and early parent termination stop safely; the bounded state contains only the six required metadata fields. The new regression checks pass 13/13 through Git Bash, and build/typecheck plus npm test (2018/2018), coverage (2018/2018), CRAP (max 13), and mutation (100%) all exit 0.",
+  "not_done": "No push, PR creation, merge, Issue closure, deployment, scheduled-task installation, production watcher activation, credential/provider/model changes, quarantine clearing, or PR #18 takeover. The driver owns push/PR creation and the candidate-SHA rerun; remote CI and production activation remain unverified. Existing Issue states, execution receipts, and domain ownership/publication boundaries were not changed."
+}
