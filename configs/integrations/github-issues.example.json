@@ -8,6 +8,7 @@
   "sourceConfig": "../autodev-self.json",
   "dataDir": "../../data/github-issues-autodev-ng",
   "engine": "codex-sol",
+  "herdrOptIn": false,
   "enabled": false,
   "publish": false,
   "maxRuns": 3,

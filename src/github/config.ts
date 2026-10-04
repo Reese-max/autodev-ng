@@ -22,6 +22,7 @@ export const GithubConfigSchema = z.object({
   acceptance: z.object({ command: z.string().min(1), args: z.array(z.string()) }).strict().optional(),
   quality: QualityConfigSchema.optional(),
   followup: z.boolean().default(false),
+  herdrOptIn: z.boolean().default(false),
   template: z.boolean().optional(),
   stopFile: z.string().optional(),
   enabled: z.boolean().default(false),
@@ -51,11 +52,18 @@ export const IssueSchema = z.object({
   pull_request: z.unknown().optional(),
 })
 export type Issue = z.infer<typeof IssueSchema>
+const explicitNoAutoImplementation = /(?:^|\n)\s*auto_implementation\s*:\s*false\b/im
+const researchOnly = /\[research(?:_required)?\]|(?:^|\n)\s*kind\s*:\s*research\b|research_runtime_required/i
+export function autoImplementationAllowed(issue: Issue): boolean {
+  const text = `${issue.title}\n${issue.body ?? ''}`
+  return !explicitNoAutoImplementation.test(text) && !researchOnly.test(text)
+}
 export function eligible(issue: Issue, cfg: GithubConfig, approvedReport = false): boolean {
   const reported = issue.body?.includes('<!-- adng:report:') || issue.labels.some(label => label.name.toLowerCase() === 'autodev-reported')
   return !issue.pull_request && issue.state === 'open'
     && (reported ? approvedReport : !cfg.repair)
     && cfg.authors.some(author => author.toLowerCase() === issue.user.login.toLowerCase())
+    && autoImplementationAllowed(issue)
     && !issue.labels.some(label => label.name.toLowerCase() === 'no-autofix')
     && (cfg.label === null || issue.labels.some(label => label.name === cfg.label))
 }
