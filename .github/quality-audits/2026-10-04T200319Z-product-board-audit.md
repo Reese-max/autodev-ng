@@ -34,7 +34,7 @@ Default-branch changes since the prior audit snapshot occurred in six active rep
 | `google-maps-personal-mcp` | `e97adace` → `2670d5b1` | PR #12 merged the collection sync fix and its candidate run #37211038169 reported 65 tests. Two review comments concern busy-result ordering/message precision; they do not re-establish the closed #2/#7 ownership roots and stay P3 evidence backlog. |
 | `polygraph-research-2026` | new → `eafea1e1` | Research/content artifact; inventoried and excluded from product runtime audit absent a supported product failure. |
 
-Fair-cursor review of `MaterialYouNewTab@7d32f2f4` found no default-branch change. Draft PR #4 and open PR #5 already represent active ownership, so this audit did not alter their scope. The next fair cursor is `minideck`.
+Fair-cursor correction (2026-10-04T23:05Z): the latest persisted checkpoint actually targeted `avatar-vfo`, not `MaterialYouNewTab`. Follow-up inspection covered `avatar-vfo@8c578febb49afdf111af096c29ab9e4c59806631`, current README/root files, all-state Issues and PRs, branches, recent commits, Actions, and deployment records. Existing security/release roots remain owned by Issues #2/#3 and PRs #11/#12; PR #7 remains bounded to the existing continuity research Issue #5. No new untracked default-branch root cause was established, no deployment record was present, and the next fair cursor is `minideck`.
 
 The prior LobsterPulse report PR #143 remains open. Its source-confirmed final-replacement race is now explicitly recorded in LobsterPulse Issue #3 and PR #17 remains active; this round records `SKIPPED_LOCKED` for scope mutation and does not compete with that owner.
 
@@ -238,3 +238,11 @@ Every finding that crossed the opening gate has tracking. No Issue number, model
 This round is `PARTIAL / NOT_CLEAN`. Fixed A01–J05 has not completed two new clean rounds, #42/#43 lack required runtime evidence, and multiple existing portfolio gates remain. The full-portfolio CLEAN notification condition is not met.
 
 Fair-review cursor after this completed round: `minideck`.
+
+
+## Follow-up candidate status — 2026-10-04T23:05Z
+
+- Default branch remains `video-timeline-pipeline@5ae653179e780c80c1d79324caae52c5bac2b4e1`; neither finding is fixed on default.
+- #42 now has active PRs [#45](https://github.com/Reese-max/video-timeline-pipeline/pull/45), [#46](https://github.com/Reese-max/video-timeline-pipeline/pull/46), and stacked draft [#47](https://github.com/Reese-max/video-timeline-pipeline/pull/47). PR #47 narrows non-expiry error propagation, but no exact-head Actions, check runs, commit statuses, or independently executed tests exist. PR #46 also retains an unresolved review finding that expired snapshots can leave stale analysis/evidence UI state. These stay under #42/active PR ownership; no duplicate Issue or scope mutation was made.
+- #43 has active PR [#44](https://github.com/Reese-max/video-timeline-pipeline/pull/44) at `7a999d04c846a8aa3a835a781950ecc70a09c8af`. Source inspection shows it now preserves the queue worker's supervisor boundary while adding owned synchronous process-tree cleanup, but exact-head hosted CI/check/status evidence remains empty. Author-reported Linux tests are not independent execution; Windows kernel/runtime and default-branch verification remain pending.
+- Regression labels remain `STILL_REPRODUCIBLE` on default for #42/#43 and `NEEDS_RUNTIME_VERIFICATION` for all candidates. No product code, CI/config, deployment, or Issue/PR scope was changed in this follow-up.
