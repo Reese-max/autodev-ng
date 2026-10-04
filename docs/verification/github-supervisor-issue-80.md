@@ -1,5 +1,19 @@
 # GitHub watcher supervisor：Issue #80
 
+## Current-main verification refresh (2026-10-04 UTC)
+
+The candidate includes `main@f5892611c856502b8a0a754250689e5ac101c390`.
+The historical receipts below refer to the earlier candidate, not this refresh.
+`GitHub watcher quality` now runs the four commands required by issue #80 as
+separate named Windows steps: unit tests, coverage, CRAP, and mutation. The
+normal CI still runs the retained 13-case supervisor process matrix with inert
+local CLI fixtures. A complete exact-head hosted receipt is required; Linux
+skips of Windows process cases do not establish those runtime contracts.
+
+These workflows do not install scheduled tasks, start the production watcher,
+or invoke any provider. Actual host installation and canary adoption remain
+operator acceptance items.
+
 基準：`99eba2458a82a4fb8e70c25c5a454014b568c659`；分支：`issue-loop/issue-80`。
 驗證環境：Windows、Node.js `v26.7.0`、Windows PowerShell 5.1。
 

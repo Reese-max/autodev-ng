@@ -1,0 +1,58 @@
+name: GitHub watcher quality
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/github-supervisor-quality.yml
+      - scripts/supervise-github-owner.ps1
+      - scripts/watch-github-owner.ps1
+      - tests/regressions/github-80.test.cjs
+      - tests/supervise-github-owner.test.ts
+      - package.json
+      - package-lock.json
+      - stryker.config.mjs
+      - vitest.config.ts
+      - scripts/crap-report.mjs
+      - src/github/quality.ts
+      - tests/github-quality.test.ts
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/github-supervisor-quality.yml
+      - scripts/supervise-github-owner.ps1
+      - scripts/watch-github-owner.ps1
+      - tests/regressions/github-80.test.cjs
+      - tests/supervise-github-owner.test.ts
+      - package.json
+      - package-lock.json
+      - stryker.config.mjs
+      - vitest.config.ts
+      - scripts/crap-report.mjs
+      - src/github/quality.ts
+      - tests/github-quality.test.ts
+  workflow_dispatch:
+
+jobs:
+  quality:
+    # The supervisor regression uses Windows Job Objects and inert local CLI fixtures.
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Full unit tests including the supervisor process matrix
+        run: npm test
+      - name: Full coverage gate
+        run: npm run test:coverage
+      - name: CRAP quality gate
+        run: npm run quality:crap
+      - name: Mutation quality gate
+        run: npm run test:mutation
