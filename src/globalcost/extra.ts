@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'node:fs'
+import { lstatSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 // Issue 入口動態帳務 scope：dir 下的 issue-N/run.db、issue-N/revisions/R/run.db、
@@ -15,23 +15,32 @@ export function extraBillingScopes(cfg: { timezoneOffsetHours: number; engines: 
 /** 盤點 dir 下所有 issue/revision run.db——只認既知結構位置，不遞迴 checkout 內容。 */
 export function issueBillingDbs(dir: string): string[] {
   const out: string[] = []
+  const present = (file: string) => {
+    try { return lstatSync(file) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error }
+  }
   const issueDb = (issueDir: string) => {
     const direct = join(issueDir, 'run.db')
-    if (existsSync(direct)) out.push(direct)
+    if (present(direct)) out.push(direct) // Preserve broken-link evidence; realpath/open must reject it.
     const revs = join(issueDir, 'revisions')
-    if (existsSync(revs)) {
+    const revisionRoot = present(revs)
+    if (revisionRoot) {
+      if (revisionRoot.isSymbolicLink() || !revisionRoot.isDirectory()) throw new Error('Unsupported billing revisions layout')
       for (const r of readdirSync(revs, { withFileTypes: true })) {
+        if (r.isSymbolicLink()) throw new Error('Unsupported linked billing revision')
         if (!r.isDirectory()) continue
         const f = join(revs, r.name, 'run.db')
-        if (existsSync(f)) out.push(f)
+        if (present(f)) out.push(f)
       }
     }
   }
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if ((entry.name.startsWith('issue-') || entry.name.startsWith('repo-')) && entry.isSymbolicLink()) throw new Error('Unsupported linked billing directory')
     if (!entry.isDirectory()) continue
     if (entry.name.startsWith('issue-')) issueDb(join(dir, entry.name))
     else if (entry.name.startsWith('repo-')) {
       for (const sub of readdirSync(join(dir, entry.name), { withFileTypes: true })) {
+        if (sub.name.startsWith('issue-') && sub.isSymbolicLink()) throw new Error('Unsupported linked billing Issue')
         if (sub.isDirectory() && sub.name.startsWith('issue-')) issueDb(join(dir, entry.name, sub.name))
       }
     }

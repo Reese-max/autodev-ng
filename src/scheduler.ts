@@ -61,6 +61,8 @@ export interface Deps {
   lessons?: LessonsPort
   /** M10.5：config 檔絕對路徑（assemble 填入）——globalBilledToday 掃兄弟專案用。測試可不設。 */
   cfgPath?: string
+  /** Bind global accounting to the exact source bytes used to construct this runtime. */
+  billingSourceHash?: string
   /** #40：額外計帳目錄（GitHub Issue 入口的 cfg.dataDir）——其 issue-N/run.db 樹納入全域查帳，
    *  否則 Issue/revision 動態帳務游離在任何被掃描專案的 dataDir 之外。 */
   billingScopeDirs?: string[]
@@ -123,7 +125,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     try {
       const extra = typeof deps.billingScopes === 'function' ? deps.billingScopes()
         : deps.billingScopes ?? extraBillingScopes(cfg, deps.billingScopeDirs)
-      g = globalBilledToday(deps.cfgPath, new Date().toISOString(), extra)
+      g = globalBilledToday(deps.cfgPath, new Date().toISOString(), extra, deps.billingSourceHash)
     } catch {
       quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global' }))
       writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })

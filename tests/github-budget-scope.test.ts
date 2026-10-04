@@ -319,6 +319,47 @@ test('scope 不完整（兄弟專案 db 消失）→ 明確拒絕，不把未知
   expect(events).toContain('"type":"cost-accounting-incomplete"')
 })
 
+test('source config removed after assembly cannot hide its authoritative spend before dispatch', async () => {
+  const { cfg, state, sourceConfig, root } = fixture({ globalLimit: 10, siblingSpent: 0 })
+  const db = new Database(join(root, 'data-self', 'run.db'))
+  db.prepare('INSERT INTO attempts(task_id,ts,ok,cost_usd,detail,engine,accounting_json) VALUES(?,?,?,?,?,?,?)')
+    .run('older', new Date().toISOString(), 1, 50, '', 'writer', JSON.stringify({ version: 1, costSource: 'provider-reported' }))
+  db.close()
+  const engine = new MockEngine([{ ok: true }])
+  const result = await executeIssue(cfg, state, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    rmSync(sourceConfig)
+    app.deps.engines = { resolve: () => engine }
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+  expect(result.detail).toBe('cost-hard-stop')
+  expect(result.attempted).toBe(false)
+  expect(engine.calls).toHaveLength(0)
+  expect(readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')).toContain('"type":"cost-accounting-incomplete"')
+})
+
+test('rewriting source billing policy after assembly stops before dispatch', async () => {
+  const { cfg, state, sourceConfig, root } = fixture({ globalLimit: 10, siblingSpent: 0 })
+  const db = new Database(join(root, 'data-self', 'run.db'))
+  db.prepare('INSERT INTO attempts(task_id,ts,ok,cost_usd,detail,engine,accounting_json) VALUES(?,?,?,?,?,?,?)')
+    .run('older', new Date().toISOString(), 1, 50, '', 'writer', JSON.stringify({ version: 1, costSource: 'provider-reported' }))
+  db.close()
+  const engine = new MockEngine([{ ok: true }])
+  const result = await executeIssue(cfg, state, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    const replacement = JSON.parse(readFileSync(sourceConfig, 'utf8')); replacement.dataDir = '../data-sibling'
+    writeFileSync(sourceConfig, JSON.stringify(replacement))
+    app.deps.engines = { resolve: () => engine }
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+  expect(result.detail).toBe('cost-hard-stop')
+  expect(result.attempted).toBe(false)
+  expect(engine.calls).toHaveLength(0)
+  expect(readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')).toContain('"type":"cost-accounting-incomplete"')
+})
+
 test('Issue scope 內的未知費用來源 → 拒絕（不當零）', async () => {
   const { cfg, state } = fixture({ globalLimit: 10, siblingSpent: 0 })
   seedDb(join(cfg.dataDir, 'issue-9'), [{ ts: new Date().toISOString(), cost: 1, engine: 'writer', accounting: null }]) // 無 provenance
