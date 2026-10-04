@@ -6,7 +6,7 @@ import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import type { PreflightCache } from '../preflight.js'
 import { acquireLock, releaseLock } from '../lock.js'
 import { defaultCommitHash } from './commit-hash.js'
-import { releaseLockIfOwned } from './daemon-fence.js'
+
 import { killTree } from './proc.js'
 import { cancelledRun, observeRun, type RunControl } from './run-control.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
@@ -76,7 +76,8 @@ export class FreebuffEngine implements Engine {
     const staleMs = this.timeoutMs > 0 ? this.timeoutMs + 5 * 60_000 : Number.MAX_SAFE_INTEGER
     // ponytail: one per-user lease serializes all projects sharing a Freebuff session.
     mkdirSync(dirname(this.lockDir), { recursive: true })
-    if (!acquireLock(this.lockDir, staleMs)) {
+    const lockToken = acquireLock(this.lockDir, staleMs)
+    if (!lockToken) {
       return { ok: false, output: '', costUsd: 0, failureReason: 'freebuff-session-busy' }
     }
 
@@ -112,7 +113,7 @@ export class FreebuffEngine implements Engine {
       if (!after || after === before) return { ok: false, output, costUsd: 0, failureReason: 'no-commit(phantom completion?)' }
       return { ok: true, output, costUsd: 0, costUnknown: true, actualModel: /^\[Freebuff 路由：(Full|Limited) → ([^；]+)/.exec(text)?.[2]?.trim(), commitHash: after, baseCommitHash: before }
     } finally {
-      if (!retainLock) releaseLockIfOwned(this.lockDir, process.pid, releaseLock)
+      if (!retainLock) releaseLock(this.lockDir, lockToken)
     }
   }
 
