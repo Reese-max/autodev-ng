@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { BacklogStore } from '../backlog.js'
 import { isEnoent, withAssembled } from './assemble.js'
+import { readExecutions } from '../engines/execution-observation.js'
+import { ControlStore } from '../engines/steering.js'
 
 export interface HeartbeatSnapshot {
   ts: string
@@ -20,6 +22,9 @@ export interface StatusInput {
   backlogError?: string
   dlqCount: number
   lastDigestDay?: string
+  /** Issue #11：active 執行的 taskId/executionId 與待處理控制信封數；無資料時不佔行。 */
+  activeExecutions?: { taskId: string; executionId: string }[]
+  pendingControls?: number
 }
 
 function formatCostLimit(value: number): string {
@@ -41,6 +46,11 @@ export function formatStatus(input: StatusInput): string {
     backlogLine,
     `DLQ 積壓：${input.dlqCount} 筆`,
     `最後 digest 日期：${input.lastDigestDay ?? '尚未發送過'}`,
+    // Issue #11：列出 active taskId/executionId 讓 operator 知道 /steer、/enqueue 要指哪個目標。
+    ...(input.activeExecutions?.length
+      ? [`執行中：${input.activeExecutions.slice(0, 5).map(e => `${e.taskId}/${e.executionId.slice(0, 8)}`).join('、')}${input.activeExecutions.length > 5 ? ` 等 ${input.activeExecutions.length} 項` : ''}`]
+      : []),
+    ...(input.pendingControls ? [`控制信封：${input.pendingControls} 筆待處理（adng execution controls 查看）`] : []),
   ].join('\n')
 }
 
@@ -117,6 +127,13 @@ export async function cmdStatus(cfgPath: string): Promise<void> {
       return
     }
     const { counts, error: backlogError } = safeBacklogCounts(deps.store, deps.cfg.backlogFile)
+    // Issue #11：觀測面（executions/控制信封）故障不反殺 status 主輸出。
+    let activeExecutions: StatusInput['activeExecutions'], pendingControls = 0
+    try {
+      activeExecutions = readExecutions(deps.cfg.dataDir).records
+        .filter(r => r.phase !== 'terminal').map(r => ({ taskId: r.taskId, executionId: r.executionId }))
+      pendingControls = new ControlStore(deps.cfg.dataDir).list().pending.length
+    } catch { activeExecutions = undefined }
     console.log(formatStatus({
       heartbeat,
       dailySoftUsd: deps.cfg.dailySoftUsd,
@@ -125,6 +142,7 @@ export async function cmdStatus(cfgPath: string): Promise<void> {
       backlogError,
       dlqCount: countDlqLines(deps.cfg.dataDir),
       lastDigestDay: readLastDigestDay(deps.cfg.dataDir),
+      activeExecutions, pendingControls,
     }))
   })
 }

@@ -222,8 +222,18 @@ node web/server.mjs --config <path>
 | 加任務 | 直接編輯 backlog 檔 | `/task <文字>` | POST `/api/task` |
 | 靜音告警 | — | `/silence <分鐘>` | POST `/api/silence` |
 | 問 LLM | — | `/ask <問題>` | — |
+| 執行控制 | `adng execution steer\|enqueue\|controls` | `/steer <id> <指示>` `/enqueue <id> <指示>` `/controls` | — |
 | GOAL 自主迴圈 | `node dist/autopilot/run.js --config <path>`（前景） | `/goal set\|run\|status\|stop` | Goal 面板 + set/run/stop 按鈕 |
 | 告警自檢 | `notify-test` | — | — |
+
+### 執行控制（Issue #11）
+
+`/steer` 與 `/enqueue` 針對**正在跑的 exact execution**（`/status`、`/controls` 或 `adng execution list` 會列出 `taskId/executionId`）送 target-bound 控制信封，不是自由漂移的聊天文字：
+
+- **STEER**＝送到執行中的回合：只有能力表 `inFlightSteer=true` 的 adapter 能於安全點接收（目前僅 mock；真實 adapter 一律回 `UNSUPPORTED`，不假裝成功）。回合已結束但執行仍活著且支援 queue 時，明確轉為 `TOO_LATE_QUEUED`（收據記錄，非 silent fallback）。
+- **QUEUE**＝不打斷當前回合，排入同一 execution 的下一個安全回合邊界（`executionMode=observed/supervised` 才有快照可綁定目標）；scheduler 以有界 follow-up run 送達後記 `DELIVERED`。
+- 每個信封有 TTL、單行/長度/`<!-- -->`/`adng:` 註記注入防線、重放拒絕；目標不存在/已終結/宿主死亡→`REJECTED_STALE_TARGET` 或 sweep 結案 `STALE`/`NOT_DELIVERED`——daemon 重啟後舊 execution 的信封**絕不**投給新 execution。
+- 每次狀態轉移（受理/送達/結案）在 `dataDir/controls/receipts/` 寫一份 sha256 收據：issuer、目標、指示 hash、requested mode、actual disposition、時間戳皆可稽核；`adng execution controls` 或 `/controls` 可查 pending／delivered／stale。
 
 ## 鐵律摘要
 
