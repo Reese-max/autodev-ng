@@ -59,3 +59,70 @@ describe('resolveSecretString', () => {
     expect(() => expandConfigPaths(tmpdir(), { ...cfg, llmTransport: 'http' })).toThrow('missing or empty')
   })
 })
+
+describe('ConfigSchema secret validation', () => {
+  const baseConfig = {
+    projectPath: '.',
+    backlogFile: 'BACKLOG.md',
+    dataDir: 'data',
+    engines: { fixture: { adapter: 'mock' as const } },
+    defaultEngine: 'fixture',
+  }
+
+  it('judgeApiKey 拒絕類 credential 純字串（sk- 開頭）', () => {
+    expect(() => ConfigSchema.parse({ ...baseConfig, judgeApiKey: 'sk-proxypilot-qdfdxqreb8syzrp3ykvyx83h' })).toThrow()
+    expect(() => ConfigSchema.parse({ ...baseConfig, judgeApiKey: 'sk-abcdefghijklmnopqrst' })).toThrow()
+  })
+
+  it('judgeApiKey 接受 {env:VAR} 參考格式', () => {
+    const cfg = ConfigSchema.parse({ ...baseConfig, judgeApiKey: '{env:JUDGE_API_KEY}' })
+    expect(cfg.judgeApiKey).toBe('{env:JUDGE_API_KEY}')
+  })
+
+  it('judgeApiKey 接受 ${env:VAR} 與 ${VAR} 參考格式', () => {
+    const cfg1 = ConfigSchema.parse({ ...baseConfig, judgeApiKey: '${env:JUDGE_API_KEY}' })
+    expect(cfg1.judgeApiKey).toBe('${env:JUDGE_API_KEY}')
+    const cfg2 = ConfigSchema.parse({ ...baseConfig, judgeApiKey: '${JUDGE_API_KEY}' })
+    expect(cfg2.judgeApiKey).toBe('${JUDGE_API_KEY}')
+  })
+
+  it('judgeApiKey 接受 {file:PATH} 參考格式', () => {
+    const cfg = ConfigSchema.parse({ ...baseConfig, judgeApiKey: '{file:/path/to/secret}' })
+    expect(cfg.judgeApiKey).toBe('{file:/path/to/secret}')
+  })
+
+  it('telegramBotToken 拒絕通知端實際使用的純 token，且錯誤不回顯 token', () => {
+    const token = '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi'
+    const result = ConfigSchema.safeParse({ ...baseConfig, telegramBotToken: token })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const errorText = result.error.issues.map(issue => issue.message).join('\n')
+      expect(errorText).toContain('telegramBotToken')
+      expect(errorText).not.toContain(token)
+    }
+  })
+
+  it('telegramBotToken 不接受短的明文 placeholder，必須使用秘密參考格式', () => {
+    expect(() => ConfigSchema.parse({ ...baseConfig, telegramBotToken: '123:ABC' })).toThrow('telegramBotToken')
+  })
+
+  it.each([
+    '{env:TELEGRAM_BOT_TOKEN}',
+    '${env:TELEGRAM_BOT_TOKEN}',
+    '${TELEGRAM_BOT_TOKEN}',
+    '{file:/path/to/telegram-token}',
+  ])('telegramBotToken 接受秘密參考格式 %s', reference => {
+    const cfg = ConfigSchema.parse({ ...baseConfig, telegramBotToken: reference })
+    expect(cfg.telegramBotToken).toBe(reference)
+  })
+
+  it('telegramBotToken 省略時仍代表停用', () => {
+    const cfg = ConfigSchema.parse(baseConfig)
+    expect(cfg.telegramBotToken).toBeUndefined()
+  })
+
+  it('judgeApiKey 預設值不應為類 credential 字串', () => {
+    const cfg = ConfigSchema.parse(baseConfig)
+    expect(cfg.judgeApiKey).not.toMatch(/^sk-[a-zA-Z0-9]{20,}$/)
+  })
+})

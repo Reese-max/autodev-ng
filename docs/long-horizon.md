@@ -52,7 +52,7 @@ checkpoints/     <seq>.json：每個 verified step 的 SHA/verify/commitHash
 evidence/        attempt-<round>-<outcome>.json：rejected/blocked 的 executor output＋audit detail
 metrics.json     RunMetrics＋phase/completed/parkedMs
 interrupt.json   操作員哨兵（讀後即刪）
-drive.lock       單一驅動鎖（acquireLock：PID 驗活＋stale 回收）
+drive.lock       單一驅動鎖（SQLite 協調世代 token；只釋放本次取得的租約）
 ```
 
 ## CLI

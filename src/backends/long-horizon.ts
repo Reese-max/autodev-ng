@@ -268,9 +268,9 @@ export class LongHorizonBackend implements ExecutionBackend {
   private async drive(runId: string, opts: { resumed: boolean; control?: BackendContext['control'] }): Promise<RunStatusSnapshot> {
     const dir = this.dir(runId)
     const lockDir = join(dir, 'drive.lock')
-    let acquired = false
-    try { acquired = acquireLock(lockDir) } catch { acquired = false }
-    if (!acquired) {
+    let lockToken: string | null = null
+    try { lockToken = acquireLock(lockDir) } catch { lockToken = null }
+    if (!lockToken) {
       return snapshotOf(readRunState(this.deps.dataDir, runId), driverAlive(dir))
     }
     try {
@@ -517,7 +517,7 @@ export class LongHorizonBackend implements ExecutionBackend {
         }
       }
     } finally {
-      if (acquired) releaseLock(lockDir)
+      releaseLock(lockDir, lockToken)
     }
   }
 }
