@@ -23,6 +23,18 @@ Freebuff 可由本機設定明確選用，見 [Freebuff 使用方式](freebuff.m
 - Issue 內容變更、關閉、作者不符或新增排除標籤，會在執行與發布前取消或阻擋。
 - 已有對應分支 PR 或 GitHub 關聯 PR（包含已關閉）時阻擋重複修復，保留 PR 連結。
 
+Issue Quality v2 的單一 fenced `yaml` / `yml` metadata 區塊現在是 runner 強制否決：
+`auto_implementation: false`、`kind: RESEARCH` / `OPPORTUNITY`、非 `READY` 的 triage，
+或矛盾、重複、無法解析的 metadata，都不得接單。同步會輸出 Issue 編號與
+`issue-quality-*` 原因碼，不保存正文或消耗 writer 次數。metadata 上限 4096 字元，
+只接受 `key: scalar`、空行與註解，不執行 YAML tags、aliases 或巢狀資料。
+
+沒有此 metadata 的既有人工 Issue 沿用作者、label、no-autofix 與受控 report 契約。
+正文的 `true` / `READY` 僅解除 metadata 否決，不能授予執行權限；留言不參與批准。
+作者、可信本地設定與 opt-in label 仍須匹配，執行前、follow-up 與發布前使用同一資格判斷。
+將研究改為可實作前，操作者須明確確認需求與驗收，再更新 metadata 及既有批准標籤；
+runner 不會自行移除 `no-autofix`、重開歷史 blocked 案件或重置次數。
+
 帳號入口會確認 gh 登入身分與 owner 相符，自動發現該帳號擁有的公開／私人 repos；
 跳過封存、停用、未開啟 Issues 或無 push 權限的專案。每輪最多執行一張 Issue，
 透過帳號鎖、repo 鎖、重試間隔與最多三輪的預設上限避免重複或無界派工。
