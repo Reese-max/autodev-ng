@@ -93,7 +93,8 @@ export async function runReports(cfg: ReportConfig, options: { dryRun?: boolean;
   mkdirSync(cfg.dataDir, { recursive: true })
   // ponytail: one account ledger/lock on one host; use a shared lease before enabling a second reporting host.
   const lock = join(cfg.dataDir, 'report.lock')
-  if (!acquireLock(lock)) return 'locked'
+  const lockToken = acquireLock(lock)
+  if (!lockToken) return 'locked'
   try {
     const state = readReportState(cfg), now = options.now ?? Date.now(), stamp = new Date(now).toISOString()
     const configHash = options.configPath ? createHash('sha256').update(readFileSync(options.configPath)).digest('hex') : ''
@@ -208,7 +209,7 @@ export async function runReports(cfg: ReportConfig, options: { dryRun?: boolean;
       saveReportState(cfg, state)
     } catch { /* Preserve the original failure and any corrupt ledger for inspection. */ }
     throw error
-  } finally { releaseLock(lock) }
+  } finally { releaseLock(lock, lockToken) }
 }
 
 export async function reportCli(mode: string, file: string, dryRun = false): Promise<void> {
