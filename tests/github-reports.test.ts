@@ -71,7 +71,7 @@ test('proposal validation defers without user direction, requires independent ap
   writeFileSync(join(f.dir, 'NORTHSTAR.md'), signal); writeFileSync(join(f.dir, 'USER-SIGNALS.md'), signal)
   const deferred = readReportState(f.cfg); deferred.entries[id]!.decision!.nextAt = 0; saveReportState(f.cfg, deferred)
   model.mockImplementationOnce(async (_cfg, schema) => {
-    const lock = join(f.cfg.dataDir, 'report.lock'); expect(acquireLock(lock)).toBe(true); releaseLock(lock)
+    const lock = join(f.cfg.dataDir, 'report.lock'); const lockToken = acquireLock(lock); expect(lockToken).toBeTruthy(); releaseLock(lock, lockToken)
     return schema.parse({ kind: 'adopt', reason: 'The observed first command lacks the user instructions.', signalQuote: signal })
   })
     .mockResolvedValueOnce({ approved: true, reason: 'User signals and the recorded probe support this bounded improvement.' })

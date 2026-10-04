@@ -15,7 +15,8 @@ export async function reconcileIssue(file: string, number: number, options: { ap
   const cfg = loadGithubConfig(file)
   if (!readState(cfg, number)) throw new Error('Issue state not found')
   const lock = join(cfg.dataDir, 'runner.lock')
-  if (!acquireLock(lock)) throw new Error('Runner active; no reconciliation performed')
+  const lockToken = acquireLock(lock)
+  if (!lockToken) throw new Error('Runner active; no reconciliation performed')
   try {
     const original = readFileSync(join(issueDir(cfg, number), 'state.json'), 'utf8')
     const state = readState(cfg, number)!
@@ -65,7 +66,7 @@ export async function reconcileIssue(file: string, number: number, options: { ap
     saveState(cfg, after)
     writeJsonAtomic(path, { ...intent, phase: 'completed', after: readState(cfg, number) })
     return { ...result, applied: true, status: after.status, receipt }
-  } finally { releaseLock(lock) }
+  } finally { releaseLock(lock, lockToken) }
 }
 
 export async function reconciliationCli(argv: string[]) {
