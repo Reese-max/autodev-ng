@@ -64,7 +64,8 @@ export async function runGithub(cfg: GithubConfig, options: {
   const inputs = [cfg.sourceConfig, ...(cfg.repair ? [cfg.repair.reportConfig] : [])].map(file => [file, readFileSync(file, 'utf8')] as const)
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'runner.lock')
-  if (!acquireLock(lock)) return 'locked'
+  const lockToken = acquireLock(lock)
+  if (!lockToken) return 'locked'
   const client = options.client ?? githubClient(cfg)
   const policyOk = () => { try { return (options.policyCheck?.() ?? true) === true } catch { return false } }
   const active = () => !existsSync(githubStopFile(cfg)) && (!options.configPath || readFileSync(options.configPath, 'utf8') === original)
@@ -127,5 +128,5 @@ export async function runGithub(cfg: GithubConfig, options: {
       state.status = 'blocked'; state.detail = err instanceof Error ? err.message : String(err); saveState(cfg, state)
     }
     return `${state.issue.number}: ${state.status}`
-  } finally { releaseLock(lock) }
+  } finally { releaseLock(lock, lockToken) }
 }
