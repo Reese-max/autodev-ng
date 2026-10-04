@@ -9,7 +9,8 @@ import { TeamState } from '../src/engines/team-state.js'
 const TS_HOOK = pathToFileURL(join(process.cwd(), 'tests', 'helpers', 'ts-transpile-hook.mjs')).href
 const CHILD_ARGS = ['--experimental-loader', TS_HOOK, '--input-type=module']
 
-function nextLine(child: ChildProcessWithoutNullStreams, timeoutMs = 30_000): Promise<string> {
+// Match the enclosing integration test timeout: the first child intentionally withholds its result while its claim is held.
+function nextLine(child: ChildProcessWithoutNullStreams, timeoutMs = 120_000): Promise<string> {
   return new Promise((resolve, reject) => {
     let output = ''
     let stderr = ''
@@ -53,7 +54,7 @@ function waitForClose(child: ChildProcessWithoutNullStreams, timeoutMs = 30_000)
   })
 }
 
-async function waitForFile(path: string, timeoutMs = 30_000): Promise<void> {
+async function waitForFile(path: string, timeoutMs = 120_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (!existsSync(path) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
   if (!existsSync(path)) throw new Error(`File was not created before timeout: ${path}`)
@@ -100,7 +101,7 @@ test('concurrent owner and runner processes yield at most one active team claim'
         if (claim.ok && holdFirst === 'true') {
           writeFileSync(firstEntered, 'held');
           const cell = new Int32Array(new SharedArrayBuffer(4));
-          const deadline = Date.now() + 30_000;
+          const deadline = Date.now() + 120_000;
           while (!existsSync(releaseFirst) && Date.now() < deadline) Atomics.wait(cell, 0, 0, 10);
           if (!existsSync(releaseFirst)) throw new Error('parent did not release first team claim');
           team.release('owner-run-' + process.pid, claim.token);

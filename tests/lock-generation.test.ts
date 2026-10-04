@@ -272,7 +272,8 @@ const COORDINATOR_URL = pathToFileURL(join(process.cwd(), 'src', 'lock', 'coordi
 const TS_HOOK = pathToFileURL(join(process.cwd(), 'tests', 'helpers', 'ts-resolve-hook.mjs')).href
 const CHILD_ARGS = ['--experimental-strip-types', '--experimental-loader', TS_HOOK, '--input-type=module']
 
-function nextLine(child: ChildProcessWithoutNullStreams, timeoutMs = 30_000): Promise<string> {
+// Windows child startup plus SQLite busy waits can exceed 30s; race tests cap the full scenario at 120s.
+function nextLine(child: ChildProcessWithoutNullStreams, timeoutMs = 120_000): Promise<string> {
   return new Promise((resolve, reject) => {
     let output = ''
     let stderr = ''
@@ -316,7 +317,7 @@ function waitForClose(child: ChildProcessWithoutNullStreams, timeoutMs = 30_000)
   })
 }
 
-async function waitForFile(path: string, timeoutMs = 30_000): Promise<void> {
+async function waitForFile(path: string, timeoutMs = 120_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (!existsSync(path) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 10))
@@ -346,7 +347,7 @@ test.runIf(process.platform === 'win32')('Windows subprocess interleave: only on
     const token = acquireLockLease(dir, 0, { afterStaleObservation: () => {
       writeFileSync(${JSON.stringify(readyFile)}, 'ready');
       const waitCell = new Int32Array(new SharedArrayBuffer(4));
-      const deadline = Date.now() + 30_000;
+      const deadline = Date.now() + 120_000;
       while (!existsSync(continueFile) && Date.now() < deadline) Atomics.wait(waitCell, 0, 0, 10);
       if (!existsSync(continueFile)) throw new Error('The parent did not release the stale-reclaim gate');
     }});
