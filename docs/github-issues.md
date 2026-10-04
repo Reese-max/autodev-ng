@@ -96,6 +96,17 @@ watcher 最近輸出在 last-run.log，程序與結束碼在 watcher.json。
 
 每張 Issue 保留需求快照、checkout、backlog、執行紀錄與證據。中斷的 running 任務會標為 blocked，
 不自動清除工作目錄或重置次數。恢復前須檢查原因、Issue 快照、commit 與原執行紀錄並備份 state.json。
+完成 `executeIssue` 後，runner 會先保存候選 SHA、既有 receipt 相對位置與 writer 次數，
+再核對外部 Issue。此時 `queued` 的 `candidateCheck` 表示本地已完成、外部尚未確認，
+checkpoint 的 policy hash 綁定原 integration／source／report 設定；重啟後 drift
+（包含刪除 quality 或 acceptance gate）會隔離，恢復須還原原設定，不能降低既有 gates。
+不可直接發布。重啟後只接續同一 Issue／PR 核對，不重跑 Worker、不重記費用或重建成果。
+
+只有具結構化 HTTP 回應的唯讀 408、429、500、502、503、504（及 remaining=0 的 403）
+可退避；尊重 Retry-After／rate-limit reset。最多 5 次控制端失敗，基本延遲按 retryMs
+倍增至 30 分鐘；需等待超過 24 小時則交人工，不提早重試。未知錯誤、權限拒絕、
+需求變更、PR head 漂移及可能已成功的 POST 仍 fail closed。用既有 recover/resume
+核對精確成果與證據，不批次重開舊 blocked 案件或重置 writer／費用計數。
 clone/worktree 提供版本隔離，不是作業系統沙箱；只接信任作者，PR 仍需人工審查。
 
 ## 測試
