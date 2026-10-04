@@ -164,7 +164,7 @@ export const ConfigSchema = z.object({
   llmTransport: z.enum(['http', 'cli']).default('http'),
   judgeUrl: z.string().optional(),
   judgeModel: z.string().default('gpt-5.4-mini'),
-  judgeApiKey: z.string().default('sk-any'),
+  judgeApiKey: z.string().default(''),
   // judge 推理力度與逾時（2026-07-28 升級 gpt-5.6-terra xhigh 用）：高力度推理耗時遠超舊 30s 硬編碼。
   judgeEffort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).default('low'),
   judgeTimeoutMs: z.number().int().positive().default(30_000),
@@ -213,6 +213,14 @@ export const ConfigSchema = z.object({
       if (ec.adapter === 'agy' && ec.env) ctx.addIssue({ code: 'custom', path: ['engines', tag, 'env'], message: `engines.${tag}：agy 不消費 env（WSL 邊界不透傳），設了會靜默無效` })
       if (!['claude-cli', 'mock', 'opencode'].includes(ec.adapter) && ec.costPerRunUsd === undefined)
         ctx.addIssue({ code: 'custom', path: ['engines', tag, 'costPerRunUsd'], message: `engines.${tag}：adapter ${ec.adapter} 無成本真值，必須設 costPerRunUsd（免費引擎明確寫 0）` })
+    }
+    // Secret-safe config: reject plain credential-like strings for top-level secret fields
+    const secretRefPattern = /^(\{env:[A-Za-z0-9_]+\}|\$\{env:[A-Za-z0-9_]+\}|\$\{[A-Za-z0-9_]+\}|\{file:.+\})$/
+    if (c.judgeApiKey && !secretRefPattern.test(c.judgeApiKey) && /^sk-[a-zA-Z0-9-]{20,}$/.test(c.judgeApiKey)) {
+      ctx.addIssue({ code: 'custom', path: ['judgeApiKey'], message: 'judgeApiKey 必須使用秘密參考格式（{env:VAR}、${env:VAR}、${VAR} 或 {file:PATH}），不可直接寫入憑證值' })
+    }
+    if (c.telegramBotToken && !secretRefPattern.test(c.telegramBotToken)) {
+      ctx.addIssue({ code: 'custom', path: ['telegramBotToken'], message: 'telegramBotToken 必須使用秘密參考格式（{env:VAR}、${env:VAR}、${VAR} 或 {file:PATH}），不可直接寫入憑證值' })
     }
   })
   .transform(c => ({ ...c, engines: c.engines ?? { claude: { adapter: c.engine ?? 'claude-cli' } } }))

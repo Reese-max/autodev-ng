@@ -4,7 +4,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, 
 import { dirname, join, resolve } from 'node:path'
 import { pidTreeDeepestFirst, type FlatPidProcess } from '../engines/proc.js'
 import { EventLog } from '../events.js'
-import { releaseLock } from '../lock.js'
+import { releaseDeadLock } from '../lock.js'
 import { ConfigSchema, DEFAULT_REAP_GRACE_MS, DEFAULT_STALE_THRESHOLD_MS, DEFAULT_WEDGE_HARD_CAP_MS } from '../types.js'
 import { classifyDaemon, hasEngineProcess, type DaemonAction } from './health.js'
 import { withPauseGate } from './pause-gate.js'
@@ -415,8 +415,10 @@ export function superviseConfig(configPath: string, options: SuperviseOptions = 
       daemonReaped = reaped
       if (!reaped || isPaused()) { paused = true; action = 'keep' }
     }
-    if (pid !== null && (daemonReaped || !paused) && !executionProtected()) {
-      releaseLock(join(dataDir, 'daemon.lock'))
+    if (pid !== null && (daemonReaped || (!paused && !pidAlive)) && !executionProtected()) {
+      // 只在 daemon 確定死亡（剛 reap 完或探測確認 pid 已死）時清鎖：活 daemon 的
+      // keep-tick 每輪驗死會白付 PID 重用探測成本（Windows 下每次一次 powershell spawn）。
+      releaseDeadLock(join(dataDir, 'daemon.lock'))
     }
     if (daemonReaped && watchdogExpired && heartbeatAgeMs != null) {
       try {

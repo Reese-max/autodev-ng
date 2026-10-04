@@ -89,3 +89,12 @@ test('首頁艦隊卡片每 30 秒刷新資料，並顯示空狀態', async () =
   await pollTimer.callback()
   expect(document.getElementById('backlogLine').textContent).toContain('superseded=2')
 })
+
+test('Goal、任務與 Silence 欄位都有持續顯示且關聯的標籤', () => {
+  for (const id of ['goalInput', 'taskInput', 'silenceInput']) {
+    const label = html.match(new RegExp(`<label\\b(?=[^>]*\\bfor=["']${id}["'])[^>]*>([\\s\\S]*?)<\\/label>`))
+    const input = html.match(new RegExp(`<input\\b(?=[^>]*\\bid=["']${id}["'])[^>]*>`))
+    expect(label?.[1]?.trim()).not.toBe('')
+    expect(input).not.toBeNull()
+  }
+})

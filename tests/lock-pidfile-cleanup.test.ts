@@ -1,5 +1,5 @@
-import { describe, expect, test, vi } from 'vitest'
-import { mkdtempSync, mkdirSync as realMkdirSync, existsSync, utimesSync } from 'node:fs'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { mkdtempSync, mkdirSync as realMkdirSync, existsSync, utimesSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -18,7 +18,13 @@ vi.mock('node:fs', async (importOriginal) => {
   }
 })
 
+const realFs = await vi.importActual<typeof import('node:fs')>('node:fs')
 const { acquireLock } = await import('../src/lock.js')
+const tempParents: string[] = []
+afterEach(() => {
+  while (tempParents.length) rmSync(tempParents.pop()!, { recursive: true, force: true })
+  writeFileSync.mockReset().mockImplementation(realFs.writeFileSync)
+})
 
 function errWithCode(code: string): NodeJS.ErrnoException {
   const e = new Error(code) as NodeJS.ErrnoException
@@ -40,7 +46,9 @@ function expectThrowsWithCode(fn: () => unknown, code: string): void {
 
 describe('writeOwnPidFile 失敗時補償清理鎖目錄（MEDIUM-1：不留幽靈鎖）', () => {
   test('初次 acquire：writeFileSync ENOSPC → acquireLock rethrow 且鎖目錄不存在，下次 acquire 立即成功', () => {
-    const dir = join(mkdtempSync(join(tmpdir(), 'adng-lk-cleanup-')), 'lock')
+    const parent = mkdtempSync(join(tmpdir(), 'adng-lk-cleanup-'))
+    tempParents.push(parent)
+    const dir = join(parent, 'lock')
 
     writeFileSync.mockImplementationOnce(() => {
       throw errWithCode('ENOSPC')
@@ -49,23 +57,33 @@ describe('writeOwnPidFile 失敗時補償清理鎖目錄（MEDIUM-1：不留幽�
     expectThrowsWithCode(() => acquireLock(dir), 'ENOSPC')
     expect(existsSync(dir)).toBe(false) // 補償清理：剛建立的幽靈鎖目錄已刪除
 
-    expect(acquireLock(dir)).toBe(true) // 下次 acquire（真實 writeFileSync）立即成功，未被幽靈鎖擋住
+    expect(acquireLock(dir)).toBeTruthy() // 下次 acquire（真實 writeFileSync）立即成功，未被幽靈鎖擋住
   })
 
   test('steal 重建：pid-dead steal 過程 writeFileSync ENOSPC → acquireLock rethrow 且新鎖目錄不存在，下次 acquire 立即成功', () => {
     const parent = mkdtempSync(join(tmpdir(), 'adng-lk-cleanup-'))
+    tempParents.push(parent)
     const dir = join(parent, 'lock')
     realMkdirSync(dir) // 手動建立既有鎖目錄，不寫 pid.json（模擬缺失 → checkLockOwner 回 'unknown'）
     const old = new Date(Date.now() - 60 * 60 * 1000)
     utimesSync(dir, old, old) // mtime 超過 staleMs，觸發 mtime-fallback steal 流程
 
-    writeFileSync.mockImplementationOnce(() => {
-      throw errWithCode('ENOSPC')
-    })
+    writeFileSync.mockImplementationOnce(() => { throw errWithCode('ENOSPC') })
 
     expectThrowsWithCode(() => acquireLock(dir, 30 * 60 * 1000), 'ENOSPC')
     expect(existsSync(dir)).toBe(false) // 補償清理：steal 重建的幽靈鎖目錄已刪除
 
-    expect(acquireLock(dir, 30 * 60 * 1000)).toBe(true) // 下次 acquire 立即成功
+    expect(acquireLock(dir, 30 * 60 * 1000)).toBeTruthy() // 下次 acquire 立即成功
+  })
+
+  test('EIO during initial pid commit is propagated and leaves no phantom lock', () => {
+    const parent = mkdtempSync(join(tmpdir(), 'adng-lk-cleanup-'))
+    tempParents.push(parent)
+    const dir = join(parent, 'lock')
+    writeFileSync.mockImplementationOnce(() => { throw errWithCode('EIO') })
+
+    expectThrowsWithCode(() => acquireLock(dir), 'EIO')
+    expect(existsSync(dir)).toBe(false)
+    expect(acquireLock(dir)).toBeTruthy()
   })
 })
