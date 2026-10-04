@@ -76,7 +76,10 @@ function writeFixture(scenario: Scenario): { configPath: string; dataDir: string
   return { configPath, dataDir, pid, nowMs }
 }
 
-test.each(scenarios)('supervise 整合驗收：$name', scenario => {
+// expectTaskkill 情境依賴 reapDaemonTree 的 win32 分支（POSIX 後備為 SIGKILL，不發 taskkill）
+const runnable = scenarios.filter(scenario => process.platform === 'win32' || !scenario.expectTaskkill)
+
+test.each(runnable)('supervise 整合驗收：$name', scenario => {
   const { configPath, dataDir, pid, nowMs } = writeFixture(scenario)
   const effects: string[] = []
   const timeline: string[] = []

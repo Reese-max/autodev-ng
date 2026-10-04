@@ -148,6 +148,7 @@
     padding: 10px 12px; margin: 0; height: 150px; overflow-y: auto;
     font-family: var(--mono); font-size: 11px; line-height: 1.65; white-space: pre-wrap; color: var(--mut);
   }
+  .card label { display: block; color: var(--mut); font-size: 12px; margin: 8px 0 4px; }
   .card input[type="text"], .card input[type="number"] {
     width: 100%; background: var(--bg0); border: 1px solid var(--line); color: var(--ink);
     padding: 7px 10px; border-radius: 6px; font-size: 12px; margin: 8px 0;
@@ -252,7 +253,8 @@
     <div class="card" data-panel="goal">
       <div class="panelHead"><h2>Goal</h2><span><button class="refreshBtn" data-refresh="goal">↻</button><span class="updatedAt" data-updated="goal"></span></span></div>
       <pre class="panelText">—</pre><div class="panelErr" data-err="goal" style="display:none"></div>
-      <input id="goalInput" type="text" placeholder="設定 GOAL 文字">
+      <label for="goalInput">Goal 文字</label>
+      <input id="goalInput" type="text">
       <div class="btns">
         <button id="btnGoalSet" class="ghost">設定</button>
         <button id="btnGoalRun" class="primary">▶ Run</button>
@@ -280,13 +282,15 @@
     <div class="card">
       <h2>投任務</h2>
       <div class="sub">送入 backlog,成功後自動刷新 Backlog 面板</div>
-      <input id="taskInput" type="text" placeholder="任務內容">
+      <label for="taskInput">任務內容</label>
+      <input id="taskInput" type="text">
       <div class="btns"><button id="btnTaskSubmit" class="ghost">送出</button></div>
     </div>
     <div class="card">
       <h2>Silence</h2>
       <div class="sub">1-1440 分鐘設定靜音窗,0 解除靜音</div>
-      <input id="silenceInput" type="number" placeholder="分鐘(0=解除)">
+      <label for="silenceInput">靜音時間（分鐘）</label>
+      <input id="silenceInput" type="number">
       <div class="btns"><button id="btnSilenceSet" class="ghost">套用</button></div>
     </div>
   </div>

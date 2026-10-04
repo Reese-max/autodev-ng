@@ -4,7 +4,6 @@ import { dirname, join } from 'node:path'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { killTree, runProcess, withGitSafeDirectory } from '../src/engines/proc.js'
 import type { RunEvent } from '../src/engines/run-control.js'
-import { win32Only } from './helpers/platform.js'
 
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-cli.mjs')
 const base = { command: process.execPath, args: [FAKE], cwd: process.cwd(), timeoutMs: 10_000 }
@@ -183,9 +182,7 @@ function isPidAlive(pid: number): boolean {
 
 // 整樹斬在 POSIX 只殺根（killTree 後備無子代枚舉），孫代存活是平台既有語意，
 // 「父子兩層皆不存活」的斷言僅 Windows taskkill 路徑成立。
-// 已知缺口（不在本 issue 範圍）：src/engines/proc.ts 的非 win32 killTree 不枚舉／不收斂後代，
-// Linux 上掛死的引擎可能留下抱住 worktree 的孤兒孫行程；修它需要動產品程式，見 docs/off-windows-verification.md。
-test.skipIf(!win32Only)('hang-tree：雙層樹斬——父子兩層 PID 逾時後皆不存活', async () => {
+test.skipIf(process.platform !== 'win32')('hang-tree：雙層樹斬——父子兩層 PID 逾時後皆不存活', async () => {
   process.env.FAKE_MODE = 'hang-tree'
   const r = await runProcess({ ...base, stdinText: 'x', timeoutMs: 1500 })
   expect(r.timedOut).toBe(true)

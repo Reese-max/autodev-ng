@@ -18,9 +18,15 @@ import * as runner from '../src/github/runner.js'
 import { delivery, recoverIssue, repairDoctor, repairMetrics } from '../src/github/operations.js'
 import * as incident from '../src/guardian/incident.js'
 import { FreebuffEngine } from '../src/engines/freebuff.js'
+import * as admission from '../src/engines/cli-admission.js'
 import { PreflightCache } from '../src/preflight.js'
 
 const dirs: string[] = []
+const availableCodexAdmission = () => {
+  const info = admission.unknownAdmission('codex')
+  info.quota = { state: 'available', detail: 'fixture quota' }
+  return info
+}
 afterEach(() => { vi.restoreAllMocks(); process.exitCode = undefined; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
 // 這些規格 mock 了 proc.runProcess，但 admission 走 cli-rpc 的 raw spawn，會打到開發機上
@@ -118,6 +124,7 @@ test('repair baseline rejects timeout and a different failure without launching 
 
 test.each(['codex', 'freebuff'])('%s: real Git/scheduler repairs red to green with independent CLI review, exact evidence and no API or push', async adapter => {
   const f = await setup(), realRun = proc.runProcess
+  vi.spyOn(admission, 'nativeAdmission').mockResolvedValue(availableCodexAdmission())
   const cliCalls: string[] = []
   if (adapter === 'freebuff') {
     const source = JSON.parse(readFileSync(f.cfg.sourceConfig, 'utf8'))
@@ -170,6 +177,7 @@ test.each(['codex', 'freebuff'])('%s: real Git/scheduler repairs red to green wi
 
 test('report repair follow-up preserves the original fix, proves a new regression and updates the same PR within its lifetime cap', async () => {
   const f = await setup(), realRun = proc.runProcess
+  vi.spyOn(admission, 'nativeAdmission').mockResolvedValue(availableCodexAdmission())
   f.cfg.publish = true; f.cfg.followup = true; f.cfg.maxRuns = 2
   f.cfg.acceptance = { command: 'node', args: ['check.cjs'] }
   let writes = 0, remoteHead = '', feedback = '', created = false
@@ -292,6 +300,7 @@ test('recovery checks changed policy after doctor and refuses exhausted attempts
 
 test('CLI sandbox failure blocks the repair before preparation or repeated worker attempts', async () => {
   const f = await setup()
+  vi.spyOn(admission, 'nativeAdmission').mockResolvedValue(availableCodexAdmission())
   const run = vi.spyOn(proc, 'runProcess').mockResolvedValue({ stdout: '', stderr: 'sandbox setup required', exitCode: 1, timedOut: false, durationMs: 1 })
   expect(await runGithub(f.cfg, { client: f.client, configPath: f.configPath })).toBe('4: blocked')
   expect(readState(f.cfg, 4)?.detail).toContain('Repair CLI preflight failed')
@@ -303,6 +312,7 @@ test('CLI sandbox failure blocks the repair before preparation or repeated worke
 
 test('CLI review failure cannot approve and CLI repair requires explicit local policy', async () => {
   const f = await setup()
+  vi.spyOn(admission, 'nativeAdmission').mockResolvedValue(availableCodexAdmission())
   vi.spyOn(proc, 'runProcess').mockResolvedValue({ stdout: '', stderr: 'unavailable', timedOut: false, exitCode: 1, durationMs: 1 })
   await expect(reviewRepair({ dataDir: f.dir, model: 'unused', effort: 'low', timeoutMs: 1000 }, { diff: 'some diff', taskText: 'Fix addition' })).rejects.toThrow('no fallback approval')
   delete f.cfg.repair; writeFileSync(f.configPath, JSON.stringify(f.cfg))

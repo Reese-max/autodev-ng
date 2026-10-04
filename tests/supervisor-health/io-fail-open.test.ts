@@ -7,11 +7,16 @@
  * 以證明 keep 來自 fail-open，而非 classify 的自然 keep。
  */
 import { beforeEach, expect, test, vi } from 'vitest'
-import { win32Only } from '../helpers/platform.js'
 
-const { readFileSync, statSync } = vi.hoisted(() => ({
+const { readFileSync, statSync, lstatSync, realpathSync } = vi.hoisted(() => ({
   readFileSync: vi.fn(),
   statSync: vi.fn(),
+  lstatSync: vi.fn(),
+  realpathSync: vi.fn(() => {
+    const error = new Error('ENOENT') as NodeJS.ErrnoException
+    error.code = 'ENOENT'
+    throw error
+  }),
 }))
 
 vi.mock('node:fs', () => ({
@@ -22,6 +27,8 @@ vi.mock('node:fs', () => ({
   openSync: vi.fn(),
   readFileSync,
   readdirSync: vi.fn(),
+  lstatSync,
+  realpathSync,
   statSync,
 }))
 
@@ -50,6 +57,17 @@ const STALE_MS = 60_000
 beforeEach(() => {
   readFileSync.mockReset()
   statSync.mockReset()
+  lstatSync.mockReset()
+  lstatSync.mockImplementation(() => {
+    const error = errorWithCode('ENOENT')
+    throw error
+  })
+  realpathSync.mockReset()
+  realpathSync.mockImplementation(() => {
+    const error = new Error('ENOENT') as NodeJS.ErrnoException
+    error.code = 'ENOENT'
+    throw error
+  })
 })
 
 function installHealthyFsMocks(options: { lockReadFail?: boolean; lockStatFail?: boolean; heartbeatFail?: boolean } = {}): void {
@@ -74,6 +92,14 @@ function installHealthyFsMocks(options: { lockReadFail?: boolean; lockStatFail?:
     if (options.heartbeatFail) throw errorWithCode('EIO')
     // mtime 0 → age = NOW_MS > STALE_MS，探測成功時會走 reap
     return { mtimeMs: 0 }
+  })
+  lstatSync.mockImplementation((path: string) => {
+    const p = String(path)
+    if (p.endsWith('daemon.lock') || p.includes('daemon.lock')) {
+      if (options.lockStatFail) throw errorWithCode('EIO')
+      return { mtimeMs: 0, isSymbolicLink: () => false, isDirectory: () => true }
+    }
+    throw errorWithCode('ENOENT')
   })
 }
 
@@ -120,17 +146,14 @@ function runProbe(failure: IoFailure | 'none'): ProbeFixture {
   return { result, commands, commandLines, launchCalls }
 }
 
-// 故基準情境的 taskkill 斷言僅 Windows 可成立。
-test('基準：探測全成功且 heartbeat 過期無 child → reap + taskkill + launch', () => {
+// taskkill 命令由 reapDaemonTree 的 win32 分支發出（POSIX 後備為 SIGKILL），僅 Windows 可驗
+test.skipIf(process.platform !== 'win32')('基準：探測全成功且 heartbeat 過期無 child → reap + taskkill + launch', () => {
   const { result, commands, commandLines, launchCalls } = runProbe('none')
 
   expect(result.action).toBe('reap')
   expect(result.probeErrors).toEqual([])
-  // reapDaemonTree 只有 win32 分支發 taskkill；POSIX 走 SIGKILL 後備（沒有命令可觀測）。
-  if (win32Only) {
-    expect(commands).toContain('taskkill')
-    expect(commandLines.some(line => line.includes(`taskkill /PID ${PID} /T /F`))).toBe(true)
-  } else expect(commands).not.toContain('taskkill')
+  expect(commands).toContain('taskkill')
+  expect(commandLines.some(line => line.includes(`taskkill /PID ${PID} /T /F`))).toBe(true)
   expect(launchCalls).toBe(1)
   expect(result.launchedPid).toBe(9_001)
 })

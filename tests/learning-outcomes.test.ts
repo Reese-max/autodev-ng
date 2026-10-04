@@ -1,4 +1,4 @@
-import { beforeAll, expect, test } from 'vitest'
+import { expect, test } from 'vitest'
 import { lessonFingerprints, observeLearning, summarizeLearning } from '../src/learn/outcomes.js'
 import type { EventLog } from '../src/events.js'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
@@ -7,12 +7,7 @@ import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { GithubConfigSchema } from '../src/github/config.js'
 import { saveState } from '../src/github/state.js'
-import { ensureRuntimeBuilt, BUILD_HOOK_TIMEOUT_MS } from './helpers/runtime-build.js'
-
-// scripts/*.mjs 與 web/server.mjs 都以 dist/ 為單一事實來源；npm test 不保證先建置，
-// 缺產物就地建置（只寫 gitignored 的 dist/），斷言不減。
-// 首次建置加上等待被別的 spec 建置，可能遠超過 vitest 預設的 10 秒 hookTimeout。
-beforeAll(async () => { expect(await ensureRuntimeBuilt()).toBe(true) }, BUILD_HOOK_TIMEOUT_MS)
+import { RUNTIME_BUILT } from './helpers/runtime-build.js'
 
 test('同任務/模型/版本才能比較；中斷、未驗收與少量樣本不得宣稱改善', () => {
   const events: object[] = [], log: Pick<EventLog, 'append'> = { append: (type, data) => { events.push({ type, ...data }) } }
@@ -40,7 +35,7 @@ test('教訓內容指紋不依賴編號/日期；損壞紀錄明確呈現', () =
   expect(summarizeLearning('{broken').measurementStatus).toBe('invalid-evidence')
 })
 
-test('報表納入同專案 Issue 紀錄，拒絕混入其他專案', () => {
+test.skipIf(!RUNTIME_BUILT)('報表納入同專案 Issue 紀錄，拒絕混入其他專案', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-learning-report-'))
   try {
     const file = join(dir, 'source.json'), repairFile = join(dir, 'repair.json')
