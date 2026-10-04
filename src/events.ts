@@ -4,6 +4,9 @@ import { join } from 'node:path'
 export interface HeartbeatState {
   state: 'running' | 'idle' | 'stopped' | 'cost-stopped' | 'preflight-failed'
   currentTask?: string
+  /** Issue #11：operator 不再需要猜 steer/enqueue 的 target——心跳帶出穩定身份。 */
+  currentTaskId?: string
+  currentExecutionId?: string
   todayCostUsd: number
   /** 今日 attempts：engine → { n, ok, cap? } */
   todayAttempts?: Record<string, { n: number; ok: number; cap?: number }>

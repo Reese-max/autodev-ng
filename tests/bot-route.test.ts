@@ -38,7 +38,7 @@ describe('routeInteraction', () => {
     const { i, replies } = fakeInteraction({ userId: 'u1', commandName: 'status', arg: '' })
     const handle = vi.fn(async () => ({ ok: true, text: '狀態:running' }))
     await routeInteraction(i, ['u1'], fakeDeps, handle)
-    expect(handle).toHaveBeenCalledWith('status', '', fakeDeps)
+    expect(handle).toHaveBeenCalledWith('status', '', fakeDeps, { issuer: 'discord:u1' })
     expect(replies).toEqual([{ text: '狀態:running', ephemeral: undefined }])
   })
 
@@ -60,8 +60,8 @@ describe('routeInteraction', () => {
 
 describe('READ_COMMANDS/ACTION_COMMANDS', () => {
   test('讀類與動作類指令清單', () => {
-    expect(READ_COMMANDS).toEqual(['status', 'cost', 'backlog', 'log', 'lessons', 'problems', 'monitor', 'github'])
-    expect(ACTION_COMMANDS).toEqual(['pause', 'resume', 'silence', 'task', 'ask', 'goal'])
+    expect(READ_COMMANDS).toEqual(['status', 'cost', 'backlog', 'log', 'lessons', 'problems', 'monitor', 'github', 'controls'])
+    expect(ACTION_COMMANDS).toEqual(['pause', 'resume', 'silence', 'task', 'ask', 'goal', 'steer', 'enqueue'])
   })
 })
 
@@ -108,7 +108,7 @@ describe('routeMultiInteraction', () => {
     const { i, replies } = fakeMultiInteraction({ commandName: 'pause', project: 'prompt' })
     const handle = vi.fn(async () => ({ ok: true, text: 'paused' }))
     await routeMultiInteraction(i, projects, handle)
-    expect(handle).toHaveBeenCalledWith('pause', '', parDeps.deps)
+    expect(handle).toHaveBeenCalledWith('pause', '', parDeps.deps, { issuer: 'discord:u1' })
     expect(replies).toEqual([{ text: 'paused', ephemeral: undefined }])
   })
 

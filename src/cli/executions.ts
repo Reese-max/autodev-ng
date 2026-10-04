@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util'
 import { loadMonitorConfig } from '../bot/monitor.js'
 import { capabilityReport } from '../engines/capabilities.js'
 import { readExecutions, requestExecutionCancel } from '../engines/execution-observation.js'
+import { isExecutionLive, listActiveExecutions } from '../engines/active-execution.js'
 
 export function executionCli(args: string[]): void {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { config: { type: 'string' }, id: { type: 'string' } } })
@@ -16,6 +17,9 @@ export function executionCli(args: string[]): void {
     return
   }
   const inventory = readExecutions(cfg.dataDir)
-  console.log(JSON.stringify(inventory, null, 2))
+  // Issue #11：bounded 模式的 execution 不在 executions/*.json——operator 需要從
+  // active registry 看到可控制的 exact target（含 hostPid 活性判定）。
+  const active = listActiveExecutions(cfg.dataDir).map(r => ({ ...r, live: isExecutionLive(r) }))
+  console.log(JSON.stringify({ ...inventory, active }, null, 2))
   if (inventory.errors.length) process.exitCode = 2
 }

@@ -34,12 +34,23 @@ export class MockEngine implements Engine {
     // 內產生真 git commit 才能驗證 mergeBack ff-only 全鏈路，最小改動加這個鉤子而非新增機制。
     const hookReturn = step.beforeResult?.(job)
     const baseCommitHash = typeof hookReturn === 'string' ? hookReturn : undefined
+    // Issue #11：mock 宣告 controls.inFlightSteer=true——在 turn 的 safe boundary
+    // （此處為產生結果前）主動取 host 信箱；take 到即 ack（STEERED）。
+    const steered: string[] = []
+    const notes: string[] = []
+    for (let i = 0; i < 4; i++) {
+      const s = job.control?.steer?.take()
+      if (!s) break
+      steered.push(s.envelopeId)
+      notes.push(`[steered:${s.envelopeId.slice(0, 8)}] ${s.instruction}`)
+    }
     if (step.ok) {
-      return { ok: true, output: 'mock done', costUsd: step.costUsd ?? 0.01, commitHash: 'mock0000', baseCommitHash }
+      return { ok: true, output: ['mock done', ...notes].join(' '), costUsd: step.costUsd ?? 0.01, commitHash: 'mock0000', baseCommitHash, ...(steered.length ? { appliedSteers: steered } : {}) }
     }
     return {
-      ok: false, output: step.output ?? 'mock fail', costUsd: step.costUsd ?? 0.01,
-      failureReason: step.reason, costUnknown: step.costUnknown, baseCommitHash
+      ok: false, output: [step.output ?? 'mock fail', ...notes].join(' '), costUsd: step.costUsd ?? 0.01,
+      failureReason: step.reason, costUnknown: step.costUnknown, baseCommitHash,
+      ...(steered.length ? { appliedSteers: steered } : {})
     }
   }
 }

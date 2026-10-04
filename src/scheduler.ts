@@ -3,6 +3,7 @@ export { pickReadyTask, subscriptionTags, zeroCostTags } from './engines/pick-re
 import { attemptAccounting } from './engines/attempt-accounting.js'
 import { alternativeRetryDue, alternativeRetryUsed, startAlternativeRetry, taskAttemptLimit } from './engines/alternative-retry.js'
 import { existsSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { BacklogStore } from './backlog.js'
 import { localDay, type AttemptFailureClass, type RunDb } from './db.js'
 import { firstMissingArtifact } from './engines/artifact-contract-git.js'
@@ -31,6 +32,8 @@ import { observeLearning } from './learn/outcomes.js'
 import { createExecutionObservation, readExecutions } from './engines/execution-observation.js'
 import type { RunControl } from './engines/run-control.js'
 import { assertPendingCandidate, readPendingReview, savePendingReview, closePendingReview, type PendingReview } from './engines/pending-review.js'
+import { markOrphanedExecutions, updateActiveExecutionPhase, writeActiveExecution } from './engines/active-execution.js'
+import { ControlStore, deliverControlQueue, makeSteerMailbox } from './engines/steering.js'
 
 /** M7：教訓注入/反思 port（Task 2 makeLessonsPort 的輸出型別）。inject() 供 scheduler
  * 附進 job.directive；reflect() 留給 Task 4/5 接線（本 task 只注入 inject）。 */
@@ -79,6 +82,13 @@ export type CycleResult =
   | { kind: 'blocked'; taskId: string; taskText: string; reason: BlockedReason; alertDetail?: string }
 
 export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: false }): Promise<CycleResult> {
+  // Issue #11：cycle 起點孤兒掃——daemon 重啟/前輪異常留下的非 terminal execution
+  // 一律標 terminal，其 pending control envelope 轉 STALE（fail closed，絕不重綁新 execution）。
+  quiet(() => {
+    markOrphanedExecutions(deps.cfg.dataDir)
+    const controls = new ControlStore(join(deps.cfg.dataDir, 'run.db'), { events: deps.events })
+    try { controls.sweepOrphans(deps.cfg.dataDir); controls.sweepExpired() } finally { controls.close() }
+  })
   if (deps.cfg.concurrency <= 1 || retry.taskId || existsSync(deps.cfg.stopFile)) return runSingleOnce(deps, retry)
   if (!deps.team) { noteSerialConcurrency(deps); return runSingleOnce(deps, retry) }
   const open = sequentialReadyTasks(deps.store.read())
@@ -181,10 +191,26 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   claimHeartbeat?.unref?.()
   let finishLearning: ReturnType<typeof observeLearning> | undefined, learningResult: { accepted: boolean; commit?: string } = { accepted: false }
   let observation: ReturnType<typeof createExecutionObservation> | undefined
+  // Issue #11：control plane 持久層（run.db 的 control_envelopes 表）；開不起來時整個
+  // steer/queue 面關閉但派工不受影響（fail-open，鐵律 #4）。
+  let controls: ControlStore | undefined
+
+  // Issue #11：execution 活性紀錄必須早於 'running' heartbeat——operator 從心跳拿到
+  // executionId 就能立刻 steer/enqueue，記錄晚於心跳會產生假的 REJECTED_STALE_TARGET。
+  // 無論 executionMode 都寫（bounded 模式沒有 executions/*.json 觀測檔）；
+  // pending-review 復原輪沒有 engine turn，直接標 host-verify。
+  try { controls = new ControlStore(join(cfg.dataDir, 'run.db'), { events }) } catch { /* fail-open */ }
+  try {
+    writeActiveExecution(cfg.dataDir, {
+      executionId, taskId: task.id, engineTag, adapter: cfg.engines[engineTag]?.adapter ?? engineTag,
+      phase: pending ? 'host-verify' : 'engine-run',
+      hostPid: process.pid, hostStartedAt: Date.now() - process.uptime() * 1000, startedAt: Date.now(),
+    })
+  } catch { /* 紀錄故障時 control request 自然 fail-closed */ }
 
   try {
 
-  writeHeartbeat(events, cfg, { state: 'running', currentTask: task.text, todayCostUsd: spent })
+  writeHeartbeat(events, cfg, { state: 'running', currentTask: task.text, currentTaskId: task.id, currentExecutionId: executionId, todayCostUsd: spent })
 
   // M4 Task 6（worktree 接線）：任務級隔離執行環境。非 git 專案（prepareWorktree 上拋）
   // → 直接 blocked+告警，不計入 maxAttempts 失敗計數（環境問題而非任務本身失敗——
@@ -240,6 +266,8 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
       observation = createExecutionObservation({ dataDir: cfg.dataDir, job, adapter: cfg.engines[engineTag]!.adapter, supervised: mode === 'supervised' })
       job.control = observation.control
     }
+    // Issue #11：host 持有的 in-flight steer 信箱；宣告支援的 adapter 在 safe boundary 自取。
+    if (controls) job.control = { ...(job.control ?? {}), steer: makeSteerMailbox(controls, executionId) }
     res = await engine!.run(job)
   } catch (err) {
     if (observation?.snapshot().worker) return quarantineRun('worker transport failed before a verified terminal result')
@@ -255,6 +283,18 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`) }
   if (!pending) res = await nudgeNoCommit(engine!, job, res, wt.baseHead)
   if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
+  // Issue #11：QUEUE 語意——當前 turn 結束後第一個 safe boundary，以同一 executionId
+  // 續跑有界 follow-up turn 送達操作者指示。在 verify/merge/ownership critical section
+  // 之前完成；控制面故障不反殺本 attempt 結果（fail-open）。
+  if (!pending && controls) {
+    try {
+      res = await deliverControlQueue(engine!, job, res, { store: controls, events, paused: () => existsSync(cfg.stopFile) })
+    } catch (err) {
+      quiet(() => events.append('control-delivery-error', { task: task.text, error: String(err) }))
+    }
+  }
+  if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
+  quiet(() => updateActiveExecutionPhase(cfg.dataDir, executionId, 'host-verify'))
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默。失敗成本估計（M4 Task 3）：costUnknown===true
   // （timeout/exit≠0/輸出不可解析）改記 cfg.failureCostEstimateUsd，detail 帶 cost-estimated 標記；
   // 引擎解析出真值（含 is_error、真值恰好 0）照記真值。M5 Task 1：fixedCost 有設（非真值引擎）
@@ -454,6 +494,11 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
   return resolveFailure(deps, task, 'failed', res.failureReason ?? '未知', failureClass, quotaUsage)
   } finally {
+    // Issue #11：execution 終結——活性紀錄標 terminal，本 execution 仍未送達的 pending
+    // envelope 一律 STALE（fail closed；絕不順延到下一個 task/execution）。
+    quiet(() => updateActiveExecutionPhase(cfg.dataDir, executionId, 'terminal'))
+    try { controls?.sweepExecution(executionId, 'execution 已結束，pending 控制轉 STALE') } catch { /* fail-open */ }
+    try { controls?.close() } catch { /* fail-open */ }
     observation?.finish(recoveryRequired ? 'unconfirmed' : learningResult.accepted || reviewWaiting ? 'completed' : 'failed')
     if (finishLearning && !recoveryRequired && !reviewWaiting) quiet(() => finishLearning!({ ...learningResult, failure: learningResult.accepted ? undefined : db.lastFailureFor(task.id) ?? undefined }))
     if (claimHeartbeat) clearInterval(claimHeartbeat)
