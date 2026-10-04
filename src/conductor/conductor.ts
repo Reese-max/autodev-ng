@@ -190,7 +190,9 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
   // Git host metadata survives git clean and changing the caller's stateDir.
   // The stateDir file is an operator projection, never the sole authority.
   const fenceFile = join(ws.gitDir, 'adng-conductor-worker-quarantine.json')
+  const budgetHoldFile = join(ws.gitDir, `adng-conductor-budget-hold-${taskId}.json`)
   if (existsSync(fenceFile) || existsSync(projectionFile)) return result('blocked', { reason: 'worker-termination-unconfirmed：worker quarantine exists; reconcile the exact execution before dispatch' })
+  if (existsSync(budgetHoldFile)) return result('blocked', { reason: 'budget-held：task budget hold exists; reconcile billing and preserved output before issuing a reviewed successor task' })
   const unresolved = new Map<string, { taskId: string; attempt: number }>()
   for (const record of ledger.readAll()) {
     if (record.type === 'attempt') unresolved.set(JSON.stringify([record.task_id, record.attempt]), { taskId: record.task_id, attempt: record.attempt })
@@ -207,6 +209,10 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
 
   // 冪等：已 done 不重派
   const lastFinish = ledger.lastFinish(taskId)
+  const budgetHold = ledger.lastAttemptResult(taskId)?.budget_blocked
+  if (budgetHold) {
+    return result('blocked', { reason: `${budgetHold}：先核對原 attempt 的帳務與成果；不得靠新 epoch 或移除 cost cap 自動重派` })
+  }
   if (lastFinish?.status === 'done') {
     return result('done', { commit: lastFinish.commit, reason: `task ${taskId} 已完成（ledger idempotent）` })
   }
@@ -321,6 +327,7 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
     let preflightFailed = false
     let timedOut = false
     let terminationConfirmed = false
+    let workerDispatched = false
     let fence: string | undefined
     try {
       const pf = await engine.preflight()
@@ -334,6 +341,7 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
         writeFileSync(projectionFile, fence, 'utf8')
         baseline = snapNow()
         // Always consume late rejection. Promise.race alone cannot cancel a writer.
+        workerDispatched = true
         const running = Promise.resolve().then(() => engine.run(job)).catch((e): RunResult =>
           ({ ok: false, output: '', costUsd: 0, costUnknown: true, recoveryRequired: true, failureReason: `worker-crash: ${msg(e)}` }))
         let timer: ReturnType<typeof setTimeout> | undefined
@@ -367,6 +375,10 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
     const after = snapNow()
     const delta = dirtyDeltaPaths(baseline, after)
     const committed = Boolean(headAfter && headAfter !== headBefore)
+    const costKnown = !res.costUnknown && Number.isFinite(res.costUsd) && res.costUsd >= 0
+    const budgetUnverified = workerDispatched && envelope.budget.max_cost_usd !== undefined && !costKnown
+    const budgetExceeded = workerDispatched && envelope.budget.max_cost_usd !== undefined && costKnown && res.costUsd > envelope.budget.max_cost_usd
+    const budgetBlocked = budgetUnverified ? 'cost-unverified' : budgetExceeded ? 'over-budget' : undefined
     const releaseFence = (): boolean => {
       if (!fence) return true
       try {
@@ -387,7 +399,7 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
     writeArtifacts('worker-report', [
       `# worker-report`, ``,
       `task: ${taskId}`, `attempt: ${attemptNo}`, `worker: ${envelope.worker}`,
-      `model: ${res.actualModel ?? 'unknown'}`, `ok: ${res.ok}`, `cost_usd: ${res.costUsd ?? 'unknown'}`, `commit: ${headAfter ?? 'n/a'}`, ``,
+      `model: ${res.actualModel ?? 'unknown'}`, `ok: ${res.ok}`, `cost_usd: ${costKnown ? res.costUsd : 'unknown'}`, `commit: ${headAfter ?? 'n/a'}`, ``,
       `## output`, '````', (res.output ?? '').trim(), '````', ``,
       `## failure`, res.failureReason ?? '（無）', ``,
     ])
@@ -397,12 +409,15 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
     if (timedOut) {
       failureClass = 'task-timeout'
       failureReason = res.failureReason ?? `task-timeout：逾時 ${timeout}ms（不信遲到的完工宣稱）`
+    } else if (budgetUnverified) {
+      failureClass = 'cost-unverified'
+      failureReason = 'cost-unverified：設定 max_cost_usd 但 Worker 費用未知或無效；保留成果，先核對帳務'
+    } else if (budgetExceeded) {
+      failureClass = 'over-budget'
+      failureReason = `over-budget：cost ${res.costUsd} > ${envelope.budget.max_cost_usd}`
     } else if (preflightFailed || !res.ok) {
       failureReason = res.failureReason ?? 'worker failed without reason'
       failureClass = preflightFailed ? 'preflight' : classifyFailure(failureReason)
-    } else if (envelope.budget.max_cost_usd !== undefined && res.costUsd > envelope.budget.max_cost_usd) {
-      failureClass = 'over-budget'
-      failureReason = `over-budget：cost ${res.costUsd} > ${envelope.budget.max_cost_usd}`
     } else if (!committed && delta.length === 0) {
       failureClass = 'phantom-completion'
       failureReason = '無改動證據：worker 宣稱完成但無 commit 也無檔案變動'
@@ -411,12 +426,28 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
 
     ledger.append({
       type: 'attempt-result', task_id: taskId, attempt: attemptNo, worker: envelope.worker,
-      ok: !failureReason, model: res.actualModel, cost_usd: res.costUnknown ? undefined : res.costUsd,
+      ok: !failureReason, model: res.actualModel, cost_usd: costKnown ? res.costUsd : undefined,
       failure_reason: failureReason, failure_class: failureClass, fingerprint,
       termination_confirmed: timedOut ? terminationConfirmed : !res.recoveryRequired, recovery_required: res.recoveryRequired,
+      budget_blocked: budgetBlocked,
       base_commit: headBefore, commit: headAfter ?? undefined, ts: now(),
     })
     expectedHead = headAfter ?? expectedHead
+
+    if (budgetBlocked) {
+      // Persist before releasing the writer quarantine. A crash or storage error
+      // between the cost result and this write must never enable another Worker.
+      try {
+        writeFileSync(budgetHoldFile, JSON.stringify({
+          schemaVersion: 1, taskId, attempt: attemptNo, executionId: job.executionId,
+          reason: budgetBlocked, maxCostUsd: envelope.budget.max_cost_usd,
+          reportedCostUsd: costKnown ? res.costUsd : null, baseCommit: headBefore,
+          commit: headAfter ?? null, timestamp: now(),
+        }) + '\n', { encoding: 'utf8', flag: 'wx' })
+      } catch {
+        return finish('blocked', `${budgetBlocked}：budget hold 無法保存；保留 execution quarantine，禁止重派`, headAfter)
+      }
+    }
 
     if (res.recoveryRequired || (timedOut && !terminationConfirmed)) {
       return finish('escalated', `worker-termination-unconfirmed：${failureClass ?? 'recovery'} requires independent stop and execution reconciliation; quarantine retained, no retry`, headAfter)
@@ -428,6 +459,9 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
     }
     if (!releaseFence()) {
       return finish('blocked', 'worker-quarantine-changed：execution fence changed; no retry or verification', headAfter)
+    }
+    if (budgetBlocked) {
+      return finish(budgetUnverified ? 'blocked' : 'escalated', failureReason ?? `${budgetBlocked}：cost guard stopped dispatch`, headAfter)
     }
 
     if (failureReason) {

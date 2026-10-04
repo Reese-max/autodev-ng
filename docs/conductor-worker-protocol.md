@@ -92,7 +92,15 @@ final_report_required: true
   `git clean -fdx` 刪掉，也不能靠更換 stateDir 繞過。未確認終止時保留 quarantine、escalate 且零重試；
   同工作樹的同 task、新 task 與重啟均不得派工。dispatch 後 `run()` 拋錯也視為終止未知。
   普通 worker 完成或取消已證明後，僅有原持有者可清除 quarantine。
-- **over-budget**：`budget.max_cost_usd` 比對 `RunResult.costUsd`，超標計失敗。
+- **reported-cost guard**：`budget.max_cost_usd` 是單次 Worker 的事後回報金額上限，
+  不是 provider 端事前花費限制，也不取代 global budget 的跨 attempt／task 累計記帳。
+  設有上限時，`costUnknown`、非有限值或負數都不能產生 PASS 或購買下一次 retry；
+  已知超額則立即 escalate。未知／無效金額在 report 顯示 `unknown`，ledger 不偽記為 0。
+  停止時先保存 `<gitDir>/adng-conductor-budget-hold-<task_id>.json`，再清除已停止 Worker 的
+  quarantine。hold 保存失敗會保留 execution quarantine；改 stateDir、清理 stateDir、
+  移除 cost cap 或重啟同 task 都不能自動重派。這不阻擋其他已審閱的獨立 task。
+  操作者須先核對原 attempt 帳務、保存並審閱部分成果，再明確建立後續 task／預算；
+  不得把原 task 的自動重跑當作帳務核對。ledger 的 `budget_blocked` 亦保留此停派原因。
 - **preflight**：派工前 `engine.preflight()`，不過計 `preflight` 失敗 attempt。
 - **resume**：重跑同 task_id —— 契約以磁碟 `task.yaml` 定本為準（不信 call site），
   epoch 內已耗 budget 續計；`done` 重跑冪等返回。同 stateDir 中任一舊 task 尚未收尾，或 timeout／

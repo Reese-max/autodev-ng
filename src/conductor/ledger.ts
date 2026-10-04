@@ -24,6 +24,8 @@ export type LedgerRecord =
       model?: string; cost_usd?: number; failure_reason?: string; failure_class?: string
       /** Host cancellation proof; a timeout alone is not a terminal result. */
       termination_confirmed?: boolean; recovery_required?: boolean
+      /** A hard reported-cost guard stopped this task; resume cannot buy another Worker. */
+      budget_blocked?: 'cost-unverified' | 'over-budget'
       fingerprint?: string; base_commit?: string; commit?: string; ts: string
     }
   | {

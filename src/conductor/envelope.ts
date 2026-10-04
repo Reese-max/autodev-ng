@@ -41,6 +41,7 @@ export const TaskEnvelopeSchema = z.object({
   budget: z.object({
     /** 單次 attempt 牆時限；逾時即中止並計失敗（不信遲到的 ok）。 */
     timeout_ms: z.number().int().positive().optional(),
+    /** 單次 Worker 回報金額上限；未知/無效/超額即停止，非 provider 端事前花費限制。 */
     max_cost_usd: z.number().nonnegative().optional(),
   }).default({}),
   /** 同一 worker 重試上限，預設 2（Attempt 1 + 2 retries = 3 次，對齊 issue 圖）。 */
