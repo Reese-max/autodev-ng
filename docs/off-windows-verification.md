@@ -15,7 +15,7 @@ CI 是 `windows-latest`（`.github/workflows/ci.yml`），但驗收也會在 Lin
 | `tests/host-deployment.test.ts` | `scripts/host.mjs:53` 要求 `dist/cli.js` 存在 |
 | `tests/model-route-policy-http.test.ts` | 「冷卻跨行程重啟後仍有效」那條以子行程 import `dist/autopilot/llm.js`。這是唯一**在測試內**（非載入時）呼叫 `ensureRuntimeBuilt()` 的地方，所以等待時間會以該條規格的逾時呈現 |
 
-這些檔案在 `beforeAll` 呼叫 `tests/helpers/runtime-build.ts` 的 `ensureRuntimeBuilt()`：缺 `dist/`、或 `src/` 有任一檔案比產物新，就就地 `tsc -p tsconfig.build.json`（過期重編是必要的——跨行程重啟測試會 import 編譯產物，舊產物等於測到舊程式碼）。只寫 gitignored 的 `dist/`，不改任何受版控檔案。
+這次 current-main refresh 保留既有 main 規格的 `RUNTIME_BUILT` 門檻。HTTP 跨行程案例與部分平台規格使用 `ensureRuntimeBuilt()`：缺 `dist/` 或原始碼較新時，就地 `tsc -p tsconfig.build.json`。Windows CI 先建置再執行完整回歸；直接在乾淨簽出執行測試時，仍需分開記錄既有 runtime 規格的略過狀態。helper 只寫 gitignored 的建置產物。
 
 互斥用 `node_modules/.cache/adng-runtime-build` 的 `mkdir` 原子性：持有者每 2 秒把自己的 `owner.json` 重新寫一次當心跳，後來者只看心跳是否還在更新（超過 60 秒沒更新就接手，閒置 30 倍），並在取得鎖後回頭確認 token 仍是自己才動手建置。刻意不用 pid 存活判斷——pid 會被回收重用，Windows 上跨行程 `process.kill(pid, 0)` 還可能回 `EPERM`，兩者都會把死掉的持有者誤判為活著而卡滿等待上限。釋放時也只在 token 仍是自己才清鎖，避免刪掉接手者的鎖。完整跑完的建置會在 `node_modules/.cache/adng-runtime-build-ok.json` 留下「src/ 最新 mtime + dist/ 檔案數與總位元組」的指紋；指紋對不上就重建，所以被逾時砍殺的 tsc 留下的半套產物不會被下一次呼叫當成新鮮可用。**選擇建置而不是略過**，是因為略過等於在非 Windows 主機上永久失去這些斷言。
 
@@ -40,14 +40,10 @@ CI 是 `windows-latest`（`.github/workflows/ci.yml`），但驗收也會在 Lin
 
 `tests/github-repair.test.ts` 以 `vi.mock` 把 `src/engines/cli-admission.js` 的 `nativeAdmission` 換成 `unknownAdmission`。原因：規格 mock 了 `proc.runProcess`，但 admission 走 `src/engines/cli-rpc.ts:10` 的 raw `spawn`，會打到開發機上真實登入的 codex CLI；真額度用盡時整條修復路徑被 admission 擋下，與規格斷言無關。原生額度判讀本身由 `tests/cli-admission.test.ts` 單元覆蓋，不受影響。
 
-## 順帶修掉的真缺陷：run.db 雙證閘的邊界假紅
+## current-main 回歸選擇
 
-`tests/supervisor-health/reap-rundb-liveness.test.ts` 的 (b) 情境把 run.db 的 attempt 停在「恰好等於心跳凍結點」。`src/supervisor/supervise.ts:383` 的判斷是 `lastEndMs > nowMs - heartbeatAgeMs`，嚴格大於；檔案系統 mtime 精度的取捨決定它落在哪一側，實測約三分之一執行結果翻成 `keep`（預期 `reap`），是貨真價實的假紅。
+這次合併保留 main 的 fake-Qwen stdout 排空、runtime 產物門檻及 supervisor/PID 回歸規格；先前候選中另一套測試時間邊界調整不覆蓋這些已交付規格。
 
-修法是把 attempt 往前挪一分鐘（`nowMs - 101 分`），保留「run.db 靜默逾寬限」的原意，遠離邊界。這不是為了讓測試變綠而放寬斷言——情境本來就是要在 `attemptAfterFreeze` 明確為 false 下走 reap。
+## 已修正：signed Windows 終止碼
 
-這是**在測試側迴避邊界，不是修掉根因**：根因在 `src/supervisor/supervise.ts:383` 的嚴格 `>` 配上檔案系統 mtime 精度，產品側的選項是改成 `>=` 或加一個 epsilon 緩衝。兩者語意在「剛好等於」這個點上不同，屬於已交付行為，本次不動。
-
-## 已知缺口：`isExternalEngineTermination` 的 signed 形式永遠比不中
-
-`src/engines/infra-retry.ts:34` 的 regex 寫成 `\b(?:1073807364|3221225786|-1073741510)\b`。`-` 不是單詞字元，這一項前面的 `\b` 幾乎不可能成立——只有當 `7` 前剛好緊接著一個單詞字元時才會命中（例如把這串數字接在 `x` 後面），而終止碼不會以那種形式出現——註解宣稱支援的 signed（負值）形式恆為 false。unsigned、`0x` hex 與 `STATUS_CONTROL_C_EXIT` 皆正常，由 `tests/infra-retry.test.ts` 覆蓋；負值形式暫時沒有測試，以免把缺陷固化為期望。修法是把該項改寫成 `(?:-1073741510)\b` 之類不帶前導邊界的比對。
+負值 `-1073741510` 前的 `\b` 無法匹配一般完整數值，會把外部終止誤分類成能力失敗。現在 decimal 終止碼以完整 token 比對，支援 number/string code 與 Error 訊息中的 signed 形式，並拒絕嵌入字串、額外負號或更長數字。新增規格先重現 assertion failure，再驗證修正；unsigned、hex、具名形式保留。
