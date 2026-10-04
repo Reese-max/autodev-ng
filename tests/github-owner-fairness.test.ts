@@ -56,6 +56,25 @@ test('pre-dispatch blocked dispositions yield the slot to the next repo', async 
   expect(report.repositories.find(r => r.repo === 'owner/ccc')?.syncOnly).toBe(true)
 })
 
+test('policy withdrawal preserves the cursor entries of still-discovered repositories', async () => {
+  const { cfg, repos } = ownerFixture()
+  const run = vi.fn(async (_child: unknown, options?: { syncOnly?: boolean }) =>
+    options?.syncOnly ? notAttempted('synced') : attempted())
+  await runOwner(cfg, false, () => repos, run)
+  const cursorPath = join(cfg.dataDir, 'dispatch-cursor.json')
+  const before = JSON.parse(readFileSync(cursorPath, 'utf8'))
+  run.mockClear()
+  await runOwner(cfg, false, () => repos, run, { policyCheck: () => false })
+  expect(run).not.toHaveBeenCalled()
+  const after = JSON.parse(readFileSync(cursorPath, 'utf8'))
+  expect(Object.keys(after.repos).sort()).toEqual(Object.keys(before.repos).sort())
+  expect(after.seq).toBe(before.seq)
+  for (const repo of Object.keys(before.repos)) {
+    expect(after.repos[repo].attemptSeq).toBe(before.repos[repo].attemptSeq)
+    expect(after.repos[repo].lastAttemptedAt).toBe(before.repos[repo].lastAttemptedAt)
+  }
+})
+
 test('cursor file is versioned, survives reorder, and resets safely when corrupt', async () => {
   const { cfg, repos } = ownerFixture()
   const run = vi.fn(async (_c: unknown, o?: { syncOnly?: boolean }) =>
@@ -163,4 +182,16 @@ test('an execution that throws after invocation still consumes the slot', async 
     execute: vi.fn(async () => { throw new Error('post-work crash') }) })
   expect(outcome.attempted).toBe(true)
   expect(readState(cfg, 7)!.status).toBe('blocked')
+})
+
+test.each([true, false])('a resumed review preserves writer runs and accounts verificationAttempted=%s separately', async verificationAttempted => {
+  const { cfg, client, issue } = runnerFixture()
+  cfg.maxRuns = 5
+  saveState(cfg, { repo: cfg.repo, base: cfg.base, issue, fingerprint: fingerprint(issue), status: 'queued', runs: 2, nextRunAt: 0 })
+  const outcome = await runGithubOutcome(cfg, { client,
+    execute: async () => ({ done: false, detail: 'review waiting', attempted: false,
+      reviewPending: true, verificationAttempted, retryAt: Date.now() + 60_000 }),
+  })
+  expect(outcome.attempted).toBe(verificationAttempted)
+  expect(readState(cfg, 7)).toMatchObject({ status: 'queued', runs: 2 })
 })

@@ -60,6 +60,8 @@ const DEFAULT_OBSERVE_BUDGET = 25
 export async function runGithubOutcome(cfg: GithubConfig, options: {
   syncOnly?: boolean; client?: GithubClient; execute?: typeof executeIssue; publish?: typeof publishIssue; configPath?: string;
   observeBudget?: number
+  /** Recheck owner policy throughout execution; any uncertainty fails closed. */
+  policyCheck?: () => boolean
 } = {}): Promise<RunOutcome> {
   const outcome = (disposition: string, attempted = false): RunOutcome => ({ disposition, attempted })
   if (!cfg.enabled || existsSync(githubStopFile(cfg))) return outcome('paused')
@@ -68,11 +70,14 @@ export async function runGithubOutcome(cfg: GithubConfig, options: {
   const inputs = [cfg.sourceConfig, ...(cfg.repair ? [cfg.repair.reportConfig] : [])].map(file => [file, readFileSync(file, 'utf8')] as const)
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'runner.lock')
-  if (!acquireLock(lock)) return outcome('locked')
+  const lockToken = acquireLock(lock)
+  if (!lockToken) return outcome('locked')
   const client = options.client ?? githubClient(cfg)
+  const policyOk = () => { try { return (options.policyCheck?.() ?? true) === true } catch { return false } }
   const active = () => !existsSync(githubStopFile(cfg)) && (!options.configPath || readFileSync(options.configPath, 'utf8') === original)
-    && inputs.every(([file, snapshot]) => readFileSync(file, 'utf8') === snapshot)
+    && inputs.every(([file, snapshot]) => readFileSync(file, 'utf8') === snapshot) && policyOk()
   try {
+    if (!policyOk()) return outcome('paused') // 子 repo 啟動即核對：授權在派工前被撤回
     await syncIssues(cfg, client)
     // PR observation is decoupled from the per-tick worker slot: syncOnly repos
     // still track due PRs, bounded by observeBudget and ordered oldest-first so
@@ -122,8 +127,9 @@ export async function runGithubOutcome(cfg: GithubConfig, options: {
         state.status = 'running'; state.runs++; saveState(cfg, state)
         invoked = true
         const result = await (options.execute ?? executeIssue)(cfg, state)
-        // A deferral (attempted === false) did not consume the writer slot.
-        slotUsed = result.attempted !== false
+        // A review can refund the writer attempt while still consuming the owner slot.
+        // A pure wait that performs neither writer nor verification work yields it.
+        slotUsed = result.attempted !== false || result.verificationAttempted === true
         if (result.attempted === false) { state.runs--; state.alternativeRetryPending = pending; invoked = false }
         if (result.recoveryRequired) {
           state.status = 'blocked'; state.detail = `Execution recovery required: ${result.detail}`
@@ -148,7 +154,7 @@ export async function runGithubOutcome(cfg: GithubConfig, options: {
       state.status = 'blocked'; state.detail = err instanceof Error ? err.message : String(err); saveState(cfg, state)
     }
     return outcome(`${state.issue.number}: ${state.status}`, slotUsed)
-  } finally { releaseLock(lock) }
+  } finally { releaseLock(lock, lockToken) }
 }
 
 // External callers keep the plain disposition string; owner dispatch uses the

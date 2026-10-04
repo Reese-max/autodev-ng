@@ -21,6 +21,10 @@ jobs:
           node-version: '22'
       - run: npm ci
       - run: npm run typecheck
+      - name: Run owner fairness and policy regressions
+        run: npm test -- tests/github-owner-fairness.test.ts tests/github-owner-policy.test.ts tests/github-owner-lock-team.integration.test.ts
+      - name: Run lock ownership regressions
+        run: npm test -- tests/lock.test.ts tests/lock-generation.test.ts tests/lock-errors.test.ts tests/lock-pidfile-cleanup.test.ts tests/github-owner-lock-team.integration.test.ts
       - run: npm run test:flaky-regression
       - name: Run retained GitHub regression tests
         shell: pwsh

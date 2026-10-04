@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { TextDecoder } from 'node:util'
 import { z } from 'zod'
 import { acquireLock, releaseLock } from '../lock.js'
 import { writeJsonAtomic } from '../guardian/incident.js'
 import { api, command } from './client.js'
 import { GithubConfigSchema, type GithubConfig } from './config.js'
-import { runGithubOutcome, type RunOutcome } from './runner.js'
+import { runGithub, runGithubOutcome, type RunOutcome } from './runner.js'
 import { states } from './state.js'
 
 export const OwnerConfigSchema = GithubConfigSchema.omit({ repo: true, base: true, template: true, stopFile: true, verifyCommand: true, repair: true }).extend({
@@ -59,12 +60,26 @@ function readDispatchCursor(dataDir: string): DispatchCursor {
   }
 }
 
+/** 以「當初解析過的檔案內容快照」做授權重核對：內容位元組有任何變動（含改壞、改回、刪除）一律 fail-closed。
+ *  快照必須是產生 cfg 的那份內容——在入口重讀會漏掉 parse→run 之間的撤回。 */
+export function policyFileCheck(file: string, snapshot: Buffer): () => boolean {
+  return () => {
+    try {
+      return readFileSync(file).equals(snapshot)
+    } catch {
+      return false
+    }
+  }
+}
+
 export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = discoverRepos,
-  run: (child: GithubConfig, options: { syncOnly?: boolean }) => Promise<RunOutcome> = runGithubOutcome) {
+  run: (child: GithubConfig, options: { syncOnly?: boolean; policyCheck?: () => boolean }) => Promise<RunOutcome | string> = runGithubOutcome,
+  options: { policyCheck?: () => boolean } = {}) {
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'owner.lock')
   // ponytail: one account lock and one Issue per tick; add concurrency only if queue latency warrants it.
-  if (!acquireLock(lock)) return { status: 'locked' }
+  const lockToken = acquireLock(lock)
+  if (!lockToken) return { status: 'locked' }
   const report: { status: string; at: string; repositories: {
     repo: string; result: string; attempted?: boolean; syncOnly?: boolean;
     lastScannedAt?: string; lastAttemptedAt?: string; issues?: ReturnType<typeof states> }[] } = {
@@ -81,7 +96,7 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
       const sb = cursor.repos[b.full_name.toLowerCase()]?.attemptSeq ?? 0
       return sa - sb || a.full_name.localeCompare(b.full_name)
     })
-    const seen = new Set<string>()
+    const seen = new Set(repos.map(repo => repo.full_name.toLowerCase()))
     for (const repo of order) {
       const id = repo.full_name.toLowerCase()
       seen.add(id)
@@ -94,7 +109,12 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
       cursor.repos[id] = entry
       try {
         const sync = scanOnly || executed
-        const outcome = await run(child, { syncOnly: sync })
+        if (options.policyCheck && !options.policyCheck()) break
+        const result = await run(child, { syncOnly: sync, policyCheck: options.policyCheck })
+        // Existing injected string-returning runners retain conservative slot accounting.
+        const outcome: RunOutcome = typeof result === 'string'
+          ? { disposition: result, attempted: !['synced', 'idle', 'paused', 'locked'].includes(result) }
+          : result
         if (outcome.attempted) {
           executed = true
           entry.attemptSeq = ++cursor.seq
@@ -119,17 +139,18 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
     const tmp = join(cfg.dataDir, `status-${process.pid}.tmp`)
     writeFileSync(tmp, JSON.stringify(report, null, 2) + '\n'); renameSync(tmp, join(cfg.dataDir, 'status.json'))
     return report
-  } finally { releaseLock(lock) }
+  } finally { releaseLock(lock, lockToken) }
 }
-export async function ownerCli(mode: string, file: string): Promise<void> {
-  const raw = OwnerConfigSchema.parse(JSON.parse(readFileSync(file, 'utf8')))
+export async function ownerCli(mode: string, file: string, deps: { discover?: typeof discoverRepos; run?: typeof runGithub } = {}): Promise<void> {
+  const policyContent = readFileSync(file) // 快照產生 cfg 的那份位元組，供執行中重核對（issue #41）
+  const raw = OwnerConfigSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(policyContent)))
   const cfg = { ...raw, sourceConfig: resolve(dirname(file), raw.sourceConfig), dataDir: resolve(dirname(file), raw.dataDir),
     projects: raw.projects ? Object.fromEntries(Object.entries(raw.projects).map(([repo, path]) => [repo, resolve(dirname(file), path)])) : undefined }
   const statusFile = join(cfg.dataDir, 'status.json')
   const result = mode === 'owner-status'
     ? { enabled: cfg.enabled, publish: cfg.publish, label: cfg.label, authors: cfg.authors, paused: !cfg.enabled || existsSync(join(cfg.dataDir, '.adng.stop')),
         lastRun: existsSync(statusFile) ? JSON.parse(readFileSync(statusFile, 'utf8')) : null }
-    : await runOwner(cfg, mode === 'owner-sync')
+    : await runOwner(cfg, mode === 'owner-sync', deps.discover, deps.run, { policyCheck: policyFileCheck(resolve(file), policyContent) })
   console.log(JSON.stringify(result, null, 2))
   if ('status' in result && ['blocked', 'error'].includes(result.status)) process.exitCode = 1
 }
