@@ -46,14 +46,20 @@ test('assemble：mock engine → registry 以 defaultEngine 解析出 MockEngine
 
 test('assemble：Telegram token/chat ID 齊全才接入任務終態通知', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-cli-'))
-  const cfgPath = writeConfig(dir, { telegramBotToken: '123:ABC', telegramChatId: '-100123' })
-  const { deps, cfg } = assemble(cfgPath)
+  const savedTelegram = process.env.ADNG_TEST_TELEGRAM_TOKEN
+  process.env.ADNG_TEST_TELEGRAM_TOKEN = '123:ABC'
+  const cfgPath = writeConfig(dir, { telegramBotToken: '{env:ADNG_TEST_TELEGRAM_TOKEN}', telegramChatId: '-100123' })
+  let closeDb: (() => void) | undefined
   try {
+    const { deps, cfg } = assemble(cfgPath)
+    closeDb = () => deps.db.close()
     expect(cfg.telegramBotToken).toBe('123:ABC')
     expect(cfg.telegramChatId).toBe('-100123')
     expect(deps.taskTerminalNotify).toBeTypeOf('function')
   } finally {
-    deps.db.close()
+    closeDb?.()
+    if (savedTelegram === undefined) delete process.env.ADNG_TEST_TELEGRAM_TOKEN
+    else process.env.ADNG_TEST_TELEGRAM_TOKEN = savedTelegram
   }
 })
 

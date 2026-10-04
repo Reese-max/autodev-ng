@@ -87,6 +87,34 @@ npm 12 會依 `package.json` 的 `allowScripts` 決定是否執行相依套件�
 
 ### 1. 準備 config（JSON，現有設定見 `configs/autodev-self.json`）
 
+#### 🚀 最小起步配置（複製即用，零 provider、零金鑰）
+
+第一次使用者只需這份最小配置即可在本機跑通 `status` 與 `run-once`，**不需要任何 API 金鑰、外部服務或雲端帳號**：
+
+```json
+{
+  "projectPath": "./my-project",
+  "backlogFile": "./my-project/BACKLOG.md",
+  "dataDir": "./data",
+  "engines": { "mock": { "adapter": "mock" } },
+  "defaultEngine": "mock"
+}
+```
+
+存為 `config.json`，接著建立專案與空 backlog：
+
+```powershell
+npm run build
+node -e "const fs=require('node:fs'); fs.mkdirSync('my-project',{recursive:true}); fs.writeFileSync('my-project/BACKLOG.md','')"
+git -C my-project init -q && git -C my-project add BACKLOG.md && git -C my-project -c user.name=demo -c user.email=demo@example.invalid commit -qm "init"
+node dist/cli.js status --config config.json       # 預期 exit 0
+node dist/cli.js run-once --config config.json     # 預期 CycleResult: idle、exit 0
+```
+
+> **關鍵點**：`engine: "mock"` / `adapter: "mock"` 完全在本機運行，**不呼叫任何 LLM provider、不發送通知、不產生費用**。驗證 CLI、排程、worktree 機制是否正常後，再依下方「完整配置欄位」逐步加入真實引擎與憑證。
+
+---
+
 `configs/` 內含本機部署路徑，使用前須核對。相對路徑以設定檔所在目錄解析；模式變體放在 `configs/modes/`，整合設定放在 `configs/integrations/`，避免被 fleet supervisor 當成另一個專案。
 
 現有六份設定以本 checkout 與相鄰專案目錄解析路徑；缺少原 backlog 的專案使用 `data/<project>/BACKLOG.md`。模式範本須先複製到 `configs/autodev-self.json`，再由該位置解析相對路徑。Windows 啟動／排程腳本會從自身位置找到 repo；不再依賴固定磁碟路徑。
@@ -118,26 +146,6 @@ npm 12 會依 `package.json` 的 `allowScripts` 決定是否執行相依套件�
   "botGuildId": "<Discord guild id>"
 }
 ```
-
-若要先走一條不含 provider 的安全本機起步路徑，請先在 `autodev-ng` checkout 根目錄建置 CLI；以下步驟會先保存已建置 CLI 的絕對路徑，再建立並切入一個新的 task-owned 目錄。步驟會明確建立 synthetic project、Git repository 與空的 `BACKLOG.md`：
-
-```powershell
-npm run build
-$adngCli = (Resolve-Path (Join-Path (Get-Location) 'dist/cli.js')).Path
-$taskRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('adng-onboarding-' + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $taskRoot | Out-Null
-Push-Location $taskRoot
-node -e "const fs=require('node:fs'); fs.writeFileSync('config.json', JSON.stringify({projectPath:'./project', backlogFile:'./project/BACKLOG.md', dataDir:'./data', engine:'mock'}, null, 2)+'\n')"
-node -e "const fs=require('node:fs'); fs.mkdirSync('project',{recursive:true}); fs.writeFileSync('project/BACKLOG.md','')"
-git -C project init -q
-git -C project add BACKLOG.md
-git -C project -c user.name=synthetic -c user.email=synthetic@example.invalid commit -qm "synthetic empty backlog"
-& node $adngCli status --config config.json       # 預期 exit 0
-& node $adngCli run-once --config config.json     # 預期 CycleResult: idle、exit 0
-Pop-Location
-```
-
-第一次 `status`／`run-once` 會在本機建立 `data/` 下的狀態資料；`engine: "mock"` 不會呼叫 provider 或通知。若要接入實際專案，請回到上面的完整 config 欄位與憑證引用規則。
 
 選配欄位說明：
 - `judgeApiKey`：以 `{env:JUDGE_API_KEY}` 引用啟動程序的環境變數；不要將真實金鑰寫進版控。

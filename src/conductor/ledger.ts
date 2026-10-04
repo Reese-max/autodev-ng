@@ -22,6 +22,8 @@ export type LedgerRecord =
       type: 'attempt-result'
       task_id: string; attempt: number; worker: string; ok: boolean
       model?: string; cost_usd?: number; failure_reason?: string; failure_class?: string
+      /** Host cancellation proof; a timeout alone is not a terminal result. */
+      termination_confirmed?: boolean; recovery_required?: boolean
       fingerprint?: string; base_commit?: string; commit?: string; ts: string
     }
   | {

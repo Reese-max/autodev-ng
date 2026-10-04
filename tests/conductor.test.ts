@@ -500,11 +500,11 @@ describe('runConductorTask', () => {
   test('resume 用存檔 task.yaml 的 parent_commit——crash 前的越界 commit 仍被揪出', async () => {
     const repo = newRepo()
     let alive = true
-    // attempt1：commit 越界檔後立刻 throw（worker-crash），留下壞 commit；接著叫停
+    // attempt1：commit 越界檔後回報已停止的失敗，留下壞 commit；接著叫停
     const crashy = new ScriptedWorker((job) => {
       gitCommit(job.projectPath, 'other/evil.txt', 'x\n')
       alive = false
-      throw new Error('worker died mid-attempt')
+      return { ok: false, output: '', costUsd: 0, failureReason: 'worker stopped after failure' }
     })
     const r1 = await runConductorTask(envelope({ max_retries: 2 }), makeDeps(repo, crashy, { isAlive: () => alive }))
     expect(r1.status).toBe('stopped')

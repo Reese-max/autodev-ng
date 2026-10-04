@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative } from 'node:path'
 import type { Engine, Job, RunResult } from '../types.js'
 import { WORKER_GUARDS } from '../engines/prompt-guard.js'
@@ -23,6 +23,11 @@ export interface ConductorDeps {
   stateDir?: string
   /** worker tag → Engine。接進 registry（agy/herdr/codex…）或測試注入。 */
   resolveWorker: (tag: string) => Engine
+  /** Trusted host adapter: stop this exact execution and join every writer descendant.
+   * A worker report or AbortSignal is not a termination receipt. */
+  cancelWorker?: (engine: Engine, job: Job) => Promise<{ executionId: string; terminated: boolean }>
+  /** Bounded host cancellation wait (1..10,000ms, default 1,000ms). */
+  terminationTimeoutMs?: number
   getCommitHash?: (cwd: string) => string | undefined
   /** ref → 完整 commit sha（短 sha/分支皆可）；預設 git rev-parse --verify。 */
   resolveCommit?: (cwd: string, ref: string) => string | undefined
@@ -159,6 +164,11 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
   const snapNow = (): DirtySnapshot => snapshot(deps.projectPath, stateRel ? [stateRel] : [])
   const ledger = new TaskLedger(stateDir)
   const state = { attempts: 0 }
+  const projectionFile = join(stateDir, 'worker-quarantine.json')
+  const terminationTimeout = deps.terminationTimeoutMs ?? 1_000
+  if (!Number.isInteger(terminationTimeout) || terminationTimeout < 1 || terminationTimeout > 10_000) {
+    throw new Error('terminationTimeoutMs must be an integer between 1 and 10000')
+  }
 
   let envelope: TaskEnvelope = typeof input === 'string' ? parseTaskEnvelope(input) : TaskEnvelopeSchema.parse(input)
   const taskId = envelope.task_id
@@ -173,6 +183,26 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
     writeCheckpoint(stateDir, buildCheckpoint(stateDir, envelope, ledger, null, 'n/a', `task ${taskId} ${status}`, readCheckpoint(stateDir)))
     deps.events?.append('conductor-task-finished', { task_id: taskId, status, reason, attempts: state.attempts })
     return result(status, { commit, reason })
+  }
+
+  const ws = inspectGitWorkspace(deps.projectPath)
+  if (!ws.ok) return finish('blocked', `workspace 不可用：${ws.reason}（${ws.detail}）`)
+  // Git host metadata survives git clean and changing the caller's stateDir.
+  // The stateDir file is an operator projection, never the sole authority.
+  const fenceFile = join(ws.gitDir, 'adng-conductor-worker-quarantine.json')
+  if (existsSync(fenceFile) || existsSync(projectionFile)) return result('blocked', { reason: 'worker-termination-unconfirmed：worker quarantine exists; reconcile the exact execution before dispatch' })
+  const unresolved = new Map<string, { taskId: string; attempt: number }>()
+  for (const record of ledger.readAll()) {
+    if (record.type === 'attempt') unresolved.set(JSON.stringify([record.task_id, record.attempt]), { taskId: record.task_id, attempt: record.attempt })
+    else if (record.type === 'attempt-result') {
+      if (record.termination_confirmed === true || (!record.recovery_required && record.failure_class !== 'task-timeout' && record.failure_class !== 'interrupted' && record.failure_class !== 'worker-crash')) unresolved.delete(JSON.stringify([record.task_id, record.attempt]))
+    }
+  }
+  if (unresolved.size) {
+    const old = unresolved.values().next().value!
+    try { writeFileSync(fenceFile, JSON.stringify({ schemaVersion: 1, taskId: old.taskId, attempt: old.attempt, executionId: null, hostPid: null, timestamp: now(), status: 'legacy-unresolved' }) + '\n', { encoding: 'utf8', flag: 'wx' }) }
+    catch { /* fail closed even if the recovery marker cannot be written */ }
+    return result('blocked', { reason: 'worker-termination-unconfirmed：legacy attempt has no terminal receipt; reconcile before dispatch' })
   }
 
   // 冪等：已 done 不重派
@@ -205,8 +235,6 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
   }
   writeFileSync(join(taskRunDir, 'task.yaml'), serializeTaskEnvelope(envelope), 'utf8')
 
-  const ws = inspectGitWorkspace(deps.projectPath)
-  if (!ws.ok) return finish('blocked', `workspace 不可用：${ws.reason}（${ws.detail}）`)
   ensureStateExcluded(deps.projectPath, stateRel)
   let headNow = getHead(deps.projectPath)
   if (!headNow) return finish('blocked', 'not a git repository or HEAD unreadable')
@@ -229,13 +257,11 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
   } else {
     const open = ledger.openAttempt(taskId)
     if (open) {
-      // 上次在派工中崩潰：補記 interrupted，接受目前 HEAD（worker 殘留進度），續 epoch
-      ledger.append({
-        type: 'attempt-result', task_id: taskId, attempt: open.attempt, worker: open.worker,
-        ok: false, failure_reason: 'interrupted：session 中止，attempt 未收尾', failure_class: 'interrupted',
-        commit: headNow, ts: now(),
-      })
-      expectedHead = headNow
+      // Legacy interrupted attempts have no execution fence/termination evidence.
+      try {
+        writeFileSync(fenceFile, JSON.stringify({ schemaVersion: 1, taskId, attempt: open.attempt, executionId: null, hostPid: null, timestamp: now(), status: 'legacy-interrupted' }) + '\n', { encoding: 'utf8', flag: 'wx' })
+      } catch { /* an existing or unwritable quarantine still forbids dispatch */ }
+      return result('blocked', { reason: 'worker-termination-unconfirmed：interrupted attempt has no terminal receipt; reconcile before resume' })
     } else {
       expectedHead = ledger.lastAttemptResult(taskId)?.commit ?? envelope.parent_commit
       if (expectedHead && headNow !== expectedHead) {
@@ -278,9 +304,10 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
     writeCheckpoint(stateDir, buildCheckpoint(stateDir, envelope, ledger, { task_id: taskId, attempt: attemptNo, status: 'dispatched' }, 'in-progress', `worker ${envelope.worker} attempt ${attemptNo}`, readCheckpoint(stateDir)))
 
     // 派工視窗前緣快照：conductor 寫入已結束、worker 尚未啟動——視窗內任何變動都算 worker 的
-    const baseline = snapNow()
+    let baseline = snapNow()
     const timeout = envelope.budget.timeout_ms
-    const signal = timeout ? AbortSignal.timeout(timeout) : undefined
+    const controller = new AbortController()
+    const signal = timeout ? controller.signal : undefined
     const job: Job = {
       task: { id: workerTaskId(taskId), text: `${envelope.goal}\n\n${envelope.scope}`, line: 0, status: 'open' },
       projectPath: deps.projectPath,
@@ -292,20 +319,44 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
 
     let res: RunResult
     let preflightFailed = false
+    let timedOut = false
+    let terminationConfirmed = false
+    let fence: string | undefined
     try {
       const pf = await engine.preflight()
       if (!pf.ok) {
         preflightFailed = true
         res = { ok: false, output: pf.detail, costUsd: 0, costUnknown: true, failureReason: `preflight-failed：${pf.detail}` }
       } else {
-        // timeout watchdog：engine 無視 control.signal 也不能讓 conductor 永遠掛住
-        const timeoutResult: Promise<RunResult> | undefined = timeout
-          ? new Promise(resolve => {
-              const t = setTimeout(() => resolve({ ok: false, output: '', costUsd: 0, costUnknown: true, failureReason: `task-timeout：逾時 ${timeout}ms（engine 未在時限內返回）` }), timeout)
-              t.unref?.()
-            })
-          : undefined
-        res = timeoutResult ? await Promise.race([engine.run(job), timeoutResult]) : await engine.run(job)
+        fence = JSON.stringify({ schemaVersion: 1, taskId, attempt: attemptNo, executionId: job.executionId, hostPid: process.pid, timestamp: now() }) + '\n'
+        try { writeFileSync(fenceFile, fence, { encoding: 'utf8', flag: 'wx' }) }
+        catch { return result('blocked', { reason: 'worker-termination-unconfirmed：unable to acquire worker quarantine; no worker dispatched' }) }
+        writeFileSync(projectionFile, fence, 'utf8')
+        baseline = snapNow()
+        // Always consume late rejection. Promise.race alone cannot cancel a writer.
+        const running = Promise.resolve().then(() => engine.run(job)).catch((e): RunResult =>
+          ({ ok: false, output: '', costUsd: 0, costUnknown: true, recoveryRequired: true, failureReason: `worker-crash: ${msg(e)}` }))
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const timeoutResult = timeout ? new Promise<RunResult>(resolve => {
+          timer = setTimeout(() => {
+            timedOut = true
+            controller.abort()
+            resolve({ ok: false, output: '', costUsd: 0, costUnknown: true, failureReason: `task-timeout：逾時 ${timeout}ms` })
+          }, timeout)
+        }) : undefined
+        try { res = timeoutResult ? await Promise.race([running, timeoutResult]) : await running }
+        finally { if (timer) clearTimeout(timer) }
+        if (timedOut) {
+          let stopTimer: ReturnType<typeof setTimeout> | undefined
+          try {
+            const receipt = await Promise.race([
+              Promise.all([deps.cancelWorker?.(engine, job), running]).then(([receipt]) => receipt),
+              new Promise<undefined>(resolve => { stopTimer = setTimeout(() => resolve(undefined), terminationTimeout) }),
+            ])
+            terminationConfirmed = receipt?.terminated === true && receipt.executionId === job.executionId
+          } catch { /* unavailable/failed termination stays quarantined */ }
+          finally { if (stopTimer) clearTimeout(stopTimer) }
+        }
       }
     } catch (e) {
       res = { ok: false, output: '', costUsd: 0, costUnknown: true, failureReason: `worker-crash: ${msg(e)}` }
@@ -316,10 +367,20 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
     const after = snapNow()
     const delta = dirtyDeltaPaths(baseline, after)
     const committed = Boolean(headAfter && headAfter !== headBefore)
-    const timedOut = (signal?.aborted === true) || Boolean(timeout && /task-timeout/.test(res.failureReason ?? ''))
+    const releaseFence = (): boolean => {
+      if (!fence) return true
+      try {
+        if (readFileSync(fenceFile, 'utf8') !== fence) return false
+        if (readFileSync(projectionFile, 'utf8') !== fence) return false
+        rmSync(projectionFile)
+        rmSync(fenceFile)
+        return true
+      } catch { return false }
+    }
 
     const writeArtifacts = (name: 'worker-report' | 'verification', body: string[]): void => {
       const text = body.join('\n')
+      mkdirSync(taskRunDir, { recursive: true })
       writeFileSync(join(taskRunDir, `${name}.md`), text, 'utf8')
       writeFileSync(join(taskRunDir, `attempt-${attemptNo}-${name}.md`), text, 'utf8')
     }
@@ -352,9 +413,22 @@ export async function runConductorTask(input: unknown, deps: ConductorDeps): Pro
       type: 'attempt-result', task_id: taskId, attempt: attemptNo, worker: envelope.worker,
       ok: !failureReason, model: res.actualModel, cost_usd: res.costUnknown ? undefined : res.costUsd,
       failure_reason: failureReason, failure_class: failureClass, fingerprint,
+      termination_confirmed: timedOut ? terminationConfirmed : !res.recoveryRequired, recovery_required: res.recoveryRequired,
       base_commit: headBefore, commit: headAfter ?? undefined, ts: now(),
     })
     expectedHead = headAfter ?? expectedHead
+
+    if (res.recoveryRequired || (timedOut && !terminationConfirmed)) {
+      return finish('escalated', `worker-termination-unconfirmed：${failureClass ?? 'recovery'} requires independent stop and execution reconciliation; quarantine retained, no retry`, headAfter)
+    }
+    // The snapshot above is taken after both run settlement and the host stop
+    // receipt. A late mutation cannot become the next attempt's normal baseline.
+    if (timedOut && (committed || delta.length > 0)) {
+      return finish('blocked', 'task-timeout-late-mutation：repo changed before confirmed termination; quarantine retained, review before retry', headAfter)
+    }
+    if (!releaseFence()) {
+      return finish('blocked', 'worker-quarantine-changed：execution fence changed; no retry or verification', headAfter)
+    }
 
     if (failureReason) {
       feedback = failureReason

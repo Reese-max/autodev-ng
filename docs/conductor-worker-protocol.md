@@ -81,12 +81,25 @@ final_report_required: true
   （git/node/npm/npx/vitest/tsc/…），schema 層拒絕 `curl|sh`、`rm`、shell 直達——
   殘餘風險（如 `npm run <script>`）於高風險環境應人工審 envelope。
 - **phantom completion**：worker 回 ok 但無 commit 且視窗內零檔案變動 → 計失敗。
-- **timeout**：`budget.timeout_ms` → `AbortSignal.timeout` **加上** `Promise.race` watchdog——
-  engine 無視 signal / 永不返回也不會把 conductor 掛死。
+- **timeout**：`budget.timeout_ms` → host-owned `AbortController` 與 watchdog；到時先要求取消。
+  `deps.cancelWorker(engine, job)` 必須停止精確 execution 並 join 所有 writer descendants，回傳
+  `{ executionId: job.executionId, terminated: true }`。只有這份宿主回執與 `engine.run()` 終態
+  都在 `terminationTimeoutMs`（預設 1 秒，最多 10 秒）內到達，且重新快照證明 HEAD/髒檔未變，才可重試。
+  timeout 後有修改則 blocked，保留成果供審查；不把它當下一輪基準。
+- **未確認終止 / recoveryRequired**：派工前以 exclusive create 保存
+  `<gitDir>/adng-conductor-worker-quarantine.json`，`.autodev/worker-quarantine.json` 只作操作員投影
+  （task/attempt/executionId/hostPid/timestamp，沒有 prompt 或 output）。Git metadata 的 authority 不會被
+  `git clean -fdx` 刪掉，也不能靠更換 stateDir 繞過。未確認終止時保留 quarantine、escalate 且零重試；
+  同工作樹的同 task、新 task 與重啟均不得派工。dispatch 後 `run()` 拋錯也視為終止未知。
+  普通 worker 完成或取消已證明後，僅有原持有者可清除 quarantine。
 - **over-budget**：`budget.max_cost_usd` 比對 `RunResult.costUsd`，超標計失敗。
 - **preflight**：派工前 `engine.preflight()`，不過計 `preflight` 失敗 attempt。
-- **resume**：crash 後重跑同 task_id —— 契約以磁碟 `task.yaml` 定本為準（不信 call site），
-  open attempt 補記 `interrupted`，epoch 內已耗 budget 續計；`done` 重跑冪等返回。
+- **resume**：重跑同 task_id —— 契約以磁碟 `task.yaml` 定本為準（不信 call site），
+  epoch 內已耗 budget 續計；`done` 重跑冪等返回。同 stateDir 中任一舊 task 尚未收尾，或 timeout／
+  legacy `worker-crash` 缺宿主終止證據時，其他 task 也 blocked，並建立 Git metadata quarantine。
+  Crash/timeout recovery 必須由操作者核對 quarantine 的精確 execution、停止並確認全部 writer 已終止、
+  檢查並裁定目前 HEAD/髒檔、保存終止與修改審查證據後才可移除 authority 與投影 quarantine；
+  legacy attempt 還須保存可信 terminal result。沒有證據不得移除。
 - **不重複燒錢**：連續相同失敗指紋（sha1 of class+reason）→ 提前 escalate。
 
 ## 與既有系統的接縫
@@ -94,7 +107,8 @@ final_report_required: true
 - Worker dispatch 走既有 `Engine` 介面（`resolveWorker(tag)`），`agy`/`herdr` adapter 直接可用：
   `Job.task.id = workerTaskId(task_id)`（16-hex sha1，滿足 agy pkill marker 白名單），
   `Job.directive = buildWorkerDirective(...)`（含 `WORKER_GUARDS` + 完整契約 + 上輪回饋），
-  `Job.control.signal = AbortSignal.timeout(budget.timeout_ms)`。
+  `Job.control.signal` 是宿主 timeout controller 的 signal。
+  現有 adapter 沒有提供上述可信 `cancelWorker` 接線時，timeout 會保留 quarantine，不能假裝安全重試。
 - Herdr 路徑同介面：Herdr engine adapter 內部已含 `-MaxRounds 1`、禁自行 commit、`AUTOPILOT_WAIT_OK` 等護欄。
 - 事件接線：可選 `deps.events`（如 `FileEventLog`）記 `conductor-verification`/`conductor-task-finished`。
 - 驗證執行重用 `src/engines/run-verify.ts` 的 `runVerify`（指令探測/exit code/逾時語意一致）。
@@ -102,9 +116,9 @@ final_report_required: true
 ## 已知邊界（MVP）
 
 - `task-ledger.jsonl` 無鎖——假設單 conductor 程序持有同一 stateDir。
-- escalated 任務重跑 = 新 epoch、budget 重新計（預期行為；stale parent_commit 通常先擋下）。
-- worker 結束後殘留行程若再寫 .autodev 屬視窗外事件——post-attempt 快照抓不到；
-  真正的行程清理屬 engine/adapter 職責。
+- 一般 escalated 任務重跑 = 新 epoch、budget 重新計；quarantine / 未收尾 attempt 必須先獨立核對。
+- 正常非 timeout 的 `engine.run()` 仍要求 adapter 在返回前清理 writer descendants；
+  timeout 路徑額外要求可信終止回執，不能把 signal 已發出或 worker 的完成文字當作證據。
 - `npm run` 白名單殘餘風險（可控 package.json scripts）；高風險環境建議人工簽 envelope。
 
 ## MVP 範圍外（issue 明列）

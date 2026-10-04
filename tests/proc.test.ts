@@ -133,7 +133,10 @@ test('取消只作用在指定子程序；預先取消不 spawn，也不算 wall
   expect(r.timedOut).toBe(false)
   expect(events.at(-1)).toMatchObject({ type: 'exit', reason: 'cancelled' })
   const spawned = events.find(e => e.type === 'spawn')
-  expect(spawned?.type === 'spawn' && isPidAlive(spawned.pid)).toBe(false)
+  if (spawned?.type !== 'spawn') throw new Error('spawn event missing')
+  // POSIX：SIGKILL 後子進程先成 zombie，待父行程非同步回收才真正 ESRCH；
+  // killTree 在 Windows 以 taskkill＋驗屍同步收斂、POSIX 為信號即走——有界輪詢不賭單點時序
+  await vi.waitFor(() => { expect(isPidAlive(spawned.pid)).toBe(false) }, { timeout: 5_000 })
 }, 20_000)
 
 test('idleTimeoutMs：無輸出進度才斬樹，不能把 wall timeout 偷加回來', async () => {
@@ -177,7 +180,9 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-test('hang-tree：雙層樹斬——父子兩層 PID 逾時後皆不存活', async () => {
+// 整樹斬在 POSIX 只殺根（killTree 後備無子代枚舉），孫代存活是平台既有語意，
+// 「父子兩層皆不存活」的斷言僅 Windows taskkill 路徑成立。
+test.skipIf(process.platform !== 'win32')('hang-tree：雙層樹斬——父子兩層 PID 逾時後皆不存活', async () => {
   process.env.FAKE_MODE = 'hang-tree'
   const r = await runProcess({ ...base, stdinText: 'x', timeoutMs: 1500 })
   expect(r.timedOut).toBe(true)
