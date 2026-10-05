@@ -8,7 +8,9 @@ const SECRET_PATTERNS = [
   /bot[0-9]{8,10}:[a-zA-Z0-9_-]{35}/,
 ]
 
-const EXCLUDED_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage'])
+// gitignored runtime/fleet state can never be committed — scanning it is pure
+// waste and can stall the typecheck gate for tens of minutes under AV load.
+const EXCLUDED_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage', 'data', 'reports', 'coverage-quality-probe'])
 
 function scanDir(dir, errors = []) {
   const entries = readdirSync(dir)
