@@ -296,10 +296,38 @@ test('CLI sandbox failure blocks the repair before preparation or repeated worke
   const run = vi.spyOn(proc, 'runProcess').mockResolvedValue({ stdout: '', stderr: 'sandbox setup required', exitCode: 1, timedOut: false, durationMs: 1 })
   expect(await runGithub(f.cfg, { client: f.client, configPath: f.configPath })).toBe('4: blocked')
   expect(readState(f.cfg, 4)?.detail).toContain('Repair CLI preflight failed')
+  expect(readState(f.cfg, 4)?.runs).toBe(0)
+  expect(readState(f.cfg, 4)?.controlReason).toBe('preflight-failed')
   expect(run).toHaveBeenCalledTimes(1)
   expect(run.mock.calls[0]![0].command).toBe('codex')
   expect(await runGithub(f.cfg, { client: f.client, configPath: f.configPath })).toBe('idle')
   expect(run).toHaveBeenCalledTimes(1)
+})
+
+test.each(['refused', 'unknown'] as const)('repair Freebuff preflight %s preserves terminal safety and distinguishes known no-start from uncertainty', async outcome => {
+  const f = await setup(), source = JSON.parse(readFileSync(f.cfg.sourceConfig, 'utf8'))
+  source.engines.writer = { adapter: 'freebuff', timeoutMs: 10_000, costPerRunUsd: 0 }
+  writeFileSync(f.cfg.sourceConfig, JSON.stringify(source))
+  expect(eligibleForRun(f.issue, f.cfg)).toBe(true)
+  const preflight = vi.spyOn(FreebuffEngine.prototype, 'preflight')
+  if (outcome === 'refused') preflight.mockResolvedValue({ ok: false, detail: 'fixture local CLI safety refusal' })
+  else preflight.mockRejectedValue(new Error('fixture preflight transport unknown'))
+  const worker = vi.spyOn(FreebuffEngine.prototype, 'run').mockRejectedValue(new Error('writer must not run'))
+  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('provider calls forbidden'))
+  expect(await runGithub(f.cfg, { client: f.client, configPath: f.configPath })).toBe('4: blocked')
+  const state = readState(f.cfg, 4)!
+  expect(state.runs).toBe(outcome === 'refused' ? 0 : 1)
+  if (outcome === 'refused') {
+    expect(state.detail).toBe('Repair CLI preflight failed: fixture local CLI safety refusal; repair CLI login/sandbox before retry')
+    expect(state.controlReason).toBe('preflight-failed')
+  } else {
+    expect(state.detail).toContain('fixture preflight transport unknown')
+    expect(state.controlReason).toBeUndefined()
+  }
+  expect(await runGithub(f.cfg, { client: f.client, configPath: f.configPath })).toBe('idle')
+  expect(preflight).toHaveBeenCalledTimes(1)
+  expect(worker).not.toHaveBeenCalled()
+  expect(fetch).not.toHaveBeenCalled()
 })
 
 test('CLI review failure cannot approve and CLI repair requires explicit local policy', async () => {

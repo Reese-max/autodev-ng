@@ -4,10 +4,15 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { IssueSchema, type GithubConfig, type Issue } from './config.js'
 
+const ControlReasonSchema = z.enum(['stopped', 'cost-hard-stop', 'idle', 'deferred', 'preflight-failed', 'daily-attempt-cap', 'not-started'])
+export type ControlReason = z.infer<typeof ControlReasonSchema>
+export const MAX_CONTROL_RUNS = 5
 const StateSchema = z.object({
   repo: z.string(), base: z.string(), issue: IssueSchema, fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   status: z.enum(['queued', 'running', 'ready', 'published', 'blocked', 'cancelled']),
   runs: z.number().int().nonnegative(), nextRunAt: z.number(),
+  controlRuns: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  controlReason: ControlReasonSchema.optional(),
   candidateCheck: z.object({
     schema: z.literal('github-candidate-checkpoint/v1'), at: z.string().datetime(),
     policyHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -18,7 +23,7 @@ const StateSchema = z.object({
   revision: z.object({ round: z.number().int().positive().max(5), baseCommit: z.string().regex(/^[a-f0-9]{40,64}$/), feedback: z.string().min(1).max(20000), key: z.string() }).optional(),
   remote: z.object({ at: z.string(), head: z.string(), state: z.enum(['open', 'closed', 'merged']), checks: z.enum(['pass', 'fail', 'pending', 'unknown']), feedback: z.string(), key: z.string() }).optional(),
   acceptance: z.object({ commit: z.string(), at: z.string(), actor: z.string(), evidence: z.string().min(8).max(2000) }).optional(),
-  history: z.array(z.object({ at: z.string().datetime(), status: z.string(), runs: z.number().int().nonnegative(), detail: z.string().optional(), source: z.literal('legacy-snapshot').optional(), phase: z.literal('candidate-check').optional() })).optional(),
+  history: z.array(z.object({ at: z.string().datetime(), status: z.string(), runs: z.number().int().nonnegative(), detail: z.string().optional(), controlRuns: z.number().int().nonnegative().optional(), controlReason: ControlReasonSchema.optional(), source: z.literal('legacy-snapshot').optional(), phase: z.literal('candidate-check').optional() })).optional(),
   reconciliation: z.object({ at: z.string().datetime(), key: z.string().regex(/^[a-f0-9]{64}$/), kind: z.string(), receipt: z.string().regex(/^reconciliation-[a-f0-9-]+\.json$/) }).optional(),
   baseSha: z.string().regex(/^[a-f0-9]{40,64}$/).optional(), commit: z.string().regex(/^[a-f0-9]{40,64}$/).optional(), pr: z.string().url().optional(), detail: z.string().optional(),
   lastObservedAt: z.number().optional(),
@@ -51,10 +56,13 @@ export function saveState(cfg: GithubConfig, state: IssueState): void {
   const dir = issueDir(cfg, state.issue.number)
   mkdirSync(dir, { recursive: true })
   const previous = readState(cfg, state.issue.number)
-  if (!previous || previous.status !== state.status || previous.runs !== state.runs || previous.detail !== state.detail) {
+  if (!previous || previous.status !== state.status || previous.runs !== state.runs || previous.detail !== state.detail
+    || previous.controlRuns !== state.controlRuns || previous.controlReason !== state.controlReason) {
     const at = new Date().toISOString()
     const history = previous?.history ?? (previous ? [{ at, status: previous.status, runs: previous.runs, detail: previous.detail, source: 'legacy-snapshot' as const }] : [])
-    state.history = [...history, { at, status: state.status, runs: state.runs, detail: state.detail, ...(state.candidateCheck ? { phase: 'candidate-check' as const } : {}) }]
+    state.history = [...history, { at, status: state.status, runs: state.runs, detail: state.detail,
+      ...(state.controlRuns !== undefined ? { controlRuns: state.controlRuns } : {}), ...(state.controlReason ? { controlReason: state.controlReason } : {}),
+      ...(state.candidateCheck ? { phase: 'candidate-check' as const } : {}) }]
   }
   const tmp = join(dir, `state-${randomUUID()}.tmp`)
   writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n')

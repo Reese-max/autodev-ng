@@ -5,7 +5,7 @@ import { githubStopFile, loadGithubConfig, type GithubConfig, type Issue } from 
 import { eligibleForRun } from './repair.js'
 import { describeIssueBatchCoverage, githubClient, issueBatchFor, transientGithubRead, type GithubClient } from './client.js'
 import { assertPublishable, checkoutDir, executeIssue, git, issueReviewPending } from './job.js'
-import { alternativeRunPending, branchFor, candidatePolicyHash, fingerprint, readState, saveState, states, type IssueState } from './state.js'
+import { alternativeRunPending, branchFor, candidatePolicyHash, fingerprint, MAX_CONTROL_RUNS, readState, saveState, states, type IssueState } from './state.js'
 import { observePr } from './followup.js'
 import { issueQualityVeto } from './intake-quality.js'
 
@@ -165,6 +165,10 @@ export async function runGithubOutcome(cfg: GithubConfig, options: {
           state.status = 'cancelled'; state.detail = 'Issue changed or excluded before execution'; saveState(cfg, state); return withCoverage('cancelled')
         }
         if (!active()) return withCoverage('paused')
+        if ((state.controlRuns ?? 0) >= MAX_CONTROL_RUNS) {
+          state.status = 'blocked'; state.detail = `control-retry-exhausted: ${state.controlReason ?? 'unknown'}; inspect environment and use explicit recovery`
+          saveState(cfg, state); return withCoverage('blocked')
+        }
         if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state) && !issueReviewPending(cfg, state)) { state.status = 'blocked'; saveState(cfg, state); return withCoverage('blocked') }
         const pending = state.alternativeRetryPending
         state.alternativeRetryPending = false
@@ -174,17 +178,31 @@ export async function runGithubOutcome(cfg: GithubConfig, options: {
         invoked = false
         // Verification may consume the slot while refunding a writer attempt.
         slotUsed = result.attempted !== false || result.verificationAttempted === true
-        if (result.attempted === false) { state.runs--; state.alternativeRetryPending = pending; invoked = false } // Review/capacity deferral does not spend a writer attempt.
-        if (result.recoveryRequired) {
+        if (result.attempted === false && result.startState !== 'unknown' && (!result.recoveryRequired || result.startState === 'not-started')) {
+          state.runs--; state.alternativeRetryPending = pending; invoked = false
+          if (!result.done && !result.terminalBlocked) {
+            state.controlRuns = Math.min((state.controlRuns ?? 0) + 1, MAX_CONTROL_RUNS)
+            state.controlReason = result.controlReason ?? 'not-started'
+          }
+        } else if (result.attempted === true && result.startState !== 'unknown' && !result.recoveryRequired) {
+          state.controlRuns = 0; delete state.controlReason
+        }
+        if (result.recoveryRequired || result.startState === 'unknown') {
           recoveryRequired = true
           state.status = 'blocked'; state.detail = `Execution recovery required: ${result.detail}`
           saveState(cfg, state); return withCoverage('blocked')
         }
+        if (result.terminalBlocked && result.controlReason) state.controlReason = result.controlReason
+        if (result.done && state.controlRuns !== undefined) { state.controlRuns = 0; delete state.controlReason }
         state.detail = result.detail
         state.commit = result.commit
         if (result.alternativeRetryPending) state.alternativeRetryPending = alternativeRunPending(cfg, { ...state, alternativeRetryPending: true })
-        state.status = result.done ? 'queued' : state.runs >= cfg.maxRuns && !state.alternativeRetryPending && !result.reviewPending ? 'blocked' : 'queued'
-        state.nextRunAt = result.retryAt && result.retryAt > Date.now() ? result.retryAt : Date.now() + cfg.retryMs
+        const controlExhausted = !result.done && (state.controlRuns ?? 0) >= MAX_CONTROL_RUNS
+        const blocked = result.terminalBlocked || controlExhausted || state.runs >= cfg.maxRuns && !state.alternativeRetryPending && !result.reviewPending
+        state.status = result.done ? 'queued' : blocked ? 'blocked' : 'queued'
+        const delay = cfg.retryMs * 2 ** Math.min(Math.max((state.controlRuns ?? 1) - 1, 0), MAX_CONTROL_RUNS - 1)
+        state.nextRunAt = result.retryAt && result.retryAt > Date.now() ? result.retryAt : Date.now() + delay
+        if (controlExhausted) state.detail = `control-retry-exhausted: ${state.controlReason ?? 'unknown'}; inspect environment and use explicit recovery`
         if (result.done) {
           checkpoint = state.candidateCheck = checkpointFor(cfg, state, 'issue-read', policyHash)
         }
@@ -195,7 +213,7 @@ export async function runGithubOutcome(cfg: GithubConfig, options: {
           saveState(cfg, state); return withCoverage('cancelled')
         }
         delete state.candidateCheck
-        state.status = result.done ? 'ready' : state.runs >= cfg.maxRuns && !state.alternativeRetryPending && !result.reviewPending ? 'blocked' : 'queued'
+        state.status = result.done ? 'ready' : blocked ? 'blocked' : 'queued'
       }
       if (state.status === 'ready' && cfg.publish) {
         checkpoint ??= state.commit ? checkpointFor(cfg, state, 'publication-read', policyHash) : undefined

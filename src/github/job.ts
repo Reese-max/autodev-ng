@@ -8,7 +8,7 @@ import { ConfigSchema } from '../types.js'
 import type { ExtraBillingScope } from '../globalcost.js'
 import { command } from './client.js'
 import { githubStopFile, type GithubConfig } from './config.js'
-import { branchFor, issueDir, runDir, saveState, type IssueState } from './state.js'
+import { branchFor, issueDir, runDir, saveState, type ControlReason, type IssueState } from './state.js'
 import { assertRepairEvidence, prepareRepair, reviewRepair, verifyRepairProbe } from './repair.js'
 import { reviewLlmFromConfig } from '../autopilot/llm.js'
 import { makeEngineRegistry } from '../engines/registry.js'
@@ -82,14 +82,14 @@ export function issueReviewPending(cfg: GithubConfig, state: IssueState): boolea
   const dataDir = runDir(cfg, state), file = join(dataDir, 'BACKLOG.md')
   return existsSync(file) && new BacklogStore(file).read().some(task => task.status === 'open' && hasPendingReview({ dataDir }, task))
 }
-export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string; attempted?: boolean; verificationAttempted?: boolean; recoveryRequired?: boolean; alternativeRetryPending?: boolean; reviewPending?: boolean; retryAt?: number }> {
+export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string; attempted?: boolean; startState?: 'not-started' | 'started' | 'unknown'; priorExecutionUnknown?: boolean; terminalBlocked?: boolean; controlReason?: ControlReason; verificationAttempted?: boolean; recoveryRequired?: boolean; alternativeRetryPending?: boolean; reviewPending?: boolean; retryAt?: number }> {
   const resumingReview = issueReviewPending(cfg, state)
   if (cfg.repair && !resumingReview) {
     const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
     const cap = source.engines[cfg.engine]?.dailyAttemptCap
     if (cap !== undefined) {
       const team = new TeamState(source.projectPath)
-      try { if (team.attemptsToday(cfg.engine) >= cap) return { done: false, detail: 'Daily writer attempt cap reached; wait for next UTC day', attempted: false } }
+      try { if (team.attemptsToday(cfg.engine) >= cap) return { done: false, detail: 'Daily writer attempt cap reached; wait for next UTC day', attempted: false, startState: 'not-started', controlReason: 'daily-attempt-cap' } }
       finally { team.close() }
     }
   }
@@ -100,7 +100,9 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
   const worker = cfg.repair && !resumingReview ? makeEngineRegistry(runtime).resolve(cfg.engine) : undefined
   if (worker) {
     const preflight = await worker.preflight()
-    if (!preflight.ok) throw new Error(`Repair CLI preflight failed: ${preflight.detail}; repair CLI login/sandbox before retry`)
+    if (!preflight.ok) return { done: false,
+      detail: `Repair CLI preflight failed: ${preflight.detail}; repair CLI login/sandbox before retry`,
+      attempted: false, startState: 'not-started', terminalBlocked: true, controlReason: 'preflight-failed' }
     await prepareRepair(cfg, state, runtime.projectPath, runtime.verifyTimeoutMs)
   }
   if (!existsSync(runtime.backlogFile)) {
@@ -152,6 +154,8 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     const tasks = app.deps.store.read()
     if (tasks.length !== 1 || tasks[0]!.text !== issueTask(state)) throw new Error('Issue backlog contract changed')
     if (tasks[0]!.status === 'done') throw new Error('Interrupted completed cycle; manual evidence recovery required')
+    if (tasks[0]!.status === 'blocked') return { done: false, detail: 'Issue backlog already blocked; manual evidence recovery required',
+      attempted: false, startState: 'not-started', terminalBlocked: true }
     let workerStarted = false
     app.deps.onWorkerStart = () => { workerStarted = true }
     const result = await runOnce(app.deps)
@@ -164,9 +168,18 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     const detail = typeof result === 'string' && (result === 'failed' || result === 'engine-error')
       ? app.deps.db.lastAttemptFailureFor(tasks[0]!.id) ?? result
       : typeof result === 'string' ? result : result.reason
-    return { done, detail, verificationAttempted, attempted: workerStarted,
+    const recoveryRequired = typeof result === 'object' && result.reason === 'team-state-quarantined'
+    // Refund only this loop's proven unused reservation. A prior unknown execution
+    // retains its original count/cost/ownership fence; never charge it a second time.
+    const startState = workerStarted ? recoveryRequired ? 'unknown' : 'started' : 'not-started'
+    const terminalBlocked = !done && (typeof result === 'object' || app.deps.store.read()[0]?.status === 'blocked')
+    const controlReason = startState === 'not-started' && !done && !terminalBlocked && typeof result === 'string'
+      && ['stopped', 'cost-hard-stop', 'idle', 'deferred', 'preflight-failed'].includes(result) ? result as ControlReason : undefined
+    return { done, detail, verificationAttempted, startState, attempted: startState !== 'not-started',
+      ...(recoveryRequired && !workerStarted ? { priorExecutionUnknown: true } : {}),
+      ...(terminalBlocked ? { terminalBlocked: true } : {}), ...(controlReason ? { controlReason } : {}),
       ...(result === 'deferred' && issueReviewPending(cfg, state) ? { reviewPending: true, retryAt: Date.now() + reviewRetryDelay(runtime) } : {}),
-      ...(typeof result === 'object' && result.reason === 'team-state-quarantined' ? { recoveryRequired: true } : {}), ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
+      ...(recoveryRequired ? { recoveryRequired: true } : {}), ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
   } finally { app.deps.db.close(); app.deps.team?.close() }
 }
 export function detectVerification(cwd: string): string[] {

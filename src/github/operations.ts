@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { parseArgs } from 'node:util'
@@ -12,9 +12,10 @@ import { writeJsonAtomic } from '../guardian/incident.js'
 import { githubStopFile, loadGithubConfig, type GithubConfig } from './config.js'
 import { command, githubClient, type GithubClient } from './client.js'
 import { eligibleForRun } from './repair.js'
-import { assertPublishable, checkoutDir, git, issueTask, prepareCheckout } from './job.js'
+import { assertPublishable, checkoutDir, git, issueTask, prepareCheckout, runtimeConfig } from './job.js'
 import { alternativeRunPending, branchFor, candidatePolicyHash, fingerprint, issueDir, runDir, readState, saveState, states, type IssueState } from './state.js'
 import { readExecutions } from '../engines/execution-observation.js'
+import { hasPendingReview, readPendingReview } from '../engines/pending-review.js'
 
 export async function repairDoctor(cfg: GithubConfig, live = false) {
   const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
@@ -94,27 +95,35 @@ export async function recoverIssue(file: string, number: number, reason: string,
       if (!pr || pr.state !== 'open' || pr.html_url !== state.pr || pr.head.sha !== state.revision.baseCommit || pr.base.ref !== cfg.base) throw new Error('Existing PR changed; inspect it before retry')
     } else if (pr || await client.findLinkedPr(number)) throw new Error('Existing PR; inspect it before retry')
     const cwd = checkoutDir(cfg, state)
+    let pending: ReturnType<typeof readPendingReview> = undefined
     if (existsSync(cwd)) {
       prepareCheckout(cfg, state)
       const head = git(cwd, ['rev-parse', 'HEAD'])
       if (head !== state.baseSha) { state.commit = head; assertPublishable(cfg, state); state.status = 'ready' }
       else if (state.commit || state.status === 'ready') throw new Error('Candidate missing; preserving state')
+      const backlog = join(runDir(cfg, state), 'BACKLOG.md')
+      const tasks = existsSync(backlog) ? new BacklogStore(backlog).read() : []
+      const reviewTask = tasks.length === 1 && tasks[0]!.text === issueTask(state) && tasks[0]!.status === 'open' ? tasks[0] : undefined
+      if (state.status !== 'ready' && reviewTask && hasPendingReview({ dataDir: runDir(cfg, state) }, reviewTask))
+        pending = readPendingReview(runtimeConfig(cfg, state), reviewTask) // Exact context/model/common-dir/path/marker/head/ancestry proof.
       // Preserve every interrupted worktree; a clean non-base commit also requires evidence recovery.
       for (const row of git(cwd, ['worktree', 'list', '--porcelain']).split(/\r?\n/).filter(l => l.startsWith('worktree '))) {
         const path = row.slice(9)
         if (git(path, ['status', '--porcelain'])) throw new Error('Dirty worktree preserved; inspect changes before retry')
         const head = git(path, ['rev-parse', 'HEAD'])
-        if (path.replace(/\\/g, '/') !== cwd.replace(/\\/g, '/') && head !== state.baseSha && head !== state.commit) throw new Error('Unreconciled worktree commit; inspect evidence before retry')
+        const preservedReview = pending && realpathSync.native(path) === realpathSync.native(pending.wt.cwd) && head === pending.candidateHead
+        if (path.replace(/\\/g, '/') !== cwd.replace(/\\/g, '/') && head !== state.baseSha && head !== state.commit && !preservedReview) throw new Error('Unreconciled worktree commit; inspect evidence before retry')
       }
     } else if (state.baseSha && !state.revision) throw new Error('Checkout missing; preserving state')
     if (state.status !== 'ready') {
-      if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state)) throw new Error('Attempt limit reached; counters will not be reset')
+      if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state) && !pending) throw new Error('Attempt limit reached; counters will not be reset')
       const backlog = join(runDir(cfg, state), 'BACKLOG.md')
       if (existsSync(backlog)) {
         const tasks = new BacklogStore(backlog).read()
         if (tasks.length !== 1 || tasks[0]!.text !== issueTask(state) || tasks[0]!.status !== 'open') throw new Error('Backlog requires evidence recovery; no automatic rewrite')
       }
       state.status = 'queued'; state.nextRunAt = 0
+      if (state.controlRuns !== undefined || state.controlReason !== undefined) { state.controlRuns = 0; delete state.controlReason }
     }
     if (state.status === 'queued' || pause !== undefined) {
       const doctor = await (options.doctor ?? repairDoctor)(cfg, true)

@@ -1,8 +1,9 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { modelIdentity } from './free-model-policy.js'
+import { acquireLock, releaseLock } from '../lock.js'
 
 /**
  * Issue #51：非 free-only 純文字 HTTP 呼叫的有界備援＋持久熔斷器。
@@ -46,10 +47,13 @@ export const RoutePolicySchema = z.object({
   totalDeadlineMs: z.number().int().positive().optional(),
   /** 缺漏或非法 Retry-After 時的有界冷卻。 */
   cooldownMs: z.number().int().positive().default(ROUTE_DEFAULT_COOLDOWN_MS),
-  /** HALF_OPEN 探測 lease 期限；同時只有一個 caller 能持有。 */
+  /** Unknown-owner stale recovery window; a live bounded probe keeps its fenced lease. */
   probeLeaseMs: z.number().int().positive().default(ROUTE_DEFAULT_PROBE_LEASE_MS),
-  /** 設定後每次回應必須附可信成本且 ≤ 此上限；缺漏＝UNKNOWN（阻擋），超頂＝隔離。 */
+  /** Hard cap requires a proven worst-case request cost before dispatch. The current
+   *  general HTTP adapter has no such estimator, so configured caps fail closed. */
   maxCostUsd: z.number().nonnegative().optional(),
+}).refine(policy => new Set(policy.candidates.map(candidate => candidate.id)).size === policy.candidates.length, {
+  message: 'duplicate candidate reference', path: ['candidates'],
 })
 export type RoutePolicy = z.infer<typeof RoutePolicySchema>
 
@@ -107,6 +111,7 @@ export type BreakerSnapshot =
 
 function breakerDir(dataDir: string): string { return join(dataDir, 'route-breakers') }
 function breakerFile(dataDir: string, key: string): string { return join(breakerDir(dataDir), `${key}.json`) }
+function quarantineFile(dataDir: string, key: string): string { return join(breakerDir(dataDir), `${key}.quarantine.json`) }
 function probeDir(dataDir: string, key: string): string { return join(breakerDir(dataDir), `${key}.probe`) }
 
 function writeAtomic(file: string, content: string): void {
@@ -116,11 +121,16 @@ function writeAtomic(file: string, content: string): void {
 }
 
 export function readBreaker(dataDir: string, key: string): BreakerSnapshot {
-  const file = breakerFile(dataDir, key)
+  // Monotonic marker is separate from transient OPEN/CLOSED state: a concurrent
+  // attempt can neither overwrite it with OPEN nor remove it on success.
+  const marker = quarantineFile(dataDir, key)
+  const file = existsSync(marker) ? marker : breakerFile(dataDir, key)
   if (!existsSync(file)) return { kind: 'closed' }
   let state: { state?: unknown; retryAt?: unknown; reason?: unknown }
   try { state = JSON.parse(readFileSync(file, 'utf8')) } catch { return { kind: 'invalid' } }
+  if (state === null || typeof state !== 'object' || Array.isArray(state)) return { kind: 'invalid' }
   if (state.state === 'QUARANTINED') return { kind: 'quarantined', reason: typeof state.reason === 'string' ? state.reason : 'quarantined' }
+  if (file === marker) return { kind: 'invalid' }
   if (state.state === 'OPEN') {
     if (typeof state.retryAt !== 'number' || !Number.isFinite(state.retryAt)) return { kind: 'invalid' }
     return { kind: 'open', retryAt: state.retryAt }
@@ -129,46 +139,34 @@ export function readBreaker(dataDir: string, key: string): BreakerSnapshot {
 }
 
 function openBreaker(dataDir: string, key: string, retryAt: number, reason: string): void {
+  if (readBreaker(dataDir, key).kind === 'quarantined') return
   mkdirSync(breakerDir(dataDir), { recursive: true })
   writeAtomic(breakerFile(dataDir, key), JSON.stringify({ state: 'OPEN', retryAt, reason, at: new Date().toISOString() }))
 }
 
-function clearBreaker(dataDir: string, key: string): void {
+function clearBreaker(dataDir: string, key: string): boolean {
+  if (['quarantined', 'invalid'].includes(readBreaker(dataDir, key).kind)) return false
   rmSync(breakerFile(dataDir, key), { force: true })
+  return true
 }
 
 /** 成本／身分違規隔離：計時器與成功競態都不得自行解除，只能人工檢查收據後刪除。 */
 export function quarantineRouteCandidate(dataDir: string, key: string, reason: string): void {
   mkdirSync(breakerDir(dataDir), { recursive: true })
-  writeAtomic(breakerFile(dataDir, key), JSON.stringify({ state: 'QUARANTINED', reason, at: new Date().toISOString() }))
+  const receipt = JSON.stringify({ state: 'QUARANTINED', reason, at: new Date().toISOString() })
+  writeAtomic(quarantineFile(dataDir, key), receipt)
+  writeAtomic(breakerFile(dataDir, key), receipt)
 }
 
 interface ProbeLease { release(): void }
 
-/** mkdir 是 Windows 上唯一可靠的原子互斥（與 src/lock.ts 同一實證）。
- *  冷卻到期後同時只允許一個有期限的探測 lease；持有中或搶輸都回 undefined。 */
+/** Reuse the process-safe generation-fenced lock. A live bounded request cannot
+ *  lose ownership just because probeLeaseMs elapsed; that window only reclaims
+ *  unknown stale ownership. A late release never removes a successor's lease. */
 function acquireProbe(dataDir: string, key: string, leaseMs: number): ProbeLease | undefined {
   const dir = probeDir(dataDir, key)
-  const writeLease = (): ProbeLease => {
-    writeFileSync(join(dir, 'lease.json'), JSON.stringify({ owner: randomUUID(), expiresAt: Date.now() + leaseMs }))
-    return { release: () => rmSync(dir, { recursive: true, force: true }) }
-  }
-  try { mkdirSync(dir, { recursive: false }); return writeLease() }
-  catch (err) { if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err }
-  let expired: boolean
-  try {
-    const lease = JSON.parse(readFileSync(join(dir, 'lease.json'), 'utf8')) as { expiresAt?: unknown }
-    expired = typeof lease.expiresAt !== 'number' || lease.expiresAt <= Date.now()
-  } catch {
-    // lease.json 缺失／損壞：fallback 以目錄年齡判定，避免幽靈 lease 永久佔位。
-    try { expired = Date.now() - statSync(dir).mtimeMs > leaseMs } catch { return undefined }
-  }
-  if (!expired) return undefined
-  const stolen = `${dir}.stale-${process.pid}-${randomUUID()}`
-  try { renameSync(dir, stolen) } catch { return undefined }
-  rmSync(stolen, { recursive: true, force: true })
-  try { mkdirSync(dir, { recursive: false }); return writeLease() }
-  catch (err) { if ((err as NodeJS.ErrnoException).code === 'EEXIST') return undefined; throw err }
+  const token = acquireLock(dir, leaseMs)
+  return token ? { release: () => releaseLock(dir, token) } : undefined
 }
 
 export interface RoutedCallOptions {
@@ -214,10 +212,12 @@ async function attemptOnce(candidate: RouteCandidate, prompt: string, o: {
         messages: [{ role: 'user', content: prompt }],
       }),
     })
-  } catch (error) {
+  } catch {
     if (o.signal?.aborted) return { ok: false, cls: 'cancelled', error: 'caller cancelled' }
     if (timeoutSignal.aborted) return { ok: false, cls: 'attempt-timeout', error: `timeout after ${o.timeoutMs}ms` }
-    return { ok: false, cls: 'transport', error: `call failed: ${error instanceof Error ? error.message : String(error)}` }
+    // Provider/fetch diagnostics can contain keys, URLs, prompts or response
+    // bodies. Keep only the attributable failure class in durable receipts.
+    return { ok: false, cls: 'transport', error: 'call failed: transport error' }
   }
   if (!res.ok) {
     const cls = classifyHttpStatus(res.status)
@@ -226,12 +226,29 @@ async function attemptOnce(candidate: RouteCandidate, prompt: string, o: {
       ...(cls === 'transient-http' ? { retryAt: routeRetryAt(res.headers, Date.now(), o.cooldownMs) } : {}),
     }
   }
-  let data: { model?: unknown; choices?: Array<{ message?: { content?: unknown } }>; usage?: { total_tokens?: unknown; cost?: unknown } }
+  let data: unknown
   try { data = await res.json() } catch { return { ok: false, cls: 'invalid-response', error: 'unparseable response body' } }
-  const text = data.choices?.[0]?.message?.content
+  const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
+  if (!record(data)) return { ok: false, cls: 'invalid-response', error: 'invalid model response object' }
+  const first = Array.isArray(data.choices) ? data.choices[0] : undefined
+  const text = record(first) && record(first.message) ? first.message.content : undefined
   if (typeof text !== 'string' || !text.trim()) return { ok: false, cls: 'invalid-response', error: 'empty model response' }
-  const totalTokens = Number.isSafeInteger(data.usage?.total_tokens) && (data.usage!.total_tokens as number) >= 0 ? data.usage!.total_tokens as number : 0
-  const cost = typeof data.usage?.cost === 'number' && Number.isFinite(data.usage.cost) ? data.usage.cost : 'unknown'
+  if (data.model !== undefined && (
+    typeof data.model !== 'string' || data.model.trim() !== data.model
+    || !/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,255}$/.test(data.model)
+    || data.model.includes('://') || data.model === candidate.url.trim()
+    || data.model === prompt.trim() || data.model.includes(o.apiKey)
+  )) {
+    return { ok: false, cls: 'invalid-response', error: 'invalid actual model metadata' }
+  }
+  if (data.usage !== undefined && !record(data.usage)) return { ok: false, cls: 'invalid-response', error: 'invalid usage metadata' }
+  const usage = record(data.usage) ? data.usage : undefined
+  const tokens = usage?.total_tokens
+  const reportedCost = usage?.cost
+  if (tokens !== undefined && (typeof tokens !== 'number' || !Number.isSafeInteger(tokens) || tokens < 0)) return { ok: false, cls: 'invalid-response', error: 'invalid token usage metadata' }
+  if (reportedCost !== undefined && (typeof reportedCost !== 'number' || !Number.isFinite(reportedCost) || reportedCost < 0)) return { ok: false, cls: 'invalid-response', error: 'invalid cost metadata' }
+  const totalTokens = typeof tokens === 'number' ? tokens : 0
+  const cost = typeof reportedCost === 'number' ? reportedCost : 'unknown'
   return {
     ok: true, text, totalTokens,
     ...(typeof data.model === 'string' && data.model ? { actualModel: data.model } : {}),
@@ -257,16 +274,26 @@ export async function callRoutedAgent(opts: RoutedCallOptions, prompt: string): 
   const role = opts.role ?? 'judge'
   const startedAt = Date.now()
   const deadlineAt = policy.totalDeadlineMs === undefined ? Infinity : startedAt + policy.totalDeadlineMs
-  const maxAttempts = Math.min(policy.maxAttempts, ROUTE_MAX_ATTEMPTS)
   const candidates = policy.candidates.filter(c => c.roles === undefined || c.roles.includes(role))
-  const base = { callId, routeId: policy.routeId, policyVersion: policy.policyVersion, role, requestedModel: opts.model, taskId: opts.taskId, executionId: opts.executionId }
+  // A gateway can hide its own retry loop. Give it the only retry layer by
+  // limiting this logical call to one observable outer request, never 3 × 3.
+  const maxAttempts = candidates.some(candidate => candidate.gateway === true)
+    ? 1 : Math.min(policy.maxAttempts, ROUTE_MAX_ATTEMPTS)
+  const base = { callId, routeId: policy.routeId, policyVersion: policy.policyVersion, role, requestedModel: opts.model, taskId: opts.taskId, executionId: opts.executionId, outerAttemptLimit: maxAttempts }
   if (!candidates.length) {
     routeReceipt(opts.dataDir, { ...base, phase: 'blocked', failureClass: 'invalid-request', detail: `no candidates for role ${role}` })
     return { text: '', totalTokens: 0, error: `route policy has no candidates for role ${role}` }
   }
+  if (policy.maxCostUsd !== undefined) {
+    // A response's cost is retrospective, not a bound on the request about to be
+    // sent. No general-provider estimator/reservation currently proves that bound.
+    routeReceipt(opts.dataDir, { ...base, phase: 'blocked', failureClass: 'cost-unknown', attempts: 0, cost: 'unknown', detail: 'worst-case request cost unavailable before dispatch' })
+    return { text: '', totalTokens: 0, error: 'route cost unknown: worst-case request cost bound unavailable before dispatch' }
+  }
   let attempts = 0
   let earliestRetry = Infinity
   const reasons: string[] = []
+  const attemptedKeys = new Set<string>()
   for (const candidate of candidates) {
     if (attempts >= maxAttempts) break
     if (opts.signal?.aborted) {
@@ -285,6 +312,11 @@ export async function callRoutedAgent(opts: RoutedCallOptions, prompt: string): 
       return { text: '', totalTokens: 0, error: `route candidate ${candidate.id}: credential reference unavailable` }
     }
     const key = breakerKey(candidate)
+    if (attemptedKeys.has(key)) {
+      reasons.push(`${candidate.id}=already-attempted`)
+      routeReceipt(opts.dataDir, { ...base, phase: 'skipped', candidateId: candidate.id, detail: 'normalized candidate already attempted in this logical call' })
+      continue
+    }
     const breaker = readBreaker(opts.dataDir, key)
     if (breaker.kind === 'quarantined') { reasons.push(`${candidate.id}=quarantined(${breaker.reason})`); continue }
     if (breaker.kind === 'invalid') { reasons.push(`${candidate.id}=invalid-breaker-receipt`); continue }
@@ -305,10 +337,20 @@ export async function callRoutedAgent(opts: RoutedCallOptions, prompt: string): 
       }
       breakerState = 'HALF_OPEN'
     }
+    // Lock acquisition can wait for another process. Recheck the live caller and
+    // deadline after it returns; the earlier remaining value cannot authorize HTTP.
+    const dispatchRemaining = deadlineAt - Date.now()
+    if (opts.signal?.aborted || dispatchRemaining <= 0) {
+      probe?.release()
+      const failureClass = opts.signal?.aborted ? 'cancelled' : 'deadline-exceeded'
+      routeReceipt(opts.dataDir, { ...base, phase: 'blocked', failureClass, attempts })
+      return { text: '', totalTokens: 0, error: failureClass === 'cancelled' ? 'caller cancelled' : 'total deadline exceeded', ...(Number.isFinite(earliestRetry) ? { retryAt: earliestRetry } : {}) }
+    }
+    attemptedKeys.add(key)
     attempts++
     const started = Date.now()
     const outcome = await attemptOnce(candidate, prompt, {
-      apiKey, effort: opts.effort, timeoutMs: Math.min(policy.perAttemptTimeoutMs ?? opts.timeoutMs ?? 60_000, remaining),
+      apiKey, effort: opts.effort, timeoutMs: Math.min(policy.perAttemptTimeoutMs ?? opts.timeoutMs ?? 60_000, dispatchRemaining),
       signal: opts.signal, fetchFn: opts.fetchFn, cooldownMs: policy.cooldownMs,
     })
     const durationMs = Date.now() - started
@@ -340,7 +382,11 @@ export async function callRoutedAgent(opts: RoutedCallOptions, prompt: string): 
         routeReceipt(opts.dataDir, { ...base, ...receiptExtra, phase: 'quarantined', failureClass: 'cost-violation', actualModel: reported, actualModelSource, cost: outcome.cost })
         return { text: '', totalTokens: outcome.totalTokens, error: `route candidate ${candidate.id}: reported cost exceeds policy cap`, actualModel: reported }
       }
-      clearBreaker(opts.dataDir, key)
+      if (!clearBreaker(opts.dataDir, key)) {
+        probe?.release()
+        routeReceipt(opts.dataDir, { ...base, ...receiptExtra, phase: 'blocked', failureClass: 'identity-violation', actualModel: reported, actualModelSource, cost: outcome.cost, detail: 'candidate quarantined or breaker evidence invalid during attempt' })
+        return { text: '', totalTokens: outcome.totalTokens, error: `route candidate ${candidate.id}: quarantined or invalid breaker evidence during attempt` }
+      }
       probe?.release()
       opts.onModel?.(reported ?? candidate.model)
       routeReceipt(opts.dataDir, { ...base, ...receiptExtra, phase: 'completed', actualModel: reported, actualModelSource, totalTokens: outcome.totalTokens, cost: outcome.cost, attempts })
