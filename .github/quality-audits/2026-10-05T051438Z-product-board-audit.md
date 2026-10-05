@@ -4,14 +4,14 @@
 - 結論：**PARTIAL / NOT CLEAN**
 - 規則：`docs/portfolio-audit/2026-09-14-issue-quality-v2.md`
 - 規則 blob：`8167e10798071d2276addaff6b201c6b0e904a2a`
-- 中央 inspected HEAD：`Reese-max/autodev-ng@92faa9160d9ef529a13b89b6703453e33f639680`
+- 中央 inspected HEAD：`Reese-max/autodev-ng@a2378aa6fea3605f596e3ee264adbb2eb04c9010`
 - 本輪公平游標：`neciken-summer-poem@d54daa39867374534fa340df5fa6fb7e8062e18c`（default `master`）
 - 上輪報告：[2026-10-05T020515Z](https://github.com/Reese-max/autodev-ng/pull/150)；該 audit-only PR 仍開啟且目前不可直接合併，未把它視為產品修正或當前 default 證據。
 - 性質：稽核／分流；`auto_implementation=false`。沒有修改產品程式、CI、設定、secret、權限或部署，沒有啟動 worker/GOAL。
 
 ## 摘要與本輪差異
 
-自上輪報告後，多個產品 default HEAD 已前進，不能把本輪當成完全重複。精確 HEAD GitHub Actions 顯示：`autodev-ng`、`ai-flight-radar`（三個 workflow）、`ppt-studio`、`academic-mcp`、`note-filler`、`ai-novel-workstation`、`ninax-line-hermes`、`prompt-autoresearch`、`video-timeline-pipeline` 均為 success；`taichung-police-intel` 的新 HEAD 未找到 exact-head Actions，不把「沒有 run」推論為產品失敗。
+自上輪報告後，多個產品 default HEAD 已前進，不能把本輪當成完全重複。報告寫入競態期間 central default 又從 `92faa916...` 前進至 `a2378aa6...`；規則 blob 未變，新增的是 long-horizon backend/lock proof。此 central 產品 delta 未用舊 CI 結論覆蓋，等待 exact-head run 完成。精確 HEAD GitHub Actions 顯示：`ai-flight-radar`（三個 workflow）、`ppt-studio`、`academic-mcp`、`note-filler`、`ai-novel-workstation`、`ninax-line-hermes`、`prompt-autoresearch`、`video-timeline-pipeline` 均為 success；`autodev-ng@a2378aa6fea3605f596e3ee264adbb2eb04c9010` 的 CI run 37267106395 在結論落筆時仍為 in_progress（前一精讀 HEAD `92faa916...` 為 success），故不把新 central HEAD 計為已驗證；`taichung-police-intel` 的新 HEAD 未找到 exact-head Actions，不把「沒有 run」推論為產品失敗。
 
 本輪新的有效回歸證據是 `neciken-summer-poem` Issue [#1](https://github.com/Reese-max/neciken-summer-poem/issues/1) 的 CI 修正已進 default：push run [37253264588](https://github.com/Reese-max/neciken-summer-poem/actions/runs/37253264588) 在精確 HEAD `d54daa39867374534fa340df5fa6fb7e8062e18c` 實際執行 checkout、Python 3.11、安裝、`ruff check .` 與 `pytest`；log 為 Ruff “All checks passed” 與 `633 passed, 4 skipped, 43 subtests passed`。分類：**VERIFIED_FIXED / EXECUTED_REPRODUCTION**，但只驗證 lint/test gate，不代表官方 provider、瀏覽器／手機、真實投稿或完整 A01–J05 已 CLEAN。
 
@@ -28,7 +28,7 @@ GitHub owner inventory 完整列舉為 46 repos：45 個未封存、1 個封存�
 `92-duty-scheduler`, `academic-mcp`, `adng-memory`, `ai-flight-radar`, `ai-novel-workstation`, `autodev-ng`, `avatar-vfo`, `cf-ai-router`, `cf-mcp-server`, `chatgpt-dual-pipeline`, `claude-mem`, `clinical-scribe-worker`, `cyber-prep-coach`, `exam-archive`, `flux-image-gen`, `google-maps-personal-mcp`, `herdr-skills`, `lobsterpulse`, `MaterialYouNewTab`, `minideck`, `neciken-summer-poem`, `ninax-line-hermes`, `note-filler`, `octobroker`, `openab`, `openab-pty`, `police-essay-mcp`, `police-exam-archive`, `police-exam-practice`, `polygraph-research-2026`, `ppt-studio`, `project-doctor-web`, `prompt-autoresearch`, `skill-foundry`, `soundbox-offline`, `spotify-playlist-organizer-mcp`, `studio`, `taichung-police-intel`, `taiwan-intel-dashboard`, `tick-stock-panel`, `travel-planning-app`, `travel-planning-mcp`, `UkePack`, `video-timeline-pipeline`, `voice-actress`.
 
 本輪在全部 45 個未封存 repo 比對 default branch/HEAD 與近期 commits；優先精讀有產品 delta 的 10 個 repo。主要新 HEAD：
-- `autodev-ng@92faa9160d9ef529a13b89b6703453e33f639680`
+- `autodev-ng@a2378aa6fea3605f596e3ee264adbb2eb04c9010`
 - `ai-flight-radar@772deb8a25d6147c816d3b6fdbfef9752c52f974`
 - `ppt-studio@d5e478933c4f228d7e7432c886fc615fa850ce14`
 - `academic-mcp@67304e6715f9f6cb468f99753075bfe9ff046b6b`
