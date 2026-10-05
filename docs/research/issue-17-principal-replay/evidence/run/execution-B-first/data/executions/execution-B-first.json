@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "executionId": "execution-B-first",
+  "taskId": "research0001",
+  "adapter": "freebuff",
+  "projectPath": "/workspace/issue-work/autodev17-research/frozen-author-shared-control/run-B1qaMl/execution-B-first/project",
+  "hostPid": 242797,
+  "hostStartedAt": 1791180109149.6082,
+  "startedAt": 1791180109771,
+  "observedAt": 1791180110662,
+  "sequence": 6,
+  "phase": "terminal",
+  "outputBytes": 879,
+  "unknownSamples": 0,
+  "degraded": false,
+  "cancelRequested": false,
+  "worker": {
+    "pid": 242848,
+    "startedAt": 1791180109779
+  },
+  "lastOutputAt": 1791180110406,
+  "exit": {
+    "code": 0,
+    "reason": "exit"
+  },
+  "outcome": "completed"
+}

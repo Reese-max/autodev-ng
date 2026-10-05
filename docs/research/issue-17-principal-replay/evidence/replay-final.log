@@ -1,0 +1,13 @@
+{"decision":"NARROW","cases":13,"allPassed":true,"receipts":12,"sourceSha":"a2378aa6fea3605f596e3ee264adbb2eb04c9010","resultFile":"/workspace/issue-work/autodev17-research/frozen-author-shared-control/run-B1qaMl/result.json","resultDigest":"c697aa7deee02c40e5f090a494292be9e05ae12b6b13ff632ade148ac3734673"}
+file:///workspace/issue-work/autodev17-research/mock-authority.mjs:64
+    || !child.capabilities.every(c=>parent.capabilities.includes(c))) throw Error('CHILD_SCOPE_ESCALATION')
+                                                                            ^
+
+Error: CHILD_SCOPE_ESCALATION
+    at addChild (file:///workspace/issue-work/autodev17-research/mock-authority.mjs:64:77)
+    at file:///workspace/issue-work/autodev17-research/mock-authority.mjs:74:5
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+
+Node.js v22.23.3
