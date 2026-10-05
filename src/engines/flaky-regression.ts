@@ -103,6 +103,7 @@ export function regressionDiagnostic(round: number, result: ProcResult): string 
     `durationMs=${result.durationMs}`,
     `timeoutMs=${TIMEOUT_MS}`,
     `timeoutReason=${JSON.stringify(result.timeoutReason ?? null)}`,
+    `cleanup=${JSON.stringify(result.cleanup ?? null)}`,
     `fixture=${JSON.stringify(fixture)}`,
     `detail=${JSON.stringify(detail)}`,
   ].join(' ')
@@ -121,13 +122,19 @@ export async function flakyRegressionMain(
       stdinText: '',
       timeoutMs: TIMEOUT_MS,
     })
-    if (result.exitCode === 0 && !result.timedOut) {
+    const consistentCleanup = result.cleanup === undefined || (result.cleanup.status === 'confirmed'
+      && result.cleanup.rootClosed && result.cleanup.remainingPids.length === 0 && result.cleanup.reasonCodes.length === 0
+      && (result.cleanup.unconfirmedControlPids?.length ?? 0) === 0)
+    if (result.exitCode === 0 && !result.timedOut && !result.aborted && consistentCleanup) {
       console.log(`[flaky-regression] round=${round}/${ROUNDS} ok durationMs=${result.durationMs} timeoutMs=${TIMEOUT_MS}`)
       if (result.stdout) console.log(result.stdout)
       if (result.stderr) console.error(result.stderr)
     } else {
       failed = true
       console.error(regressionDiagnostic(round, result), result.stdout, result.stderr)
+      // An unconfirmed/aborted previous process cannot authorize another suite child.
+      if (result.exitCode === null || result.aborted || !consistentCleanup
+        || (result.timedOut && result.cleanup === undefined)) break
     }
   }
   return failed ? 1 : 0
