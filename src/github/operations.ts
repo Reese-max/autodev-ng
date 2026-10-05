@@ -13,7 +13,7 @@ import { githubStopFile, loadGithubConfig, type GithubConfig } from './config.js
 import { command, githubClient, type GithubClient } from './client.js'
 import { eligibleForRun } from './repair.js'
 import { assertPublishable, checkoutDir, git, issueTask, prepareCheckout } from './job.js'
-import { alternativeRunPending, branchFor, fingerprint, issueDir, runDir, readState, saveState, states, type IssueState } from './state.js'
+import { alternativeRunPending, branchFor, candidatePolicyHash, fingerprint, issueDir, runDir, readState, saveState, states, type IssueState } from './state.js'
 import { readExecutions } from '../engines/execution-observation.js'
 
 export async function repairDoctor(cfg: GithubConfig, live = false) {
@@ -77,6 +77,7 @@ export async function recoverIssue(file: string, number: number, reason: string,
   try {
     const state = readState(cfg, number)
     if (!state || !['blocked', 'running', 'queued', 'ready'].includes(state.status)) throw new Error('State cannot be recovered')
+    if (state.candidateCheck && state.candidateCheck.policyHash !== candidatePolicyHash(cfg)) throw new Error('Candidate policy changed; restore original gate/source configuration before recovery')
     if (readExecutions(runDir(cfg, state)).protected) throw new Error('Execution stop remains unconfirmed; preserve ownership and verify the backend before recovery')
     const client = options.client ?? githubClient(cfg)
     const current = async () => {
@@ -123,6 +124,7 @@ export async function recoverIssue(file: string, number: number, reason: string,
     const receipt = join(issueDir(cfg, number), `recovery-${randomUUID()}.json`)
     const intent = { at: new Date().toISOString(), reason, before: readState(cfg, number), plannedStatus: state.status }
     writeJsonAtomic(receipt, { ...intent, phase: 'prepared' })
+    if (state.status === 'ready') delete state.candidateCheck // Exact remote checks and local evidence recovered above.
     state.detail = `Recovery: ${reason.trim()}`; saveState(cfg, state)
     if (pause !== undefined) renameSync(stop, `${stop}.resumed-${randomUUID()}`)
     writeJsonAtomic(receipt, { ...intent, phase: 'completed', after: readState(cfg, number), paused: existsSync(stop) })
@@ -157,7 +159,7 @@ export function repairMetrics(cfg: GithubConfig) {
   const paused = !cfg.enabled || existsSync(githubStopFile(cfg))
   const failed = (s: Pick<IssueState, 'status' | 'runs' | 'detail'>) => s.runs > 0 && ['queued', 'blocked'].includes(s.status) && s.detail === 'failed'
   const failures = rows.map(s => {
-    const runs = new Set((s.history ?? []).filter((e, i, history) => e.runs > 0 && ['queued', 'blocked'].includes(e.status)
+    const runs = new Set((s.history ?? []).filter((e, i, history) => e.phase !== 'candidate-check' && e.runs > 0 && ['queued', 'blocked'].includes(e.status)
       && !e.detail?.startsWith('Recovery:') && !e.detail?.startsWith('Execution recovery required:') && (e.detail === 'failed' || (history[i - 1]?.status === 'running' && history[i - 1]?.runs === e.runs))).map(e => e.runs))
     if (failed(s)) runs.add(s.runs) // A legacy snapshot is evidence of this failure, not every earlier attempt.
     return runs.size

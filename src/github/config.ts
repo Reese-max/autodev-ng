@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { z } from 'zod'
 import { QualityConfigSchema } from './quality.js'
+import { issueQualityVeto } from './intake-quality.js'
 const outputPattern = z.string().min(3).max(200).refine(value => { try { new RegExp(value); return true } catch { return false } }, 'Invalid output pattern')
 
 export const GithubConfigSchema = z.object({
@@ -54,6 +55,7 @@ export type Issue = z.infer<typeof IssueSchema>
 export function eligible(issue: Issue, cfg: GithubConfig, approvedReport = false): boolean {
   const reported = issue.body?.includes('<!-- adng:report:') || issue.labels.some(label => label.name.toLowerCase() === 'autodev-reported')
   return !issue.pull_request && issue.state === 'open'
+    && !issueQualityVeto(issue.body)
     && (reported ? approvedReport : !cfg.repair)
     && cfg.authors.some(author => author.toLowerCase() === issue.user.login.toLowerCase())
     && !issue.labels.some(label => label.name.toLowerCase() === 'no-autofix')
