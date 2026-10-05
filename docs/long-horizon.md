@@ -17,6 +17,10 @@
 | Auditor | mechanical（`runVerify`＋git HEAD）| `executionBackend.auditorModel`（可選 LLM 二審）| 獨立驗收：`verifyCommand`＋git SHA；executor/manager 的自我宣告**永遠只是證據**，不推進完成狀態 |
 | Escalation | 無（指紋撞頂即 blocked）| `executionBackend.escalationEngine`（如 `herdr` tag）| 同一失敗指紋連續達上限時的外部升級；每指紋最多一次 |
 
+若設定 `auditorModel`，機械驗收通過後仍須取得該 Auditor 明確的 `PASS`。
+明確 `REJECT` 成為 rejected evidence；HTTP／解析錯誤、空白或含糊回覆成為 blocked evidence，
+均不得建立 verified checkpoint 或標記完成。未設定 `auditorModel` 時保留機械驗收模式。
+
 ## Run 生命週期與狀態
 
 ```text

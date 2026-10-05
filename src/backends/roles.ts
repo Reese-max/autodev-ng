@@ -142,8 +142,15 @@ export function mechanicalAuditor(opts: {
       '只回 PASS 或 REJECT <原因>。',
     ].join('\n'))
     const usage: Usage = { tokensIn: reply.totalTokens }
-    if (!reply.error && /\bREJECT\b/i.test(reply.text)) {
+    if (reply.error) {
+      return { outcome: 'blocked', detail: `llm-audit unavailable: ${reply.error.slice(0, 300)}`, gitSha, verifyStatus: 'pass', usage }
+    }
+    const decision = reply.text.trim()
+    if (/^REJECT(?:\s|$)/i.test(decision)) {
       return { outcome: 'rejected', detail: `llm-audit reject: ${reply.text.slice(0, 300)}`, gitSha, verifyStatus: 'pass', usage }
+    }
+    if (!/^PASS$/i.test(decision)) {
+      return { outcome: 'blocked', detail: 'llm-audit missing explicit PASS or REJECT decision', gitSha, verifyStatus: 'pass', usage }
     }
     return { outcome: 'verified', detail: v.detail, gitSha, verifyStatus: 'pass', goalAchieved, usage }
   }
