@@ -26,6 +26,7 @@
 | `src/bot/`、`web/` | Discord 與本機 Web 控制台；共用查詢／控制 handler |
 | `src/supervisor/`、`src/guardian/` | daemon 健康探測、保活，以及事故診斷與修復 |
 | `src/github/` | GitHub Issue 同步、執行與受設定控制的修復分支／草稿 PR 發布 |
+| `src/backends/` | 可插拔長時程執行後端（`ExecutionBackend`）；首個 adapter `long-horizon`（Manager→Executor→Auditor，見 [docs/long-horizon.md](docs/long-horizon.md)） |
 | `configs/`、`scripts/` | 各專案設定、Windows 啟動／排程腳本與檢查工具 |
 | `tests/`、`docs/` | 回歸測試、規格、維運說明與歷史驗收紀錄 |
 
@@ -181,6 +182,11 @@ node dist/cli.js notify-test --config <path>   # Discord 告警通道送達自�
 node dist/cli.js supervise --configs-dir configs                         # 相容模式：保活後 inline Guardian
 node dist/cli.js supervise --configs-dir configs --guardian off          # 只跑 supervisor（建議獨立排程）
 node dist/cli.js supervise --configs-dir configs --guardian only         # 獨立 Guardian 排程；仍先做一次安全探測
+
+# 長時程執行後端（issue #55，Manager→Executor→Auditor→checkpoint→resume）
+node dist/cli.js run start --config <path> --goal "<bounded goal>"        # 或 --goal-file / --github-config+--issue
+node dist/cli.js run resume|status|interrupt|approve|evidence --config <path> --id <runId>
+node dist/cli.js run metrics --config <path>                              # 跨 run 彙總，供 A/B 比較
 ```
 
 Guardian 不啟動 subagent，也不另設專案任務總時間／成本上限；Codex 完全無輸出進度 30 分鐘才由 idle watchdog 精準終止。相同事故以 supervisor 狀態與位元組事件游標去重，`failed`／`needs_attention`／卡死會送 Discord 告警；LLM 使用隔離 `CODEX_HOME` 與 `workspace-only` 權限，只能修改工作區檔案，Git 提交、重啟與驗收由宿主執行。每次決策、token、耗時與獨立驗收證據寫入各專案 `<dataDir>/guardian-runs.jsonl`，跨專案租約與輸出 schema 位於 `data/guardian/`。

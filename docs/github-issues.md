@@ -95,6 +95,8 @@ node dist/cli.js github owner-status --config configs/integrations/github-owner.
 owner-sync 只同步，不啟動模型；owner-run 執行一輪。
 
 Owner 派工以持久化的 `dispatch-cursor.json` 記錄服務順序，不依系統時間輪替。
+新出現的 repo 名稱從目前游標進度加入，同順位時未派工者先行；反覆改名不能靠重置為零一直插隊。
+報告保留新身分的加入理由，既有 repo 的 lease／claim／工作狀態不會移轉到另一個名稱。
 游標已存在但損壞或不可讀時會停止派工並記錄原因，不能重置進度後繼續。
 PR 查核在僅同步的 repo 也會執行，每次單一 repo runner 呼叫最多查核 25 件；報告分列可查核、已嘗試與尚未涵蓋的件數。
 `lastObservedAt`／`lastObservedSeq` 記錄查核嘗試（含失敗），有效的 exact-head 回執時間仍以 `state.remote.at` 為準。

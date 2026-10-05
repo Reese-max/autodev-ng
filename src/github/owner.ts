@@ -91,6 +91,7 @@ const DispatchCursorSchema = z.object({
   seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER - 1),
   repos: z.record(z.string(), z.object({
     attemptSeq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    hasAttempted: z.boolean().optional(),
     lastAttemptedAt: z.number(),
     lastScannedAt: z.number(),
   })),
@@ -147,6 +148,7 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
   const report: { status: string; at: string; detail?: string; repositories: {
     repo: string; result: string; attempted?: boolean; syncOnly?: boolean;
     outcomeUnknown?: boolean; recoveryRequired?: boolean;
+    dispatchIdentityReason?: string;
     prObservationCoverage?: RunOutcome['prObservationCoverage'];
     lastScannedAt?: string; lastAttemptedAt?: string; issues?: ReturnType<typeof states> }[] } = {
     status: 'ok', at: new Date().toISOString(), repositories: [] }
@@ -155,7 +157,7 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
     const repos = discover(cfg.owner)
     // Persisted fair cursor: order by last attempt sequence (not wall-clock
     // modulo) so aligned ticks, restarts, reorders and clock jumps cannot pin
-    // the worker slot to the same repository. Never-attempted repos go first.
+    // the worker slot to the same repository. New names join at current progress.
     let cursor: DispatchCursor
     try { cursor = readDispatchCursor(cfg.dataDir) }
     catch (error) {
@@ -163,10 +165,25 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
       writeJsonAtomic(join(cfg.dataDir, 'status.json'), report)
       return report
     }
+    const newIdentities = new Set<string>()
+    for (const repo of repos) {
+      if (repo.archived || repo.disabled || !repo.has_issues || !repo.permissions.push) continue
+      const id = repo.full_name.toLowerCase()
+      if (!cursor.repos[id]) {
+        newIdentities.add(id)
+        cursor.repos[id] = { attemptSeq: cursor.seq, hasAttempted: false, lastAttemptedAt: 0, lastScannedAt: 0 }
+      }
+    }
     const order = [...repos].sort((a, b) => {
-      const sa = cursor.repos[a.full_name.toLowerCase()]?.attemptSeq ?? 0
-      const sb = cursor.repos[b.full_name.toLowerCase()]?.attemptSeq ?? 0
-      return sa - sb || a.full_name.localeCompare(b.full_name)
+      const ea = cursor.repos[a.full_name.toLowerCase()]
+      const eb = cursor.repos[b.full_name.toLowerCase()]
+      const sa = ea?.attemptSeq ?? cursor.seq
+      const sb = eb?.attemptSeq ?? cursor.seq
+      const attemptedA = ea?.hasAttempted ?? ((ea?.attemptSeq ?? 0) > 0)
+      const attemptedB = eb?.hasAttempted ?? ((eb?.attemptSeq ?? 0) > 0)
+      // New identities join at current progress, not ancient priority zero.
+      // A never-served entrant wins ties with the most recently served repo.
+      return sa - sb || Number(attemptedA) - Number(attemptedB) || a.full_name.localeCompare(b.full_name)
     })
     const seen = new Set(repos.map(repo => repo.full_name.toLowerCase()))
     for (const repo of order) {
@@ -176,7 +193,9 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
         report.repositories.push({ repo: repo.full_name, result: 'skipped: archived, disabled, Issues disabled, or no push access' }); continue
       }
       const child = repoConfig(cfg, repo, () => ownerBillingScopes(cfg, repos, repo.full_name))
-      const entry = cursor.repos[id] ?? { attemptSeq: 0, lastAttemptedAt: 0, lastScannedAt: 0 }
+      const dispatchIdentityReason = newIdentities.has(id)
+        ? 'New repository name joins at current dispatch progress; no prior identity or lease is reused.' : undefined
+      const entry = cursor.repos[id]!
       entry.lastScannedAt = Date.now()
       cursor.repos[id] = entry
       try {
@@ -200,10 +219,12 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
         if (outcome.attempted) {
           executed = true
           entry.attemptSeq = ++cursor.seq
+          entry.hasAttempted = true
           entry.lastAttemptedAt = Date.now()
         }
         report.repositories.push({ repo: repo.full_name, result: outcome.disposition, attempted: outcome.attempted,
           recoveryRequired: outcome.recoveryRequired,
+          dispatchIdentityReason,
           prObservationCoverage: outcome.prObservationCoverage,
           syncOnly: sync || undefined,
           lastScannedAt: new Date(entry.lastScannedAt).toISOString(),
@@ -218,10 +239,12 @@ export async function runOwner(cfg: OwnerConfig, scanOnly = false, discover = di
         if (retainLock) {
           executed = true
           entry.attemptSeq = ++cursor.seq
+          entry.hasAttempted = true
           entry.lastAttemptedAt = Date.now()
         }
         report.status = 'error'
         report.repositories.push({ repo: repo.full_name, result: err instanceof Error ? err.message : String(err),
+          dispatchIdentityReason,
           outcomeUnknown: retainLock || undefined, recoveryRequired: retainLock || undefined,
           lastScannedAt: new Date(entry.lastScannedAt).toISOString(),
           lastAttemptedAt: entry.lastAttemptedAt ? new Date(entry.lastAttemptedAt).toISOString() : undefined })

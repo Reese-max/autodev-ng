@@ -117,9 +117,9 @@ test('actual dispatch survives aligned three-retry ticks, clock jumps, and disco
  now=-5000;await runOwner(cfg,false,()=>discovered,run);expect(dispatched.at(-1)).toBe('owner/aaa');
  discovered=make(['ccc','ddd','aaa','bbb']);
  for(let tick=0;tick<4;tick++)await runOwner(cfg,false,()=>discovered,run);
- expect(dispatched.slice(-4)).toEqual(['owner/ddd','owner/bbb','owner/ccc','owner/aaa']);
+ expect(dispatched.slice(-4)).toEqual(['owner/bbb','owner/ccc','owner/ddd','owner/aaa']);
  discovered=make(['aaa','ddd','eee']);await runOwner(cfg,false,()=>discovered,run);
- expect(dispatched.at(-1)).toBe('owner/eee');
+ expect(dispatched.at(-1)).toBe('owner/ddd');
  const cursor=JSON.parse(readFileSync(join(dataDir,'dispatch-cursor.json'),'utf8'));
  expect(Object.keys(cursor.repos).sort()).toEqual(['owner/aaa','owner/ddd','owner/eee']);
 });
@@ -187,4 +187,22 @@ test.each([
  writeFileSync(join(dataDir,'dispatch-cursor.json'),JSON.stringify({version:1,...cursor}));
  const run=vi.fn();const result=await runOwner(cfg,false,()=>repos,run);
  expect(run).not.toHaveBeenCalled();expect(result).toMatchObject({status:'blocked',detail:expect.stringMatching(/cursor invalid/)});
+});
+
+
+test('repeated bounded rename churn gives both continuously eligible repositories an opportunity',async()=>{
+ const dataDir=root();
+ const cfg=OwnerConfigSchema.parse({owner:'owner',authors:['owner'],sourceConfig:'synthetic.json',dataDir,engine:'writer',enabled:true,publish:true});
+ const make=(name:string)=>({full_name:`owner/${name}`,owner:{login:'owner'},default_branch:'main',archived:false,disabled:false,has_issues:true,permissions:{push:true}});
+ const dispatched:string[]=[];const reasons:string[]=[];
+ const run=async(child:any,options:any)=>{if(options.syncOnly)return{disposition:'synced',attempted:false};dispatched.push(child.repo);return{disposition:'1: queued',attempted:true};};
+ vi.spyOn(Date,'now').mockReturnValue(0);
+ for(let tick=0;tick<8;tick++){
+  const repos=ownedRepos('owner',[[make('aaa'),make(tick%2?'ccc':'bbb')]]);
+  const result=await runOwner(cfg,false,()=>repos,run);
+  if('repositories'in result)reasons.push(...result.repositories.flatMap(entry=>entry.dispatchIdentityReason?[entry.dispatchIdentityReason]:[]));
+ }
+ expect(dispatched.filter(repo=>repo==='owner/aaa')).toHaveLength(4);
+ expect(dispatched.filter(repo=>repo!=='owner/aaa')).toHaveLength(4);
+ expect(reasons).toContain('New repository name joins at current dispatch progress; no prior identity or lease is reused.');
 });
