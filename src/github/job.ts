@@ -82,7 +82,7 @@ export function issueReviewPending(cfg: GithubConfig, state: IssueState): boolea
   const dataDir = runDir(cfg, state), file = join(dataDir, 'BACKLOG.md')
   return existsSync(file) && new BacklogStore(file).read().some(task => task.status === 'open' && hasPendingReview({ dataDir }, task))
 }
-export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string; attempted?: boolean; recoveryRequired?: boolean; alternativeRetryPending?: boolean; reviewPending?: boolean; retryAt?: number }> {
+export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string; attempted?: boolean; verificationAttempted?: boolean; recoveryRequired?: boolean; alternativeRetryPending?: boolean; reviewPending?: boolean; retryAt?: number }> {
   const resumingReview = issueReviewPending(cfg, state)
   if (cfg.repair && !resumingReview) {
     const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
@@ -125,9 +125,11 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
       return checked
     } }
   }
+  let verificationAttempted = false
   const verifier = app.deps.verifier
   if (!verifier) throw new Error('GitHub runner requires a verifier')
   app.deps.verifier = { async check(job, res) {
+    verificationAttempted = true
     const checked = await verifier.check(job, res)
     if (!checked.pass) return checked
     try {
@@ -162,7 +164,7 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     const detail = typeof result === 'string' && (result === 'failed' || result === 'engine-error')
       ? app.deps.db.lastAttemptFailureFor(tasks[0]!.id) ?? result
       : typeof result === 'string' ? result : result.reason
-    return { done, detail, ...(resumingReview || result === 'cost-hard-stop' || result === 'stopped' ? { attempted: result === 'stopped' && workerStarted } : {}),
+    return { done, detail, verificationAttempted, attempted: workerStarted,
       ...(result === 'deferred' && issueReviewPending(cfg, state) ? { reviewPending: true, retryAt: Date.now() + reviewRetryDelay(runtime) } : {}),
       ...(typeof result === 'object' && result.reason === 'team-state-quarantined' ? { recoveryRequired: true } : {}), ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
   } finally { app.deps.db.close(); app.deps.team?.close() }

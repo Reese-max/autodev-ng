@@ -66,39 +66,69 @@ export async function publishIssue(cfg: GithubConfig, state: IssueState, client:
   state.status = 'published'
   saveState(cfg, state)
 }
-export async function runGithub(cfg: GithubConfig, options: {
-  syncOnly?: boolean; client?: GithubClient; execute?: typeof executeIssue; publish?: typeof publishIssue; configPath?: string
+export type RunOutcome = { disposition: string; attempted: boolean; recoveryRequired?: boolean;
+  prObservationCoverage?: { eligible: number; attempted: number; remaining: number } }
+
+const DEFAULT_OBSERVE_BUDGET = 25
+
+export async function runGithubOutcome(cfg: GithubConfig, options: {
+  syncOnly?: boolean; client?: GithubClient; execute?: typeof executeIssue; publish?: typeof publishIssue; configPath?: string; observeBudget?: number
   /** 授權政策的持續重核對（如 owner 設定檔）。撤回/不可讀/拋錯一律 fail-closed。 */
   policyCheck?: () => boolean
-} = {}): Promise<string> {
-  if (!cfg.enabled || existsSync(githubStopFile(cfg))) return 'paused'
+} = {}): Promise<RunOutcome> {
+  let recoveryRequired = false
+  const outcome = (disposition: string, attempted = false): RunOutcome => ({ disposition, attempted,
+    ...(recoveryRequired ? { recoveryRequired: true } : {}) })
+  let slotUsed = false
+  let invoked = false
+  if (!cfg.enabled || existsSync(githubStopFile(cfg))) return outcome('paused')
   const original = options.configPath ? readFileSync(options.configPath, 'utf8') : undefined
-  if (options.configPath && JSON.stringify(loadGithubConfig(options.configPath)) !== JSON.stringify(cfg)) return 'paused'
+  if (options.configPath && JSON.stringify(loadGithubConfig(options.configPath)) !== JSON.stringify(cfg)) return outcome('paused')
   const inputs = [cfg.sourceConfig, ...(cfg.repair ? [cfg.repair.reportConfig] : [])].map(file => [file, readFileSync(file, 'utf8')] as const)
   const policyHash = candidatePolicyHash(cfg)
   mkdirSync(cfg.dataDir, { recursive: true })
   const lock = join(cfg.dataDir, 'runner.lock')
   const lockToken = acquireLock(lock)
-  if (!lockToken) return 'locked'
+  if (!lockToken) return outcome('locked')
   const client = options.client ?? githubClient(cfg)
   const policyOk = () => { try { return (options.policyCheck?.() ?? true) === true } catch { return false } }
   const active = () => !existsSync(githubStopFile(cfg)) && (!options.configPath || readFileSync(options.configPath, 'utf8') === original)
     && inputs.every(([file, snapshot]) => readFileSync(file, 'utf8') === snapshot) && policyOk()
   try {
-    if (!policyOk()) return 'paused' // 子 repo 啟動即核對：授權在派工前被撤回
+    if (!policyOk()) return outcome('paused') // 子 repo 啟動即核對：授權在派工前被撤回
     // A completed candidate needs only its own remote checks, never a fresh intake/worker run.
     const pendingCandidate = states(cfg).filter(s => s.status === 'queued' && s.candidateCheck).sort((a, b) => a.nextRunAt - b.nextRunAt)[0]
-    if (pendingCandidate && pendingCandidate.nextRunAt > Date.now()) return 'idle' // Respect remote cooldown for every GitHub read.
+    if (pendingCandidate && pendingCandidate.nextRunAt > Date.now()) return outcome('idle') // Respect remote cooldown for every GitHub read.
     const intake = pendingCandidate ? undefined : await syncIssues(cfg, client)
+    let observed = 0
+    let eligibleObservations = 0
     const withCoverage = (result: string) => {
       const summary = intake ? describeIssueBatchCoverage(intake) : undefined
-      return summary ? `${result}; ${summary}` : result
+      const remaining = eligibleObservations - observed
+      const observationSummary = remaining > 0 ? `; partial coverage (PR check attempts ${observed}/${eligibleObservations}; remaining ${remaining})` : ''
+      return { ...outcome((summary ? `${result}; ${summary}` : result) + observationSummary, slotUsed),
+        prObservationCoverage: { eligible: eligibleObservations, attempted: observed, remaining } }
+    }
+    // Observe due PRs independently of the single execution slot. Oldest-first
+    // order and a fixed request budget preserve progress across large backlogs.
+    const observeBudget = options.observeBudget ?? DEFAULT_OBSERVE_BUDGET
+    const published = states(cfg).filter(s => s.status === 'published' && s.pr && s.commit && client.feedback)
+      .sort((a, b) => (a.lastObservedSeq ?? 0) - (b.lastObservedSeq ?? 0)
+        || (a.lastObservedAt ?? 0) - (b.lastObservedAt ?? 0))
+    eligibleObservations = published.length
+    let observationSeq = Math.max(0, ...published.map(s => s.lastObservedSeq ?? 0))
+    for (const state of published) {
+      if (observed >= observeBudget || !active()) break
+      observed += 1
+      try { await observePr(cfg, state, client, active) }
+      // A failed remote read still advances its timestamp so one poisoned PR
+      // cannot pin the front of the bounded observation queue.
+      catch (error) { state.detail = String(error); state.lastObservedAt = Date.now() }
+      // Wall-clock rollback must not move this attempted PR to the queue front.
+      state.lastObservedSeq = ++observationSeq
+      saveState(cfg, state)
     }
     if (options.syncOnly) return withCoverage('synced')
-    for (const published of states(cfg).filter(s => s.status === 'published')) {
-      try { await observePr(cfg, published, client, active) }
-      catch (error) { published.detail = String(error); saveState(cfg, published) }
-    }
     for (const stale of states(cfg).filter(s => s.status === 'running')) {
       stale.status = 'blocked'; stale.detail = 'Previous runner interrupted; inspect artifacts before retry'; saveState(cfg, stale)
     }
@@ -139,9 +169,14 @@ export async function runGithub(cfg: GithubConfig, options: {
         const pending = state.alternativeRetryPending
         state.alternativeRetryPending = false
         state.status = 'running'; state.runs++; saveState(cfg, state)
+        invoked = true
         const result = await (options.execute ?? executeIssue)(cfg, state)
-        if (result.attempted === false) { state.runs--; state.alternativeRetryPending = pending } // Review/capacity deferral does not spend a writer attempt.
+        invoked = false
+        // Verification may consume the slot while refunding a writer attempt.
+        slotUsed = result.attempted !== false || result.verificationAttempted === true
+        if (result.attempted === false) { state.runs--; state.alternativeRetryPending = pending; invoked = false } // Review/capacity deferral does not spend a writer attempt.
         if (result.recoveryRequired) {
+          recoveryRequired = true
           state.status = 'blocked'; state.detail = `Execution recovery required: ${result.detail}`
           saveState(cfg, state); return withCoverage('blocked')
         }
@@ -165,11 +200,17 @@ export async function runGithub(cfg: GithubConfig, options: {
       if (state.status === 'ready' && cfg.publish) {
         checkpoint ??= state.commit ? checkpointFor(cfg, state, 'publication-read', policyHash) : undefined
         if (checkpoint) checkpoint.phase = 'publication-read'
+        invoked = true
         await (options.publish ?? publishIssue)(cfg, state, client, undefined, undefined, active)
+        invoked = false
+        slotUsed = true
       }
       saveState(cfg, state)
     } catch (err) {
+      // An invoked writer/publisher may have changed state before throwing.
+      if (invoked) slotUsed = true
       const transient = transientGithubRead(err)
+      if (invoked && !(checkpoint && state.commit && transient)) recoveryRequired = true
       if (checkpoint && state.commit && transient) {
         checkpoint.attempts++
         state.candidateCheck = checkpoint
@@ -186,4 +227,9 @@ export async function runGithub(cfg: GithubConfig, options: {
     }
     return withCoverage(`${state.issue.number}: ${state.status}`)
   } finally { releaseLock(lock, lockToken) }
+}
+
+// Preserve the external string contract; owner dispatch uses explicit accounting.
+export async function runGithub(cfg: GithubConfig, options: Parameters<typeof runGithubOutcome>[1] = {}): Promise<string> {
+  return (await runGithubOutcome(cfg, options)).disposition
 }

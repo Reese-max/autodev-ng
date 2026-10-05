@@ -28,6 +28,8 @@ jobs:
           Write-Output "Verified Node.js $version"
       - run: npm ci
       - run: npm run typecheck
+      - name: Run owner fairness and policy regressions
+        run: npm test -- tests/github-owner-fairness.test.ts tests/github-owner-recovery.integration.test.ts tests/github-owner-policy.test.ts tests/github-owner-lock-team.integration.test.ts
       - name: Run trusted structured regression verdict tests
         run: npm test -- tests/github-regression-tap.test.ts
       - name: Run GitHub global budget regressions

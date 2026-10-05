@@ -21,6 +21,8 @@ const StateSchema = z.object({
   history: z.array(z.object({ at: z.string().datetime(), status: z.string(), runs: z.number().int().nonnegative(), detail: z.string().optional(), source: z.literal('legacy-snapshot').optional(), phase: z.literal('candidate-check').optional() })).optional(),
   reconciliation: z.object({ at: z.string().datetime(), key: z.string().regex(/^[a-f0-9]{64}$/), kind: z.string(), receipt: z.string().regex(/^reconciliation-[a-f0-9-]+\.json$/) }).optional(),
   baseSha: z.string().regex(/^[a-f0-9]{40,64}$/).optional(), commit: z.string().regex(/^[a-f0-9]{40,64}$/).optional(), pr: z.string().url().optional(), detail: z.string().optional(),
+  lastObservedAt: z.number().optional(),
+  lastObservedSeq: z.number().int().nonnegative().optional(),
 })
 export type IssueState = z.infer<typeof StateSchema>
 export function candidatePolicyHash(cfg: GithubConfig): string {

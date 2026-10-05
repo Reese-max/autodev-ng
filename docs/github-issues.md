@@ -94,6 +94,19 @@ node dist/cli.js github owner-status --config configs/integrations/github-owner.
 單一 repo 使用 `scan`（唯讀）、`sync`、`run`、`status`。
 owner-sync 只同步，不啟動模型；owner-run 執行一輪。
 
+Owner 派工以持久化的 `dispatch-cursor.json` 記錄服務順序，不依系統時間輪替。
+新出現的 repo 名稱從目前游標進度加入，同順位時未派工者先行；反覆改名不能靠重置為零一直插隊。
+報告保留新身分的加入理由，既有 repo 的 lease／claim／工作狀態不會移轉到另一個名稱。
+游標已存在但損壞或不可讀時會停止派工並記錄原因，不能重置進度後繼續。
+PR 查核在僅同步的 repo 也會執行，每次單一 repo runner 呼叫最多查核 25 件；報告分列可查核、已嘗試與尚未涵蓋的件數。
+`lastObservedAt`／`lastObservedSeq` 記錄查核嘗試（含失敗），有效的 exact-head 回執時間仍以 `state.remote.at` 為準。
+
+Owner 在可執行的子 repo 呼叫前，先將 `recovery-required.json` 寫入目前 owner lock generation。
+若子工作結果不明、狀態寫入失敗或回報 `recoveryRequired`，會保留該租約，阻止本輪及重新啟動後再派工。
+Owner 的執行介面預設使用 typed outcome；舊版文字 adapter 的 `blocked` 結果無法證明 claim 已安全釋放，因此同樣保留租約。
+確認原 backend／claim 已安全後，由 operator 使用既有 generation-fenced `recoverRetainedLock`（正確 token 與 `backendSafeConfirmed: true`）復原。
+不得只刪除 lock 目錄、使用錯誤 generation 或把 failed PR read 當作已完成的查核。
+
 Windows 可用 `scripts/install-github-issues-task.ps1 -Config <設定檔>` 安裝每五分鐘排程，
 支援 `-WhatIf` 且不覆寫同名工作。無排程器權限時，可在背景執行
 `scripts/watch-github-owner.ps1 -Config <設定檔>`，並由使用者 Startup 捷徑登入啟動。
