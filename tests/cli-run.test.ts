@@ -49,6 +49,23 @@ function fixture(verifyExit: number) {
 
 const lastJson = (stdout: string[]) => JSON.parse(stdout[stdout.length - 1]!)
 
+test('CLI preserves and executes a trusted ordered verification array from config', async () => {
+  const f = fixture(0)
+  try {
+    writeFileSync(join(f.project, 'first.mjs'), "import {writeFileSync} from 'node:fs'; writeFileSync('first-ran', 'yes');\n")
+    const cfg = JSON.parse(readFileSync(f.config, 'utf8'))
+    cfg.verifyCommand = ['node first.mjs', 'node check.mjs']
+    writeFileSync(f.config, JSON.stringify(cfg))
+    const result = await captureCli(['run', 'start', '--config', f.config, '--goal', 'bounded ordered fixture'])
+    expect(result.exitCode).toBe(0)
+    expect(lastJson(result.stdout).phase).toBe('complete')
+    expect(readFileSync(join(f.project, 'first-ran'), 'utf8')).toBe('yes')
+    const evidence = await captureCli(['run', 'evidence', '--config', f.config, '--id', lastJson(result.stdout).runId])
+    expect(lastJson(evidence.stdout).state.goal.verifyCommand).toEqual(cfg.verifyCommand)
+    expect(lastJson(evidence.stdout).checkpoints).toHaveLength(1)
+  } finally { f.cleanup() }
+})
+
 test('adng run start drives a goal to verified completion; status/evidence/metrics expose the run', async () => {
   const { root, config, dataDir, cleanup } = fixture(0)
   try {

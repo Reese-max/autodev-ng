@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mechanicalAuditor, LongHorizonBackend } from '../src/backends/long-horizon.js'
-import type { AuditRequest } from '../src/backends/types.js'
+import { BackendGoalSchema, type AuditRequest } from '../src/backends/types.js'
 
 const roots: string[] = [], servers: Server[] = []
 afterEach(async () => {
@@ -78,6 +78,27 @@ test('missing trusted verification command cannot ask an Auditor or certify comp
   const f = await fixture({ text: 'PASS' })
   expect((await f.audit({ ...f.request, goal: { objective: f.request.goal.objective } })).outcome).toBe('rejected')
   expect(f.requests).toEqual([])
+})
+
+test.each([0, 17])('ordered trusted verification executes every step and gates Auditor on second exit=%i', async exit => {
+  const f = await fixture({ text: 'PASS' })
+  for (const [name, code] of [['first', 0], ['second', exit], ['last', 0]] as const) {
+    writeFileSync(join(f.cwd, `${name}.mjs`), `import {appendFileSync} from 'node:fs'; appendFileSync('steps.log','${name}\\n'); process.exit(${code});\n`)
+  }
+  const commands = ['node first.mjs', 'node second.mjs', 'node last.mjs']
+  const goal = BackendGoalSchema.parse({ objective: f.request.goal.objective, verifyCommand: commands })
+  const verdict = await f.audit({ ...f.request, goal })
+  expect(verdict.outcome).toBe(exit === 0 ? 'verified' : 'rejected')
+  expect(verdict.goalAchieved).toBe(exit === 0 ? true : undefined)
+  expect(readFileSync(join(f.cwd, 'steps.log'), 'utf8')).toBe(exit === 0 ? 'first\nsecond\nlast\n' : 'first\nsecond\n')
+  expect(f.requests).toHaveLength(exit === 0 ? 1 : 0)
+  expect(goal.verifyCommand).toEqual(commands)
+})
+
+test('trusted goal schema rejects empty or blank verification arrays', () => {
+  for (const commands of [[], [''], ['node check.mjs', '  ']]) {
+    expect(() => BackendGoalSchema.parse({ objective: 'fixture', verifyCommand: commands })).toThrow()
+  }
 })
 
 test('configured Auditor outage remains rejected evidence with no verified checkpoint at the failure cap', async () => {

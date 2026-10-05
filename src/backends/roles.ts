@@ -125,7 +125,7 @@ export function mechanicalAuditor(opts: {
       return { outcome: 'rejected', detail: `executor 失敗：${detail}`, gitSha }
     }
     const cmd = req.goal.verifyCommand
-    if (!cmd?.trim()) {
+    if (!cmd || (typeof cmd === 'string' ? !cmd.trim() : cmd.length === 0)) {
       return { outcome: 'rejected', detail: '未設定 verifyCommand；自我宣告不構成完成證據', gitSha }
     }
     const v = await verify({ command: cmd, cwd: req.cwd, timeoutMs: opts.timeoutMs ?? 600_000 })

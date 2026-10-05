@@ -118,6 +118,7 @@ export type EngineConfig = z.infer<typeof EngineConfigSchema>
 // M10.6：timezoneOffsetHours 的 Zod 預設單一真相源——globalcost 讀 raw JSON 拿不到 Zod default，
 // 改從此常數鏡像（M10.5 缺欄低估事故的根因就是兩處預設不一致）。台灣 +8。
 export const DEFAULT_TIMEZONE_OFFSET_HOURS = 8
+export const TimezoneOffsetHoursSchema = z.number().int().min(-12).max(14)
 export const DEFAULT_STALE_THRESHOLD_MS = 30 * 60_000
 export const DEFAULT_WEDGE_HARD_CAP_MS = 120 * 60_000
 export const DEFAULT_REAP_GRACE_MS = 90 * 60_000 // §1.1 長輪寬限：引擎子進程在且凍結未逾此值不 reap（單輪實測 50 分＋verify 10 分）
@@ -142,7 +143,7 @@ export const ConfigSchema = z.object({
   // supervisor：有子進程時的 wedge 硬上限；預設 120 分鐘。
   wedgeHardCapMs: z.number().int().min(900_001).default(DEFAULT_WEDGE_HARD_CAP_MS),
   // M4 Task 3（成本記帳）：本地日界線與失敗成本估計。台灣預設 +8；成本日界線與 digest 報日共用同一個 offset。
-  timezoneOffsetHours: z.number().int().min(-12).max(14).default(DEFAULT_TIMEZONE_OFFSET_HOURS),
+  timezoneOffsetHours: TimezoneOffsetHoursSchema.default(DEFAULT_TIMEZONE_OFFSET_HOURS),
   failureCostEstimateUsd: z.number().nonnegative().default(1),
   // M4 Task 6：worktreesDir 相對 config 檔目錄展開；worktree.ts 收絕對路徑，extraDirective 可注入 engine prompt 尾端。
   worktreesDir: z.string().default('worktrees'),
@@ -155,7 +156,8 @@ export const ConfigSchema = z.object({
   engineIsolation: z.boolean().default(true),
   extraDirective: z.string().optional(),
   stopFile: z.string().default('.adng.stop'),
-  verifyCommand: z.string().optional(),
+  // #48：單步字串或有序步驟清單；字串內 && 視為序接鏈逐步執行，其他 shell 元字元拒絕。
+  verifyCommand: z.union([z.string(), z.array(z.string().trim().min(1)).min(1)]).optional(),
   verifyTimeoutMs: z.number().int().positive().default(600_000),
   defaultRisk: z.enum(['low', 'medium', 'high']).default('medium'),
   // 併發基建骨架（GOAL A 2026-07-28）：>1 的併發池屬 GOAL B，骨架僅收設定並防呆。

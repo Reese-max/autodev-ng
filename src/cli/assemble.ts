@@ -107,7 +107,18 @@ export function assembleConfig(cfg: Config, absCfgPath?: string): { deps: Deps; 
   const events = new EventLog(cfg.dataDir)
   const store = new BacklogStore(cfg.backlogFile)
   const db = new RunDb(join(cfg.dataDir, 'run.db'))
-  const engines = makeEngineRegistry(cfg)
+  const registry = makeEngineRegistry(cfg)
+  const engines = {
+    resolve(tag: string) {
+      try {
+        return registry.resolve(tag)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        if (!absCfgPath || !message.includes('free-policy:')) throw err
+        throw new Error(`設定檔 ${absCfgPath}: ${message}`, { cause: err })
+      }
+    },
+  }
   // review 的 effort/timeout 沿用 judge 檔次（驗收鏈同升降；要分開時再開獨立欄位）
   const reviewerModel = cfg.reviewEngine ?? cfg.auditModel
   const reviewRun = reviewerModel ? (a: ReviewRunArgs) => reviewDiff({ ...reviewLlmFromConfig(cfg), onModel: a.onModel }, a.diff, a.taskText) : undefined

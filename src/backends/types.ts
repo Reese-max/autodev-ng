@@ -22,7 +22,7 @@ export type AttemptOutcome = (typeof ATTEMPT_OUTCOMES)[number]
 
 export const BackendGoalSchema = z.object({
   objective: z.string().min(1),
-  verifyCommand: z.string().optional(),
+  verifyCommand: z.union([z.string(), z.array(z.string().trim().min(1)).min(1)]).optional(),
   issue: z.object({ repo: z.string().min(1), number: z.number().int().positive() }).strict().optional(),
 }).strict()
 export type BackendGoal = z.infer<typeof BackendGoalSchema>
