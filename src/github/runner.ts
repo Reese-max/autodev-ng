@@ -7,10 +7,13 @@ import { githubClient, type GithubClient } from './client.js'
 import { assertPublishable, checkoutDir, executeIssue, git, issueReviewPending } from './job.js'
 import { alternativeRunPending, branchFor, fingerprint, readState, saveState, states, type IssueState } from './state.js'
 import { observePr } from './followup.js'
+import { issueQualityVeto } from './intake-quality.js'
 
 export async function syncIssues(cfg: GithubConfig, client: GithubClient): Promise<void> {
   for (const issue of await client.list()) {
     if (existsSync(githubStopFile(cfg))) return
+    const veto = issueQualityVeto(issue.body)
+    if (veto) { console.warn(`github-intake rejected Issue #${issue.number}: ${veto}`); continue }
     if (!eligibleForRun(issue, cfg) || readState(cfg, issue.number)) continue
     saveState(cfg, { repo: cfg.repo, base: cfg.base, issue, fingerprint: fingerprint(issue), status: 'queued', runs: 0, nextRunAt: 0 })
   }
