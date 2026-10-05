@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { z } from 'zod'
 import { QualityConfigSchema } from './quality.js'
+import { issueQualityVeto } from './intake-quality.js'
 const outputPattern = z.string().min(3).max(200).refine(value => { try { new RegExp(value); return true } catch { return false } }, 'Invalid output pattern')
 
 export const GithubConfigSchema = z.object({
@@ -14,7 +15,7 @@ export const GithubConfigSchema = z.object({
   /** 額外全域計帳根目錄；GitHub Issue 的 dataDir 仍必計入。owner 模式由內部 resolver 依 repo 套用政策。 */
   billingScope: z.string().min(1).optional(),
   engine: z.string().min(1),
-  verifyCommand: z.string().trim().min(1).optional(),
+  verifyCommand: z.union([z.string().trim().min(1), z.array(z.string().trim().min(1)).min(1)]).optional(),
   regressionPrepareCommand: z.string().trim().min(1).optional(),
   regression: z.object({
     file: z.string().regex(/^tests\/regressions\/[A-Za-z0-9_.{}-]+$/).refine(v => v.includes('{issue}') && v.includes('{revision}') && !/[{}]/.test(v.replaceAll('{issue}', '1').replaceAll('{revision}', '0'))),
@@ -57,6 +58,7 @@ export type Issue = z.infer<typeof IssueSchema>
 export function eligible(issue: Issue, cfg: GithubConfig, approvedReport = false): boolean {
   const reported = issue.body?.includes('<!-- adng:report:') || issue.labels.some(label => label.name.toLowerCase() === 'autodev-reported')
   return !issue.pull_request && issue.state === 'open'
+    && !issueQualityVeto(issue.body)
     && (reported ? approvedReport : !cfg.repair)
     && cfg.authors.some(author => author.toLowerCase() === issue.user.login.toLowerCase())
     && !issue.labels.some(label => label.name.toLowerCase() === 'no-autofix')
