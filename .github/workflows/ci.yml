@@ -12,13 +12,20 @@ jobs:
     # Full regression exercises Windows file locks and process-tree supervision.
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # Kernel relocation checks compare historical commits.
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
+      - name: Verify Node.js 22 runtime
+        shell: pwsh
+        run: |
+          $version = node --version
+          if ($LASTEXITCODE -ne 0) { throw "node --version failed" }
+          if ($version -notmatch '^v22\.') { throw "Expected Node.js 22; got '$version'" }
+          Write-Output "Verified Node.js $version"
       - run: npm ci
       - run: npm run typecheck
       - name: Run lock ownership regressions
