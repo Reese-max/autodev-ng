@@ -3,20 +3,23 @@ import { join } from 'node:path'
 import { acquireLock, releaseLock } from '../lock.js'
 import { githubStopFile, loadGithubConfig, type GithubConfig, type Issue } from './config.js'
 import { eligibleForRun } from './repair.js'
-import { githubClient, transientGithubRead, type GithubClient } from './client.js'
+import { describeIssueBatchCoverage, githubClient, issueBatchFor, transientGithubRead, type GithubClient } from './client.js'
 import { assertPublishable, checkoutDir, executeIssue, git, issueReviewPending } from './job.js'
 import { alternativeRunPending, branchFor, candidatePolicyHash, fingerprint, readState, saveState, states, type IssueState } from './state.js'
 import { observePr } from './followup.js'
 import { issueQualityVeto } from './intake-quality.js'
 
-export async function syncIssues(cfg: GithubConfig, client: GithubClient): Promise<void> {
-  for (const issue of await client.list()) {
-    if (existsSync(githubStopFile(cfg))) return
+export async function syncIssues(cfg: GithubConfig, client: GithubClient) {
+  const batch = await issueBatchFor(client)
+  let stoppedEarly = false
+  for (const issue of batch.issues) {
+    if (existsSync(githubStopFile(cfg))) { stoppedEarly = true; break }
     const veto = issueQualityVeto(issue.body)
     if (veto) { console.warn(`github-intake rejected Issue #${issue.number}: ${veto}`); continue }
     if (!eligibleForRun(issue, cfg) || readState(cfg, issue.number)) continue
     saveState(cfg, { repo: cfg.repo, base: cfg.base, issue, fingerprint: fingerprint(issue), status: 'queued', runs: 0, nextRunAt: 0 })
   }
+  return stoppedEarly ? { ...batch, partial: true, stoppedEarly: true } : batch
 }
 function currentIssue(cfg: GithubConfig, state: IssueState, issue: Issue): boolean {
   return issue.number === state.issue.number && eligibleForRun(issue, cfg) && fingerprint(issue) === state.fingerprint
@@ -86,8 +89,12 @@ export async function runGithub(cfg: GithubConfig, options: {
     // A completed candidate needs only its own remote checks, never a fresh intake/worker run.
     const pendingCandidate = states(cfg).filter(s => s.status === 'queued' && s.candidateCheck).sort((a, b) => a.nextRunAt - b.nextRunAt)[0]
     if (pendingCandidate && pendingCandidate.nextRunAt > Date.now()) return 'idle' // Respect remote cooldown for every GitHub read.
-    if (!pendingCandidate) await syncIssues(cfg, client)
-    if (options.syncOnly) return 'synced'
+    const intake = pendingCandidate ? undefined : await syncIssues(cfg, client)
+    const withCoverage = (result: string) => {
+      const summary = intake ? describeIssueBatchCoverage(intake) : undefined
+      return summary ? `${result}; ${summary}` : result
+    }
+    if (options.syncOnly) return withCoverage('synced')
     for (const published of states(cfg).filter(s => s.status === 'published')) {
       try { await observePr(cfg, published, client, active) }
       catch (error) { published.detail = String(error); saveState(cfg, published) }
@@ -96,7 +103,7 @@ export async function runGithub(cfg: GithubConfig, options: {
       stale.status = 'blocked'; stale.detail = 'Previous runner interrupted; inspect artifacts before retry'; saveState(cfg, stale)
     }
     const state = pendingCandidate ?? states(cfg).find(s => (s.status === 'queued' || (s.status === 'ready' && cfg.publish)) && s.nextRunAt <= Date.now())
-    if (!state) return 'idle'
+    if (!state) return withCoverage('idle')
     let checkpoint = state.candidateCheck
     if (!checkpoint && state.status === 'ready' && state.commit) {
       checkpoint = state.candidateCheck = checkpointFor(cfg, state, 'publication-read', policyHash)
@@ -106,9 +113,9 @@ export async function runGithub(cfg: GithubConfig, options: {
       if (checkpoint && checkpoint.attempts >= 5) throw new Error('candidate-read-retry-exhausted: inspect exact candidate and use existing recovery')
       if (checkpoint && checkpoint.policyHash !== policyHash) throw new Error('candidate-policy-changed: restore the original gate/source configuration before manual recovery')
       if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
-        state.status = 'cancelled'; state.detail = 'Issue changed, closed, or no longer eligible'; saveState(cfg, state); return 'cancelled'
+        state.status = 'cancelled'; state.detail = 'Issue changed, closed, or no longer eligible'; saveState(cfg, state); return withCoverage('cancelled')
       }
-      if (!active()) return 'paused'
+      if (!active()) return withCoverage('paused')
       if (checkpoint) {
         if (!state.commit) throw new Error('Candidate checkpoint missing exact commit; manual recovery required')
         // Local executeIssue already completed; the original artifacts and accounting stay intact.
@@ -118,17 +125,17 @@ export async function runGithub(cfg: GithubConfig, options: {
         const existing = (await client.findPr(branchFor(state.issue.number)))?.html_url ?? await client.findLinkedPr(state.issue.number)
         if (existing && !state.revision) {
           state.status = 'blocked'; state.pr = existing; state.detail = 'Existing PR; manual review required before further execution'
-          saveState(cfg, state); return 'blocked'
+          saveState(cfg, state); return withCoverage('blocked')
         }
         if (state.revision) {
           const pr = await client.findPr(branchFor(state.issue.number))
           if (!pr || pr.state !== 'open' || pr.html_url !== state.pr || pr.head.sha !== state.revision.baseCommit || pr.base.ref !== cfg.base) throw new Error('PR changed before revision execution')
         }
         if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {
-          state.status = 'cancelled'; state.detail = 'Issue changed or excluded before execution'; saveState(cfg, state); return 'cancelled'
+          state.status = 'cancelled'; state.detail = 'Issue changed or excluded before execution'; saveState(cfg, state); return withCoverage('cancelled')
         }
-        if (!active()) return 'paused'
-        if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state) && !issueReviewPending(cfg, state)) { state.status = 'blocked'; saveState(cfg, state); return 'blocked' }
+        if (!active()) return withCoverage('paused')
+        if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state) && !issueReviewPending(cfg, state)) { state.status = 'blocked'; saveState(cfg, state); return withCoverage('blocked') }
         const pending = state.alternativeRetryPending
         state.alternativeRetryPending = false
         state.status = 'running'; state.runs++; saveState(cfg, state)
@@ -136,7 +143,7 @@ export async function runGithub(cfg: GithubConfig, options: {
         if (result.attempted === false) { state.runs--; state.alternativeRetryPending = pending } // Review/capacity deferral does not spend a writer attempt.
         if (result.recoveryRequired) {
           state.status = 'blocked'; state.detail = `Execution recovery required: ${result.detail}`
-          saveState(cfg, state); return 'blocked'
+          saveState(cfg, state); return withCoverage('blocked')
         }
         state.detail = result.detail
         state.commit = result.commit
@@ -150,7 +157,7 @@ export async function runGithub(cfg: GithubConfig, options: {
         saveState(cfg, state)
         if (!active() || !currentIssue(cfg, state, await client.issue(state.issue.number))) {
           state.status = 'cancelled'; state.detail = 'Issue or configuration changed during execution; candidate preserved'
-          saveState(cfg, state); return 'cancelled'
+          saveState(cfg, state); return withCoverage('cancelled')
         }
         delete state.candidateCheck
         state.status = result.done ? 'ready' : state.runs >= cfg.maxRuns && !state.alternativeRetryPending && !result.reviewPending ? 'blocked' : 'queued'
@@ -177,6 +184,6 @@ export async function runGithub(cfg: GithubConfig, options: {
       }
       saveState(cfg, state)
     }
-    return `${state.issue.number}: ${state.status}`
+    return withCoverage(`${state.issue.number}: ${state.status}`)
   } finally { releaseLock(lock, lockToken) }
 }
