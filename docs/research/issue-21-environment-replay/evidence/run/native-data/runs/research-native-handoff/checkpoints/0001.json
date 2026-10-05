@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "runId": "research-native-handoff",
+  "seq": 1,
+  "round": 2,
+  "at": "2026-10-05T06:47:14.013Z",
+  "step": "create the bounded fixture output",
+  "gitSha": "c3c49a2bf570b389b5f41aa0aa348557532c9b50",
+  "commitHash": "c3c49a2bf570b389b5f41aa0aa348557532c9b50",
+  "verifyStatus": "pass",
+  "verifyDetail": "ok 80ms"
+}

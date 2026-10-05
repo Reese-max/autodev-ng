@@ -1,0 +1,193 @@
+{
+  "cwd": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/target-changed-budget-policy",
+  "environmentId": "env-changed-budget-policy",
+  "providerKind": "MANAGED_SANDBOX",
+  "artifacts": [
+    "artifact.txt"
+  ],
+  "evidence": [
+    "evidence.json"
+  ],
+  "principal": {
+    "principalId": "fixture-principal",
+    "parentPrincipalId": "fixture-parent",
+    "leaseId": "fixture-lease",
+    "executionId": "fixture-execution",
+    "credentialRef": "fixture-ref:HANDOFF",
+    "identityIsolation": "MOCK_DEDICATED",
+    "scope": "MOCK_AUTHORITY_ONLY"
+  },
+  "budget": {
+    "budgetRef": "fixture-budget:authoritative",
+    "policyHash": "06b3320ca51c66418f954f1d472bc8bdc7015405706351ce87cbccfcf9617e1d",
+    "ledgerRef": "fixture-ledger:source-git-common-dir",
+    "ledgerIdentityDigest": "777b1cc66fbae10686b4c6e90894b25644e35a349919cfd7f1b1886f4cb8d447",
+    "costClass": "LOCAL_SYNTHETIC_ZERO_PROVIDER_COST",
+    "reservationUsd": 0.1,
+    "hardUsd": 1
+  },
+  "requirement": {
+    "schemaVersion": "environment-research/v1",
+    "os": "linux",
+    "node": "v22.23.3",
+    "cli": "offline-fixture-cli/v1",
+    "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+    "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+    "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+    "storageDurability": "SAME_PROCESS_WRITE_READ",
+    "localOnlyResources": [],
+    "requiredEffect": "DENY",
+    "explicitSelection": true,
+    "budget": {
+      "budgetRef": "fixture-budget:authoritative",
+      "policyHash": "06b3320ca51c66418f954f1d472bc8bdc7015405706351ce87cbccfcf9617e1d",
+      "ledgerRef": "fixture-ledger:source-git-common-dir",
+      "ledgerIdentityDigest": "777b1cc66fbae10686b4c6e90894b25644e35a349919cfd7f1b1886f4cb8d447",
+      "costClass": "LOCAL_SYNTHETIC_ZERO_PROVIDER_COST",
+      "reservationUsd": 0.1,
+      "hardUsd": 1
+    },
+    "principal": {
+      "principalId": "fixture-principal",
+      "parentPrincipalId": "fixture-parent",
+      "leaseId": "fixture-lease",
+      "executionId": "fixture-execution",
+      "credentialRef": "fixture-ref:HANDOFF",
+      "identityIsolation": "MOCK_DEDICATED",
+      "scope": "MOCK_AUTHORITY_ONLY"
+    }
+  },
+  "bundle": {
+    "schemaVersion": "environment-research/v1",
+    "bundleId": "bundle-env-changed-budget-policy",
+    "taskId": "fixture-task",
+    "executionId": "fixture-execution",
+    "sourceEnvironment": "local-owned-fixture",
+    "targetEnvironment": "env-changed-budget-policy",
+    "sourceObservationDigest": "bcf25b6aa150beb2181fb7a26b506c50906863a7c761eb2db96cd7c11a3fa15d",
+    "requirementDigest": "76920e8956e45ae286d8971f277e90b233bdd649ed65537f6c36151413d3596c",
+    "repoIdentity": "fixture://owned-project/no-network",
+    "commit": "6136d0681ee7a200e4123f9a93d4eb27c7226c76",
+    "sourceWorktreePath": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/local-project",
+    "dirtyState": "",
+    "dirtyDigest": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "artifacts": [
+      {
+        "locator": "artifact.txt",
+        "sha256": "6b0e9d8b76fce60f7e2ebf0aed138ddcd44b4bcc2cd69cd179231967815042f0"
+      }
+    ],
+    "evidence": [
+      {
+        "locator": "evidence.json",
+        "sha256": "75ec191953c106a2a1e2d3ea97bc92d9797f597cb0550cd6d3633afc84e20cc1"
+      }
+    ],
+    "principal": {
+      "principalId": "fixture-principal",
+      "parentPrincipalId": "fixture-parent",
+      "leaseId": "fixture-lease",
+      "executionId": "fixture-execution",
+      "credentialRef": "fixture-ref:HANDOFF",
+      "identityIsolation": "MOCK_DEDICATED",
+      "scope": "MOCK_AUTHORITY_ONLY"
+    },
+    "budget": {
+      "budgetRef": "fixture-budget:authoritative",
+      "policyHash": "06b3320ca51c66418f954f1d472bc8bdc7015405706351ce87cbccfcf9617e1d",
+      "ledgerRef": "fixture-ledger:source-git-common-dir",
+      "ledgerIdentityDigest": "777b1cc66fbae10686b4c6e90894b25644e35a349919cfd7f1b1886f4cb8d447",
+      "costClass": "LOCAL_SYNTHETIC_ZERO_PROVIDER_COST",
+      "reservationUsd": 0.1,
+      "hardUsd": 1
+    },
+    "checkpoint": {
+      "kind": "RESEARCH_FIXTURE",
+      "locator": "checkpoint.txt",
+      "sha256": "cb43dfaa4a1adb26303e2d0f98129c054bf085aca3e3ddba9376597e9da671e6",
+      "cwdBinding": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/local-project"
+    },
+    "pending": [],
+    "explicitSelection": true,
+    "direction": "LOCAL_TO_SIMULATOR",
+    "acceptableDrift": "NONE"
+  },
+  "sourceObservation": {
+    "schemaVersion": "environment-research/v1",
+    "environmentId": "local-owned-fixture",
+    "providerKind": "UNKNOWN",
+    "observationBasis": "ACTUAL_SUBPROCESS_READBACK",
+    "observedAt": "2026-10-05T06:47:03.882Z",
+    "os": "linux",
+    "node": "v22.23.3",
+    "cli": "offline-fixture-cli/v1",
+    "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+    "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+    "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+    "storageDurability": "SAME_PROCESS_WRITE_READ",
+    "actualFacts": {
+      "os": "linux",
+      "node": "v22.23.3",
+      "cli": "offline-fixture-cli/v1",
+      "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+      "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+      "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+      "storageDurability": "SAME_PROCESS_WRITE_READ"
+    },
+    "repoIdentity": "fixture://owned-project/no-network",
+    "commit": "6136d0681ee7a200e4123f9a93d4eb27c7226c76",
+    "worktreePath": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/local-project",
+    "dirtyState": "",
+    "dirtyDigest": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "artifacts": [
+      {
+        "locator": "artifact.txt",
+        "sha256": "6b0e9d8b76fce60f7e2ebf0aed138ddcd44b4bcc2cd69cd179231967815042f0"
+      }
+    ],
+    "evidence": [
+      {
+        "locator": "evidence.json",
+        "sha256": "75ec191953c106a2a1e2d3ea97bc92d9797f597cb0550cd6d3633afc84e20cc1"
+      }
+    ],
+    "principal": {
+      "principalId": "fixture-principal",
+      "parentPrincipalId": "fixture-parent",
+      "leaseId": "fixture-lease",
+      "executionId": "fixture-execution",
+      "credentialRef": "fixture-ref:HANDOFF",
+      "identityIsolation": "MOCK_DEDICATED",
+      "scope": "MOCK_AUTHORITY_ONLY"
+    },
+    "budget": {
+      "budgetRef": "fixture-budget:authoritative",
+      "policyHash": "06b3320ca51c66418f954f1d472bc8bdc7015405706351ce87cbccfcf9617e1d",
+      "ledgerRef": "fixture-ledger:source-git-common-dir",
+      "ledgerIdentityDigest": "777b1cc66fbae10686b4c6e90894b25644e35a349919cfd7f1b1886f4cb8d447",
+      "costClass": "LOCAL_SYNTHETIC_ZERO_PROVIDER_COST",
+      "reservationUsd": 0.1,
+      "hardUsd": 1
+    },
+    "unsupported": [
+      "REAL_PROVIDER",
+      "REAL_CREDENTIAL_REVOCATION",
+      "HOST_OS_CONTAINMENT",
+      "NATIVE_CROSS_HOST_RESUME",
+      "STEER_QUEUE_DELIVERY"
+    ],
+    "simulatedOverrides": {}
+  },
+  "sourceCwd": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/local-project",
+  "expectedTask": "fixture-task",
+  "authorityPath": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/mock-principal-registry.json",
+  "authoritativeBudget": {
+    "ledgerRef": "fixture-ledger:source-git-common-dir",
+    "config": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/billing-configs/source.json",
+    "project": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/local-project"
+  },
+  "attemptId": "admission-changed-budget-policy",
+  "commandLog": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/cases/changed-budget-policy/fixture-command.log",
+  "observationOutput": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/cases/changed-budget-policy/observation.json",
+  "receiptOutput": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/cases/changed-budget-policy/receipt.json"
+}

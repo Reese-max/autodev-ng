@@ -1,0 +1,962 @@
+{
+  "schemaVersion": "research-publication-manifest/v1",
+  "actualRuntimeSource": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+  "actualRuntimeTree": "26314c41dbe5f7b40da0f242fd8268ec5f0178f8",
+  "frozenResultDigest": "bc41c7eb79bd1459c5c1f5224611b4735003e16942c9c8a7cebdbdc7d0c59665",
+  "originalRuntimeRootMapping": {
+    "source": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV",
+    "archive": "evidence/run/"
+  },
+  "entries": [
+    {
+      "path": "docs/research/issue-21-environment-replay/run.py",
+      "sha256": "06520acf6d93a495c9773ee400f768424064ef6b1080e429b1b63478ce55c736",
+      "bytes": 2623
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/replay.mjs",
+      "sha256": "9be9250a171f2d47e71516717cf833604552f9bf8bf56d6228f0629c4405aeb6",
+      "bytes": 25044
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/contract.mjs",
+      "sha256": "9e6e0a950c88f7c40eb3cadc8381fa4417cbafa0a4351792cf205e53745b1058",
+      "bytes": 9999
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/observer.mjs",
+      "sha256": "6ad63328c1264c2b72a35d73a55bdf8bc4f14c97f741026420e6edf7f5e14e24",
+      "bytes": 1205
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/native-control.mjs",
+      "sha256": "f2107cd1a7ed907e24677b34f84e34d5e78acc748b613ed6ee3e5b3f442ec8e9",
+      "bytes": 3358
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/environment-schemas.mjs",
+      "sha256": "96775e5484d583277b5eeef6b447f19e948ffc381fe8dcf1798359399312ea47",
+      "bytes": 4108
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/mock-authority.mjs",
+      "sha256": "bb5cbcfebe840702d8ec6c5c48a01430b065b295f5fdda7fbf35bd734da90241",
+      "bytes": 5421
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/schemas.mjs",
+      "sha256": "0deb8555460b50e1ac255cf60d24f840c8497255f8c8b579cf526abee5617800",
+      "bytes": 2784
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/README.md",
+      "sha256": "3e8d467e4e6171c700d768d0a8a28ca5501b5f20ae08cf368c939c127f9ae7db",
+      "bytes": 9237
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/source-evidence.json",
+      "sha256": "2c57e0f289b6562faf00d292d3fc868fca7c52d0980590fe8bc91c5ab8984a9c",
+      "bytes": 5803
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/windows-evidence.json",
+      "sha256": "7b62146c42696e83ee6c01f79251545d76b73f3e0502ab30873c73d7e5ba3147",
+      "bytes": 1505
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/windows-log-excerpt.txt",
+      "sha256": "b9bd3296e532e4e96f40dd991d37e266f0226d2a190027ba3f6aeed1e8243675",
+      "bytes": 289
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/schemas.json",
+      "sha256": "6b7e673f4c70b6835fb9fe79ddb2e334c8067d3e0d5599399f7ae179587ff6de",
+      "bytes": 20978
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/build-receipt.json",
+      "sha256": "0a622014c3a5bc472e3a46d04c3d3a2ae7c68ce33eaa6749abffaf18f9b469eb",
+      "bytes": 3222
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/replay.log",
+      "sha256": "429014077d23fb07f553d457050323284ea59b77ad51d00c89647b7d6c54339e",
+      "bytes": 215
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/billing-configs/source.json",
+      "sha256": "06b3320ca51c66418f954f1d472bc8bdc7015405706351ce87cbccfcf9617e1d",
+      "bytes": 199
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-copied-native-state-wrapper-refusal/input.json",
+      "sha256": "597f4c361a2d28d5c942077dcddff6b13a5886f9bde5382e4c083d0cddd2a05f",
+      "bytes": 8745
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-copied-native-state-wrapper-refusal/observation.json",
+      "sha256": "2ed1c924c538e7bb0ff941a6ff185ee34c1033a02f9a2ae22f2644d4236b4009",
+      "bytes": 2528
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-copied-native-state-wrapper-refusal/observer.log",
+      "sha256": "84c1bc6fefb37b3862764a78240f429330466a69c07aaf106ea209b34e8c5b62",
+      "bytes": 250
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-copied-native-state-wrapper-refusal/receipt.json",
+      "sha256": "734087e7e773621a2be81045fad71ad3df8478b12940136aba3231a2d6e719fd",
+      "bytes": 14506
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-portable-forward/fixture-command.log",
+      "sha256": "30b558bd8acd94a226c4e13cf1762f657a260a5a19a8049b0aafc93435e30e14",
+      "bytes": 417
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-portable-forward/input.json",
+      "sha256": "81f205bc9074ceba0b70c13ce5c64fea6768d594293ec1457aba7c42face25ec",
+      "bytes": 8182
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-portable-forward/observation.json",
+      "sha256": "2d661b206f3a9baf453723270a1349e57f427e4cdf3cb2aab12973fd1541e2be",
+      "bytes": 2519
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-portable-forward/observer.log",
+      "sha256": "83a80cdc021e1a331529e8c17bbc07ba79964d7cfc7afce8966402bace701fb2",
+      "bytes": 245
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-portable-forward/receipt.json",
+      "sha256": "cabd84d576b7af2870d085ca4b7040d7d523f84cbbcecf08b33d43949c56c1cb",
+      "bytes": 11483
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-portable-return/fixture-command.log",
+      "sha256": "03059da65871477e2f891b81e2d351bb5a40fd8e20370e61fd9e7a037fe6f5c1",
+      "bytes": 416
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-portable-return/input.json",
+      "sha256": "80c6d27a441145d52c9474ec4898adc9fb9dd9802136a51a6438130c1e173a0c",
+      "bytes": 8252
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-portable-return/observation.json",
+      "sha256": "75c6905193938d4c52b3454c92a22efbb110db959cb751e05afb5736ab7d5db5",
+      "bytes": 2501
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-portable-return/observer.log",
+      "sha256": "f7d8f729f86fe9a979e694c2fea3897d78a892a1583b4f16d102ee51bdacf263",
+      "bytes": 245
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/actual-portable-return/receipt.json",
+      "sha256": "9d04c878aac665347e1c34152f41f52b55f8378f83a6c9c5c319fa58b519780f",
+      "bytes": 11855
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-budget-policy/input.json",
+      "sha256": "edf776f6ec61eea2246b1bff0d23af1feb1fcb629ca068a94db74d6112629235",
+      "bytes": 8166
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-budget-policy/observation.json",
+      "sha256": "75391c0a10b4a127cd300ac22655a7d91d6887a3b07e3ff963e7f7f140afe92c",
+      "bytes": 2515
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-budget-policy/observer.log",
+      "sha256": "dcf2cf1589b2a603ca43462972869f833a2f74dd2d1122796802671d3d743793",
+      "bytes": 243
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-budget-policy/receipt.json",
+      "sha256": "bd9a543e82e41321e75c4ec3f996c24e24e22d3d8c100f2eeed642f9f6dd9737",
+      "bytes": 11164
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-cli/input.json",
+      "sha256": "1f32e87b8571763546d73d54d68926c671136d541e30d42c6ba1942326fe5a50",
+      "bytes": 8086
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-cli/observation.json",
+      "sha256": "9aa59d01d300a12e80e9c0b81e2b32e07bea5c6acd17807bb4381f2fd2662c85",
+      "bytes": 2495
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-cli/observer.log",
+      "sha256": "6acc996775d56dafc6eea49744171872a7447395ceb74b6d45e26aa3c0eeaf7d",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-cli/receipt.json",
+      "sha256": "ae2f49aa69edbeb406d7ca8953b76cce6d3d5a14d41f71615c047fee22381e87",
+      "bytes": 11039
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-policy/input.json",
+      "sha256": "324124de34125116a30980d5c4ba06495a6a4f89281502fcca42afd3de9c3b9b",
+      "bytes": 8110
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-policy/observation.json",
+      "sha256": "4bbf1649364cb8a8eb9e556d09f82c2428b0aad70b43c6e2773dc8778eda67fe",
+      "bytes": 2501
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-policy/observer.log",
+      "sha256": "2b930822c6d6a0d7f7c1cfdad1eb9b03983d29ff1ce2d8f2bef90c782e1542bc",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-policy/receipt.json",
+      "sha256": "ec12cfb5bef75dcb9d61a4ef86240103e9b2bc25e8cbbd4a6a4580f55ae632db",
+      "bytes": 11049
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-skill/input.json",
+      "sha256": "3a7b92e4c5a8b65f2ec3429f355148f4db93c92951a876bd0ae474577c209fbb",
+      "bytes": 8102
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-skill/observation.json",
+      "sha256": "1e44b6b943e0514a58d4f46deaba0ecbe99be3baf9fe4808211f6f97fa373269",
+      "bytes": 2499
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-skill/observer.log",
+      "sha256": "0e0ff784aa25212c16ce7085ba9f9be5efa3793bd5ddd1bea9b6d6ab57f392a1",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/changed-skill/receipt.json",
+      "sha256": "492b0cfcb2911296f320e58fa64b8952cff683e472e51d929820e5b8f9ebc498",
+      "bytes": 11045
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/declared-windows-is-not-actual-windows/input.json",
+      "sha256": "7b178e6afdeb8e9b0a24566542405e90f2188db4d16d78366a9c1d97ef78c1c4",
+      "bytes": 8320
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/declared-windows-is-not-actual-windows/observation.json",
+      "sha256": "bbf2a7e765541309ac6cfd60fb0cbaff97c8899283fbb4e1d6d7aeafc48826d0",
+      "bytes": 2547
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/declared-windows-is-not-actual-windows/observer.log",
+      "sha256": "266d1345df460363a1b5f47c64ee56211c87f9553f607b1188d60ae634c37da8",
+      "bytes": 239
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/declared-windows-is-not-actual-windows/receipt.json",
+      "sha256": "1e5059d52499966a73928fc582f651287b85d3eb8c8f8673a57637ba74f97dde",
+      "bytes": 11107
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/dirty-return-no-overwrite/input.json",
+      "sha256": "0c484cb9fd66acc8ac34ade314ee9469848ce9d3c95ce7823dfd7d278c3b5f1c",
+      "bytes": 8198
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/dirty-return-no-overwrite/observation.json",
+      "sha256": "2cb40e2ab8e00e43d216224077577bd6fd3583acf9ff8a1900501b250edd57f7",
+      "bytes": 2537
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/dirty-return-no-overwrite/observer.log",
+      "sha256": "dbc760400a8a0c8f58aaaeae17f7e7d54b78af8849aa29dc0056694b9afbf393",
+      "bytes": 237
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/dirty-return-no-overwrite/receipt.json",
+      "sha256": "89aa3616d73ddadcc0a6021745487e7c84654d75e7652cae459564938513de83",
+      "bytes": 10853
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/duplicated-execution-binding/input.json",
+      "sha256": "2cfc889d685e905f1b669677220e5d0fdfa395fc1eaaac22349b377dc8554b7b",
+      "bytes": 8216
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/duplicated-execution-binding/observation.json",
+      "sha256": "7bf281a225a7dcfd45e6dc497c4afc1057ce2b66a36b821b404a93f2bcebf492",
+      "bytes": 2527
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/duplicated-execution-binding/observer.log",
+      "sha256": "bc8f329f7763423d8a55f64df1aa4261a4891c6b5bdf5ebcc2d2c752dfdc5d72",
+      "bytes": 235
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/duplicated-execution-binding/receipt.json",
+      "sha256": "631a2416365452cc36a15dd44b3d55db4258c7d3286749f249115bdbe716453c",
+      "bytes": 11064
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/foreign-clone-ledger-refused/input.json",
+      "sha256": "40bf2adf4cfd4093aee20d36d5d9acd6b4521e8e366dfaee8795a5e1563efb73",
+      "bytes": 8244
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/foreign-clone-ledger-refused/observation.json",
+      "sha256": "846042373be3b3601d4f09e8b5c621fc7cb36834b7dbbb56f50480c4bdf831e7",
+      "bytes": 2529
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/foreign-clone-ledger-refused/observer.log",
+      "sha256": "ff6822e500940c726895a40d99b8776535524f641af796217cac91690d772190",
+      "bytes": 243
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/foreign-clone-ledger-refused/receipt.json",
+      "sha256": "eab4c7bbc0ec0a8317780e32ea4a27b06a6fa9e0811c9f6bae9b292146281a6f",
+      "bytes": 10833
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/frozen-windows-to-linux-mismatch/input.json",
+      "sha256": "ea364f80623e53b714a89265f965b6b14264cd4b835b1fef7d873657607de134",
+      "bytes": 8271
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/frozen-windows-to-linux-mismatch/observation.json",
+      "sha256": "eaf07e9b991832c479c87ab3cc1239e2ceef41b995d5a200954933b5240de186",
+      "bytes": 2537
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/frozen-windows-to-linux-mismatch/observer.log",
+      "sha256": "61da8edcaffc1f8290605597a03dfdbd7d0e54b54121072f28d69257c8f6c493",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/frozen-windows-to-linux-mismatch/receipt.json",
+      "sha256": "0d55c967ee689fa01977d03ac2ac9d6a147b53373a646d9819bf423401336047",
+      "bytes": 11111
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-browser_state/input.json",
+      "sha256": "2540ee794de6c0b56b4e6b3e12a9876ce0757590379cadd35446c1bbe3b18e49",
+      "bytes": 8217
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-browser_state/observation.json",
+      "sha256": "7634389fdfb364288bb96edab698c5dd19ffca9c69e48990bcfe35b210c5e83e",
+      "bytes": 2521
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-browser_state/observer.log",
+      "sha256": "cfc507b97481ac62b2b97fa40ed3f65ac5f3952364d24a2ac18124ee031ee8a9",
+      "bytes": 239
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-browser_state/receipt.json",
+      "sha256": "1988506f7969539c46d807847c3979c949ce8da2078c9434b30c1757f5275d2c",
+      "bytes": 11065
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-device/input.json",
+      "sha256": "3de9aa09c770afb2e8970b6f0d93e31d524d864792b8bce0b745559059ff232b",
+      "bytes": 8154
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-device/observation.json",
+      "sha256": "e8c3ed0c4cb7418d3cc5ccae79b33c7e5f509e4e53ac48877f07f07971729e77",
+      "bytes": 2507
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-device/observer.log",
+      "sha256": "fc83361478e0c08ab2c65492c9542f6e7b8bb3aec6d6650bec16a807ed90d44d",
+      "bytes": 239
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-device/receipt.json",
+      "sha256": "47b4260868140d7ee3267a2f21375bc5936b133f58bd2d8e012d0949ba3f4593",
+      "bytes": 11044
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-lan/input.json",
+      "sha256": "721c3d6de0a1b70e0e61c06dc48de7aa42801a28f4a6205d8864a95423b17bf7",
+      "bytes": 8127
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-lan/observation.json",
+      "sha256": "537a969bdf080736d6cdaa66c9f8969aad3fddf7fa45bb1cf7c285e1610f6bf0",
+      "bytes": 2501
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-lan/observer.log",
+      "sha256": "a86298b40e7a6c630224600d052c930a7e483dc313399f44bf2d1fba95cc1b49",
+      "bytes": 239
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-lan/receipt.json",
+      "sha256": "9115af99a0c8651a9a6d4c7f566235a3026ef79cb5bd968392d9f60c9d97e466",
+      "bytes": 11035
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-windows_app/input.json",
+      "sha256": "5e10e2969e8d4c79e1f34c19ea583413946bc258919742aa49b229a7cdb786c6",
+      "bytes": 8199
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-windows_app/observation.json",
+      "sha256": "df31903e0d13fb91394b4ccde722836a0be8ebbe7a344f3b888a6ece59107493",
+      "bytes": 2517
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-windows_app/observer.log",
+      "sha256": "ad07b4bfe920112fcef3cb85b3a1f6cfda15a3704a9265163c977533e1f61718",
+      "bytes": 239
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/local-only-windows_app/receipt.json",
+      "sha256": "a911ebba2dff0535e945bea5d678685f9626a2bb6c1498c5101dcbb87fcf9f2f",
+      "bytes": 11059
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/missing-budget-authority/input.json",
+      "sha256": "4061db5899746ecba7ca71e9b4200b24dc8bd7f7f4ca30dc0b9165ee661899ec",
+      "bytes": 7895
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/missing-budget-authority/observation.json",
+      "sha256": "0b9ccd22251914474419f76876fb7291bcd255311acbaefdc620077ebdb4b104",
+      "bytes": 2521
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/missing-budget-authority/observer.log",
+      "sha256": "ad830a3afd3ac1aa67209358ded033a9ed52accae63957963752e133db5dbaa8",
+      "bytes": 243
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/missing-budget-authority/receipt.json",
+      "sha256": "f7f916ad18660f61baeffa26dd3a62c657b566075b5af0679ddd004bd5a503a4",
+      "bytes": 10486
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/missing-lease/input.json",
+      "sha256": "2928523f03461aff0f8cac2da83b3777c556c657377dad632789683dc960a97b",
+      "bytes": 8102
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/missing-lease/observation.json",
+      "sha256": "1c3bb1bb2bf1b544971ffaf627b427c381f785d9b96c4dc61d82daebb980dd9d",
+      "bytes": 2499
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/missing-lease/observer.log",
+      "sha256": "c826c50b06ea9de01ea670686b20d3617339221c5993ec59497690912a16362c",
+      "bytes": 235
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/missing-lease/receipt.json",
+      "sha256": "2c021fc39c0c3e94bb1ff4aef62b7573720cde7ce6da3c41eebc775423429751",
+      "bytes": 10617
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/missing-local-write-capability/input.json",
+      "sha256": "ed45b18a4d0d6b92da19f97ac21a7acfe15a5e8aea5d78b380350bafcfbb6d6d",
+      "bytes": 8238
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/missing-local-write-capability/observation.json",
+      "sha256": "689032ca0f041e214283549e1c2a41f5426901a8c1cb27d2015fed89a5620b59",
+      "bytes": 2533
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/missing-local-write-capability/observer.log",
+      "sha256": "18119863aa4b8efb0bddef77d6cd01b02a98e71e2559d92753de9eb6d2f9e005",
+      "bytes": 235
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/missing-local-write-capability/receipt.json",
+      "sha256": "24b7b92c28969e511878b2a40f2319a9367073913ab264bb6310f28d658ab229",
+      "bytes": 10663
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/reservation-hard-cap/input.json",
+      "sha256": "09db055be23c58d5db534594d4d20f995d61157a8e52e3b446a12b2e80977619",
+      "bytes": 8158
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/reservation-hard-cap/observation.json",
+      "sha256": "88662c5a9ce1154bc423995ca4c8176cda93e448d7fd4a0e25a7bb9e11d52701",
+      "bytes": 2513
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/reservation-hard-cap/observer.log",
+      "sha256": "937337b05de7822bbcd0349837e6d237d12c0e7c7ffefefbba1cbeb94a0ab055",
+      "bytes": 243
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/reservation-hard-cap/receipt.json",
+      "sha256": "c07692bc4365ffe6e84be1ed0a3ee2af98ee7ad7afa596d890ec49dc378c53e2",
+      "bytes": 11091
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/shared-not-upgraded/input.json",
+      "sha256": "d9f5cee0a01ed990485176b577c51ef8686e7b2847ba62ef4b04fd06070a2d22",
+      "bytes": 8150
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/shared-not-upgraded/observation.json",
+      "sha256": "609cd4adc18765b533d6a96770bb1fc42dd6ac70b290acdd91ef44c11e17ef0d",
+      "bytes": 2511
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/shared-not-upgraded/observer.log",
+      "sha256": "e2d473eae283ee9fa4a22db12e5426dfec388a56d8d4b3c698a6eb4d6171719d",
+      "bytes": 235
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/shared-not-upgraded/receipt.json",
+      "sha256": "02350ccd473817ae12b7746a4dc3e14b897514ae29a916990fdd91ebeb4660a5",
+      "bytes": 10642
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-cli/input.json",
+      "sha256": "23ca92aecccd06c89520791f4489dd36186cf994414e3f06c61ea907c694c46b",
+      "bytes": 8170
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-cli/observation.json",
+      "sha256": "1f75a408cc73ab80b2e5b41b71530ed632a4555574a0d7b6eaa5c8a70614b6b3",
+      "bytes": 2540
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-cli/observer.log",
+      "sha256": "0b9bc3fa20ffa4114200f02fb0457b1fac7a33cdd3c8a1468e7d74b812dc0014",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-cli/receipt.json",
+      "sha256": "75b3ef3e78f057b6128a1fa5a4e25984ae80d555641c5baabc8d06c458bd873d",
+      "bytes": 11044
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-networkCapability/input.json",
+      "sha256": "ccc4eedcff1e93ad283f17a84d0b3b8f48606096a135ff75bb3215a805bc30aa",
+      "bytes": 8280
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-networkCapability/observation.json",
+      "sha256": "9a5598e241ccb73d3de70ebf2d25f0e2b63c93163eb0d7e8edf7b1234b7df6c6",
+      "bytes": 2535
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-networkCapability/observer.log",
+      "sha256": "13a143cd6656b5672200642b30376c1583d39810fc446b331efa6145572f5fab",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-networkCapability/receipt.json",
+      "sha256": "f88faeb263a326bc2175051e390418ca8d629bbc20e621d69968c47ddf8ca227",
+      "bytes": 11055
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-node/input.json",
+      "sha256": "3bbe7ebf03a54417559183d355c0bdbfee49dcabe184da68003341399a0484dc",
+      "bytes": 8163
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-node/observation.json",
+      "sha256": "17b92344ab4592b11c5b28a5d30c6da735ecfcaeb479b3a1c7186ac8e0588dfe",
+      "bytes": 2525
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-node/observer.log",
+      "sha256": "3d63a74ba46561598b9aa7049643d490b1d5ee296dd0acf805e143e41d2beae1",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-node/receipt.json",
+      "sha256": "4ae63324f0feec7a1f4b30dbd3ec91403c63429f085e8fc3e4f8b88e2565d719",
+      "bytes": 11045
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-os/input.json",
+      "sha256": "2bcd75f3745873d8b9668aced6fac6c57b4bd9295c86952bd4ea937eec70b173",
+      "bytes": 8143
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-os/observation.json",
+      "sha256": "b2958239d5c2d0f66c8562a05cc5de46d74dc7a79d9dac397bba1c1476ab8f6a",
+      "bytes": 2518
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-os/observer.log",
+      "sha256": "aa132f115c9acc1731c3ca2d101907e2916c763ff1ff0a7bfb11fcbec9098303",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-os/receipt.json",
+      "sha256": "06f9feb2be64f4b71744ec8fe4e4ae065e33357f5da0146a869b6950ba43ef38",
+      "bytes": 11040
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-skillDigest/input.json",
+      "sha256": "f7a34c90bba5e5b10cb367e72a6d2bb9be230a46bb722d55014115176bd0d491",
+      "bytes": 8283
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-skillDigest/observation.json",
+      "sha256": "d724c6f8a5baa76e0f199c73a01c0cb72359c520f9853a3756239b478ed55804",
+      "bytes": 2604
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-skillDigest/observer.log",
+      "sha256": "f1090917360d90fe3b0e968c94d7d2e873a88638e8a4f2b43ccda91f15e03ee8",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-skillDigest/receipt.json",
+      "sha256": "50713e05cf6af2bf2588b97aa066703def952b090685ae65fb2b1b8945894d19",
+      "bytes": 11067
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-storageDurability/input.json",
+      "sha256": "a8e03a5731f97b5748f16eb0285f3934fd08f9d0220df8ac14d3aa906e29d3ad",
+      "bytes": 8280
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-storageDurability/observation.json",
+      "sha256": "c0b1bbec791b7e3d5a34fdbb9b7494d7536b266855c60e445e495497fdf97c46",
+      "bytes": 2549
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-storageDurability/observer.log",
+      "sha256": "9f24f748e9ce98c8576c5c97e2ee4e95abc255c1b140a46b0a8e89f40db938a7",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulated-storageDurability/receipt.json",
+      "sha256": "3026dce7bc29daa2e83aab0fa0c65fa4844c857e06fbc846a91dafaa1f3a9e3d",
+      "bytes": 11069
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulation-cannot-upgrade-actual-runtime/input.json",
+      "sha256": "a0d307e0cdb44cbdb5e643b4ba4559ef86832346b869e159324851cc7c49ab52",
+      "bytes": 8370
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulation-cannot-upgrade-actual-runtime/observation.json",
+      "sha256": "99e62c903e77b363a4f76a7dbbd26887e8a4e76012e8a0d08380b046ec3cf15a",
+      "bytes": 2577
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulation-cannot-upgrade-actual-runtime/observer.log",
+      "sha256": "4c3965c319c87238126efe8cb6cbbf1d7af4907defb301975702825e2c5e0d4c",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/simulation-cannot-upgrade-actual-runtime/receipt.json",
+      "sha256": "b1189191ace7a64e2cd2c8989d302a042f5e891cce0b63fd4cd84cc59eaaa861",
+      "bytes": 11121
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/stale-principal/input.json",
+      "sha256": "67d05818e5f76fb45493b66f1caa12dd4b18cb39605a227bd43bac6b1a3b622c",
+      "bytes": 8118
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/stale-principal/observation.json",
+      "sha256": "c5abf495c99529f900e42befc0cae75ce7bf03c3a6cba58f2ad66ecabc82406c",
+      "bytes": 2503
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/stale-principal/observer.log",
+      "sha256": "c114c43da9e07b4bce4b39b79376e9427ccbe67101fcc563c0aeb66ef4be21af",
+      "bytes": 235
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/stale-principal/receipt.json",
+      "sha256": "c76712e408a08c35c9beefd2e1b74c3ed03594b808c2b3fe2316f05aba0f0047",
+      "bytes": 10618
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/stale-source-commit/input.json",
+      "sha256": "4140c8c489a0256eeb7ea6f7e075ad2f62201b79374b567061600ddcbbeabfb1",
+      "bytes": 8150
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/stale-source-commit/observation.json",
+      "sha256": "bc0928d76feaefd15e04f0b212c30e6427df7b9767d374fe6dc974f83fb015d0",
+      "bytes": 2511
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/stale-source-commit/observer.log",
+      "sha256": "e79d808f7dacff77c1c0b5052694ac3ea2e03a75cdc0a1044d9e5c38fd3d8b86",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/stale-source-commit/receipt.json",
+      "sha256": "1b86e24c2e28759d3cc09cd1d4ddfc06c973e7c3ea2ac2f91f5ceb8fb09cada5",
+      "bytes": 11061
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/unknown-environment/input.json",
+      "sha256": "4756d8d166f06fc13e01582be2d8a5807722406674635a67fb5b58b80782f835",
+      "bytes": 8142
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/unknown-environment/observation.json",
+      "sha256": "42bfd5a1925168acd32d98cf4711e643a604cf1685a613020d99079f6359adf3",
+      "bytes": 2503
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/unknown-environment/observer.log",
+      "sha256": "c60700636bb601cc3cf640bf0a1139412389fff157c4362b9da31596e703a357",
+      "bytes": 236
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/unknown-environment/receipt.json",
+      "sha256": "74523663c8d5accc6c65fda28d4647360cfd723156254f43d6e43324e2a60a70",
+      "bytes": 11047
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/unsupported-steer-queue-preserved/input.json",
+      "sha256": "52bcd435f3d3b1dda278a9ce87618ca9e134ab3e240caf3d6e5a3925ab71bcc4",
+      "bytes": 8662
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/unsupported-steer-queue-preserved/observation.json",
+      "sha256": "b630985a1a556de14d7c956c468fb28f7e4cc9162699ba66e733f919d2a33df9",
+      "bytes": 2539
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/unsupported-steer-queue-preserved/observer.log",
+      "sha256": "c316af7f1703b200a1c8a02d52311f3f80e63ab4e4f228b1072bf0885746f8c9",
+      "bytes": 256
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/unsupported-steer-queue-preserved/receipt.json",
+      "sha256": "a51b16ec412b5913ce93634673d6c06b9554b08fd2b74b5e346c4a3d1eb79507",
+      "bytes": 11583
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-bundle-source-worktree-path/input.json",
+      "sha256": "875f59f0195504ac2997c05ba57cad20efb43722b6b66859f53e1f21f6476148",
+      "bytes": 8289
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-bundle-source-worktree-path/observation.json",
+      "sha256": "d18e48ddcb3dcb479329e52c12e5ba0d80540f617989b70ad685692dc405feb8",
+      "bytes": 2539
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-bundle-source-worktree-path/observer.log",
+      "sha256": "14b667815d571b44fc06bdb8a599751d7ca2035d9f49bb634548e954eed44043",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-bundle-source-worktree-path/receipt.json",
+      "sha256": "fd29d4a1bda41aec35970528d6c70aa2b8297b42d16d0d3b8365fe1bcaf702d6",
+      "bytes": 10855
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-source-cwd-binding/input.json",
+      "sha256": "3a80de5c2d698ed957a4ecda477c16908e0a8041e17723e4f70694d50ad9be64",
+      "bytes": 8208
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-source-cwd-binding/observation.json",
+      "sha256": "2798b818e18b8a8f9b23042cd1500b36a6f1a23ccd93f69c08864615d3e44bfa",
+      "bytes": 2521
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-source-cwd-binding/observer.log",
+      "sha256": "ccc3575e600ec46e17ef79c32555ede7a4ce45967fa8eb0dd8e82098f9809406",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-source-cwd-binding/receipt.json",
+      "sha256": "cf5d79f02108450b20304c1418e136b8f12f86bd90d6819ac9b18b52cf9f4eed",
+      "bytes": 10819
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-source-observation-binding/input.json",
+      "sha256": "7431fa128aae617d4530b5cbd7f093cb06f15e705836ced426602308546b99ed",
+      "bytes": 8254
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-source-observation-binding/observation.json",
+      "sha256": "7bedce1563adbf41658115d0c3edc916f5548a2ef06c2b42d1ef4d88f92a4729",
+      "bytes": 2537
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-source-observation-binding/observer.log",
+      "sha256": "12a610ff2b942f58a54d4f030130b6c6c2ff5ceea2a805a2f38402e20609c8e7",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-source-observation-binding/receipt.json",
+      "sha256": "99d91782c1dce21699bfaef8dc1f428789399f8094ca4f59494700fa36c263b0",
+      "bytes": 10650
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-target-binding/input.json",
+      "sha256": "fb09eefa3c83e44b560d9d9f1c6bf11721c5a51c2e70559e9163d6f2bd55cf5d",
+      "bytes": 8146
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-target-binding/observation.json",
+      "sha256": "5c52171746290cdd3c41dbcf0001204bd16c9f7bc4333df84936c27c7986185e",
+      "bytes": 2513
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-target-binding/observer.log",
+      "sha256": "31c2d19a92db7836dd39bf71bfdd3c9ca919633a5bdba15e2f76c80650104c04",
+      "bytes": 249
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/cases/wrong-target-binding/receipt.json",
+      "sha256": "bcf8f3155c8f6f692716fcb251f9c3c25743be21e5b310cc4df641bc0ba383b7",
+      "bytes": 10926
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/empty-git-config",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/final-ledger.json",
+      "sha256": "20c933139469a11a25d2b22c5b77a31dfd945efebea0e549fde8087557b16b0f",
+      "bytes": 1009
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/frozen-windows-observation.json",
+      "sha256": "0d8c9c6bc70de1204a646276f83716e125d7fadc7fa728fe293133cdf028b216",
+      "bytes": 2492
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/ledger-reset-probe.json",
+      "sha256": "291bdadbe5699f142647c6d858fa4d2e737eb51d409c361f66ab97dc2b454613",
+      "bytes": 678
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/mock-principal-registry.json",
+      "sha256": "6c466591dbf93f6f72108f07062cf8c18131975c3f599e641ee68f0be6ea357d",
+      "bytes": 1649
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-copied-run/attempts.jsonl",
+      "sha256": "32b14425b5f546930458985edd94370d22e60acf3e3eddc20575db1717039348",
+      "bytes": 317
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-copied-run/evidence/attempt-0001-rejected.json",
+      "sha256": "f190cdf07c76e84f52d8c70ff2feacf3f05f31164348647d37097d8d2d11c2a0",
+      "bytes": 539
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-copied-run/goal.json",
+      "sha256": "7dfaee70e98e8cfd5ff0ce851ce322cc6655306bf90ab41f1909de8ec808b4a2",
+      "bytes": 105
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-copied-run/metrics.json",
+      "sha256": "a4fbd46f77935e139af532ad69c6b839fc4ad23f05baa076221b239eed55b8c1",
+      "bytes": 424
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-copied-run/state.json",
+      "sha256": "2c9df72a4c7a57f1d4a843971a4e6cbf344aaf359d552a853aea2a0ab3f1e111",
+      "bytes": 1404
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-copy-manifest.json",
+      "sha256": "89d8c40d9658cd9b6714dfa60193ddcd80bff410e5854207dc4538e178679827",
+      "bytes": 1388
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-data/runs/research-native-handoff/attempts.jsonl",
+      "sha256": "2ad077814a134374f91017eaf5fdbb244eb4dcd1a0c917036ee529a598f8710b",
+      "bytes": 562
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-data/runs/research-native-handoff/checkpoints/0001.json",
+      "sha256": "66fc9af0dd043b7e932d058fc3fd2eb6f4c1ac5241d260a580451805367b3af9",
+      "bytes": 336
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-data/runs/research-native-handoff/evidence/attempt-0001-rejected.json",
+      "sha256": "f190cdf07c76e84f52d8c70ff2feacf3f05f31164348647d37097d8d2d11c2a0",
+      "bytes": 539
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-data/runs/research-native-handoff/goal.json",
+      "sha256": "7dfaee70e98e8cfd5ff0ce851ce322cc6655306bf90ab41f1909de8ec808b4a2",
+      "bytes": 105
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-data/runs/research-native-handoff/metrics.json",
+      "sha256": "e6654943cf4095e47569846ef6e42a36793beb5b86bb7796f57f3253f5ea01d0",
+      "bytes": 422
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-data/runs/research-native-handoff/state.json",
+      "sha256": "4f31cb6c6a7bd19da873da3bc8417cd5b6285c725cd6a0a501515059c288a0db",
+      "bytes": 1546
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-pause.json",
+      "sha256": "8e640cbfff8a5945732a513127a07c577749f68049223da54579091b6cbc684b",
+      "bytes": 2799
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-pause.log",
+      "sha256": "8b2d843784d3ee076073405891225dd5b3e8e9955c84b16efcb6d4e52e237738",
+      "bytes": 80
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-resume.json",
+      "sha256": "21ea31277d21f9e5a9b3be6645177ad173186bb77a76075c2403542fb9029496",
+      "bytes": 3681
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/native-resume.log",
+      "sha256": "e8b91447eb2fdb324b87ccdfbf80f1166028c188932f4b8f144971367787e24f",
+      "bytes": 78
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/requirement.json",
+      "sha256": "537833ab9de1adc577a6e8945b15a06a1c587bb670d14eea82491ca39ccf32e0",
+      "bytes": 1198
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/result.json",
+      "sha256": "7a1180ce533233938d7cd49ef137634b7555edc44d3823d72158c0f72aedb324",
+      "bytes": 84125
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/schemas.json",
+      "sha256": "6b7e673f4c70b6835fb9fe79ddb2e334c8067d3e0d5599399f7ae179587ff6de",
+      "bytes": 20978
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/run/source-observation.json",
+      "sha256": "588dae9630804a0db750d4d5e630a9cea61eda6f11cf7b59aa6fe2b652fbd4da",
+      "bytes": 2486
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/evidence/README.md",
+      "sha256": "5bf02c48da59b999228908a75cac3944ee1d642123fee9ba1299b9f8af6ba3c8",
+      "bytes": 1600
+    },
+    {
+      "path": "docs/research/issue-21-execution-environment-contract.md",
+      "sha256": "a648fd226c58d7e7799dd26e5a3dd915a15aa06d6d3db94b2aefa2f0bce8756f",
+      "bytes": 3481
+    }
+  ]
+}

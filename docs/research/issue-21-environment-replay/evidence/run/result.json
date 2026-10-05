@@ -1,0 +1,2113 @@
+{
+  "schemaVersion": "environment-research/v1",
+  "disposition": "NARROW",
+  "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+  "sourceTree": "26314c41dbe5f7b40da0f242fd8268ec5f0178f8",
+  "mainComparison": {
+    "base": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+    "aheadBy": 5,
+    "totalCommits": 5,
+    "files": [
+      ".github/workflows/ci.yml",
+      "docs/github-issues.md",
+      "src/github/followup.ts",
+      "src/github/job.ts",
+      "src/github/owner.ts",
+      "src/github/runner.ts",
+      "src/github/state.ts",
+      "tests/github-issues-integration.test.ts",
+      "tests/github-owner-fairness.test.ts",
+      "tests/github-owner-recovery.integration.test.ts",
+      "tests/github-owner.test.ts"
+    ]
+  },
+  "build": {
+    "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+    "sourceTree": "26314c41dbe5f7b40da0f242fd8268ec5f0178f8",
+    "node": "v22.23.3",
+    "command": [
+      "/workspace/tools/node22/node_modules/node/bin/node",
+      "/workspace/repos/autodev-principal-research/node_modules/typescript/bin/tsc",
+      "-p",
+      "tsconfig.build.json"
+    ],
+    "exitCode": 0,
+    "environmentKeys": [
+      "PATH",
+      "RESEARCH_SOURCE"
+    ],
+    "compiledSha256": {
+      "dist/backends/long-horizon.js": "2b0b21bdcb94763ab25d552ce20cc1eb206b9a9c2037e27283a201b485d5a660",
+      "dist/backends/store.js": "10f2f0d829e9d7b1afa33d944da28c4035cce4516c18188fcd56c4fd5f0d00a1",
+      "dist/backends/types.js": "c3ba39a65ba74bf26366225298c8cc87705fe53d20c91c1aa7f6b36bc6b993cc",
+      "dist/backends/roles.js": "c14bdd9f39b3002e22bfc728eff37a9c9c06dcb052239fe4971838c1c0d2128b",
+      "dist/backends/metrics.js": "d59dfe0e2afa463d2f55dc54b8c4d47be171b0e1a6bb9788059162a7e1a08938",
+      "dist/globalcost.js": "fc17bc38ead50c25e7e381131af5fb828721dfb36ec2c4d14f3d4f6dff2484a9",
+      "dist/globalcost/extra.js": "be3a1fd22fa418ba8042dcbddf48f8df81c8cd9fb444d77d8d45821b5321f04f",
+      "dist/db.js": "b46ab67ae3a4fca19659517fe7cd90914ea4c45588965eda030c9918934740f9",
+      "dist/engines/team-state.js": "90d78d050ccad6992280f7e5c61d83815544a2fd8246c31f55f5d21b9f5a81ef",
+      "dist/engines/ownership.js": "2398829eafbb11e4493c17a26cde89cb9b9eb64685a0518870fb3ff70df1d90f",
+      "dist/engines/attempt-accounting.js": "df3bf271f1bfe50acabc993cb4fef3281157abcc4fb6272b45d8d5ed1baf5260",
+      "dist/engines/run-verify.js": "7d220f59c1d1d2d07483500b3309e16b567ab50fd9b998b6d4a128a7a1eb504d",
+      "dist/guardian/incident.js": "f5890f37d3a2cad1c531319baf3a5c8ae818194d1e084912d50dea0db772f44b",
+      "dist/lock.js": "fce6353879c57b6aa608f6cc2d17cdc82c35dd4dcead2aaaeb996f32a2ad8d7f"
+    },
+    "sourceSha256": {
+      "src/backends/long-horizon.ts": "43e73f099510e0ff150f05e0b8a9eb2eb1dceeecc7b864f485138a02e3351a6b",
+      "src/backends/store.ts": "43ce4c5bc1c881b71b54b62a957bf720b87a602a88d81ed23c0994f10841784f",
+      "src/backends/types.ts": "3a7063ee477939858d3b24e58d6d1fb32d9643140d1fe547c4e8a87b1abcab07",
+      "src/backends/roles.ts": "a07e9b2ee083a0d64934590e7df125556f9cc449df0ab60d8e660cce1a48ed85",
+      "src/backends/metrics.ts": "4f4da5f63d9d01c467d326eba7543503b8a78c1e339df53357baf905174764b3",
+      "src/globalcost.ts": "6f4fd221d7f2bfa81b1c7b73e3b77875577daaf3b3c29fcc6457a67c607286b3",
+      "src/globalcost/extra.ts": "da387e6650a046450a419dd2f9b879c7162353f74e80464eb4d6da55d9081e2c",
+      "src/db.ts": "a19efd6ad4046f15a7a116b2e47ba56794a1193bcf94985251737ba5f7f1990f",
+      "src/engines/team-state.ts": "429e1d8bcff5ac0c69388a21a54714d2470b546ced1397139869c8ed045dcd7c",
+      "src/engines/ownership.ts": "b529521c9d86c893c3da3eba092f72a9bfaf546beda8ab8d17858cd5e44eb3ed",
+      "src/engines/attempt-accounting.ts": "7afbcb684c52e70105f609cadc2c51573f5e289e4a2f1e69f130312c05d8d015",
+      "src/engines/run-verify.ts": "2d17a97854bd7eb8ef674dec63a684632214fef0c180d1ff19d09a84a3779282",
+      "src/guardian/incident.ts": "29325e9f9c8e3c4f272ab7ec82d02b9db0534a2bcc1e428e606f183f171396bd",
+      "src/lock.ts": "2bf57b665e69dce5e80fcfb77e6ee7984511df0eb0475ca2705c655f7506c6d7"
+    }
+  },
+  "runRoot": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV",
+  "caseCount": 38,
+  "cases": [
+    {
+      "name": "simulated-node",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "31b179220543a23574349db1fb2b7cbd14d96d5093b989235222827d00da2833",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {
+        "node": "v99.0.0"
+      },
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/simulated-node/receipt.json",
+      "observation": "cases/simulated-node/observation.json"
+    },
+    {
+      "name": "simulated-cli",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "1277360b769b69d5035f410f7398eb89f1a308964f7e750447d12e490000d0a6",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {
+        "cli": "offline-fixture-cli/v99"
+      },
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/simulated-cli/receipt.json",
+      "observation": "cases/simulated-cli/observation.json"
+    },
+    {
+      "name": "simulated-os",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "c3aeb21f8133c78d8c49384e9cbfd078fe9e1aa841fa9631d22c5eafc58c6619",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {
+        "os": "win32"
+      },
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/simulated-os/receipt.json",
+      "observation": "cases/simulated-os/observation.json"
+    },
+    {
+      "name": "simulated-skillDigest",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "eb3f2ad269755f9481a0ada844f37630b09c9b75944f2894b9944abdf1a6d950",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {
+        "skillDigest": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/simulated-skillDigest/receipt.json",
+      "observation": "cases/simulated-skillDigest/observation.json"
+    },
+    {
+      "name": "simulated-networkCapability",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "d417c1ae1f34e6c028ed54be028975fbe8f994aafbd95b61c936074ea265f576",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {
+        "networkCapability": "UNKNOWN"
+      },
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/simulated-networkCapability/receipt.json",
+      "observation": "cases/simulated-networkCapability/observation.json"
+    },
+    {
+      "name": "simulated-storageDurability",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "f361976613117d401766200eda86f5801dd9d0ef5e749e9e6e59c867a901c663",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {
+        "storageDurability": "UNKNOWN"
+      },
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/simulated-storageDurability/receipt.json",
+      "observation": "cases/simulated-storageDurability/observation.json"
+    },
+    {
+      "name": "simulation-cannot-upgrade-actual-runtime",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "5e1a769000a3f34de1fe9769543dca36e294e9820b446b2b70103305c28e889b",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {
+        "node": "v18.0.0"
+      },
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/simulation-cannot-upgrade-actual-runtime/receipt.json",
+      "observation": "cases/simulation-cannot-upgrade-actual-runtime/observation.json"
+    },
+    {
+      "name": "unknown-environment",
+      "result": "PASS",
+      "expected": "UNKNOWN",
+      "actual": "UNKNOWN",
+      "receiptDigest": "c2893788db322b45d6a3bacaf22cfc617d9304b4b0a9216a4f541dce09765bc5",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/unknown-environment/receipt.json",
+      "observation": "cases/unknown-environment/observation.json"
+    },
+    {
+      "name": "local-only-lan",
+      "result": "PASS",
+      "expected": "LOCAL_ONLY",
+      "actual": "LOCAL_ONLY",
+      "receiptDigest": "31e8da658d7ef5f3dc92315d660cd78e25ad2f0b7e8ce30b13bd0efb01129b9d",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/local-only-lan/receipt.json",
+      "observation": "cases/local-only-lan/observation.json"
+    },
+    {
+      "name": "local-only-device",
+      "result": "PASS",
+      "expected": "LOCAL_ONLY",
+      "actual": "LOCAL_ONLY",
+      "receiptDigest": "c91ab44e827bf8be63a22102838bf1a4f033cfead506af3a828e159e8ff7c755",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/local-only-device/receipt.json",
+      "observation": "cases/local-only-device/observation.json"
+    },
+    {
+      "name": "local-only-browser_state",
+      "result": "PASS",
+      "expected": "LOCAL_ONLY",
+      "actual": "LOCAL_ONLY",
+      "receiptDigest": "b323f26d9a77c0838a4fcaaceb1bba793abb49df3f7651412a16b588ce6470d1",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/local-only-browser_state/receipt.json",
+      "observation": "cases/local-only-browser_state/observation.json"
+    },
+    {
+      "name": "local-only-windows_app",
+      "result": "PASS",
+      "expected": "LOCAL_ONLY",
+      "actual": "LOCAL_ONLY",
+      "receiptDigest": "a97520d0f8b79620140e0d8926ac3a15c5bc3a9f62b4e7f3c3442045132b4718",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/local-only-windows_app/receipt.json",
+      "observation": "cases/local-only-windows_app/observation.json"
+    },
+    {
+      "name": "declared-windows-is-not-actual-windows",
+      "result": "PASS",
+      "expected": "LOCAL_ONLY",
+      "actual": "LOCAL_ONLY",
+      "receiptDigest": "5a1c54a1fca01472160131058c629a965e0941cd18ccca64cc8c5eed872b03d6",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/declared-windows-is-not-actual-windows/receipt.json",
+      "observation": "cases/declared-windows-is-not-actual-windows/observation.json"
+    },
+    {
+      "name": "dirty-return-no-overwrite",
+      "result": "PASS",
+      "expected": "DIVERGED",
+      "actual": "DIVERGED",
+      "receiptDigest": "140508653a744bece30b34d4a6840ed1a8e34b40c0e71d13739ed13320d6c56d",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "45dcafcd2a08b40c67a2435f471258fb47a1d4c96f9e62e4fac97547e53f3f27",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "45dcafcd2a08b40c67a2435f471258fb47a1d4c96f9e62e4fac97547e53f3f27",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/dirty-return-no-overwrite/receipt.json",
+      "observation": "cases/dirty-return-no-overwrite/observation.json"
+    },
+    {
+      "name": "changed-policy",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "6d8b36a63941ecd2ca213dccddec486b46e071688fcfb3a5386d791105a0cfd9",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "0ff2be9973283ed5e6c0733ba56d15f2a33e28cf3c463434ecbd3506052ccbb8",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "7bdef625a4569529c04aeccefe59e4e8bacbbb2ec0cca6289ead7efb3ddda8c0",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "7bdef625a4569529c04aeccefe59e4e8bacbbb2ec0cca6289ead7efb3ddda8c0",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/changed-policy/receipt.json",
+      "observation": "cases/changed-policy/observation.json"
+    },
+    {
+      "name": "changed-skill",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "e244dd0d539854d5867c77406c3c1950024efe147b5951c3da7b17e50b77fe14",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "620ddd9687facf89d50c1bad3a0cdd2980d1f4ceb4b903d2319cda024cb8f737",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "0a1c16053bb01a330318cc1d4efb1b59c21bf95043385d9d20849e55d59e358d",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "0a1c16053bb01a330318cc1d4efb1b59c21bf95043385d9d20849e55d59e358d",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/changed-skill/receipt.json",
+      "observation": "cases/changed-skill/observation.json"
+    },
+    {
+      "name": "changed-cli",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "0d7aaff0baf02870317a6c071e497238a112d660127b9aaeab7c5c70eabce32c",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v2",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "6dc80c29bf6db0b434c24d8e4f858a0f16fe8b91131dfeb910deac569aeebfce",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "6dc80c29bf6db0b434c24d8e4f858a0f16fe8b91131dfeb910deac569aeebfce",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/changed-cli/receipt.json",
+      "observation": "cases/changed-cli/observation.json"
+    },
+    {
+      "name": "stale-source-commit",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "b2ed7f22a0bd1397e4c79b0bdec97ed2a4c670f8ee5a755d8c912f113faeab8e",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "868b275f366d3d79e059f15b7c3c7c9b2601b00f8d8b99ea14f7ce7726a96e5e",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "868b275f366d3d79e059f15b7c3c7c9b2601b00f8d8b99ea14f7ce7726a96e5e",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/stale-source-commit/receipt.json",
+      "observation": "cases/stale-source-commit/observation.json"
+    },
+    {
+      "name": "missing-lease",
+      "result": "PASS",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "receiptDigest": "465ea3684223ac7f599b0ccb4aefbdd2cc9455042564c1926a8cffdffd484159",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/missing-lease/receipt.json",
+      "observation": "cases/missing-lease/observation.json"
+    },
+    {
+      "name": "stale-principal",
+      "result": "PASS",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "receiptDigest": "5ca9ed9e31c4c70a101a4bb999202dcd33a67bd891b691634514ce9dc582c674",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/stale-principal/receipt.json",
+      "observation": "cases/stale-principal/observation.json"
+    },
+    {
+      "name": "shared-not-upgraded",
+      "result": "PASS",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "receiptDigest": "fea325c7f9a6cc3021d2c4295983293b7229bdd8c3bb710aded7b5e00e356ce0",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/shared-not-upgraded/receipt.json",
+      "observation": "cases/shared-not-upgraded/observation.json"
+    },
+    {
+      "name": "missing-local-write-capability",
+      "result": "PASS",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "receiptDigest": "baf5cc8b9c1bdec2ce12064222e38ab950cdf4cf6261a8ab31b4546223c0c433",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/missing-local-write-capability/receipt.json",
+      "observation": "cases/missing-local-write-capability/observation.json"
+    },
+    {
+      "name": "duplicated-execution-binding",
+      "result": "PASS",
+      "expected": "DENIED",
+      "actual": "DENIED",
+      "receiptDigest": "6d82ae6e3d356c486a864f2fa9741d0aae811fd0f9492702d5fee3a4d3b8919c",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/duplicated-execution-binding/receipt.json",
+      "observation": "cases/duplicated-execution-binding/observation.json"
+    },
+    {
+      "name": "wrong-target-binding",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "6d71d7dffcb31da96c32aa04c4fb9bf7d45de6eeae487a272583d4a89625879e",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/wrong-target-binding/receipt.json",
+      "observation": "cases/wrong-target-binding/observation.json"
+    },
+    {
+      "name": "wrong-source-observation-binding",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "4011c1fbf2f1c5d9f5aecfb1f0e182c548c5f4d9afb7a0a187f358978a7f1442",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/wrong-source-observation-binding/receipt.json",
+      "observation": "cases/wrong-source-observation-binding/observation.json"
+    },
+    {
+      "name": "wrong-bundle-source-worktree-path",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "a9258380f746cb7f39ca91c5bd6372faf5dceef52e3f410241a26d11da06e812",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/wrong-bundle-source-worktree-path/receipt.json",
+      "observation": "cases/wrong-bundle-source-worktree-path/observation.json"
+    },
+    {
+      "name": "wrong-source-cwd-binding",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "00e84e935d8e89e8c76416fc7094d4b22cf730f0a7b6a79a9527feec526c63a8",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/wrong-source-cwd-binding/receipt.json",
+      "observation": "cases/wrong-source-cwd-binding/observation.json"
+    },
+    {
+      "name": "missing-budget-authority",
+      "result": "PASS",
+      "expected": "BUDGET_BLOCKED",
+      "actual": "BUDGET_BLOCKED",
+      "receiptDigest": "757fbfdb22910f002adc13da7e52ef66b056149e0b246024d5dedbc42627cbbf",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/missing-budget-authority/receipt.json",
+      "observation": "cases/missing-budget-authority/observation.json"
+    },
+    {
+      "name": "foreign-clone-ledger-refused",
+      "result": "PASS",
+      "expected": "BUDGET_BLOCKED",
+      "actual": "BUDGET_BLOCKED",
+      "receiptDigest": "b0cc27f1a63fcaba825f5d37479dfddb022e4bdaaff07f5bd2a3e427084cc265",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/foreign-clone-ledger-refused/receipt.json",
+      "observation": "cases/foreign-clone-ledger-refused/observation.json"
+    },
+    {
+      "name": "reservation-hard-cap",
+      "result": "PASS",
+      "expected": "BUDGET_BLOCKED",
+      "actual": "BUDGET_BLOCKED",
+      "receiptDigest": "e121101ffe466277ff4a9bd3c73edd3bc1b979d1280b9f05c06544863014c108",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/reservation-hard-cap/receipt.json",
+      "observation": "cases/reservation-hard-cap/observation.json"
+    },
+    {
+      "name": "changed-budget-policy",
+      "result": "PASS",
+      "expected": "BUDGET_BLOCKED",
+      "actual": "BUDGET_BLOCKED",
+      "receiptDigest": "e0521f9ecaa1f615dad02d33c42c9757166fa134c19c17dba74c61b0fcb51cb0",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/changed-budget-policy/receipt.json",
+      "observation": "cases/changed-budget-policy/observation.json"
+    },
+    {
+      "name": "unsupported-steer-queue-preserved",
+      "result": "PASS",
+      "expected": "UNSUPPORTED_PENDING_CONTROL",
+      "actual": "UNSUPPORTED_PENDING_CONTROL",
+      "receiptDigest": "68c55356ea56a7a69657cea3fa3074f231a7d5e26d8e68713a937793cc72fb1b",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/unsupported-steer-queue-preserved/receipt.json",
+      "observation": "cases/unsupported-steer-queue-preserved/observation.json"
+    },
+    {
+      "name": "frozen-windows-to-linux-mismatch",
+      "result": "PASS",
+      "expected": "ENVIRONMENT_MISMATCH",
+      "actual": "ENVIRONMENT_MISMATCH",
+      "receiptDigest": "3e83825304020ccb473b3add0c643badc13a66d053a9a9e0049aa909625ffdc4",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/frozen-windows-to-linux-mismatch/receipt.json",
+      "observation": "cases/frozen-windows-to-linux-mismatch/observation.json"
+    },
+    {
+      "name": "actual-copied-native-state-wrapper-refusal",
+      "result": "PASS",
+      "expected": "HOST_BOUND_CHECKPOINT",
+      "actual": "HOST_BOUND_CHECKPOINT",
+      "receiptDigest": "0164fd741b6d6759f7e6e5051eaeecb0d63d51ecd6f6c9642f223fe079ce1b94",
+      "fixtureStarted": false,
+      "negativeBytesUnchanged": true,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "462d5cb41f01c020484215e85e78e824e95ee2076cbd0fcdec809c08f71d8e52",
+        "target": "462d5cb41f01c020484215e85e78e824e95ee2076cbd0fcdec809c08f71d8e52",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "462d5cb41f01c020484215e85e78e824e95ee2076cbd0fcdec809c08f71d8e52",
+        "target": "462d5cb41f01c020484215e85e78e824e95ee2076cbd0fcdec809c08f71d8e52",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/actual-copied-native-state-wrapper-refusal/receipt.json",
+      "observation": "cases/actual-copied-native-state-wrapper-refusal/observation.json"
+    },
+    {
+      "name": "actual-native-pause-fresh-process-resume",
+      "result": "PASS",
+      "phaseBefore": "interrupted",
+      "phaseAfter": "complete",
+      "interventions": 1,
+      "resumes": 1,
+      "scope": "SAME_PATH_ORDINARY_CONTROL_ONLY_NOT_STEER_QUEUE"
+    },
+    {
+      "name": "actual-portable-forward",
+      "result": "PASS",
+      "expected": "RESUMED_VERIFIED",
+      "actual": "RESUMED_VERIFIED",
+      "receiptDigest": "dd9c6a83884217317e6c6def2ad8f628e3c3b228fa1243e9442faca74297871d",
+      "fixtureStarted": true,
+      "negativeBytesUnchanged": null,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "db34693cda09bf179e1c01f331a56771b56ec5e185cff5c3e592108d9f2fda07",
+        "target": "531a0015456b3fc2890fa797dd059a3f6f7740935f091dd8e43c9074e7785bc1",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            },
+            {
+              "execution_id": "admission-actual-portable-forward",
+              "task_id": "admission-actual-portable-forward",
+              "active": 0,
+              "state": "RELEASED",
+              "ownership_hash": "5cd3d09f8fb9b43db2db2d79f193b087f28994d1952891f002afa6d21315f09f"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/actual-portable-forward/receipt.json",
+      "observation": "cases/actual-portable-forward/observation.json"
+    },
+    {
+      "name": "actual-portable-return",
+      "result": "PASS",
+      "expected": "RESUMED_VERIFIED",
+      "actual": "RESUMED_VERIFIED",
+      "receiptDigest": "9367db628c4629f1e84edf5c65f936f97bdf40ef7679d20afa334662c4ed4268",
+      "fixtureStarted": true,
+      "negativeBytesUnchanged": null,
+      "actualTargetFacts": {
+        "os": "linux",
+        "node": "v22.23.3",
+        "cli": "offline-fixture-cli/v1",
+        "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+        "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+        "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+        "storageDurability": "SAME_PROCESS_WRITE_READ"
+      },
+      "simulatedOverrides": {},
+      "before": {
+        "source": "531a0015456b3fc2890fa797dd059a3f6f7740935f091dd8e43c9074e7785bc1",
+        "target": "531a0015456b3fc2890fa797dd059a3f6f7740935f091dd8e43c9074e7785bc1",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            },
+            {
+              "execution_id": "admission-actual-portable-forward",
+              "task_id": "admission-actual-portable-forward",
+              "active": 0,
+              "state": "RELEASED",
+              "ownership_hash": "5cd3d09f8fb9b43db2db2d79f193b087f28994d1952891f002afa6d21315f09f"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "after": {
+        "source": "531a0015456b3fc2890fa797dd059a3f6f7740935f091dd8e43c9074e7785bc1",
+        "target": "531a0015456b3fc2890fa797dd059a3f6f7740935f091dd8e43c9074e7785bc1",
+        "claims": {
+          "claims": [
+            {
+              "execution_id": "prior-source-reservation",
+              "task_id": "prior-source-task",
+              "active": 1,
+              "state": "RUNNING",
+              "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+            },
+            {
+              "execution_id": "admission-actual-portable-forward",
+              "task_id": "admission-actual-portable-forward",
+              "active": 0,
+              "state": "RELEASED",
+              "ownership_hash": "5cd3d09f8fb9b43db2db2d79f193b087f28994d1952891f002afa6d21315f09f"
+            },
+            {
+              "execution_id": "admission-actual-portable-return",
+              "task_id": "admission-actual-portable-return",
+              "active": 0,
+              "state": "RELEASED",
+              "ownership_hash": "d179fbc346d0595b1e404899ac2816f8bebea358d1025843c2bd6dfb97230fc3"
+            }
+          ],
+          "queue": []
+        }
+      },
+      "receipt": "cases/actual-portable-return/receipt.json",
+      "observation": "cases/actual-portable-return/observation.json"
+    },
+    {
+      "name": "strict-schemas-zero-raw-secrets",
+      "result": "PASS",
+      "rejectedRawSecretFields": 2,
+      "secretFixtureScope": "RANDOM_IN_MEMORY_VALUE_NEVER_PERSISTED",
+      "ambientCredentialEnvironment": "WHITELIST_ONLY"
+    }
+  ],
+  "instrumentSha256": {
+    "run.py": "06520acf6d93a495c9773ee400f768424064ef6b1080e429b1b63478ce55c736",
+    "replay.mjs": "9be9250a171f2d47e71516717cf833604552f9bf8bf56d6228f0629c4405aeb6",
+    "contract.mjs": "9e6e0a950c88f7c40eb3cadc8381fa4417cbafa0a4351792cf205e53745b1058",
+    "observer.mjs": "6ad63328c1264c2b72a35d73a55bdf8bc4f14c97f741026420e6edf7f5e14e24",
+    "native-control.mjs": "f2107cd1a7ed907e24677b34f84e34d5e78acc748b613ed6ee3e5b3f442ec8e9",
+    "environment-schemas.mjs": "96775e5484d583277b5eeef6b447f19e948ffc381fe8dcf1798359399312ea47",
+    "mock-authority.mjs": "bb5cbcfebe840702d8ec6c5c48a01430b065b295f5fdda7fbf35bd734da90241",
+    "schemas.mjs": "0deb8555460b50e1ac255cf60d24f840c8497255f8c8b579cf526abee5617800",
+    "README.md": "3e8d467e4e6171c700d768d0a8a28ca5501b5f20ae08cf368c939c127f9ae7db",
+    "source-evidence.json": "2c57e0f289b6562faf00d292d3fc868fca7c52d0980590fe8bc91c5ab8984a9c",
+    "windows-evidence.json": "7b62146c42696e83ee6c01f79251545d76b73f3e0502ab30873c73d7e5ba3147",
+    "windows-log-excerpt.txt": "b9bd3296e532e4e96f40dd991d37e266f0226d2a190027ba3f6aeed1e8243675"
+  },
+  "frozenWindowsArchive": {
+    "schema": "archived-environment-observation-source/v1",
+    "source_kind": "ACTUAL_HOSTED_WINDOWS_ARCHIVE_NOT_CURRENT_HANDOFF_TARGET",
+    "source_job": {
+      "repository": "Reese-max/autodev-ng",
+      "run_id": 37267990741,
+      "job_id": 111628765470,
+      "url": "https://github.com/Reese-max/autodev-ng/actions/runs/37267990741",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    "os": "Microsoft Windows Server 2025",
+    "arch": "x64",
+    "image": "windows-2025-vs2026",
+    "node": "22.23.3",
+    "checkout": {
+      "commit": "4f27f434f4063a19549f1174864feea2c87a8dd8",
+      "tree": "fc1be8a94b38fe50d96ef3c609e3c9af7c68e511"
+    },
+    "log_sha256": "7478eab4dbe2611c03b4af59b430edd7d4b5ffb927c3b2ee93710d005842770d",
+    "observed_at_log_range": [
+      "2026-10-05T05:29:10.6314358Z",
+      "2026-10-05T06:00:09.2339773Z"
+    ],
+    "unknown": [
+      "provider CLI versions/auth",
+      "current target environment",
+      "current credential principal/lease",
+      "LAN/device/browser state",
+      "network/effect enforcement",
+      "current skill/config digests",
+      "durable coordination ledger"
+    ],
+    "scope": "Immutable historical hosted Windows execution evidence only; does not make the Linux simulator Windows or prove native cross-host resume. See raw source log timestamps for exact end.",
+    "os_version": "10.0.26100 Datacenter",
+    "image_version": "20260925.250.1",
+    "arch_evidence": "Actual node22.23.3 setup cache path hostedtoolcache/windows/node/22.23.3/x64, not an inferred current-target fact"
+  },
+  "metrics": {
+    "providerCalls": 0,
+    "networkAttempts": 0,
+    "actualWindowsRuntimeRuns": 0,
+    "actualNativeCrossHostResumes": 0,
+    "humanStepReduction": "NOT_MEASURED",
+    "negativeCases": 34
+  },
+  "remaining": [
+    "STEER_QUEUE_HANDOFF_UNSUPPORTED",
+    "NATIVE_CHECKPOINT_CWD_HOST_BOUND",
+    "DISTRIBUTED_RESERVATION_AUTHORITY_UNKNOWN",
+    "REAL_PROVIDER_UNKNOWN",
+    "REAL_AUTH_REVOCATION_UNKNOWN",
+    "HOST_NETWORK_CONTAINMENT_UNKNOWN",
+    "CURRENT_WINDOWS_TARGET_UNKNOWN",
+    "REVIEW_GATE_NOT_RUN"
+  ],
+  "resultDigest": "bc41c7eb79bd1459c5c1f5224611b4735003e16942c9c8a7cebdbdc7d0c59665"
+}

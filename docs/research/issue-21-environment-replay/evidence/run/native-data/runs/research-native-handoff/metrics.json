@@ -1,0 +1,20 @@
+{
+  "startedAt": "2026-10-05T06:47:13.442Z",
+  "activeMs": 114,
+  "blockedMs": 458,
+  "resumes": 1,
+  "recoverySuccesses": 1,
+  "verifiedSteps": 1,
+  "rejectedAttempts": 1,
+  "escalations": 0,
+  "interventions": 1,
+  "falseCompletionClaims": 0,
+  "tokensIn": 0,
+  "tokensOut": 0,
+  "costUsd": 0,
+  "costUnknown": false,
+  "endedAt": "2026-10-05T06:47:14.014Z",
+  "phase": "complete",
+  "completed": true,
+  "parkedMs": 0
+}

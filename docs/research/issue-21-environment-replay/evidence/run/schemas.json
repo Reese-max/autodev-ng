@@ -1,0 +1,889 @@
+{
+  "EnvironmentRequirement": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "schemaVersion": {
+        "type": "string",
+        "const": "environment-research/v1"
+      },
+      "os": {
+        "type": "string"
+      },
+      "node": {
+        "type": "string"
+      },
+      "cli": {
+        "type": "string"
+      },
+      "skillDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "policyDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "networkCapability": {
+        "type": "string"
+      },
+      "storageDurability": {
+        "type": "string"
+      },
+      "localOnlyResources": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "LAN",
+            "DEVICE",
+            "BROWSER_STATE",
+            "WINDOWS_APP"
+          ]
+        }
+      },
+      "requiredEffect": {
+        "type": "string",
+        "const": "DENY"
+      },
+      "explicitSelection": {
+        "type": "boolean",
+        "const": true
+      },
+      "budget": {
+        "type": "object",
+        "properties": {
+          "budgetRef": {
+            "type": "string",
+            "const": "fixture-budget:authoritative"
+          },
+          "policyHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "ledgerRef": {
+            "type": "string",
+            "const": "fixture-ledger:source-git-common-dir"
+          },
+          "ledgerIdentityDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "costClass": {
+            "type": "string",
+            "const": "LOCAL_SYNTHETIC_ZERO_PROVIDER_COST"
+          },
+          "reservationUsd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "hardUsd": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "budgetRef",
+          "policyHash",
+          "ledgerRef",
+          "ledgerIdentityDigest",
+          "costClass",
+          "reservationUsd",
+          "hardUsd"
+        ],
+        "additionalProperties": false
+      },
+      "principal": {
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+          },
+          "parentPrincipalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "leaseId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+          },
+          "executionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+          },
+          "credentialRef": {
+            "type": "string",
+            "pattern": "^fixture-ref:[A-Z]{1,16}$"
+          },
+          "identityIsolation": {
+            "type": "string",
+            "enum": [
+              "MOCK_DEDICATED",
+              "SHARED",
+              "UNKNOWN"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "const": "MOCK_AUTHORITY_ONLY"
+          }
+        },
+        "required": [
+          "principalId",
+          "parentPrincipalId",
+          "leaseId",
+          "executionId",
+          "credentialRef",
+          "identityIsolation",
+          "scope"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "os",
+      "node",
+      "cli",
+      "skillDigest",
+      "policyDigest",
+      "networkCapability",
+      "storageDurability",
+      "localOnlyResources",
+      "requiredEffect",
+      "explicitSelection",
+      "budget",
+      "principal"
+    ],
+    "additionalProperties": false
+  },
+  "EnvironmentObservation": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "schemaVersion": {
+        "type": "string",
+        "const": "environment-research/v1"
+      },
+      "environmentId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+      },
+      "providerKind": {
+        "type": "string",
+        "enum": [
+          "LOCAL_WINDOWS",
+          "MANAGED_SANDBOX",
+          "PARTNER_CLOUD",
+          "UNKNOWN"
+        ]
+      },
+      "observationBasis": {
+        "type": "string",
+        "enum": [
+          "ACTUAL_SUBPROCESS_READBACK",
+          "FROZEN_ARCHIVED_WINDOWS_WITH_SYNTHETIC_PROJECT"
+        ]
+      },
+      "observedAt": {
+        "type": "string"
+      },
+      "os": {
+        "type": "string"
+      },
+      "node": {
+        "type": "string"
+      },
+      "cli": {
+        "type": "string"
+      },
+      "skillDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "policyDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "networkCapability": {
+        "type": "string"
+      },
+      "storageDurability": {
+        "type": "string"
+      },
+      "actualFacts": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "repoIdentity": {
+        "type": "string"
+      },
+      "commit": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{40}$"
+      },
+      "worktreePath": {
+        "type": "string"
+      },
+      "dirtyState": {
+        "type": "string"
+      },
+      "dirtyDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "artifacts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "locator": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.-]+$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "locator",
+            "sha256"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "evidence": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "locator": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.-]+$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "locator",
+            "sha256"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "principal": {
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+          },
+          "parentPrincipalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "leaseId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+          },
+          "executionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+          },
+          "credentialRef": {
+            "type": "string",
+            "pattern": "^fixture-ref:[A-Z]{1,16}$"
+          },
+          "identityIsolation": {
+            "type": "string",
+            "enum": [
+              "MOCK_DEDICATED",
+              "SHARED",
+              "UNKNOWN"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "const": "MOCK_AUTHORITY_ONLY"
+          }
+        },
+        "required": [
+          "principalId",
+          "parentPrincipalId",
+          "leaseId",
+          "executionId",
+          "credentialRef",
+          "identityIsolation",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "budget": {
+        "type": "object",
+        "properties": {
+          "budgetRef": {
+            "type": "string",
+            "const": "fixture-budget:authoritative"
+          },
+          "policyHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "ledgerRef": {
+            "type": "string",
+            "const": "fixture-ledger:source-git-common-dir"
+          },
+          "ledgerIdentityDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "costClass": {
+            "type": "string",
+            "const": "LOCAL_SYNTHETIC_ZERO_PROVIDER_COST"
+          },
+          "reservationUsd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "hardUsd": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "budgetRef",
+          "policyHash",
+          "ledgerRef",
+          "ledgerIdentityDigest",
+          "costClass",
+          "reservationUsd",
+          "hardUsd"
+        ],
+        "additionalProperties": false
+      },
+      "unsupported": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "simulatedOverrides": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "environmentId",
+      "providerKind",
+      "observationBasis",
+      "observedAt",
+      "os",
+      "node",
+      "cli",
+      "skillDigest",
+      "policyDigest",
+      "networkCapability",
+      "storageDurability",
+      "actualFacts",
+      "repoIdentity",
+      "commit",
+      "worktreePath",
+      "dirtyState",
+      "dirtyDigest",
+      "artifacts",
+      "evidence",
+      "principal",
+      "budget",
+      "unsupported",
+      "simulatedOverrides"
+    ],
+    "additionalProperties": false
+  },
+  "HandoffBundle": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "schemaVersion": {
+        "type": "string",
+        "const": "environment-research/v1"
+      },
+      "bundleId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+      },
+      "taskId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+      },
+      "executionId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+      },
+      "sourceEnvironment": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+      },
+      "targetEnvironment": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+      },
+      "sourceObservationDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "requirementDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "repoIdentity": {
+        "type": "string"
+      },
+      "commit": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{40}$"
+      },
+      "sourceWorktreePath": {
+        "type": "string"
+      },
+      "dirtyState": {
+        "type": "string",
+        "const": ""
+      },
+      "dirtyDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "artifacts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "locator": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.-]+$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "locator",
+            "sha256"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "evidence": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "locator": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.-]+$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "locator",
+            "sha256"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "principal": {
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+          },
+          "parentPrincipalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "leaseId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+          },
+          "executionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+          },
+          "credentialRef": {
+            "type": "string",
+            "pattern": "^fixture-ref:[A-Z]{1,16}$"
+          },
+          "identityIsolation": {
+            "type": "string",
+            "enum": [
+              "MOCK_DEDICATED",
+              "SHARED",
+              "UNKNOWN"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "const": "MOCK_AUTHORITY_ONLY"
+          }
+        },
+        "required": [
+          "principalId",
+          "parentPrincipalId",
+          "leaseId",
+          "executionId",
+          "credentialRef",
+          "identityIsolation",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "budget": {
+        "type": "object",
+        "properties": {
+          "budgetRef": {
+            "type": "string",
+            "const": "fixture-budget:authoritative"
+          },
+          "policyHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "ledgerRef": {
+            "type": "string",
+            "const": "fixture-ledger:source-git-common-dir"
+          },
+          "ledgerIdentityDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "costClass": {
+            "type": "string",
+            "const": "LOCAL_SYNTHETIC_ZERO_PROVIDER_COST"
+          },
+          "reservationUsd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "hardUsd": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "budgetRef",
+          "policyHash",
+          "ledgerRef",
+          "ledgerIdentityDigest",
+          "costClass",
+          "reservationUsd",
+          "hardUsd"
+        ],
+        "additionalProperties": false
+      },
+      "checkpoint": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "RESEARCH_FIXTURE",
+              "NATIVE_HOST_BOUND"
+            ]
+          },
+          "locator": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "cwdBinding": {
+            "type": "string"
+          },
+          "copyManifest": {
+            "type": "object",
+            "properties": {
+              "locator": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]+$"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "locator",
+              "sha256"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "kind",
+          "locator",
+          "sha256",
+          "cwdBinding"
+        ],
+        "additionalProperties": false
+      },
+      "pending": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "STEER",
+                "QUEUE"
+              ]
+            },
+            "locator": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "support": {
+              "type": "string",
+              "const": "UNKNOWN"
+            }
+          },
+          "required": [
+            "kind",
+            "locator",
+            "sha256",
+            "support"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "explicitSelection": {
+        "type": "boolean",
+        "const": true
+      },
+      "direction": {
+        "type": "string",
+        "enum": [
+          "LOCAL_TO_SIMULATOR",
+          "SIMULATOR_TO_LOCAL"
+        ]
+      },
+      "acceptableDrift": {
+        "type": "string",
+        "const": "NONE"
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "bundleId",
+      "taskId",
+      "executionId",
+      "sourceEnvironment",
+      "targetEnvironment",
+      "sourceObservationDigest",
+      "requirementDigest",
+      "repoIdentity",
+      "commit",
+      "sourceWorktreePath",
+      "dirtyState",
+      "dirtyDigest",
+      "artifacts",
+      "evidence",
+      "principal",
+      "budget",
+      "checkpoint",
+      "pending",
+      "explicitSelection",
+      "direction",
+      "acceptableDrift"
+    ],
+    "additionalProperties": false
+  },
+  "HandoffReceipt": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "schemaVersion": {
+        "type": "string",
+        "const": "environment-research/v1"
+      },
+      "bundleId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9:_-]{1,120}$"
+      },
+      "bundleDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "targetObservationDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "requirementDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "state": {
+        "type": "string",
+        "enum": [
+          "RESUMED_VERIFIED",
+          "ENVIRONMENT_MISMATCH",
+          "LOCAL_ONLY",
+          "UNKNOWN",
+          "DIVERGED",
+          "DENIED",
+          "BUDGET_BLOCKED",
+          "UNSUPPORTED_PENDING_CONTROL",
+          "HOST_BOUND_CHECKPOINT"
+        ]
+      },
+      "checks": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "ok": {
+              "type": "boolean"
+            },
+            "expected": {},
+            "actual": {}
+          },
+          "required": [
+            "name",
+            "ok",
+            "expected",
+            "actual"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "declaredEffectDecision": {
+        "type": "string",
+        "enum": [
+          "DENY",
+          "ALLOW",
+          "UNKNOWN"
+        ]
+      },
+      "effectDecision": {
+        "type": "string",
+        "const": "DENY"
+      },
+      "effectScope": {
+        "type": "string",
+        "const": "SYNTHETIC_FAIL_CLOSED_GATE_ONLY"
+      },
+      "principalDecision": {
+        "type": "string"
+      },
+      "budgetReport": {},
+      "fixtureCommand": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "fixtureExit": {
+        "anyOf": [
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "nativeMigration": {
+        "type": "string",
+        "const": "UNKNOWN"
+      },
+      "reviewGate": {
+        "type": "string",
+        "const": "NOT_RUN"
+      },
+      "providerCalls": {
+        "type": "number",
+        "const": 0
+      },
+      "networkAttempts": {
+        "type": "number",
+        "const": 0
+      },
+      "receiptDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "bundleId",
+      "bundleDigest",
+      "targetObservationDigest",
+      "requirementDigest",
+      "state",
+      "checks",
+      "declaredEffectDecision",
+      "effectDecision",
+      "effectScope",
+      "principalDecision",
+      "budgetReport",
+      "fixtureCommand",
+      "fixtureExit",
+      "nativeMigration",
+      "reviewGate",
+      "providerCalls",
+      "networkAttempts",
+      "receiptDigest"
+    ],
+    "additionalProperties": false
+  }
+}

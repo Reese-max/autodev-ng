@@ -1,0 +1,48 @@
+{
+  "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+  "sourceTree": "26314c41dbe5f7b40da0f242fd8268ec5f0178f8",
+  "node": "v22.23.3",
+  "command": [
+    "/workspace/tools/node22/node_modules/node/bin/node",
+    "/workspace/repos/autodev-principal-research/node_modules/typescript/bin/tsc",
+    "-p",
+    "tsconfig.build.json"
+  ],
+  "exitCode": 0,
+  "environmentKeys": [
+    "PATH",
+    "RESEARCH_SOURCE"
+  ],
+  "compiledSha256": {
+    "dist/backends/long-horizon.js": "2b0b21bdcb94763ab25d552ce20cc1eb206b9a9c2037e27283a201b485d5a660",
+    "dist/backends/store.js": "10f2f0d829e9d7b1afa33d944da28c4035cce4516c18188fcd56c4fd5f0d00a1",
+    "dist/backends/types.js": "c3ba39a65ba74bf26366225298c8cc87705fe53d20c91c1aa7f6b36bc6b993cc",
+    "dist/backends/roles.js": "c14bdd9f39b3002e22bfc728eff37a9c9c06dcb052239fe4971838c1c0d2128b",
+    "dist/backends/metrics.js": "d59dfe0e2afa463d2f55dc54b8c4d47be171b0e1a6bb9788059162a7e1a08938",
+    "dist/globalcost.js": "fc17bc38ead50c25e7e381131af5fb828721dfb36ec2c4d14f3d4f6dff2484a9",
+    "dist/globalcost/extra.js": "be3a1fd22fa418ba8042dcbddf48f8df81c8cd9fb444d77d8d45821b5321f04f",
+    "dist/db.js": "b46ab67ae3a4fca19659517fe7cd90914ea4c45588965eda030c9918934740f9",
+    "dist/engines/team-state.js": "90d78d050ccad6992280f7e5c61d83815544a2fd8246c31f55f5d21b9f5a81ef",
+    "dist/engines/ownership.js": "2398829eafbb11e4493c17a26cde89cb9b9eb64685a0518870fb3ff70df1d90f",
+    "dist/engines/attempt-accounting.js": "df3bf271f1bfe50acabc993cb4fef3281157abcc4fb6272b45d8d5ed1baf5260",
+    "dist/engines/run-verify.js": "7d220f59c1d1d2d07483500b3309e16b567ab50fd9b998b6d4a128a7a1eb504d",
+    "dist/guardian/incident.js": "f5890f37d3a2cad1c531319baf3a5c8ae818194d1e084912d50dea0db772f44b",
+    "dist/lock.js": "fce6353879c57b6aa608f6cc2d17cdc82c35dd4dcead2aaaeb996f32a2ad8d7f"
+  },
+  "sourceSha256": {
+    "src/backends/long-horizon.ts": "43e73f099510e0ff150f05e0b8a9eb2eb1dceeecc7b864f485138a02e3351a6b",
+    "src/backends/store.ts": "43ce4c5bc1c881b71b54b62a957bf720b87a602a88d81ed23c0994f10841784f",
+    "src/backends/types.ts": "3a7063ee477939858d3b24e58d6d1fb32d9643140d1fe547c4e8a87b1abcab07",
+    "src/backends/roles.ts": "a07e9b2ee083a0d64934590e7df125556f9cc449df0ab60d8e660cce1a48ed85",
+    "src/backends/metrics.ts": "4f4da5f63d9d01c467d326eba7543503b8a78c1e339df53357baf905174764b3",
+    "src/globalcost.ts": "6f4fd221d7f2bfa81b1c7b73e3b77875577daaf3b3c29fcc6457a67c607286b3",
+    "src/globalcost/extra.ts": "da387e6650a046450a419dd2f9b879c7162353f74e80464eb4d6da55d9081e2c",
+    "src/db.ts": "a19efd6ad4046f15a7a116b2e47ba56794a1193bcf94985251737ba5f7f1990f",
+    "src/engines/team-state.ts": "429e1d8bcff5ac0c69388a21a54714d2470b546ced1397139869c8ed045dcd7c",
+    "src/engines/ownership.ts": "b529521c9d86c893c3da3eba092f72a9bfaf546beda8ab8d17858cd5e44eb3ed",
+    "src/engines/attempt-accounting.ts": "7afbcb684c52e70105f609cadc2c51573f5e289e4a2f1e69f130312c05d8d015",
+    "src/engines/run-verify.ts": "2d17a97854bd7eb8ef674dec63a684632214fef0c180d1ff19d09a84a3779282",
+    "src/guardian/incident.ts": "29325e9f9c8e3c4f272ab7ec82d02b9db0534a2bcc1e428e606f183f171396bd",
+    "src/lock.ts": "2bf57b665e69dce5e80fcfb77e6ee7984511df0eb0475ca2705c655f7506c6d7"
+  }
+}

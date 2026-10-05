@@ -1,0 +1,39 @@
+{
+  "comparison": {
+    "base": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+    "aheadBy": 5,
+    "totalCommits": 5,
+    "files": [
+      ".github/workflows/ci.yml",
+      "docs/github-issues.md",
+      "src/github/followup.ts",
+      "src/github/job.ts",
+      "src/github/owner.ts",
+      "src/github/runner.ts",
+      "src/github/state.ts",
+      "tests/github-issues-integration.test.ts",
+      "tests/github-owner-fairness.test.ts",
+      "tests/github-owner-recovery.integration.test.ts",
+      "tests/github-owner.test.ts"
+    ]
+  },
+  "canonicalPr": {
+    "number": 24,
+    "state": "open",
+    "draft": false,
+    "html_url": "https://github.com/Reese-max/autodev-ng/pull/24",
+    "head": {
+      "sha": "19a79a4d8b9d9d289ee170dd8c2aee5fa905fbf5",
+      "ref": "devin/issue-21-research"
+    },
+    "base": {
+      "sha": "4b202eb2864aa262c2ca47cf08623d3b6a1017e8",
+      "ref": "main"
+    }
+  },
+  "canonicalDoc": {
+    "path": "docs/research/issue-21-execution-environment-contract.md",
+    "sourceSha": "19a79a4d8b9d9d289ee170dd8c2aee5fa905fbf5",
+    "content": "# Issue #21 \u2014 Execution Environment Contract + Cloud\u2194Local Handoff Receipt\n\nResearch deliverable for `Reese-max/autodev-ng#21`\uff08P1 Research\uff09\u3002\n\u7b2c\u4e00\u968e\u6bb5\u53ea\u5b9a\u7fa9 contract\u3001synthetic fixture \u8207 read-back verification \u8a2d\u8a08\uff1b\n\u4e0d\u90e8\u7f72\u96f2\u7aef runner\u3001\u4e0d\u642c secrets\u3001\u4e0d\u6539 repo settings\u3002\n\n## 1. \u554f\u984c\u9673\u8ff0\n\n`projectPath` / `dataDir` / `worktree` / `team.db` \u90fd\u662f host-bound\uff1blong-running\ntask \u60f3\u79fb\u5230\u96f2\u7aef\u6216\u53e6\u4e00\u53f0\u6a5f\u5668\u7e8c\u8dd1\u6642\uff0c\u6c92\u6709 first-class \u7684 versioned environment\ndescriptor / handoff bundle / read-back receipt \u53ef\u8b49\u660e\u300ccode/input/toolchain/\npolicy/local-only-resource\u300d\u5728\u65b0\u74b0\u5883\u7b49\u50f9\u3002\u624b\u52d5\u8907\u88fd\u6703\u7522\u751f silent drift\u3002\n\n## 2. Schema\n\n### 2.1 `ExecutionEnvironment`\n\n```jsonc\n{\n  \"schemaVersion\": 1,\n  \"envId\": \"env_<ulid>\",\n  \"hostKind\": \"windows-local | wsl | cloud-runner | partner-sandbox\",\n  \"facts\": {\n    \"os\": \"windows-11-x64\",\n    \"nodeVersion\": \"22.x\", \"pythonVersion\": \"3.11.x\",\n    \"enginesAvailable\": [\"codex\",\"freebuff\"],\n    \"projectPathBinding\": \"C:/Users/.../repo\",      // host-absolute\n    \"dataDirBinding\": \"C:/Users/.../data\",\n    \"capabilities\": [\"git-worktree\",\"sqlite\",\"mcp\"]\n  },\n  \"policy\": {\n    \"secretsPresent\": [\"names only \u2014 never values\"],\n    \"localOnlyResources\": [\"team.db\",\"evidence-ledger\"]\n  }\n}\n```\n\n### 2.2 `EnvironmentRequirement`\uff08task \u7aef\u5ba3\u544a\uff09\n\n```jsonc\n{ \"required\": [\"git-worktree\",\"sqlite\",\"engine:codex\"],\n  \"preferred\": [\"engine:freebuff\"],\n  \"forbidden\": [\"public-internet-egress\"] }\n```\n\n### 2.3 `HandoffBundle`\n\n```jsonc\n{\n  \"bundleId\": \"hb_<ulid>\",\n  \"taskId\": \"...\", \"executionId\": \"...\",\n  \"sourceEnv\": \"env_a\", \"targetEnv\": \"env_b\",\n  \"repoHash\": \"sha256(git rev-parse HEAD + diff of worktree)\",\n  \"dataHash\": \"sha256(dataDir manifest)\",\n  \"evidenceRefs\": [\"receipt_...\"],\n  \"environmentContractDigest\": \"sha256(requirement \u2229 env.facts)\",\n  \"direction\": \"local\u2192cloud | cloud\u2192local | local\u2192local\",\n  \"createdAt\": \"...\"\n}\n```\n\n### 2.4 `ResumeReceipt`\uff08read-back verification\uff09\n\n```jsonc\n{\n  \"bundleId\": \"hb_...\", \"targetEnv\": \"env_b\",\n  \"checks\": [\n    { \"name\": \"repoHash\", \"expected\": \"...\", \"actual\": \"...\", \"ok\": true },\n    { \"name\": \"enginePresent\", \"expected\": \"codex\", \"actual\": \"codex@x.y\", \"ok\": true },\n    { \"name\": \"localOnlyResource\", \"expected\": \"team.db readable\", \"actual\": \"absent\", \"ok\": false }\n  ],\n  \"verdict\": \"RESUMABLE | DIVERGED-NEEDS-RECONCILE | UNSAFE\",\n  \"reconcilePlan\": null\n}\n```\n\n## 3. \u6838\u5fc3\u898f\u5247\uff08issue \u660e\u6587\uff09\n\n- **\u540c\u4e00\u4efd contract \u96d9\u5411\u7528**\uff1acloud\u2192local\u3001local\u2192cloud \u90fd\u7528 HandoffBundle +\n  ResumeReceipt\uff1b\u56de\u672c\u6a5f\u5148\u6bd4 repo/artifact/evidence hash\uff0cdivergence \u2192\n  candidate reconcile plan\uff0c**\u4e0d silent overwrite worktree/dataDir**\u3002\n- environment \u662f typed/inspectable/evidence-backed\uff1b\u300c\u53ef\u651c\u300d\u4e0d\u4ee3\u8868\n  \u300c\u4efb\u4f55\u74b0\u5883\u90fd\u53ef\u5b89\u5168\u57f7\u884c\u300d\u3002\n- policy \u53ef\u5141\u8a31\u9810\u5148\u6279\u51c6\u7684 bounded auto-offload\uff0c\u4f46 contract \u5c64\u4ecd\u7559 exact\n  receipt \u4e14\u4e0d\u64f4\u6b0a\u3002\n- provider-neutral\uff1a\u4e0d\u76f4\u63a5\u8b8a\u6210\u67d0 vendor \u7684 client\u3002\n\n## 4. Phase-0/1 fixtures\n\n| Fixture | \u60c5\u5883 |\n|---|---|\n| `identical-env` | \u540c\u6a5f\u4e0d\u540c worktree \u2192 RESUMABLE |\n| `missing-engine` | target \u7121 codex \u2192 UNSAFE |\n| `drifted-worktree` | repoHash \u4e0d\u540c \u2192 DIVERGED + reconcile plan |\n| `local-only-absent` | team.db \u4e0d\u5b58\u5728\u65bc target \u2192 check \u5931\u6557\u4f46\u4e0d silent \u8907\u88fd |\n| `capability-subset` | \u7f3a preferred \u4f46\u6eff\u8db3 required \u2192 RESUMABLE with warning |\n\n## 5. \u4e0d\u505a\u4ec0\u9ebc\n\n- \u4e0d\u90e8\u7f72\u96f2\u7aef runner\u3001\u4e0d\u65b0\u589e provider \u5e33\u865f\u3002\n- \u4e0d\u642c secrets\uff08secrets \u53ea\u8a18\u540d\u5b57\uff1btarget \u74b0\u5883\u81ea\u884c\u6301\u6709\uff09\u3002\n- \u4e0d\u6307\u5b9a\u552f\u4e00\u96f2\u7aef backend\uff08Cloudflare Workers port \u662f portfolio \u8a0a\u865f\uff0c\n  \u4e0d\u662f\u672c issue \u7684\u9810\u8a2d\u7b54\u6848\uff09\u3002\n"
+  }
+}
