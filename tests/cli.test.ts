@@ -541,19 +541,19 @@ test('M5：configs/ 下所有現役真檔 schema 全過，且 registry 能建出
   }
 })
 
-test('note-filler mixed rotation builds normally while unsupported routes remain denied by free-only', () => {
+test('note-filler retains free-only and resolves every selected route without enabling paid or unknown routes', () => {
   const cfgPath = resolve(import.meta.dirname, '..', 'configs', 'note-filler.json')
   const cfg = ConfigSchema.parse(JSON.parse(readFileSync(cfgPath, 'utf8')))
-  const selectedRotationTag = 'oc-mimo'
-  expect(cfg.engineRotation).toContain(selectedRotationTag)
-  expect(cfg.tierMode).toBeUndefined()
+  expect(cfg.tierMode).toBe('free-only')
+  const rotation = cfg.engineRotation ?? []
+  expect(rotation.length).toBeGreaterThan(0)
 
   const dataDir = mkdtempSync(join(tmpdir(), 'adng-note-filler-'))
-  expect(makeEngineRegistry({ ...cfg, dataDir }).resolve(selectedRotationTag)).toBeDefined()
+  const registry = makeEngineRegistry({ ...cfg, dataDir })
+  for (const tag of new Set([cfg.defaultEngine, ...rotation])) expect(registry.resolve(tag)).toBeDefined()
 
-  const strictFreeOnly = ConfigSchema.parse({ ...cfg, tierMode: 'free-only' })
-  expect(() => makeEngineRegistry({ ...strictFreeOnly, dataDir: mkdtempSync(join(tmpdir(), 'adng-note-filler-free-')) })
-    .resolve(selectedRotationTag)).toThrow(/engine "oc-mimo" .*free-policy/)
+  expect(() => registry.resolve('oc-mimo')).toThrow(/engine "oc-mimo" .*free-policy/)
+  expect(() => registry.resolve('codex-luna')).toThrow(/free-policy/)
 })
 
 test('assembled free-only admission errors include config path and engine context without secrets', () => {

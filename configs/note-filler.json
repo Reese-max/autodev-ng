@@ -21,26 +21,9 @@
   "dailyHardUsd": 20,
   "maxAttempts": 3,
   "perpetual": true,
+  "tierMode": "free-only",
   "defaultEngine": "oc-deepseek",
-  "engineRotation": [
-    "oc-deepseek",
-    "oc-mimo",
-    "kilo",
-    "oc-nvidia-glm52",
-    "oc-mimo",
-    "kilo",
-    "oc-deepseek",
-    "oc-mimo",
-    "kilo",
-    "oc-deepseek",
-    "oc-mimo",
-    "kilo",
-    "oc-laguna",
-    "oc-mimo",
-    "kilo",
-    "codex-luna",
-    "codex-terra"
-  ],
+  "engineRotation": ["oc-deepseek"],
   "discordChannelId": "1492793288514863164",
   "engines": {
     "devin": {
