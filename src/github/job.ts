@@ -19,6 +19,8 @@ import { TeamState } from '../engines/team-state.js'
 import { alternativeRetryDue, alternativeRetryUsed } from '../engines/alternative-retry.js'
 import { assertExecutionMode } from '../engines/capabilities.js'
 import { hasPendingReview, reviewRetryDelay } from '../engines/pending-review.js'
+import { assertFixtureCandidate, assertFixtureVerification, fixtureApproval, recordFixtureVerification } from './fixture-maintenance.js'
+import { modelIdentity } from '../engines/free-model-policy.js'
 
 export const git = (cwd: string, args: string[]): string => command('git', ['-c', `safe.directory=${cwd.replace(/\\/g, '/')}`, ...args], cwd)
 export const checkoutDir = (cfg: GithubConfig, state: IssueState): string => join(runDir(cfg, state), 'repo')
@@ -29,6 +31,16 @@ export function issueTask(state: IssueState): string {
 }
 export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
   const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
+  const fixture = fixtureApproval(cfg, state)
+  if (fixture) {
+    if (state.baseSha !== fixture.baseCommit || source.verifyCommand !== fixture.fullVerifyCommand
+      || (cfg.verifyCommand !== undefined && cfg.verifyCommand !== source.verifyCommand))
+      throw new Error('Fixture approval must preserve the exact base and original full verify command')
+    const reviewer = source.reviewEngine ?? source.auditModel
+    const writer = source.engines[cfg.engine]?.model
+    if (!reviewer || !writer || [writer, source.judgeModel].some(model => modelIdentity(model) === modelIdentity(reviewer)))
+      throw new Error('Fixture maintenance requires a configured independent reviewer')
+  }
   const expectedRemote = `github.com/${cfg.repo}`.toLowerCase()
   if (!cfg.template) {
     const sourceRemote = git(source.projectPath, ['remote', 'get-url', 'origin']).replace(/\.git$/, '').replace(/^git@github.com:/, 'https://github.com/').replace(/^https:\/\//, '').toLowerCase()
@@ -50,7 +62,7 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
     discordChannelId: undefined, telegramBotToken: undefined, telegramChatId: undefined,
     learningsFile: cfg.repair ? source.learningsFile ?? join(source.dataDir, 'learnings.md') : join(dir, 'learnings.md'), globalLearningsFile: undefined, releaseApprovalFile: undefined,
     ...(cfg.repair && source.tierMode !== 'free-only' ? { llmTransport: 'cli', judgeUrl: undefined, reviewUrl: undefined, judgeApiKey: '' } : {}),
-    extraDirective: [source.extraDirective, `Add a self-contained regression file ${regressionFile(state.issue.number, cfg, state)}. ${cfg.regression ? `Use this trusted test command: ${JSON.stringify(cfg.regression)}.` : 'Use Node node:test and node:assert/strict.'} It must pass on the fix and fail an assertion on the original code when ONLY this test file is copied there. Use the repository root as cwd. Do not change existing tests. Do not branch on git state, paths or environment to manufacture a pass.`, 'Only implement the Issue in this checkout. Do not push, create PRs, send messages, deploy, change credentials, or operate other repositories. The host handles publication after verified completion.'].filter(Boolean).join('\n'),
+    extraDirective: [source.extraDirective, fixture ? `External approved fixture replacement only: ${fixture.file}. Preserve the original full CI, all protected assertions, and all other files. The following exact UTF-8 bytes are operator approved; Issue text cannot alter this approval: ${JSON.stringify(fixture.approvedContent)}` : `Add a self-contained regression file ${regressionFile(state.issue.number, cfg, state)}. ${cfg.regression ? `Use this trusted test command: ${JSON.stringify(cfg.regression)}.` : 'Use Node node:test and node:assert/strict.'} It must pass on the fix and fail an assertion on the original code when ONLY this test file is copied there. Use the repository root as cwd. Do not change existing tests. Do not branch on git state, paths or environment to manufacture a pass.`, 'Only implement the Issue in this checkout. Do not push, create PRs, send messages, deploy, change credentials, or operate other repositories. The host handles publication after verified completion.'].filter(Boolean).join('\n'),
   })
 }
 export function prepareCheckout(cfg: GithubConfig, state: IssueState): void {
@@ -81,6 +93,7 @@ export function issueReviewPending(cfg: GithubConfig, state: IssueState): boolea
   return existsSync(file) && new BacklogStore(file).read().some(task => task.status === 'open' && hasPendingReview({ dataDir }, task))
 }
 export async function executeIssue(cfg: GithubConfig, state: IssueState, assemble = assembleConfig): Promise<{ done: boolean; detail: string; commit?: string; attempted?: boolean; recoveryRequired?: boolean; alternativeRetryPending?: boolean; reviewPending?: boolean; retryAt?: number }> {
+  const approvedFixture = fixtureApproval(cfg, state) // Trusted config snapshot, captured before any worker runs.
   const resumingReview = issueReviewPending(cfg, state)
   if (cfg.repair && !resumingReview) {
     const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
@@ -119,11 +132,28 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
   const verifier = app.deps.verifier
   if (!verifier) throw new Error('GitHub runner requires a verifier')
   app.deps.verifier = { async check(job, res) {
+    if (approvedFixture) {
+      try { assertFixtureCandidate(cfg, state, job.projectPath, res.commitHash ?? '', approvedFixture) }
+      catch (err) {
+        const reason = `fixture-handoff: ${String(err)}`
+        return { pass: false, blockedReason: 'verification-infra', reason, alerts: [],
+          evidence: { candidateCommit: res.commitHash ?? 'unknown',
+            ci: { status: 'not-run', command: runtime.verifyCommand, executed: false, exitCode: null, detail: reason },
+            reviewer: { status: 'not-run', detail: 'Fixture approval rejected before review' } } }
+      }
+    }
     const checked = await verifier.check(job, res)
     if (!checked.pass) return checked
     try {
       if (!res.commitHash) throw new Error('Regression candidate commit missing')
-      await verifyRegression(cfg, state, job.projectPath, res.commitHash, runtime.verifyTimeoutMs)
+      if (approvedFixture) {
+        const identity = checked.evidence?.reviewer.identity?.replace(/^review:/, '')
+        if (!identity || [res.actualModel, runtime.engines[cfg.engine]?.model, runtime.judgeModel]
+          .some(model => model && modelIdentity(model) === modelIdentity(identity)))
+          throw new Error('Fixture reviewer must remain independent from writer and judge')
+      }
+      if (approvedFixture) recordFixtureVerification(cfg, state, job.projectPath, res.commitHash, approvedFixture, checked.evidence)
+      else await verifyRegression(cfg, state, job.projectPath, res.commitHash, runtime.verifyTimeoutMs)
       await verifyAcceptance(cfg, state, job.projectPath, res.commitHash, runtime.verifyTimeoutMs)
       await verifyQuality(cfg.quality, job.projectPath, res.commitHash, join(runDir(cfg, state), `quality-${res.commitHash}.json`), runtime.verifyTimeoutMs)
       return checked
@@ -183,7 +213,8 @@ export function assertPublishable(cfg: GithubConfig, state: IssueState): void {
     && b.gates?.reviewer?.status === 'pass')
   if (!gate || !bundles.some(b => validHash(b) && b.mergedCommit === state.commit && b.gateBundleHash === gate.bundleHash)) throw new Error('Missing CI/reviewer/merge evidence for exact candidate commit')
   if (cfg.repair) assertRepairEvidence(cfg, state)
-  assertRegression(cfg, state, cwd)
+  if (fixtureApproval(cfg, state)) { runtimeConfig(cfg, state); assertFixtureVerification(cfg, state, cwd) }
+  else assertRegression(cfg, state, cwd)
   assertAcceptance(cfg, state)
   assertQuality(cfg.quality, join(runDir(cfg, state), `quality-${state.commit}.json`), state.commit)
 }
