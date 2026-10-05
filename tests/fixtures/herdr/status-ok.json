@@ -1,0 +1,14 @@
+{
+  "running": true,
+  "compatible": true,
+  "protocol": 20,
+  "version": "0.9.1-preview",
+  "backend": {
+    "provider": "Codex",
+    "model": "gpt-5.6-luna",
+    "models": ["gpt-5.6-luna", "gpt-5.6-sol"],
+    "cliVersion": "0.153.4",
+    "auth": { "state": "authenticated" },
+    "quota": { "state": "available", "remainingPercent": 78, "resetsAt": "2099-01-01T00:00:00Z" }
+  }
+}

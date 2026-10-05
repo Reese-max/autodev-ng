@@ -119,6 +119,7 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
           command: ec.command, verifyCommand: verifyCommandText(cfg.verifyCommand),
           provider: ec.provider,
+          model: ec.model === undefined ? undefined : expandEnvValue(ec.model),
           timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs,
         })
       case 'freebuff':

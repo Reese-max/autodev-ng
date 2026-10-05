@@ -1,12 +1,13 @@
-import { unknownAdmission } from './cli-admission.js'
+import { admissionFailure, unknownAdmission } from './cli-admission.js'
 import { cliDiagnostic, cliPreflightKey, redactCli } from './cli-diagnostics.js'
+import { applyBackendStatus, launcherDigest, parseHerdrStatus, quotaHoldUntil } from './herdr-readiness.js'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PreflightCache } from '../preflight.js'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { commitCodexWorktree } from './codex.js'
 import { defaultCommitHash } from './commit-hash.js'
-import { runProcess } from './proc.js'
+import { runProcess, type ProcResult } from './proc.js'
 import { cancelledRun } from './run-control.js'
 
 interface HerdrOpts {
@@ -19,6 +20,12 @@ interface HerdrOpts {
   pingTimeoutMs?: number
   sessionName?: string
   provider?: 'Codex' | 'Pi'
+  /** 設定指定的 backend 模型（requested）；與 status 回報比對，不傳未驗證的 launcher 旗標。 */
+  model?: string
+  /** status 探針 transient 失敗的額外重試次數（預設 2＝最多 3 次；確定的否定回答不重試）。 */
+  statusRetries?: number
+  /** 退避基數毫秒（預設 250，逐次加倍）。 */
+  statusRetryDelayMs?: number
   runProcess?: typeof runProcess
   getCommitHash?: typeof defaultCommitHash
   commitChanges?: typeof commitCodexWorktree
@@ -34,6 +41,9 @@ export class HerdrEngine implements Engine {
   private readonly pingTimeoutMs: number
   private readonly sessionName: string
   private readonly provider: 'Codex' | 'Pi'
+  private readonly model?: string
+  private readonly statusRetries: number
+  private readonly statusRetryDelayMs: number
   private readonly runner: typeof runProcess
   private readonly getCommitHash: typeof defaultCommitHash
   private readonly commitChanges: typeof commitCodexWorktree
@@ -47,35 +57,79 @@ export class HerdrEngine implements Engine {
     this.pingTimeoutMs = opts.pingTimeoutMs ?? 15_000
     this.sessionName = opts.sessionName ?? 'herdr-autopilot'
     this.provider = opts.provider ?? 'Codex'
+    this.model = opts.model?.trim() || undefined
+    this.statusRetries = Math.min(4, Math.max(0, opts.statusRetries ?? 2))
+    this.statusRetryDelayMs = Math.min(5_000, Math.max(0, opts.statusRetryDelayMs ?? 250))
     this.runner = opts.runProcess ?? runProcess
     this.getCommitHash = opts.getCommitHash ?? defaultCommitHash
     this.commitChanges = opts.commitChanges ?? commitCodexWorktree
   }
 
+  /**
+   * server／auth／model／quota 分開驗證（issue #34）：server ok 不代表整條執行路徑可用。
+   * 觀測只用唯讀 `status server --json`；無可靠欄位→unknown（不猜、不視為已驗證）。
+   * 故障分類：transient 才有界退避重試；auth missing 等人工；quota exhausted 依 reset 或有界冷卻；
+   * model unavailable 回報設定問題。全程不送同意、不登出、不改寫憑證、不自動切付費模型。
+   */
   async preflight(): Promise<PreflightResult> {
     const key = this.cacheKey()
-    const admission = unknownAdmission('herdr', undefined)
     const cached = this.cache.get(key)
-    if (cached) return { ...cached, admission }
+    if (cached) return cached // 命中即整份觀測（含原 checkedAt），不刷新證據時間
+    const admission = unknownAdmission('herdr', this.model)
+    admission.backend = this.backendBase()
     let result: PreflightResult
     if (!existsSync(this.command)) {
       result = { ok: false, detail: `找不到 Herdr launcher：${this.command}` }
     } else {
-      try {
-        const r = await this.runner({
-          command: 'herdr.exe', args: ['--session', this.sessionName, 'status', 'server', '--json'],
-          cwd: process.cwd(), stdinText: '', timeoutMs: this.pingTimeoutMs,
-        })
-        const status = JSON.parse(r.stdout) as { running?: boolean; compatible?: boolean; protocol?: number }
-        result = r.exitCode === 0 && !r.timedOut && status.running === true && status.compatible === true
-          ? { ok: true, detail: `Herdr compatible protocol=${status.protocol ?? '?'}` }
-          : { ok: false, detail: `Herdr 未就緒或不相容（exit=${r.exitCode} protocol=${status.protocol ?? '?'}）` }
-      } catch (err) {
-        result = { ok: false, detail: redactCli(String(err), { ...process.env }, [this.sessionName, this.provider]).slice(0, 700) }
+      const probe = await this.probeStatus()
+      if ('detail' in probe) {
+        result = { ok: false, detail: probe.detail }
+      } else {
+        const { r, status } = probe
+        applyBackendStatus(admission, status, { ...this.backendBase(), model: this.model })
+        const hold = quotaHoldUntil(admission)
+        const serverOk = r.exitCode === 0 && !r.timedOut && status.running === true && status.compatible === true
+        if (!serverOk) {
+          result = { ok: false, detail: `Herdr 未就緒或不相容（exit=${r.exitCode} protocol=${String(status.protocol ?? '?')}）` }
+        } else {
+          // 設了 model 但 backend 無法證實＝設定期望未被驗證，不得放行（unknown 不冒充可用）。
+          const unverified = this.model !== undefined && admission.model.state === 'unknown'
+            ? { ok: false as const, detail: `model unverified: requested ${this.model}；backend status 無可靠模型欄位` }
+            : undefined
+          const blocked = admissionFailure(admission) ?? unverified
+          const guidance = admission.auth?.state === 'missing' ? '；等待人工登入——不自動送出同意、不登出或改寫憑證'
+            : admission.quota.state === 'exhausted' ? (hold !== undefined ? `；${new Date(hold).toISOString()} 後再查` : '；bounded cooldown 後再查')
+            : '；設定問題——不自動切換或改派模型'
+          result = blocked ? { ok: false, detail: blocked.detail + guidance }
+            : { ok: true, detail: `Herdr compatible protocol=${String(status.protocol ?? '?')}` }
+        }
       }
     }
-    this.cache.set(key, result)
-    return { ...result, admission, detail: result.detail + "; quota=unknown; model=unknown (launcher health only)" }
+    result = { ...result, admission, detail: `${result.detail}; auth=${admission.auth?.state ?? 'unknown'}; model=${admission.model.state}; quota=${admission.quota.state}` }
+    const hold = quotaHoldUntil(admission)
+    if (hold !== undefined) this.cache.setUntil(key, result, hold)
+    else this.cache.set(key, result)
+    return result
+  }
+
+  /** 唯讀 status 探針：解析得出的回答（含否定）是確定證據；只有逾時／無法解析／spawn 失敗才退避重試。 */
+  private async probeStatus(): Promise<{ r: ProcResult; status: Record<string, unknown> } | { detail: string }> {
+    const args = ['--session', this.sessionName, 'status', 'server', '--json']
+    let last = ''
+    for (let i = 0; i <= this.statusRetries; i++) {
+      if (i > 0) await new Promise(res => setTimeout(res, this.statusRetryDelayMs * 2 ** (i - 1)))
+      try {
+        const r = await this.runner({
+          command: 'herdr.exe', args, cwd: process.cwd(), stdinText: '', timeoutMs: this.pingTimeoutMs,
+        })
+        const status = parseHerdrStatus(r.stdout)
+        if (status) return { r, status }
+        last = cliDiagnostic(r, undefined, args).slice(0, 400) || `exit=${r.exitCode} timedOut=${r.timedOut}`
+      } catch (err) {
+        last = redactCli(String(err), { ...process.env }, args).slice(0, 400)
+      }
+    }
+    return { detail: `herdr status probe failed（transient，${this.statusRetries + 1} 次有界退避後仍失敗）：${last.slice(0, 500)}` }
   }
 
   invalidatePreflight(): void {
@@ -124,7 +178,12 @@ export class HerdrEngine implements Engine {
     return { ok: true, output, costUsd: 0, costUnknown: true, baseCommitHash: before, commitHash: after }
   }
 
-  private cacheKey(): string { return cliPreflightKey(this.command, [this.sessionName, this.provider]) }
+  private backendBase() {
+    return { source: `herdr.exe --session ${this.sessionName} status server --json`, provider: this.provider, launcherSha256: launcherDigest(this.command) }
+  }
+
+  /** 快取綁定精確 runtime：session／provider／model＋launcher 檔案內容雜湊（變動即新 key→重探）。 */
+  private cacheKey(): string { return cliPreflightKey(this.command, [this.sessionName, this.provider, this.model ?? '', launcherDigest(this.command)]) }
 }
 
 function safeId(value: string): string {
