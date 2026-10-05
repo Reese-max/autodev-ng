@@ -177,6 +177,7 @@ test('每輪維持 20 分鐘有界預算，exit 0 但 timedOut 仍失敗且完�
     timedOut: true,
     timeoutReason: 'wall',
     durationMs: 1_200_010,
+    cleanup: { status: 'confirmed', reasonCodes: [], remainingPids: [], rootClosed: true },
   })
   const run = vi.fn()
     .mockResolvedValueOnce(timedOut)
