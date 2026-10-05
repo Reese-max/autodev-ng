@@ -1,0 +1,17 @@
+{"fixture":"resumed","artifactSha256":"6b0e9d8b76fce60f7e2ebf0aed138ddcd44b4bcc2cd69cd179231967815042f0","providerCalls":0}
+TAP version 13
+# Subtest: actual fixture continuation and exact input/evidence
+ok 1 - actual fixture continuation and exact input/evidence
+  ---
+  duration_ms: 1.016124
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 50.05999

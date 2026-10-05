@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "environment-research/v1",
+  "environmentId": "env-shared-not-upgraded",
+  "providerKind": "MANAGED_SANDBOX",
+  "observationBasis": "ACTUAL_SUBPROCESS_READBACK",
+  "observedAt": "2026-10-05T06:47:09.727Z",
+  "os": "linux",
+  "node": "v22.23.3",
+  "cli": "offline-fixture-cli/v1",
+  "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+  "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+  "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+  "storageDurability": "SAME_PROCESS_WRITE_READ",
+  "actualFacts": {
+    "os": "linux",
+    "node": "v22.23.3",
+    "cli": "offline-fixture-cli/v1",
+    "skillDigest": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+    "policyDigest": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+    "networkCapability": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+    "storageDurability": "SAME_PROCESS_WRITE_READ"
+  },
+  "repoIdentity": "fixture://owned-project/no-network",
+  "commit": "6136d0681ee7a200e4123f9a93d4eb27c7226c76",
+  "worktreePath": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/target-shared-not-upgraded",
+  "dirtyState": "",
+  "dirtyDigest": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+  "artifacts": [
+    {
+      "locator": "artifact.txt",
+      "sha256": "6b0e9d8b76fce60f7e2ebf0aed138ddcd44b4bcc2cd69cd179231967815042f0"
+    }
+  ],
+  "evidence": [
+    {
+      "locator": "evidence.json",
+      "sha256": "75ec191953c106a2a1e2d3ea97bc92d9797f597cb0550cd6d3633afc84e20cc1"
+    }
+  ],
+  "principal": {
+    "principalId": "fixture-principal",
+    "parentPrincipalId": "fixture-parent",
+    "leaseId": "fixture-lease",
+    "executionId": "fixture-execution",
+    "credentialRef": "fixture-ref:HANDOFF",
+    "identityIsolation": "MOCK_DEDICATED",
+    "scope": "MOCK_AUTHORITY_ONLY"
+  },
+  "budget": {
+    "budgetRef": "fixture-budget:authoritative",
+    "policyHash": "06b3320ca51c66418f954f1d472bc8bdc7015405706351ce87cbccfcf9617e1d",
+    "ledgerRef": "fixture-ledger:source-git-common-dir",
+    "ledgerIdentityDigest": "777b1cc66fbae10686b4c6e90894b25644e35a349919cfd7f1b1886f4cb8d447",
+    "costClass": "LOCAL_SYNTHETIC_ZERO_PROVIDER_COST",
+    "reservationUsd": 0.1,
+    "hardUsd": 1
+  },
+  "unsupported": [
+    "REAL_PROVIDER",
+    "REAL_CREDENTIAL_REVOCATION",
+    "HOST_OS_CONTAINMENT",
+    "NATIVE_CROSS_HOST_RESUME",
+    "STEER_QUEUE_DELIVERY"
+  ],
+  "simulatedOverrides": {}
+}
