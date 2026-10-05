@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { assemble, expandEnvValue, finalizeRunOnceHeartbeat, formatStatus, makeEngineRegistry, parseArgv, runNotifyTest } from '../src/cli.js'
@@ -532,6 +532,60 @@ test('M5：configs/ 下所有現役真檔 schema 全過，且 registry 能建出
     const cfg = ConfigSchema.parse(JSON.parse(readFileSync(join(cfgDir, f), 'utf8')))
     expect(cfg.engines[cfg.defaultEngine], `${f} 的 defaultEngine 必須在自己的 engines 白名單內`).toBeDefined()
     const registry = makeEngineRegistry({ ...cfg, dataDir: mkdtempSync(join(tmpdir(), 'adng-cfg-')) })
-    expect(registry.resolve(cfg.defaultEngine)).toBeDefined() // lazy：只 resolve defaultEngine，不需要其他引擎的 env
+    try {
+      expect(registry.resolve(cfg.defaultEngine)).toBeDefined() // lazy：只 resolve defaultEngine，不需要其他引擎的 env
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new Error(`${f}: defaultEngine "${cfg.defaultEngine}" resolve 失敗——${detail}`)
+    }
+  }
+})
+
+test('note-filler retains free-only and resolves every selected route without enabling paid or unknown routes', () => {
+  const cfgPath = resolve(import.meta.dirname, '..', 'configs', 'note-filler.json')
+  const cfg = ConfigSchema.parse(JSON.parse(readFileSync(cfgPath, 'utf8')))
+  expect(cfg.tierMode).toBe('free-only')
+  const rotation = cfg.engineRotation ?? []
+  expect(rotation.length).toBeGreaterThan(0)
+
+  const dataDir = mkdtempSync(join(tmpdir(), 'adng-note-filler-'))
+  const registry = makeEngineRegistry({ ...cfg, dataDir })
+  for (const tag of new Set([cfg.defaultEngine, ...rotation])) expect(registry.resolve(tag)).toBeDefined()
+
+  expect(() => registry.resolve('oc-mimo')).toThrow(/engine "oc-mimo" .*free-policy/)
+  expect(() => registry.resolve('codex-luna')).toThrow(/free-policy/)
+})
+
+test('assembled free-only admission errors include config path and engine context without secrets', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-config-context-'))
+  const dataDir = join(root, 'data')
+  mkdirSync(dataDir, { recursive: true })
+  const cfg = JSON.parse(readFileSync(resolve(import.meta.dirname, '..', 'configs', 'note-filler.json'), 'utf8'))
+  cfg.tierMode = 'free-only'
+  cfg.projectPath = root
+  cfg.backlogFile = join(root, 'BACKLOG.md')
+  cfg.dataDir = dataDir
+  const secret = 'context-test-secret-must-not-appear'
+  cfg.judgeApiKey = secret
+  cfg.engines['oc-mimo'].env = { OPENROUTER_API_KEY: secret }
+  const configPath = join(root, 'note-filler.json')
+  writeFileSync(configPath, JSON.stringify(cfg))
+
+  const assembled = assemble(configPath)
+  try {
+    let message = ''
+    try {
+      assembled.deps.engines.resolve('oc-mimo')
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+    expect(message).toContain(configPath)
+    expect(message).toContain('engine "oc-mimo"')
+    expect(message).toContain('free-policy:')
+    expect(message).not.toContain(secret)
+  } finally {
+    assembled.deps.db.close()
+    assembled.deps.team?.close()
+    rmSync(root, { recursive: true, force: true })
   }
 })
