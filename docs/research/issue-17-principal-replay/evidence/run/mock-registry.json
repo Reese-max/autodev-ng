@@ -1,0 +1,266 @@
+{
+  "schemaVersion": "principal-research/v1",
+  "ownerState": "ACTIVE",
+  "principals": [
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "A",
+      "ownerRef": "fixture-owner:human-boundary-unmodified",
+      "role": "offline-research-worker",
+      "engineTag": "freebuff",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "lifecycle": "REVOKED",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "B",
+      "ownerRef": "fixture-owner:human-boundary-unmodified",
+      "role": "offline-research-worker",
+      "engineTag": "freebuff",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "lifecycle": "ACTIVE",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "D",
+      "ownerRef": "fixture-owner:human-boundary-unmodified",
+      "role": "offline-research-worker",
+      "engineTag": "freebuff",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "lifecycle": "ACTIVE",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "E",
+      "ownerRef": "fixture-owner:human-boundary-unmodified",
+      "role": "offline-research-worker",
+      "engineTag": "freebuff",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "lifecycle": "ACTIVE",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "EXPIRED",
+      "ownerRef": "fixture-owner:human-boundary-unmodified",
+      "role": "offline-research-worker",
+      "engineTag": "freebuff",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "lifecycle": "ACTIVE",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "SHARED",
+      "ownerRef": "fixture-owner:human-boundary-unmodified",
+      "role": "offline-research-worker",
+      "engineTag": "freebuff",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "lifecycle": "ACTIVE",
+      "identityIsolation": "SHARED",
+      "credentialBinding": "SHARED_REFERENCE",
+      "parentPrincipalId": null,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "EFFECT",
+      "ownerRef": "fixture-owner:human-boundary-unmodified",
+      "role": "offline-research-worker",
+      "engineTag": "freebuff",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "lifecycle": "ACTIVE",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "C",
+      "ownerRef": "fixture-owner:human-boundary-unmodified",
+      "role": "offline-research-worker",
+      "engineTag": "freebuff",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "lifecycle": "ACTIVE",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": "B",
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT"
+      ]
+    }
+  ],
+  "leases": [
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-A-execution-A-first",
+      "principalId": "A",
+      "executionId": "execution-A-first",
+      "credentialRef": "fixture-ref:A",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-B-execution-B-first",
+      "principalId": "B",
+      "executionId": "execution-B-first",
+      "credentialRef": "fixture-ref:B",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-D-execution-cancel-D",
+      "principalId": "D",
+      "executionId": "execution-cancel-D",
+      "credentialRef": "fixture-ref:D",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-E-execution-continue-E",
+      "principalId": "E",
+      "executionId": "execution-continue-E",
+      "credentialRef": "fixture-ref:E",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-EXPIRED-execution-expired",
+      "principalId": "EXPIRED",
+      "executionId": "execution-expired",
+      "credentialRef": "fixture-ref:EXPIRED",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180111900,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-SHARED-execution-shared",
+      "principalId": "SHARED",
+      "executionId": "execution-shared",
+      "credentialRef": "fixture-ref:SHARED",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-EFFECT-execution-effect-denied",
+      "principalId": "EFFECT",
+      "executionId": "execution-effect-denied",
+      "credentialRef": "fixture-ref:EFFECT",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-A-execution-A-revoked",
+      "principalId": "A",
+      "executionId": "execution-A-revoked",
+      "credentialRef": "fixture-ref:A",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-C-execution-child-C",
+      "principalId": "C",
+      "executionId": "execution-child-C",
+      "credentialRef": "fixture-ref:C",
+      "notBeforeMs": 1791180108870,
+      "expiresAtMs": 1791180229870,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT"
+      ]
+    }
+  ],
+  "usedExecutions": [
+    "execution-A-first",
+    "execution-B-first",
+    "execution-child-C",
+    "execution-continue-E"
+  ],
+  "grantReceipts": [
+    {
+      "schemaVersion": "principal-research/v1",
+      "parentPrincipalId": "B",
+      "principalId": "C",
+      "policyDigest": "7921e24776923dcf6a7c75ba225685f57d3f8e948a0c53efdae36930b4d4f8a1",
+      "scope": "MOCK_AUTHORITY_ONLY"
+    }
+  ]
+}

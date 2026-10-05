@@ -1,0 +1,327 @@
+{
+  "AgentPrincipal": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "schemaVersion": {
+        "type": "string",
+        "const": "principal-research/v1"
+      },
+      "principalId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]{1,80}$"
+      },
+      "ownerRef": {
+        "type": "string",
+        "const": "fixture-owner:human-boundary-unmodified"
+      },
+      "role": {
+        "type": "string",
+        "const": "offline-research-worker"
+      },
+      "engineTag": {
+        "type": "string",
+        "const": "freebuff"
+      },
+      "runtimeFingerprint": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "lifecycle": {
+        "type": "string",
+        "enum": [
+          "ACTIVE",
+          "SUSPENDED",
+          "REVOKED",
+          "EXPIRED"
+        ]
+      },
+      "identityIsolation": {
+        "type": "string",
+        "enum": [
+          "MOCK_DEDICATED",
+          "SHARED",
+          "UNKNOWN"
+        ]
+      },
+      "credentialBinding": {
+        "type": "string",
+        "enum": [
+          "MOCK_REFERENCE",
+          "SHARED_REFERENCE",
+          "UNKNOWN"
+        ]
+      },
+      "parentPrincipalId": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9-]{1,80}$"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "capabilities": {
+        "maxItems": 2,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "LOCAL_FIXTURE_COMMIT",
+            "READ_METADATA"
+          ]
+        }
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "principalId",
+      "ownerRef",
+      "role",
+      "engineTag",
+      "runtimeFingerprint",
+      "lifecycle",
+      "identityIsolation",
+      "credentialBinding",
+      "parentPrincipalId",
+      "capabilities"
+    ],
+    "additionalProperties": false
+  },
+  "AgentPrincipalLease": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "schemaVersion": {
+        "type": "string",
+        "const": "principal-research/v1"
+      },
+      "leaseId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]{1,80}$"
+      },
+      "principalId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]{1,80}$"
+      },
+      "executionId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]{1,80}$"
+      },
+      "credentialRef": {
+        "type": "string",
+        "pattern": "^fixture-ref:[A-Z]{1,16}$"
+      },
+      "notBeforeMs": {
+        "type": "integer",
+        "minimum": -9007199254740991,
+        "maximum": 9007199254740991
+      },
+      "expiresAtMs": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "capabilities": {
+        "maxItems": 2,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "LOCAL_FIXTURE_COMMIT",
+            "READ_METADATA"
+          ]
+        }
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "leaseId",
+      "principalId",
+      "executionId",
+      "credentialRef",
+      "notBeforeMs",
+      "expiresAtMs",
+      "capabilities"
+    ],
+    "additionalProperties": false
+  },
+  "PrincipalObservation": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "schemaVersion": {
+        "type": "string",
+        "const": "principal-research/v1"
+      },
+      "adapter": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]{1,80}$"
+      },
+      "classification": {
+        "type": "string",
+        "enum": [
+          "DEDICATED",
+          "PROVIDER_NATIVE",
+          "SHARED",
+          "UNKNOWN"
+        ]
+      },
+      "credentialBinding": {
+        "type": "string",
+        "const": "UNKNOWN"
+      },
+      "perPrincipalRevocation": {
+        "type": "string",
+        "const": "UNVERIFIED"
+      },
+      "evidence": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      },
+      "inventoryMode": {
+        "type": "string",
+        "const": "READ_ONLY_SOURCE_ONLY"
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "adapter",
+      "classification",
+      "credentialBinding",
+      "perPrincipalRevocation",
+      "evidence",
+      "inventoryMode"
+    ],
+    "additionalProperties": false
+  },
+  "PrincipalReceipt": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "schemaVersion": {
+        "type": "string",
+        "const": "principal-research/v1"
+      },
+      "principalId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]{1,80}$"
+      },
+      "executionId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]{1,80}$"
+      },
+      "leaseId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]{1,80}$"
+      },
+      "engineTag": {
+        "type": "string",
+        "const": "freebuff"
+      },
+      "scope": {
+        "type": "string",
+        "const": "MOCK_AUTHORITY_ONLY"
+      },
+      "identityIsolation": {
+        "type": "string",
+        "enum": [
+          "MOCK_DEDICATED",
+          "SHARED",
+          "UNKNOWN"
+        ]
+      },
+      "credentialBinding": {
+        "type": "string",
+        "enum": [
+          "MOCK_REFERENCE",
+          "SHARED_REFERENCE",
+          "UNKNOWN"
+        ]
+      },
+      "parentPrincipalId": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9-]{1,80}$"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "sourceSha": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{40}$"
+      },
+      "runtimeFingerprint": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "grantPolicyDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "result": {
+        "type": "string",
+        "enum": [
+          "MOCK_LOCAL_FIXTURE_COMPLETED",
+          "BLOCKED_OR_UNCONFIRMED"
+        ]
+      },
+      "reason": {
+        "type": "string",
+        "pattern": "^[A-Z_]{1,100}$"
+      },
+      "gateBundleHash": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "originalReviewerGate": {
+        "type": "string",
+        "const": "not-run"
+      },
+      "backendRecoveryRequired": {
+        "type": "boolean"
+      },
+      "providerCalls": {
+        "type": "number",
+        "const": 0
+      },
+      "networkAttempts": {
+        "type": "number",
+        "const": 0
+      },
+      "receiptDigest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "principalId",
+      "executionId",
+      "leaseId",
+      "engineTag",
+      "scope",
+      "identityIsolation",
+      "credentialBinding",
+      "parentPrincipalId",
+      "sourceSha",
+      "runtimeFingerprint",
+      "grantPolicyDigest",
+      "result",
+      "reason",
+      "gateBundleHash",
+      "originalReviewerGate",
+      "backendRecoveryRequired",
+      "providerCalls",
+      "networkAttempts",
+      "receiptDigest"
+    ],
+    "additionalProperties": false
+  }
+}
