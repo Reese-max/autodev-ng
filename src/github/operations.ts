@@ -20,7 +20,8 @@ export async function repairDoctor(cfg: GithubConfig, live = false) {
   const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
   const engine = source.engines[cfg.engine]
   if (!engine || ['mock', 'herdr'].includes(engine.adapter) || engine.timeoutMs === 0) throw new Error('Requires a bounded supported worker')
-  if (!(cfg.verifyCommand ?? source.verifyCommand)?.trim() || !(source.reviewEngine ?? source.auditModel)) throw new Error('Requires verification command and independent reviewer')
+  const verify = cfg.verifyCommand ?? source.verifyCommand
+  if (!(Array.isArray(verify) ? verify.length > 0 : verify?.trim()) || !(source.reviewEngine ?? source.auditModel)) throw new Error('Requires verification command and independent reviewer')
   const checks: Record<string, string> = { credentials: 'pass', verification: 'pass', reviewer: 'pass' }
   if (!cfg.template) {
     const origin = git(source.projectPath, ['remote', 'get-url', 'origin']).replace(/\.git$/, '').replace(/^git@github.com:/, 'https://github.com/').replace(/^https:\/\//, '').toLowerCase()

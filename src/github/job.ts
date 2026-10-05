@@ -41,7 +41,8 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState) {
   assertExecutionMode(engine)
   if (engine.timeoutMs === 0 && engine.executionMode !== 'supervised') throw new Error('GitHub runner requires a bounded engine wall timeout or accepted supervised execution')
   if (cfg.repair && !['codex', 'freebuff', ...(source.tierMode === 'free-only' ? ['opencode'] : [])].includes(engine.adapter)) throw new Error('Automatic report repairs require Codex CLI, Freebuff or a verified free-only OpenCode route')
-  if (!source.verifyCommand?.trim() || !(source.reviewEngine ?? source.auditModel)) throw new Error('GitHub runner requires verifyCommand and reviewer configuration')
+  const hasVerify = Array.isArray(source.verifyCommand) ? source.verifyCommand.length > 0 : !!source.verifyCommand?.trim()
+  if (!hasVerify || !(source.reviewEngine ?? source.auditModel)) throw new Error('GitHub runner requires verifyCommand and reviewer configuration')
   const dir = runDir(cfg, state)
   return ConfigSchema.parse({ ...source,
     projectPath: checkoutDir(cfg, state), dataDir: dir, backlogFile: join(dir, 'BACKLOG.md'), worktreesDir: join(dir, 'worktrees'),
@@ -156,12 +157,14 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
       ...(typeof result === 'object' && result.reason === 'team-state-quarantined' ? { recoveryRequired: true } : {}), ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
   } finally { app.deps.db.close(); app.deps.team?.close() }
 }
-export function detectVerification(cwd: string): string {
+export function detectVerification(cwd: string): string[] {
   // ponytail: support explicit npm test contracts first; other stacks require a reviewed repository config.
   if (existsSync(join(cwd, 'package-lock.json')) && existsSync(join(cwd, 'package.json'))) {
     const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'))
     if (typeof pkg.scripts?.test === 'string' && !/no test specified|\b(?:echo|exit)\s+0\b/.test(pkg.scripts.test)) {
-      return 'npm ci --no-audit --no-fund && npm test' + (pkg.scripts.build ? ' && npm run build' : '')
+      // #48：產生步驟清單而非 && 字串——執行端契約是逐步原生 spawn，
+      // 不能讓串接語法掉到 argv 裡被第一支程式吞掉。
+      return ['npm ci --no-audit --no-fund', 'npm test', ...(pkg.scripts.build ? ['npm run build'] : [])]
     }
   }
   throw new Error('No supported verification contract: requires package-lock.json and a real npm test script; configure this repository before retry')
