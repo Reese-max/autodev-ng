@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { parseArgs } from 'node:util'
 import { BacklogStore } from '../backlog.js'
@@ -111,7 +111,7 @@ export async function recoverIssue(file: string, number: number, reason: string,
         const path = row.slice(9)
         if (git(path, ['status', '--porcelain'])) throw new Error('Dirty worktree preserved; inspect changes before retry')
         const head = git(path, ['rev-parse', 'HEAD'])
-        const preservedReview = pending && resolve(path) === resolve(pending.wt.cwd) && head === pending.candidateHead
+        const preservedReview = pending && realpathSync.native(path) === realpathSync.native(pending.wt.cwd) && head === pending.candidateHead
         if (path.replace(/\\/g, '/') !== cwd.replace(/\\/g, '/') && head !== state.baseSha && head !== state.commit && !preservedReview) throw new Error('Unreconciled worktree commit; inspect evidence before retry')
       }
     } else if (state.baseSha && !state.revision) throw new Error('Checkout missing; preserving state')

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -29,8 +29,14 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-function fixture(opts: { dailyHardUsd?: number; spent?: number; runs?: number; maxRuns?: number } = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'adng-gh49-')); roots.push(root)
+function fixture(opts: { dailyHardUsd?: number; spent?: number; runs?: number; maxRuns?: number; directoryAlias?: boolean } = {}) {
+  const storageRoot = mkdtempSync(join(tmpdir(), 'adng-gh49-')); roots.push(storageRoot)
+  let root = storageRoot
+  if (opts.directoryAlias) {
+    const actual = join(storageRoot, 'actual'), alias = join(storageRoot, 'alias')
+    mkdirSync(actual); symlinkSync(actual, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    root = alias
+  }
   const cfg = GithubConfigSchema.parse({ repo: 'owner/project', authors: ['owner'], sourceConfig: join(root, 'source.json'),
     dataDir: join(root, 'gh'), engine: 'writer', enabled: true, publish: false, label: null, retryMs: 60_000,
     maxRuns: opts.maxRuns ?? 3, verifyCommand: `"${process.execPath}" check.cjs` })
@@ -396,6 +402,26 @@ test('explicit recovery at writer cap resumes only the validated pending review 
   const recovered = await recoverIssue(file, 7, 'Resume the exact synthetic pending review after controller hold', false, { client: f.client, doctor })
   expect(recovered).toMatchObject({ status: 'queued', runs: 3, controlRuns: 0 })
   expect(ledger(f)).toEqual(before); expect(git(candidate.wt.cwd, ['rev-parse', 'HEAD'])).toBe(candidate.head)
+  expect(await runGithub(f.cfg, { client: f.client, execute: f.executor(engine) })).toBe('7: ready')
+  expect(engine.calls).toHaveLength(0); expect(readState(f.cfg, 7)).toMatchObject({ runs: 3, commit: candidate.head, controlRuns: 0 })
+  expect(f.result()).toMatchObject({ attempted: false, startState: 'not-started', done: true, verificationAttempted: true })
+  expect(ledger(f)).toEqual(before)
+})
+
+test('pending review recovery recognizes a real canonical directory alias without restarting the writer', async () => {
+  const f = fixture({ runs: 3, directoryAlias: true }), candidate = preservedCandidate(f, Date.now() - 1), engine = new MockEngine()
+  const listed = git(f.cwd, ['worktree', 'list', '--porcelain']).split(/\r?\n/).filter(row => row.startsWith('worktree ')).map(row => row.slice(9))
+  const canonicalCandidate = listed.find(path => realpathSync.native(path) === realpathSync.native(candidate.wt.cwd))!
+  expect(canonicalCandidate).toBeDefined()
+  expect(canonicalCandidate.replace(/\\/g, '/')).not.toBe(candidate.wt.cwd.replace(/\\/g, '/'))
+  const held = readState(f.cfg, 7)!; held.status = 'blocked'; held.controlRuns = 5; held.controlReason = 'deferred'; held.detail = 'control-retry-exhausted'
+  saveState(f.cfg, held)
+  const file = join(f.root, 'github.json'); writeFileSync(file, JSON.stringify(f.cfg))
+  const before = ledger(f), doctor = offlineDoctor()
+  const recovered = await recoverIssue(file, 7, 'Resume the exact pending candidate through its canonical directory alias', false, { client: f.client, doctor })
+  expect(recovered).toMatchObject({ status: 'queued', runs: 3, controlRuns: 0 })
+  expect(doctor).toHaveBeenCalledTimes(1); expect(ledger(f)).toEqual(before)
+  expect(git(candidate.wt.cwd, ['rev-parse', 'HEAD'])).toBe(candidate.head)
   expect(await runGithub(f.cfg, { client: f.client, execute: f.executor(engine) })).toBe('7: ready')
   expect(engine.calls).toHaveLength(0); expect(readState(f.cfg, 7)).toMatchObject({ runs: 3, commit: candidate.head, controlRuns: 0 })
   expect(f.result()).toMatchObject({ attempted: false, startState: 'not-started', done: true, verificationAttempted: true })
