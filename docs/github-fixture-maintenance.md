@@ -9,7 +9,7 @@ No repository integration or host setting is enabled by this change.
 | Work | Authority and completion |
 | --- | --- |
 | BUGFIX (default) | Existing additive red/green regression, full CI, independent review and publication evidence. |
-| Exact approved fixture | External operator config pins the Issue snapshot, base, test path and entire replacement bytes. All other paths stay frozen. Original full CI, reviewer, acceptance, quality and merge evidence remain required. |
+| Exact approved fixture | External operator config pins the Issue snapshot, base, test path and entire replacement bytes. The published Git diff may change only that path. Original full CI, reviewer, acceptance, quality and merge evidence remain required. |
 | Arbitrary test/CI maintenance | Unsupported. Hand off the candidate and rejection reason to an operator; no automatic expansion of approved scope. |
 | DOCS / RESEARCH | Content and recorded experiment evidence answer the research question. They do not count as successful product repair or enable a profile. |
 
@@ -54,9 +54,13 @@ repair or custom regression modes is rejected.
 
 ## Execution and recovery
 
-Before the original verifier executes any candidate code, the host requires exactly
-one changed approved test path, clean tracked files, and no extra untracked files.
-It checks regular-file modes, exact approved bytes, protected assertions and new
+Before the original verifier executes any candidate code, the host requires a Git
+diff with exactly one changed approved test path, clean tracked files, and no extra
+Git-visible untracked files (`git status --porcelain -uall`). Git-ignored local
+artifacts are not frozen or attested by this profile; trusted workspace and
+dependency validation remains necessary. This is a published Git diff boundary,
+not operating-system working-directory containment or a general semantic test
+safety guarantee. The host checks regular-file modes, exact approved bytes, protected assertions and new
 explicit skip/todo/only/runIf controls. After full CI and independent review it
 rechecks the candidate and writes `fixture-maintenance-<commit>.json`, binding the
 exact candidate to the frozen approval and source config and the original gate
@@ -68,7 +72,7 @@ Failures preserve the candidate for operator handoff (`fixture-handoff`), withou
 expanding paths, reducing full CI or falling back to an automatically generated
 approval. Any config drift, missing approval or bytes transformed by checkout
 filters is rejected; refresh the reviewed approval and rerun original gates.
-Human merge remains required. Building this disabled capability does not provide
+Original full CI, independent review and human merge remain required. Building this disabled capability does not provide
 production operator approval or real-host acceptance evidence.
 
 ## Reproducible integration evidence
