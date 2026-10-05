@@ -3,6 +3,7 @@ import { resolve, sep, join } from 'node:path'
 import type { Config } from '../types.js'
 import type { RankedProblem } from './discover.js'
 import { parseGoal } from './goal.js'
+import { verifyCommandText } from '../verify.js'
 
 export type { RankedProblem }
 
@@ -31,7 +32,7 @@ function buildPrompt(problem: RankedProblem, cfg: Config, fingerprint: string, n
     '請輸出三段：',
     'OBJECTIVE: <目標描述，含完成定義>',
     'VERIFY: <此案專屬驗收指令，單行>',
-    `（由專案驗收工具鏈推導——現行全域驗收：${cfg.verifyCommand}——指向一個尚不存在的測試檔，` +
+    `（由專案驗收工具鏈推導——現行全域驗收：${verifyCommandText(cfg.verifyCommand)}——指向一個尚不存在的測試檔，` +
     `紅→綠；測試檔名須含「${fingerprint}」前綴避免撞名，例：tests/${fingerprint}-<slug>）`,
     'EVIDENCE:',
     '<每行一個佐證檔相對路徑，0~4 個，無則留空>'
@@ -97,7 +98,8 @@ export async function authorGoal(
   if (!objective) return reject('author-objective-missing', 'objective-missing', { response: raw.slice(0, 200) })
 
   // 專屬驗收指令必須含 fingerprint；實測由 perpetual 寫檔前的隔離品質閘執行。
-  let verifyCommand = stripVerifyMarkdown(cfg.verifyCommand)
+  // Goal 驗收走 runGoalVerify 的真 shell（cmd/sh stdin）——陣列以 && 銜接語意一致。
+  let verifyCommand = stripVerifyMarkdown(verifyCommandText(cfg.verifyCommand) ?? '')
   const candidate = stripVerifyMarkdown(raw.match(/^VERIFY:\s*(.+)$/im)?.[1] ?? '')
   if (candidate && candidate.includes(fingerprint)) {
     verifyCommand = candidate
