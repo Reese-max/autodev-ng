@@ -20,11 +20,13 @@
 | `src/*.ts` | kernel：backlog、排程、daemon、SQLite 成本帳、事件、鎖與 worktree；頂層總量 ≤2250 行 |
 | `src/cli/` | CLI 分派、設定解析、相依組裝與各子指令；`src/cli.ts` 保留入口與相容匯出 |
 | `src/engines/` | 引擎 adapter／路由、驗證、ownership、團隊協調、merge queue、證據鏈與通知 |
+| `src/conductor/` | Conductor/Worker 協議：Task Envelope、任務分解、驗證閘、retry/escalate、`.autodev` checkpoint 與 task ledger（見 `docs/conductor-worker-protocol.md`） |
 | `src/autopilot/` | GOAL 解析、規劃、執行、評估、問題帳本與持續迴圈 |
 | `src/learn/` | 教訓儲存、失敗反思與派工提示注入 |
 | `src/bot/`、`web/` | Discord 與本機 Web 控制台；共用查詢／控制 handler |
 | `src/supervisor/`、`src/guardian/` | daemon 健康探測、保活，以及事故診斷與修復 |
 | `src/github/` | GitHub Issue 同步、執行與受設定控制的修復分支／草稿 PR 發布 |
+| `src/backends/` | 可插拔長時程執行後端（`ExecutionBackend`）；首個 adapter `long-horizon`（Manager→Executor→Auditor，見 [docs/long-horizon.md](docs/long-horizon.md)） |
 | `configs/`、`scripts/` | 各專案設定、Windows 啟動／排程腳本與檢查工具 |
 | `tests/`、`docs/` | 回歸測試、規格、維運說明與歷史驗收紀錄 |
 
@@ -86,6 +88,34 @@ npm 12 會依 `package.json` 的 `allowScripts` 決定是否執行相依套件�
 
 ### 1. 準備 config（JSON，現有設定見 `configs/autodev-self.json`）
 
+#### 🚀 最小起步配置（複製即用，零 provider、零金鑰）
+
+第一次使用者只需這份最小配置即可在本機跑通 `status` 與 `run-once`，**不需要任何 API 金鑰、外部服務或雲端帳號**：
+
+```json
+{
+  "projectPath": "./my-project",
+  "backlogFile": "./my-project/BACKLOG.md",
+  "dataDir": "./data",
+  "engines": { "mock": { "adapter": "mock" } },
+  "defaultEngine": "mock"
+}
+```
+
+存為 `config.json`，接著建立專案與空 backlog：
+
+```powershell
+npm run build
+node -e "const fs=require('node:fs'); fs.mkdirSync('my-project',{recursive:true}); fs.writeFileSync('my-project/BACKLOG.md','')"
+git -C my-project init -q && git -C my-project add BACKLOG.md && git -C my-project -c user.name=demo -c user.email=demo@example.invalid commit -qm "init"
+node dist/cli.js status --config config.json       # 預期 exit 0
+node dist/cli.js run-once --config config.json     # 預期 CycleResult: idle、exit 0
+```
+
+> **關鍵點**：`engine: "mock"` / `adapter: "mock"` 完全在本機運行，**不呼叫任何 LLM provider、不發送通知、不產生費用**。驗證 CLI、排程、worktree 機制是否正常後，再依下方「完整配置欄位」逐步加入真實引擎與憑證。
+
+---
+
 `configs/` 內含本機部署路徑，使用前須核對。相對路徑以設定檔所在目錄解析；模式變體放在 `configs/modes/`，整合設定放在 `configs/integrations/`，避免被 fleet supervisor 當成另一個專案。
 
 現有六份設定以本 checkout 與相鄰專案目錄解析路徑；缺少原 backlog 的專案使用 `data/<project>/BACKLOG.md`。模式範本須先複製到 `configs/autodev-self.json`，再由該位置解析相對路徑。Windows 啟動／排程腳本會從自身位置找到 repo；不再依賴固定磁碟路徑。
@@ -117,26 +147,6 @@ npm 12 會依 `package.json` 的 `allowScripts` 決定是否執行相依套件�
   "botGuildId": "<Discord guild id>"
 }
 ```
-
-若要先走一條不含 provider 的安全本機起步路徑，請先在 `autodev-ng` checkout 根目錄建置 CLI；以下步驟會先保存已建置 CLI 的絕對路徑，再建立並切入一個新的 task-owned 目錄。步驟會明確建立 synthetic project、Git repository 與空的 `BACKLOG.md`：
-
-```powershell
-npm run build
-$adngCli = (Resolve-Path (Join-Path (Get-Location) 'dist/cli.js')).Path
-$taskRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('adng-onboarding-' + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $taskRoot | Out-Null
-Push-Location $taskRoot
-node -e "const fs=require('node:fs'); fs.writeFileSync('config.json', JSON.stringify({projectPath:'./project', backlogFile:'./project/BACKLOG.md', dataDir:'./data', engine:'mock'}, null, 2)+'\n')"
-node -e "const fs=require('node:fs'); fs.mkdirSync('project',{recursive:true}); fs.writeFileSync('project/BACKLOG.md','')"
-git -C project init -q
-git -C project add BACKLOG.md
-git -C project -c user.name=synthetic -c user.email=synthetic@example.invalid commit -qm "synthetic empty backlog"
-& node $adngCli status --config config.json       # 預期 exit 0
-& node $adngCli run-once --config config.json     # 預期 CycleResult: idle、exit 0
-Pop-Location
-```
-
-第一次 `status`／`run-once` 會在本機建立 `data/` 下的狀態資料；`engine: "mock"` 不會呼叫 provider 或通知。若要接入實際專案，請回到上面的完整 config 欄位與憑證引用規則。
 
 選配欄位說明：
 - `judgeApiKey`：以 `{env:JUDGE_API_KEY}` 引用啟動程序的環境變數；不要將真實金鑰寫進版控。
@@ -172,6 +182,11 @@ node dist/cli.js notify-test --config <path>   # Discord 告警通道送達自�
 node dist/cli.js supervise --configs-dir configs                         # 相容模式：保活後 inline Guardian
 node dist/cli.js supervise --configs-dir configs --guardian off          # 只跑 supervisor（建議獨立排程）
 node dist/cli.js supervise --configs-dir configs --guardian only         # 獨立 Guardian 排程；仍先做一次安全探測
+
+# 長時程執行後端（issue #55，Manager→Executor→Auditor→checkpoint→resume）
+node dist/cli.js run start --config <path> --goal "<bounded goal>"        # 或 --goal-file / --github-config+--issue
+node dist/cli.js run resume|status|interrupt|approve|evidence --config <path> --id <runId>
+node dist/cli.js run metrics --config <path>                              # 跨 run 彙總，供 A/B 比較
 ```
 
 Guardian 不啟動 subagent，也不另設專案任務總時間／成本上限；Codex 完全無輸出進度 30 分鐘才由 idle watchdog 精準終止。相同事故以 supervisor 狀態與位元組事件游標去重，`failed`／`needs_attention`／卡死會送 Discord 告警；LLM 使用隔離 `CODEX_HOME` 與 `workspace-only` 權限，只能修改工作區檔案，Git 提交、重啟與驗收由宿主執行。每次決策、token、耗時與獨立驗收證據寫入各專案 `<dataDir>/guardian-runs.jsonl`，跨專案租約與輸出 schema 位於 `data/guardian/`。

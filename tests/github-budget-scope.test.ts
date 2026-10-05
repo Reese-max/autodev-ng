@@ -12,6 +12,29 @@ import { executeIssue, git } from '../src/github/job.js'
 import { runGithub } from '../src/github/runner.js'
 import { branchFor, fingerprint, readState, saveState } from '../src/github/state.js'
 
+const repairHarness = vi.hoisted(() => ({
+  preflight: vi.fn(async () => ({ ok: true, detail: 'mock repair preflight' })),
+  engineRun: vi.fn(async () => ({ ok: true, output: '', costUsd: 0 })),
+  prepareRepair: vi.fn(async () => {}),
+  reviewRepair: vi.fn(async () => 'REVIEW: PASS'),
+  verifyRepairProbe: vi.fn(async () => true),
+  assertRepairEvidence: vi.fn(),
+}))
+vi.mock('../src/engines/registry.js', () => ({
+  makeEngineRegistry: () => ({ resolve: () => ({
+    id: 'mock-repair-writer',
+    preflight: repairHarness.preflight,
+    run: repairHarness.engineRun,
+  }) }),
+}))
+vi.mock('../src/github/repair.js', () => ({
+  eligibleForRun: vi.fn(() => true),
+  prepareRepair: repairHarness.prepareRepair,
+  reviewRepair: repairHarness.reviewRepair,
+  verifyRepairProbe: repairHarness.verifyRepairProbe,
+  assertRepairEvidence: repairHarness.assertRepairEvidence,
+}))
+
 // Issue #40：GitHub Issue 入口 executeIssue→assemble 未傳 cfgPath，scheduler 的
 // globalDailyHardUsd 全域查帳被靜默略過。且 Issue/revision 的 run.db 落在
 // cfg.dataDir 的 issue-* 樹下，不在任何被掃描的專案 dataDir——必須顯式納入 scope。
@@ -71,6 +94,45 @@ function fixture(opts: { globalLimit?: number; siblingSpent?: number; billingSco
   return { root, cfg, issue, state, sourceConfig }
 }
 
+test('report repair reaches the same global cap and stops before worker start', async () => {
+  const { cfg, state, sourceConfig, root } = fixture({ globalLimit: 10, siblingSpent: 50 })
+  const source = JSON.parse(readFileSync(sourceConfig, 'utf8'))
+  source.engines.writer.adapter = 'codex'
+  source.engines.writer.costPerRunUsd = 0 // Schema fixture only; worker execution remains asserted unreachable.
+  writeFileSync(sourceConfig, JSON.stringify(source))
+  repairHarness.preflight.mockClear()
+  repairHarness.prepareRepair.mockClear()
+  repairHarness.engineRun.mockClear()
+  const repairCfg = GithubConfigSchema.parse({ ...cfg,
+    repair: { reportConfig: join(root, 'reports.json'), probeIds: ['add'], prepareCommand: 'mocked prepare command' } })
+  const onWorkerStart = vi.fn()
+  const result = await executeIssue(repairCfg, state, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    app.deps.engines = { resolve: () => ({
+      id: 'mock-repair-writer',
+      preflight: repairHarness.preflight,
+      run: repairHarness.engineRun,
+    }) }
+    Object.defineProperty(app.deps, 'onWorkerStart', {
+      configurable: true,
+      get: () => onWorkerStart,
+      set: (callback: (taskId: string) => void) => onWorkerStart.mockImplementation(callback),
+    })
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+
+  expect(repairHarness.preflight).toHaveBeenCalledTimes(1)
+  expect(repairHarness.prepareRepair).toHaveBeenCalledTimes(1) // setup/baseline may precede the worker gate
+  expect(result.done).toBe(false)
+  expect(result.detail).toBe('cost-hard-stop')
+  expect(result.attempted).toBe(false)
+  expect(onWorkerStart).not.toHaveBeenCalled()
+  expect(repairHarness.engineRun).not.toHaveBeenCalled()
+  const events = readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')
+  expect(events).toContain('"type":"cost-hard-stop-global"')
+})
+
 test('全域已達上限、局部有空間：executeIssue 在 worker 啟動前拒絕（cfgPath 接線）', async () => {
   const { cfg, state } = fixture({ globalLimit: 10, siblingSpent: 50 })
   const engine = new MockEngine([{ ok: true }])
@@ -109,6 +171,53 @@ test('全域拒絕走 runGithub 全鏈路：runs 不被消耗、issue 保持 que
   expect(engine.calls).toHaveLength(0)
 })
 
+test('owner billingScopeResolver 拋錯 → 明確 cost-hard-stop、不派工且不消耗 maxRuns', async () => {
+  const { cfg: baseCfg, issue } = fixture({ globalLimit: 10, siblingSpent: 0 })
+  const cfg = { ...baseCfg, maxRuns: 1, billingScopeResolver: () => { throw new Error('Unmapped owner billing database') } }
+  const engine = new MockEngine([{ ok: true }])
+  const client: GithubClient = { list: vi.fn(async () => [issue]), issue: vi.fn(async () => issue),
+    findPr: vi.fn(async () => undefined), findLinkedPr: vi.fn(async () => undefined),
+    createPr: vi.fn(async () => { throw new Error('unexpected publish') }) }
+  let execution: Awaited<ReturnType<typeof executeIssue>> | undefined
+  const execute: typeof executeIssue = async (c, s) => {
+    execution = await executeIssue(c, s, (runtime, cfgPath) => {
+      const app = assembleConfig(runtime, cfgPath)
+      app.deps.engines = { resolve: () => engine }
+      app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+      return app
+    })
+    return execution
+  }
+
+  expect(await runGithub(cfg, { client, execute })).toBe('7: queued')
+  expect(execution?.detail).toBe('cost-hard-stop')
+  expect(execution?.attempted).toBe(false)
+  expect(engine.calls).toHaveLength(0)
+  const state = readState(cfg, 7)!
+  expect(state.runs).toBe(0)
+  expect(state.status).toBe('queued')
+  const events = readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')
+  expect(events).toContain('"type":"cost-accounting-incomplete"')
+})
+
+test('worker 已啟動後 runOnce 回 stopped → runs 保留，不因結果名稱回退嘗試次數', async () => {
+  const { cfg, issue } = fixture()
+  const engine = new MockEngine([{ ok: true, beforeResult: () => { writeFileSync(join(cfg.dataDir, '.adng.stop'), 'pause') } }])
+  const client: GithubClient = { list: vi.fn(async () => [issue]), issue: vi.fn(async () => issue),
+    findPr: vi.fn(async () => undefined), findLinkedPr: vi.fn(async () => undefined),
+    createPr: vi.fn(async () => { throw new Error('unexpected publish') }) }
+  const execute = (c: typeof cfg, s: Parameters<typeof executeIssue>[1]) => executeIssue(c, s, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    app.deps.engines = { resolve: () => engine }
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+
+  expect(await runGithub(cfg, { client, execute })).toBe('cancelled')
+  expect(engine.calls).toHaveLength(1)
+  expect(readState(cfg, 7)!.runs).toBe(1)
+})
+
 test('Issue 動態帳務納入 scope：另一個 issue 的 run.db 花費把全域推過上限', async () => {
   const { cfg, state } = fixture({ globalLimit: 60, siblingSpent: 50 })
   // 同 repo 另一個 issue 已燒 $20——不納入 scope 時只有 50<60 會放行
@@ -122,6 +231,29 @@ test('Issue 動態帳務納入 scope：另一個 issue 的 run.db 花費把全�
   })
   expect(result.detail).toBe('cost-hard-stop')
   expect(engine.calls).toHaveLength(0)
+})
+
+test('distinct billingScope 仍計入 cfg.dataDir 的既有 Issue 帳務', async () => {
+  const customScope = mkdtempSync(join(tmpdir(), 'adng-budget-extra-scope-')); dirs.push(customScope)
+  const { cfg, state } = fixture({ globalLimit: 30, billingScope: customScope })
+  // Each root contributes $20; scanning only billingScope would see $20 < $30 and dispatch.
+  seedDb(join(cfg.dataDir, 'issue-9'), [{ ts: new Date().toISOString(), cost: 20, engine: 'writer' }])
+  seedDb(join(customScope, 'issue-3'), [{ ts: new Date().toISOString(), cost: 20, engine: 'writer' }])
+  const engine = new MockEngine([{ ok: true }])
+
+  const result = await executeIssue(cfg, state, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    app.deps.engines = { resolve: () => engine }
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+
+  expect(result.detail).toBe('cost-hard-stop')
+  expect(result.attempted).toBe(false)
+  expect(engine.calls).toHaveLength(0)
+  const events = readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')
+  expect(events).toContain('"type":"cost-hard-stop-global"')
+  expect(events).toContain('"spent":40')
 })
 
 test('修訂輪次帳務不能逃離：issue-*/revisions/*/run.db 也計入', async () => {
@@ -154,6 +286,23 @@ test('owner 佈局：billingScope 指向 owner dataDir，repo-*/issue-*/run.db �
   expect(engine.calls).toHaveLength(0)
 })
 
+test('owner per-repo billingScopeResolver is used by the pre-worker global cap', async () => {
+  const { cfg, state } = fixture({ globalLimit: 10, siblingSpent: 0 })
+  const ownerDataDir = mkdtempSync(join(tmpdir(), 'adng-owner-policy-scope-')); dirs.push(ownerDataDir)
+  seedDb(join(ownerDataDir, 'repo-other', 'issue-3'), [{ ts: new Date().toISOString(), cost: 20, engine: 'writer' }])
+  const engine = new MockEngine([{ ok: true }])
+  const ownerChild = { ...cfg, billingScopeResolver: () => [{ dir: ownerDataDir, offset: 8, subscriptions: [] }] }
+  const result = await executeIssue(ownerChild, state, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    app.deps.engines = { resolve: () => engine }
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+  expect(result.detail).toBe('cost-hard-stop')
+  expect(result.attempted).toBe(false)
+  expect(engine.calls).toHaveLength(0)
+})
+
 test('scope 不完整（兄弟專案 db 消失）→ 明確拒絕，不把未知當零', async () => {
   const { cfg, state, root } = fixture({ globalLimit: 10, siblingSpent: 50 })
   rmSync(join(root, 'data-sibling'), { recursive: true, force: true }) // 證據消失
@@ -168,6 +317,47 @@ test('scope 不完整（兄弟專案 db 消失）→ 明確拒絕，不把未知
   expect(engine.calls).toHaveLength(0)
   const events = readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')
   expect(events).toContain('"type":"cost-accounting-incomplete"')
+})
+
+test('source config removed after assembly cannot hide its authoritative spend before dispatch', async () => {
+  const { cfg, state, sourceConfig, root } = fixture({ globalLimit: 10, siblingSpent: 0 })
+  const db = new Database(join(root, 'data-self', 'run.db'))
+  db.prepare('INSERT INTO attempts(task_id,ts,ok,cost_usd,detail,engine,accounting_json) VALUES(?,?,?,?,?,?,?)')
+    .run('older', new Date().toISOString(), 1, 50, '', 'writer', JSON.stringify({ version: 1, costSource: 'provider-reported' }))
+  db.close()
+  const engine = new MockEngine([{ ok: true }])
+  const result = await executeIssue(cfg, state, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    rmSync(sourceConfig)
+    app.deps.engines = { resolve: () => engine }
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+  expect(result.detail).toBe('cost-hard-stop')
+  expect(result.attempted).toBe(false)
+  expect(engine.calls).toHaveLength(0)
+  expect(readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')).toContain('"type":"cost-accounting-incomplete"')
+})
+
+test('rewriting source billing policy after assembly stops before dispatch', async () => {
+  const { cfg, state, sourceConfig, root } = fixture({ globalLimit: 10, siblingSpent: 0 })
+  const db = new Database(join(root, 'data-self', 'run.db'))
+  db.prepare('INSERT INTO attempts(task_id,ts,ok,cost_usd,detail,engine,accounting_json) VALUES(?,?,?,?,?,?,?)')
+    .run('older', new Date().toISOString(), 1, 50, '', 'writer', JSON.stringify({ version: 1, costSource: 'provider-reported' }))
+  db.close()
+  const engine = new MockEngine([{ ok: true }])
+  const result = await executeIssue(cfg, state, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    const replacement = JSON.parse(readFileSync(sourceConfig, 'utf8')); replacement.dataDir = '../data-sibling'
+    writeFileSync(sourceConfig, JSON.stringify(replacement))
+    app.deps.engines = { resolve: () => engine }
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+  expect(result.detail).toBe('cost-hard-stop')
+  expect(result.attempted).toBe(false)
+  expect(engine.calls).toHaveLength(0)
+  expect(readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')).toContain('"type":"cost-accounting-incomplete"')
 })
 
 test('Issue scope 內的未知費用來源 → 拒絕（不當零）', async () => {

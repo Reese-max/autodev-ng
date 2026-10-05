@@ -15,7 +15,7 @@ import type { TaskTerminalNotice } from './engines/notify.js'
 import { freeOnlyListExhausted } from './engines/free-only-retry.js'
 import { sequentialReadyTasks, tryFreeOnlySplit } from './engines/free-only-split.js'
 import { quiet, type EventLog } from './events.js'
-import { globalBilledToday, extraBillingScopes } from './globalcost.js'
+import { globalBilledToday, extraBillingScopes, type ExtraBillingScope } from './globalcost.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
 import type { VerifierCheck } from './verifier.js'
 import { cleanupWorktree, prepareWorktree, WorktreeCleanupPartialError, type WorktreeHandle } from './worktree.js'
@@ -61,9 +61,15 @@ export interface Deps {
   lessons?: LessonsPort
   /** M10.5：config 檔絕對路徑（assemble 填入）——globalBilledToday 掃兄弟專案用。測試可不設。 */
   cfgPath?: string
+  /** Bind global accounting to the exact source bytes used to construct this runtime. */
+  billingSourceHash?: string
   /** #40：額外計帳目錄（GitHub Issue 入口的 cfg.dataDir）——其 issue-N/run.db 樹納入全域查帳，
    *  否則 Issue/revision 動態帳務游離在任何被掃描專案的 dataDir 之外。 */
   billingScopeDirs?: string[]
+  /** owner 模式可為各 repo 提供自己的 timezone/subscription policy；延後到全域頂閘才呼叫。 */
+  billingScopes?: ExtraBillingScope[] | (() => ExtraBillingScope[])
+  /** 執行器即將被呼叫時通知外層；區分派工前停止與已消耗 worker 嘗試的停止。 */
+  onWorkerStart?: (taskId: string) => void
 }
 
 /** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
@@ -80,17 +86,6 @@ export type CycleResult =
   // taskId 供 daemon 冷卻閘 key 使用（修正：舊版 key 用任務文字前 40 字，兩個長任務
   // 前 40 字相同會撞出同一個 key、互相吞告警；taskId 全域唯一不會有這問題）。
   | { kind: 'blocked'; taskId: string; taskText: string; reason: BlockedReason; alertDetail?: string }
-  // #49：worker 從未啟動的前置拒絕/等待。字串 'stopped'/'deferred' 同時存在
-  // 執行後語意（引擎已跑、額度照計），不能靠同一字串分辨是否啟動——必須帶型別標記。
-  | { kind: 'not-started'; reason: NotStartedReason; retryAt?: number }
-
-/** 前置拒絕的原因碼（型別化，非人讀訊息）。 */
-export type NotStartedReason = 'stopped' | 'cost-hard-stop' | 'idle' | 'deferred' | 'preflight-failed'
-
-/** 消費端統一取碼：字串即碼、blocked→'blocked'、not-started→reason。 */
-export function cycleResultCode(result: CycleResult): NotStartedReason | 'done' | 'failed' | 'engine-error' | 'blocked' {
-  return typeof result === 'string' ? result : result.kind === 'blocked' ? 'blocked' : result.reason
-}
 
 export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: false }): Promise<CycleResult> {
   if (deps.cfg.concurrency <= 1 || retry.taskId || existsSync(deps.cfg.stopFile)) return runSingleOnce(deps, retry)
@@ -100,28 +95,22 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
   const selected = compatibleTasks(open.filter(task => classifyTaskRisk(deps.cfg, task) === 'low'), deps.cfg.concurrency)
   if (selected.length <= 1) return runSingleOnce(deps, selected[0] ? { retried: false, taskId: selected[0].id } : retry)
   const results = await Promise.all(selected.map(task => runSingleOnce(deps, { retried: false, taskId: task.id })))
-  // #49：多工合併優先序——blocked（終態、需告警）> done（真完成）> 其他已啟動字串
-  // > not-started（deferred 優先：等待中任務比 idle 更值得短冷卻複查）> idle。
-  return results.find((r): r is Extract<CycleResult, { kind: 'blocked' }> => typeof r === 'object' && r.kind === 'blocked')
-    ?? (results.includes('done') ? 'done' : undefined)
-    ?? results.find(r => typeof r === 'string')
-    ?? results.find(r => typeof r === 'object' && r.kind === 'not-started' && r.reason === 'deferred')
-    ?? results[0] ?? 'idle'
+  return results.find((r): r is Extract<CycleResult, object> => typeof r === 'object') ?? (results.includes('done') ? 'done' : results[0] ?? 'idle')
 }
 
 async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleResult> {
   const { cfg, store, db, engines, events, verifier, notify } = deps
-  if (deps.runControl?.signal?.aborted) return { kind: 'not-started', reason: 'stopped' }
+  if (deps.runControl?.signal?.aborted) return 'stopped'
   if (existsSync(cfg.stopFile)) {
     writeHeartbeat(events, cfg, { state: 'stopped', todayCostUsd: todayCost(db, cfg) })
-    return { kind: 'not-started', reason: 'stopped' }
+    return 'stopped'
   }
 
   const spent = todayCost(db, cfg)
   if (cfg.dailyHardUsd > 0 && spent >= cfg.dailyHardUsd) {
     quiet(() => events.appendOnce('cost-hard-stop', { spent }))
     writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
-    return { kind: 'not-started', reason: 'cost-hard-stop' }
+    return 'cost-hard-stop'
   }
 
   // M10.5：全域日頂（第二道防線）。查帳不完整時停止派工，不把未知當成零。
@@ -130,15 +119,22 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     if (!deps.cfgPath) {
       quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global-no-scope' }))
       writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
-      return { kind: 'not-started', reason: 'cost-hard-stop' }
+      return 'cost-hard-stop'
     }
-    const extra = extraBillingScopes(cfg, deps.billingScopeDirs)
     let g = 0
-    try { g = globalBilledToday(deps.cfgPath, new Date().toISOString(), extra) } catch { quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global' })); writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent }); return { kind: 'not-started', reason: 'cost-hard-stop' } }
+    try {
+      const extra = typeof deps.billingScopes === 'function' ? deps.billingScopes()
+        : deps.billingScopes ?? extraBillingScopes(cfg, deps.billingScopeDirs)
+      g = globalBilledToday(deps.cfgPath, new Date().toISOString(), extra, deps.billingSourceHash)
+    } catch {
+      quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global' }))
+      writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
+      return 'cost-hard-stop'
+    }
     if (g >= cfg.globalDailyHardUsd) {
       quiet(() => events.appendOnce('cost-hard-stop-global', { spent: g }))
       writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
-      return { kind: 'not-started', reason: 'cost-hard-stop' }
+      return 'cost-hard-stop'
     }
   }
 
@@ -148,26 +144,25 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   if (openTasks.length === 0) {
     quiet(() => events.appendOnce('idle', { note: 'backlog 空，等使用者補任務' }))
     writeHeartbeat(events, cfg, { state: 'idle', todayCostUsd: spent })
-    return { kind: 'not-started', reason: 'idle' }
+    return 'idle'
   }
 
   const dups = store.duplicateIds()
   if (dups.length > 0) quiet(() => events.appendOnce('duplicate-tasks', { ids: dups }))
 
-  const candidates = retry.taskId ? openTasks.filter(task => task.id === retry.taskId) : openTasks; if (candidates.length === 0) return { kind: 'not-started', reason: 'idle' }
+  const candidates = retry.taskId ? openTasks.filter(task => task.id === retry.taskId) : openTasks; if (candidates.length === 0) return 'idle'
   let pending: PendingReview | undefined, pendingTask: Task | undefined
   for (const candidate of candidates) {
     try { pending = readPendingReview(cfg, candidate) } catch (err) { return blockTask({ store, events }, candidate, 'team-state-quarantined', String(err)) }
     if (pending) { pendingTask = candidate; break }
   }
-  if (pending && pending.retryAt > Date.now()) return { kind: 'not-started', reason: 'deferred', retryAt: pending.retryAt }
+  if (pending && pending.retryAt > Date.now()) return 'deferred'
   const picked = pending && pendingTask ? { task: pendingTask, engine: undefined, engineTag: pending.engineTag, fixedCost: 0 }
     : await pickReadyTask({ cfg, store, db, events, engines, notify, team: deps.team }, candidates)
-  if (typeof picked === 'string') { // pickReadyTask 的字串只可能是 pre-dispatch 的 deferred/preflight-failed
+  if (typeof picked === 'string' || 'kind' in picked) {
     if (picked === 'preflight-failed') writeHeartbeat(events, cfg, { state: 'preflight-failed', todayCostUsd: spent })
-    return { kind: 'not-started', reason: picked === 'deferred' ? 'deferred' : 'preflight-failed' }
+    return picked
   }
-  if ('kind' in picked) return picked // blocked 終態原樣透傳
   const { task, engine, engineTag, fixedCost } = picked
   const priorExecutions = readExecutions(cfg.dataDir)
   if (priorExecutions.errors.length || priorExecutions.records.some(record => record.phase !== 'terminal' && (record.taskId === task.id || record.phase === 'unknown')))
@@ -192,7 +187,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
         quiet(() => events.append('team-admission-deferred', { task: task.text, reason: claimed.reason, detail: claimed.detail }))
         return claimed.reason === 'quarantined'
           ? blockTask({ store, events }, task, 'team-state-quarantined', `team-state-quarantined：${claimed.detail}`)
-          : { kind: 'not-started', reason: 'deferred' }
+          : 'deferred'
       }
       teamClaim = claimed
     } catch (err) {
@@ -268,6 +263,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
       observation = createExecutionObservation({ dataDir: cfg.dataDir, job, adapter: cfg.engines[engineTag]!.adapter, supervised: mode === 'supervised' })
       job.control = observation.control
     }
+    deps.onWorkerStart?.(task.id)
     res = await engine!.run(job)
   } catch (err) {
     if (observation?.snapshot().worker) return quarantineRun('worker transport failed before a verified terminal result')
@@ -493,9 +489,7 @@ async function retryInfrastructure(deps: Deps, task: Task, retry: InfraRetryStat
   if (retry.retried) return blockTask({ store: deps.store, events: deps.events }, task, reason, retriedBlockedReason(detail))
   quiet(() => deps.events.append('infra-retry', { task: task.text, reason, retried: 1 }))
   try { cleanupRetryWorktree(deps.cfg.projectPath, deps.cfg.worktreesDir, task.id, deps.cfg) } catch (err) { quiet(() => deps.events.append('infra-retry-cleanup-failed', { task: task.text, reason, error: String(err) })) }
-  const inner = await runOnce(deps, { taskId: task.id, retried: true, source: reason })
-  // #49：外層引擎已送件——內層前置拒絕不得退還額度，降級為已啟動語意的 deferred。
-  return typeof inner === 'object' && inner.kind === 'not-started' ? 'deferred' : inner
+  return runOnce(deps, { taskId: task.id, retried: true, source: reason })
 }
 
 /** 供應失敗保留 open；只有任務／驗收失敗達 maxAttempts 才 blocked。 */
@@ -552,11 +546,7 @@ function todayCost(db: RunDb, cfg: Config): number {
 
 /** run-once 任務跑完後補 heartbeat idle（stopped/cost/idle/preflight 已自帶收尾）。 */
 export function finalizeRunOnceHeartbeat(deps: Deps, result: CycleResult, now: Date = new Date()): void {
-  // not-started 物件：stopped/cost/idle/preflight 各站已寫專屬 heartbeat；唯獨 deferred
-  // 原因沒有收尾寫入——此處補 idle，與舊字串 'deferred' 行為對齊。
-  const isBlocked = typeof result === 'object' && result.kind === 'blocked'
-  const isWaitDeferral = typeof result === 'object' && result.kind === 'not-started' && result.reason === 'deferred'
-  if (!(isBlocked || isWaitDeferral || result === 'done' || result === 'failed' || result === 'engine-error' || result === 'deferred')) return
+  if (!(typeof result === 'object' || result === 'done' || result === 'failed' || result === 'engine-error' || result === 'deferred')) return
   try {
     const day = localDay(now.toISOString(), deps.cfg.timezoneOffsetHours)
     writeHeartbeat(deps.events, deps.cfg, { state: 'idle', todayCostUsd: deps.db.billedCostForLocalDay(day, deps.cfg.timezoneOffsetHours, subscriptionTags(deps.cfg)) })

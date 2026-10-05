@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GithubConfigSchema, IssueSchema, eligible, type Issue } from '../src/github/config.js'
-import { type GithubClient } from '../src/github/client.js'
+import { GithubReadError, type GithubClient } from '../src/github/client.js'
 import { branchFor, fingerprint, readState, saveState, states, runDir, type IssueState } from '../src/github/state.js'
 import { issueTask } from '../src/github/job.js'
 import { publishIssue, runGithub } from '../src/github/runner.js'
@@ -30,6 +30,72 @@ test('eligibility requires open Issue, selected author and exact opt-in label', 
 test('intake accepts GitHub Issues with legitimate long bodies', () => {
   const { issue } = fixture()
   expect(IssueSchema.parse({ ...issue, body: 'x'.repeat(25_431) }).body).toHaveLength(25_431)
+})
+test('partial intake keeps valid items, reports only safe rejects, and rechecks each candidate before execution', async () => {
+  const { cfg, issue, client } = fixture()
+  const denied = { ...issue, number: 8, title: 'Other author', user: { login: 'stranger' } }
+  const optedOut = { ...issue, number: 9, title: 'Opted out', labels: [{ name: 'no-autofix' }] }
+  const events: string[] = []
+  client.listBatch = async () => ({ issues: [issue, denied, optedOut], rejected: [
+    { number: 10, field: 'body', reason: 'value exceeds the schema limit' },
+  ], pagesRead: 1, partial: true, pageLimitReached: false })
+  client.issue = vi.fn(async number => { events.push(`recheck-${number}`); return issue })
+  const execute = vi.fn(async () => { events.push('execute'); return { done: true, commit: 'a'.repeat(40), detail: 'done' } })
+  const result = await runGithub(cfg, { client, execute })
+  expect(result).toContain('partial coverage')
+  expect(result).toContain('#10 body: value exceeds the schema limit')
+  expect(result).not.toContain(issue.body!)
+  expect(readState(cfg, issue.number)?.status).toBe('ready')
+  expect(readState(cfg, 8)).toBeUndefined(); expect(readState(cfg, 9)).toBeUndefined()
+  expect(client.issue).toHaveBeenCalledWith(issue.number)
+  expect(events.indexOf('recheck-7')).toBeLessThan(events.indexOf('execute'))
+  expect(execute).toHaveBeenCalledTimes(1)
+})
+
+test('partial intake candidate recovery respects cooldown without a second intake or writer attempt', async () => {
+  const { cfg, issue, client } = fixture()
+  client.listBatch = vi.fn(async () => ({ issues: [issue], rejected: [
+    { number: 10, field: 'body', reason: 'value exceeds the schema limit' as const },
+  ], pagesRead: 1, partial: true, pageLimitReached: false }))
+  let reads = 0
+  client.issue = vi.fn(async () => { if (++reads === 3) throw new GithubReadError(503); return issue })
+  const commit = 'a'.repeat(40)
+  const execute = vi.fn(async () => ({ done: true, commit, detail: 'verified' }))
+  expect(await runGithub(cfg, { client, execute })).toContain('queued; partial coverage')
+  const saved = readState(cfg, issue.number)!
+  expect(saved).toMatchObject({ commit, runs: 1, candidateCheck: { attempts: 1 } })
+  vi.mocked(client.listBatch).mockClear(); vi.mocked(client.issue).mockClear()
+  expect(await runGithub(cfg, { client, execute })).toBe('idle')
+  expect(client.listBatch).not.toHaveBeenCalled(); expect(client.issue).not.toHaveBeenCalled()
+  saved.nextRunAt = 0; saveState(cfg, saved)
+  expect(await runGithub(cfg, { client, execute })).toBe('7: ready')
+  expect(client.listBatch).not.toHaveBeenCalled(); expect(execute).toHaveBeenCalledTimes(1)
+  expect(readState(cfg, issue.number)).toMatchObject({ commit, runs: 1, status: 'ready' })
+})
+
+test('saved PR observation proceeds only after that Issue passes a fresh authorization check', async () => {
+  const { cfg, issue, client, state } = fixture()
+  const commit = 'a'.repeat(40), url = 'https://github.com/owner/project/pull/7', events: string[] = []
+  saveState(cfg, { ...state, status: 'published', pr: url, commit })
+  client.listBatch = async () => ({ issues: [], rejected: [{ number: 99, field: 'title', reason: 'value does not match the schema' }], pagesRead: 1, partial: true, pageLimitReached: false })
+  client.issue = vi.fn(async () => { events.push('authorization-recheck'); return issue })
+  client.feedback = vi.fn(async () => { events.push('observe-pr'); return { number: 7, url, head: commit, base: cfg.base, state: 'open' as const, checks: 'pass' as const, feedback: '' } })
+  const result = await runGithub(cfg, { client })
+  expect(result).toContain('partial coverage')
+  expect(client.issue).toHaveBeenCalledWith(7)
+  expect(events).toEqual(['authorization-recheck', 'observe-pr'])
+})
+
+test('withdrawn authorization prevents existing PR observation', async () => {
+  const { cfg, issue, client, state } = fixture()
+  const commit = 'b'.repeat(40), url = 'https://github.com/owner/project/pull/7', events: string[] = []
+  saveState(cfg, { ...state, status: 'published', pr: url, commit })
+  client.listBatch = async () => ({ issues: [], rejected: [], pagesRead: 1, partial: false, pageLimitReached: false })
+  client.issue = vi.fn(async () => ({ ...issue, labels: [{ name: 'no-autofix' }] }))
+  client.feedback = vi.fn(async () => { events.push('observe-pr'); return { number: 7, url, head: commit, base: cfg.base, state: 'open' as const, checks: 'pass' as const, feedback: '' } })
+  await runGithub(cfg, { client })
+  expect(client.issue).toHaveBeenCalledWith(7)
+  expect(events).toEqual([])
 })
 test('Issue markup cannot forge engine, ownership, or a second backlog task', () => {
   const { state } = fixture()
@@ -85,8 +151,8 @@ test('disabled, stop flag and live lock prevent intake and execution', async () 
   writeFileSync(join(dir, '.adng.stop'), '')
   expect(await runGithub(cfg, { client })).toBe('paused')
   rmSync(join(dir, '.adng.stop'))
-  const lock = join(dir, 'runner.lock'); acquireLock(lock)
-  expect(await runGithub(cfg, { client })).toBe('locked'); releaseLock(lock)
+  const lock = join(dir, 'runner.lock'); const lockToken = acquireLock(lock)
+  expect(await runGithub(cfg, { client })).toBe('locked'); releaseLock(lock, lockToken)
   expect(client.list).not.toHaveBeenCalled()
 })
 test('changed or closed Issue is cancelled before execution', async () => {

@@ -398,7 +398,11 @@ export async function maybeRunPerpetual(
   // #40：已設上限但缺 scope 不視為「沒事」——查帳不可用即不探索。
   if (cfg.globalDailyHardUsd !== undefined) {
     if (!deps.cfgPath) { deps.events.appendOnce('cost-accounting-incomplete', { scope: 'global-discovery-no-scope' }); return false }
-    try { if (globalBilledToday(deps.cfgPath, new Date().toISOString(), extraBillingScopes(cfg, deps.billingScopeDirs)) >= cfg.globalDailyHardUsd) return false } catch { deps.events.appendOnce('cost-accounting-incomplete', { scope: 'global-discovery' }); return false }
+    try {
+      const extra = typeof deps.billingScopes === 'function' ? deps.billingScopes()
+        : deps.billingScopes ?? extraBillingScopes(cfg, deps.billingScopeDirs)
+      if (globalBilledToday(deps.cfgPath, new Date().toISOString(), extra) >= cfg.globalDailyHardUsd) return false
+    } catch { deps.events.appendOnce('cost-accounting-incomplete', { scope: 'global-discovery' }); return false }
   }
 
   return runPerpetualCycle(cfg, cfg.dataDir, deps.events, (t) => notifier.send(t), hooks)

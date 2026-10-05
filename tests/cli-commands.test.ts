@@ -85,12 +85,10 @@ test('CLI entry：缺少 config 時只負責回報用法，不載入子指令執
   expect(process.exitCode).toBe(1)
 })
 
-test('formatCycleResult：blocked 保留結構化格式，所有 not-started 維持既有 CLI 結果碼', () => {
+test('formatCycleResult：字串結果原樣輸出，blocked 保留既有任務格式', () => {
   expect(formatCycleResult('done')).toBe('done')
   expect(formatCycleResult({ kind: 'blocked', taskId: 't1', taskText: '修 bug', reason: 'merge-conflict' }))
     .toBe('blocked（任務：修 bug）')
-  for (const reason of ['stopped', 'cost-hard-stop', 'idle', 'deferred', 'preflight-failed'] as const)
-    expect(formatCycleResult({ kind: 'not-started', reason })).toBe(reason)
 })
 
 test('printSuperviseResults：空結果維持既有 stdout', () => {

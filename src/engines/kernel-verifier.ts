@@ -57,7 +57,7 @@ export class KernelVerifier {
     const vOut = await runVerify({ command: this.cfg.verifyCommand, cwd: job.projectPath, timeoutMs: this.cfg.verifyTimeoutMs })
     const evidence: VerificationEvidence = {
       candidateCommit: res.commitHash ?? 'unknown',
-      ci: { status: vOut.status, command: this.cfg.verifyCommand, executed: vOut.executed, exitCode: vOut.exitCode, detail: vOut.detail },
+      ci: { status: vOut.status, command: Array.isArray(this.cfg.verifyCommand) ? this.cfg.verifyCommand.join(' && ') : this.cfg.verifyCommand, executed: vOut.executed, exitCode: vOut.exitCode, detail: vOut.detail, ...(vOut.steps ? { steps: vOut.steps } : {}) },
       reviewer: { status: 'not-run', detail: 'review did not run' },
     }
     const done = (check: Omit<VerifierCheck, 'evidence'>): VerifierCheck => ({ ...check, evidence })

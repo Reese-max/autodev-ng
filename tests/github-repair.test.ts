@@ -6,7 +6,7 @@ import { GithubConfigSchema, type Issue } from '../src/github/config.js'
 import { ReportConfigSchema } from '../src/github/report-config.js'
 import { readReportState, reportBody, saveReportState } from '../src/github/report.js'
 import { eligibleForRun, prepareRepair, reviewRepair } from '../src/github/repair.js'
-import { command, type GithubClient } from '../src/github/client.js'
+import { command, type GithubClient, type IssueBatch } from '../src/github/client.js'
 import { assertPublishable, checkoutDir, git, runtimeConfig } from '../src/github/job.js'
 import { publishIssue, runGithub } from '../src/github/runner.js'
 import { branchFor, fingerprint, readState, saveState, type IssueState } from '../src/github/state.js'
@@ -18,9 +18,15 @@ import * as runner from '../src/github/runner.js'
 import { delivery, recoverIssue, repairDoctor, repairMetrics } from '../src/github/operations.js'
 import * as incident from '../src/guardian/incident.js'
 import { FreebuffEngine } from '../src/engines/freebuff.js'
+import * as admission from '../src/engines/cli-admission.js'
 import { PreflightCache } from '../src/preflight.js'
 
 const dirs: string[] = []
+const availableCodexAdmission = () => {
+  const info = admission.unknownAdmission('codex')
+  info.quota = { state: 'available', detail: 'fixture quota' }
+  return info
+}
 afterEach(() => { vi.restoreAllMocks(); process.exitCode = undefined; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
 async function setup() {
@@ -110,6 +116,7 @@ test('repair baseline rejects timeout and a different failure without launching 
 
 test.each(['codex', 'freebuff'])('%s: real Git/scheduler repairs red to green with independent CLI review, exact evidence and no API or push', async adapter => {
   const f = await setup(), realRun = proc.runProcess
+  vi.spyOn(admission, 'nativeAdmission').mockResolvedValue(availableCodexAdmission())
   const cliCalls: string[] = []
   if (adapter === 'freebuff') {
     const source = JSON.parse(readFileSync(f.cfg.sourceConfig, 'utf8'))
@@ -162,6 +169,7 @@ test.each(['codex', 'freebuff'])('%s: real Git/scheduler repairs red to green wi
 
 test('report repair follow-up preserves the original fix, proves a new regression and updates the same PR within its lifetime cap', async () => {
   const f = await setup(), realRun = proc.runProcess
+  vi.spyOn(admission, 'nativeAdmission').mockResolvedValue(availableCodexAdmission())
   f.cfg.publish = true; f.cfg.followup = true; f.cfg.maxRuns = 2
   f.cfg.acceptance = { command: 'node', args: ['check.cjs'] }
   let writes = 0, remoteHead = '', feedback = '', created = false
@@ -284,17 +292,47 @@ test('recovery checks changed policy after doctor and refuses exhausted attempts
 
 test('CLI sandbox failure blocks the repair before preparation or repeated worker attempts', async () => {
   const f = await setup()
+  vi.spyOn(admission, 'nativeAdmission').mockResolvedValue(availableCodexAdmission())
   const run = vi.spyOn(proc, 'runProcess').mockResolvedValue({ stdout: '', stderr: 'sandbox setup required', exitCode: 1, timedOut: false, durationMs: 1 })
   expect(await runGithub(f.cfg, { client: f.client, configPath: f.configPath })).toBe('4: blocked')
   expect(readState(f.cfg, 4)?.detail).toContain('Repair CLI preflight failed')
+  expect(readState(f.cfg, 4)?.runs).toBe(0)
+  expect(readState(f.cfg, 4)?.controlReason).toBe('preflight-failed')
   expect(run).toHaveBeenCalledTimes(1)
   expect(run.mock.calls[0]![0].command).toBe('codex')
   expect(await runGithub(f.cfg, { client: f.client, configPath: f.configPath })).toBe('idle')
   expect(run).toHaveBeenCalledTimes(1)
 })
 
+test.each(['refused', 'unknown'] as const)('repair Freebuff preflight %s preserves terminal safety and distinguishes known no-start from uncertainty', async outcome => {
+  const f = await setup(), source = JSON.parse(readFileSync(f.cfg.sourceConfig, 'utf8'))
+  source.engines.writer = { adapter: 'freebuff', timeoutMs: 10_000, costPerRunUsd: 0 }
+  writeFileSync(f.cfg.sourceConfig, JSON.stringify(source))
+  expect(eligibleForRun(f.issue, f.cfg)).toBe(true)
+  const preflight = vi.spyOn(FreebuffEngine.prototype, 'preflight')
+  if (outcome === 'refused') preflight.mockResolvedValue({ ok: false, detail: 'fixture local CLI safety refusal' })
+  else preflight.mockRejectedValue(new Error('fixture preflight transport unknown'))
+  const worker = vi.spyOn(FreebuffEngine.prototype, 'run').mockRejectedValue(new Error('writer must not run'))
+  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('provider calls forbidden'))
+  expect(await runGithub(f.cfg, { client: f.client, configPath: f.configPath })).toBe('4: blocked')
+  const state = readState(f.cfg, 4)!
+  expect(state.runs).toBe(outcome === 'refused' ? 0 : 1)
+  if (outcome === 'refused') {
+    expect(state.detail).toBe('Repair CLI preflight failed: fixture local CLI safety refusal; repair CLI login/sandbox before retry')
+    expect(state.controlReason).toBe('preflight-failed')
+  } else {
+    expect(state.detail).toContain('fixture preflight transport unknown')
+    expect(state.controlReason).toBeUndefined()
+  }
+  expect(await runGithub(f.cfg, { client: f.client, configPath: f.configPath })).toBe('idle')
+  expect(preflight).toHaveBeenCalledTimes(1)
+  expect(worker).not.toHaveBeenCalled()
+  expect(fetch).not.toHaveBeenCalled()
+})
+
 test('CLI review failure cannot approve and CLI repair requires explicit local policy', async () => {
   const f = await setup()
+  vi.spyOn(admission, 'nativeAdmission').mockResolvedValue(availableCodexAdmission())
   vi.spyOn(proc, 'runProcess').mockResolvedValue({ stdout: '', stderr: 'unavailable', timedOut: false, exitCode: 1, durationMs: 1 })
   await expect(reviewRepair({ dataDir: f.dir, model: 'unused', effort: 'low', timeoutMs: 1000 }, { diff: 'some diff', taskText: 'Fix addition' })).rejects.toThrow('no fallback approval')
   delete f.cfg.repair; writeFileSync(f.configPath, JSON.stringify(f.cfg))
@@ -310,6 +348,23 @@ test('repair --dry-run reads eligibility without changing state, invoking models
   await githubCli(['repair', '--config', f.configPath, '--dry-run'])
   expect(JSON.parse(output.mock.calls[0]![0])).toEqual([{ number: 4, title: f.issue.title }])
   expect(run).not.toHaveBeenCalled(); expect(readFileSync(join(f.dir, 'issue-4', 'state.json'), 'utf8')).toBe(before)
+})
+
+test('repair --dry-run includes coverage metadata for a partial issue batch', async () => {
+  const f = await setup()
+  const batch: IssueBatch = { issues: [f.issue], rejected: [{ number: 9, field: 'body', reason: 'value exceeds the schema limit' }],
+    pagesRead: 1, partial: true, pageLimitReached: false }
+  vi.spyOn(github, 'githubClient').mockReturnValue({ ...f.client, listBatch: async () => batch })
+  const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+  await githubCli(['repair', '--config', f.configPath, '--dry-run'])
+
+  expect(JSON.parse(output.mock.calls[0]![0])).toMatchObject({
+    coverage: 'partial', pagesRead: 1, pageLimitReached: false,
+    issues: [{ number: 4, title: f.issue.title }],
+    rejected: [{ number: 9, field: 'body', reason: 'value exceeds the schema limit' }],
+    omittedRejectedCount: 0, summary: 'partial coverage (rejected 1 invalid item(s) [#9 body: value exceeds the schema limit])',
+  })
 })
 
 test('CLI failed attempt is nonzero while retaining its bounded retry queue', async () => {

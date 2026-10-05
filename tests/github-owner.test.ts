@@ -23,12 +23,13 @@ test('owner discovery covers private repos, isolates paths and executes at most 
   expect(verified.verifyCommand).toBe('python -m unittest discover -s tests -v')
   expect(repoConfig({ ...cfg, verifyCommands: { 'owner/CON': 'python -m unittest' } }, repos[1]!).verifyCommand).toBeUndefined()
   expect(() => OwnerConfigSchema.parse({ ...cfg, verifyCommands: { 'owner/CON': ' ' } })).toThrow()
-  const run = vi.fn<typeof runGithub>(async (_c, o) => o?.syncOnly ? 'synced' : '1: published')
+  const run = vi.fn(async (_c: unknown, o?: { syncOnly?: boolean }) =>
+    ({ disposition: o?.syncOnly ? 'synced' : '1: published', attempted: !o?.syncOnly }))
   const result = await runOwner(cfg, false, () => repos, run)
   expect(result.status).toBe('ok')
   expect(run.mock.calls.filter(([, o]) => !o?.syncOnly)).toHaveLength(1)
   expect(run).toHaveBeenCalledTimes(2)
-  const failure = vi.fn<typeof runGithub>(async () => { throw new Error('network failed') })
+  const failure = vi.fn(async () => { throw new Error('network failed') })
   expect((await runOwner(cfg, true, () => repos, failure)).status).toBe('error')
   expect(failure).toHaveBeenCalledTimes(2)
   writeFileSync(join(root, '.adng.stop'), 'pause')
@@ -43,5 +44,6 @@ test('verification never inherits another project command or treats unsupported 
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'echo "Error: no test specified" && exit 1' } }))
   expect(() => detectVerification(root)).toThrow('verification contract')
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node --test', build: 'tsc' } }))
-  expect(detectVerification(root)).toBe('npm ci --no-audit --no-fund && npm test && npm run build')
+  // #48：產生端契約改為步驟清單——執行端逐步原生 spawn，不再產出 && 串接字串。
+  expect(detectVerification(root)).toEqual(['npm ci --no-audit --no-fund', 'npm test', 'npm run build'])
 })

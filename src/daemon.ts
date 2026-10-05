@@ -1,11 +1,11 @@
 import { reviewRetryDelay } from './engines/pending-review.js'
 import { refreshFreeModelCatalog } from './engines/free-model-catalog.js'
 import { existsSync } from 'node:fs'
-import { fenceUsurped, releaseLockIfOwned } from './engines/daemon-fence.js'
+import { fenceUsurped } from './engines/daemon-fence.js'
 import { freemem, totalmem } from 'node:os'
 import { acquireLock, releaseLock } from './lock.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
-import { runOnce, subscriptionTags, cycleResultCode, type Deps, type CycleResult } from './scheduler.js'
+import { runOnce, subscriptionTags, type Deps, type CycleResult } from './scheduler.js'
 import { consumeRestartSentinel } from './autopilot/restart-sentinel.js'
 import { quiet } from './events.js'
 import { maybeRunPerpetual, perpetualDigestLine } from './autopilot/perpetual.js'
@@ -113,7 +113,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
   const alert = (key: string, message: string) =>
     sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, deps.events, key, message)
 
-  let locked: boolean
+  let locked: string | null
   try {
     locked = acquireLock(lockDir)
   } catch (err) {
@@ -191,22 +191,21 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       consecutiveCrashes = 0
       quiet(() => cleanupRoutingState(deps.cfg.dataDir, [deps.cfg.defaultEngine, ...(deps.cfg.engineRotation ?? [])]))
 
-      const code = cycleResultCode(result)
-      if (code === 'stopped') return 'stopped'
+      if (result === 'stopped') return 'stopped'
 
       if (isAlertableResult(result)) {
         await alert(cooldownKeyFor(result), baseAlertMessage(result, deps.cfg))
       }
 
       // M7：失敗驅動 reflect——教訓面故障吞掉,絕不反殺主迴圈(鐵律 #4)
-      if (deps.lessons && (result === 'failed' || (typeof result === 'object' && result.kind === 'blocked'))) {
+      if (deps.lessons && (result === 'failed' || typeof result === 'object')) {
         try { await deps.lessons.reflect(result) } catch { /* fail-open */ }
       }
 
       // M10.0：idle 分支接外環（perpetual opt-in+fail-open+sleep 語意）。
       // M7.5:idle 要任務通知(6h 冷卻=持續 idle 每 6h 至多提醒一次,不洗版)
-      if (code === 'idle' || code === 'cost-hard-stop') {
-        if (code === 'idle') {
+      if (result === 'idle' || result === 'cost-hard-stop') {
+        if (result === 'idle') {
           let acted = false
           try { acted = await maybeRunPerpetual(deps, notifier) } catch { /* fail-open：外環故障不反殺 daemon（鐵律 #4） */ }
           if (acted) { await sleep(deps.cfg.tierMode === 'free-only' ? reviewRetryDelay(deps.cfg, cooldownMs) : cooldownMs); continue }
@@ -214,10 +213,10 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
         }
         await sleep(idleSleepMs)
       } else {
-        await sleep(code === 'deferred' ? reviewRetryDelay(deps.cfg) : deps.cfg.tierMode === 'free-only' ? reviewRetryDelay(deps.cfg, cooldownMs, code === 'done') : cooldownMs)
+        await sleep(result === 'deferred' ? reviewRetryDelay(deps.cfg) : deps.cfg.tierMode === 'free-only' ? reviewRetryDelay(deps.cfg, cooldownMs, result === 'done') : cooldownMs)
       }
     }
   } finally {
-    releaseLockIfOwned(lockDir, process.pid, releaseLock)
+    releaseLock(lockDir, locked)
   }
 }

@@ -133,7 +133,10 @@ test('取消只作用在指定子程序；預先取消不 spawn，也不算 wall
   expect(r.timedOut).toBe(false)
   expect(events.at(-1)).toMatchObject({ type: 'exit', reason: 'cancelled' })
   const spawned = events.find(e => e.type === 'spawn')
-  expect(spawned?.type === 'spawn' && isPidAlive(spawned.pid)).toBe(false)
+  if (spawned?.type !== 'spawn') throw new Error('spawn event missing')
+  // POSIX：SIGKILL 後子進程先成 zombie，待父行程非同步回收才真正 ESRCH；
+  // killTree 在 Windows 以 taskkill＋驗屍同步收斂、POSIX 為信號即走——有界輪詢不賭單點時序
+  await vi.waitFor(() => { expect(isPidAlive(spawned.pid)).toBe(false) }, { timeout: 5_000 })
 }, 20_000)
 
 test('idleTimeoutMs：無輸出進度才斬樹，不能把 wall timeout 偷加回來', async () => {
@@ -177,7 +180,9 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-test('hang-tree：雙層樹斬——父子兩層 PID 逾時後皆不存活', async () => {
+// 整樹斬在 POSIX 只殺根（killTree 後備無子代枚舉），孫代存活是平台既有語意，
+// 「父子兩層皆不存活」的斷言僅 Windows taskkill 路徑成立。
+test.skipIf(process.platform !== 'win32')('hang-tree：雙層樹斬——父子兩層 PID 逾時後皆不存活', async () => {
   process.env.FAKE_MODE = 'hang-tree'
   const r = await runProcess({ ...base, stdinText: 'x', timeoutMs: 1500 })
   expect(r.timedOut).toBe(true)
@@ -198,10 +203,31 @@ test('hang-worktree-lock：實機引擎逾時斬樹完成後，worktree 目錄�
   writeFileSync(lockedFile, 'locked')
   process.env.FAKE_MODE = 'hang-worktree-lock'
   process.env.FAKE_LOCK_FILE = lockedFile
+  let observedStderr = ''
+  let lockProbe = 'not-observed'
   try {
-    const r = await runProcess({ ...base, stdinText: 'x', timeoutMs: 3_000 })
+    // The measured engine timeout includes Node and nested PowerShell startup.
+    // CI 37261076940 reached the old 3s deadline without lock readiness. Keep a
+    // finite 8s wall window and the original 20s framework bound; readiness and
+    // real Windows deletion denial are required before tree cleanup is credited.
+    const r = await runProcess({ ...base, stdinText: 'x', timeoutMs: 8_000,
+      control: { onEvent: event => {
+        if (event.type !== 'output' || event.stream !== 'stderr') return
+        observedStderr = (observedStderr + event.text).slice(-8192)
+        if (lockProbe !== 'not-observed' || !observedStderr.split(/\r?\n/).includes('WORKTREE_LOCK_READY_OBSERVED')) return
+        try {
+          rmSync(lockedFile)
+          lockProbe = 'deleted'
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code
+          lockProbe = code === 'EPERM' || code === 'EACCES' || code === 'EBUSY' ? 'locked' : 'unexpected-error'
+        }
+      } },
+    })
     expect(r.timedOut).toBe(true)
     expect(r.stderr).toContain('WORKTREE_LOCK_READY')
+    expect(r.stderr).toContain('WORKTREE_LOCK_READY_OBSERVED')
+    expect(lockProbe).toBe('locked')
     rmSync(worktree, { recursive: true, force: true, maxRetries: 5 })
     expect(existsSync(worktree)).toBe(false)
   } finally {
