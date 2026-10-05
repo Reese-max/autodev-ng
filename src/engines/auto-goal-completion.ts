@@ -5,7 +5,7 @@ import { isAutoGoal } from '../autopilot/author.js'
 import { parseGoal, type Goal } from '../autopilot/goal.js'
 import { goalVerifyEnv } from '../autopilot/goal-quality-gate.js'
 import type { Config, RunResult, Task } from '../types.js'
-import { runVerify } from '../verify.js'
+import { runVerify, verifyCommandText } from '../verify.js'
 import {
   evaluateAutoGoalCompletionGate,
   type AutoGoalCompletionEvidence,
@@ -50,7 +50,7 @@ function autoGoal(cfg: Config, task: Task): Goal | null | undefined {
 
 /** 讀 worktree 內 GOAL；不存在時回主工作區版本，讓未追蹤的 auto-goal 仍能用專屬驗收。 */
 export function goalVerifyCommand(cfg: Config, worktreePath: string): string | undefined {
-  if (!cfg.goalFile) return cfg.verifyCommand
+  if (!cfg.goalFile) return verifyCommandText(cfg.verifyCommand)
   const rel = relative(resolve(cfg.projectPath), resolve(cfg.goalFile))
   const candidates = isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)
     ? [cfg.goalFile]
@@ -61,7 +61,7 @@ export function goalVerifyCommand(cfg: Config, worktreePath: string): string | u
       if (command) return command
     } catch { /* 試下一個來源。 */ }
   }
-  return cfg.verifyCommand
+  return verifyCommandText(cfg.verifyCommand)
 }
 
 /** auto-goal 才執行；順序固定為專屬驗收 → 實際 Git 查詢 → evidence gate。 */

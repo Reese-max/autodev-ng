@@ -23,6 +23,18 @@ Freebuff 可由本機設定明確選用，見 [Freebuff 使用方式](freebuff.m
 - Issue 內容變更、關閉、作者不符或新增排除標籤，會在執行與發布前取消或阻擋。
 - 已有對應分支 PR 或 GitHub 關聯 PR（包含已關閉）時阻擋重複修復，保留 PR 連結。
 
+Issue Quality v2 的單一 fenced `yaml` / `yml` metadata 區塊現在是 runner 強制否決：
+`auto_implementation: false`、`kind: RESEARCH` / `OPPORTUNITY`、非 `READY` 的 triage，
+或矛盾、重複、無法解析的 metadata，都不得接單。同步會輸出 Issue 編號與
+`issue-quality-*` 原因碼，不保存正文或消耗 writer 次數。metadata 上限 4096 字元，
+只接受 `key: scalar`、空行與註解，不執行 YAML tags、aliases 或巢狀資料。
+
+沒有此 metadata 的既有人工 Issue 沿用作者、label、no-autofix 與受控 report 契約。
+正文的 `true` / `READY` 僅解除 metadata 否決，不能授予執行權限；留言不參與批准。
+作者、可信本地設定與 opt-in label 仍須匹配，執行前、follow-up 與發布前使用同一資格判斷。
+將研究改為可實作前，操作者須明確確認需求與驗收，再更新 metadata 及既有批准標籤；
+runner 不會自行移除 `no-autofix`、重開歷史 blocked 案件或重置次數。
+
 帳號入口會確認 gh 登入身分與 owner 相符，自動發現該帳號擁有的公開／私人 repos；
 跳過封存、停用、未開啟 Issues 或無 push 權限的專案。每輪最多執行一張 Issue，
 透過帳號鎖、repo 鎖、重試間隔與最多三輪的預設上限避免重複或無界派工。
@@ -82,6 +94,17 @@ node dist/cli.js github owner-status --config configs/integrations/github-owner.
 單一 repo 使用 `scan`（唯讀）、`sync`、`run`、`status`。
 owner-sync 只同步，不啟動模型；owner-run 執行一輪。
 
+Owner 派工以持久化的 `dispatch-cursor.json` 記錄服務順序，不依系統時間輪替。
+游標已存在但損壞或不可讀時會停止派工並記錄原因，不能重置進度後繼續。
+PR 查核在僅同步的 repo 也會執行，每次單一 repo runner 呼叫最多查核 25 件；報告分列可查核、已嘗試與尚未涵蓋的件數。
+`lastObservedAt`／`lastObservedSeq` 記錄查核嘗試（含失敗），有效的 exact-head 回執時間仍以 `state.remote.at` 為準。
+
+Owner 在可執行的子 repo 呼叫前，先將 `recovery-required.json` 寫入目前 owner lock generation。
+若子工作結果不明、狀態寫入失敗或回報 `recoveryRequired`，會保留該租約，阻止本輪及重新啟動後再派工。
+Owner 的執行介面預設使用 typed outcome；舊版文字 adapter 的 `blocked` 結果無法證明 claim 已安全釋放，因此同樣保留租約。
+確認原 backend／claim 已安全後，由 operator 使用既有 generation-fenced `recoverRetainedLock`（正確 token 與 `backendSafeConfirmed: true`）復原。
+不得只刪除 lock 目錄、使用錯誤 generation 或把 failed PR read 當作已完成的查核。
+
 Windows 可用 `scripts/install-github-issues-task.ps1 -Config <設定檔>` 安裝每五分鐘排程，
 支援 `-WhatIf` 且不覆寫同名工作。無排程器權限時，可在背景執行
 `scripts/watch-github-owner.ps1 -Config <設定檔>`，並由使用者 Startup 捷徑登入啟動。
@@ -96,6 +119,17 @@ watcher 最近輸出在 last-run.log，程序與結束碼在 watcher.json。
 
 每張 Issue 保留需求快照、checkout、backlog、執行紀錄與證據。中斷的 running 任務會標為 blocked，
 不自動清除工作目錄或重置次數。恢復前須檢查原因、Issue 快照、commit 與原執行紀錄並備份 state.json。
+完成 `executeIssue` 後，runner 會先保存候選 SHA、既有 receipt 相對位置與 writer 次數，
+再核對外部 Issue。此時 `queued` 的 `candidateCheck` 表示本地已完成、外部尚未確認，
+checkpoint 的 policy hash 綁定原 integration／source／report 設定；重啟後 drift
+（包含刪除 quality 或 acceptance gate）會隔離，恢復須還原原設定，不能降低既有 gates。
+不可直接發布。重啟後只接續同一 Issue／PR 核對，不重跑 Worker、不重記費用或重建成果。
+
+只有具結構化 HTTP 回應的唯讀 408、429、500、502、503、504（及 remaining=0 的 403）
+可退避；尊重 Retry-After／rate-limit reset。最多 5 次控制端失敗，基本延遲按 retryMs
+倍增至 30 分鐘；需等待超過 24 小時則交人工，不提早重試。未知錯誤、權限拒絕、
+需求變更、PR head 漂移及可能已成功的 POST 仍 fail closed。用既有 recover/resume
+核對精確成果與證據，不批次重開舊 blocked 案件或重置 writer／費用計數。
 clone/worktree 提供版本隔離，不是作業系統沙箱；只接信任作者，PR 仍需人工審查。
 
 ## 測試

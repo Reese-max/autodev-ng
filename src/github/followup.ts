@@ -9,6 +9,9 @@ import { assertPublishable } from './job.js'
 // ponytail: reuse the runner lock and lifetime attempt cap for every revision.
 export async function observePr(cfg: GithubConfig, state: IssueState, client: GithubClient, active = () => true, check = assertPublishable): Promise<void> {
   if (!client.feedback || !state.pr || !state.commit) return
+  const observedIssue = await client.issue(state.issue.number)
+  if (!active() || existsSync(githubStopFile(cfg))) return
+  if (!eligibleForRun(observedIssue, cfg) || fingerprint(observedIssue) !== state.fingerprint) throw new Error('Issue approval changed before PR observation')
   const remote = await client.feedback(branchFor(state.issue.number))
   if (!active()) return
   if (remote.url !== state.pr || remote.base !== cfg.base || remote.head !== state.commit) throw new Error('PR head/base changed outside this runner; inspect before continuing')

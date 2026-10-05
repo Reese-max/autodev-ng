@@ -9,7 +9,7 @@ import { branchFor, fingerprint, readState, saveState, type IssueState } from '.
 import type { GithubClient } from '../src/github/client.js'
 
 const dirs: string[] = []
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
+afterEach(() => { vi.restoreAllMocks(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
 function ownerFixture() {
   const root = mkdtempSync(join(tmpdir(), 'adng-owner-fair-')); dirs.push(root)
@@ -33,7 +33,11 @@ test('dispatch cursor rotates the slot across aligned ticks and survives restart
   })
   // Three consecutive ticks with the same wall-clock alignment: a wall-clock
   // modulo start offset would starve B/C; the persisted cursor must not.
-  for (let tick = 0; tick < 3; tick += 1) await runOwner(cfg, false, () => repos, run)
+  const clock = vi.spyOn(Date, 'now')
+  for (let tick = 0; tick < 3; tick += 1) {
+    clock.mockReturnValue(1_000 + tick * 3 * cfg.retryMs)
+    await runOwner(cfg, false, () => repos, run)
+  }
   expect(dispatched.sort()).toEqual(['owner/aaa', 'owner/bbb', 'owner/ccc'])
   // A fourth tick wraps around: after all three were attempted, oldest is A again.
   await runOwner(cfg, false, () => repos, run)
@@ -75,7 +79,7 @@ test('policy withdrawal preserves the cursor entries of still-discovered reposit
   }
 })
 
-test('cursor file is versioned, survives reorder, and resets safely when corrupt', async () => {
+test('cursor file is versioned, survives reorder, and blocks with a reason when corrupt', async () => {
   const { cfg, repos } = ownerFixture()
   const run = vi.fn(async (_c: unknown, o?: { syncOnly?: boolean }) =>
     o?.syncOnly ? { disposition: 'synced', attempted: false } : attempted())
@@ -93,11 +97,12 @@ test('cursor file is versioned, survives reorder, and resets safely when corrupt
   })
   await runOwner(cfg, false, () => [repos[2]!, repos[0]!, repos[1]!], track)
   expect(dispatched).toEqual(['owner/bbb'])
-  // Corrupt cursor must not crash or starve; it resets and keeps dispatching.
+  // Lost progress cannot be replaced by a fabricated initial cursor.
   writeFileSync(cursorPath, '{not json')
   dispatched.length = 0
-  await runOwner(cfg, false, () => repos, track)
-  expect(dispatched).toHaveLength(1)
+  const blocked = await runOwner(cfg, false, () => repos, track)
+  expect(dispatched).toHaveLength(0)
+  expect(blocked).toMatchObject({ status: 'blocked', detail: expect.stringMatching(/cursor invalid or unreadable/) })
 })
 
 test('report distinguishes scan and dispatch timestamps per repo', async () => {
@@ -151,7 +156,8 @@ test('observe budget bounds requests and continues fairly next tick', async () =
   const issue2 = { ...issue, number: 8 }
   saveState(cfg, { ...published, issue: issue2, fingerprint: fingerprint(issue2), pr: 'https://github.com/owner/project/pull/8' })
   const outcome = await runGithubOutcome(cfg, { client, syncOnly: true, observeBudget: 1 })
-  expect(outcome.disposition).toBe('synced')
+  expect(outcome.disposition).toContain('synced; partial coverage')
+  expect(outcome.prObservationCoverage).toEqual({ eligible: 2, attempted: 1, remaining: 1 })
   expect(client.feedback).toHaveBeenCalledTimes(1)
 })
 
@@ -162,6 +168,7 @@ test('a poisoned PR does not pin the front of the observe queue', async () => {
   const commit2 = 'b'.repeat(40)
   saveState(cfg, { ...published, issue: issue2, fingerprint: fingerprint(issue2),
     commit: commit2, pr: 'https://github.com/owner/project/pull/8', lastObservedAt: 200 })
+  client.issue = vi.fn(async number => number === 8 ? issue2 : issue)
   // Remote only ever reports PR 8's true shape: observing PR 7 throws on the
   // head/url mismatch *after* its remote call, which must still advance its
   // observation timestamp so the next tick reaches PR 8.
