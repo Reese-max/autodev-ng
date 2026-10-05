@@ -30,6 +30,8 @@ jobs:
       - run: npm run typecheck
       - name: Run trusted structured regression verdict tests
         run: npm test -- tests/github-regression-tap.test.ts
+      - name: Run GitHub global budget regressions
+        run: npm test -- tests/github-budget-scope.test.ts tests/github-owner-budget-policy.test.ts tests/globalcost-evidence.test.ts tests/globalcost.test.ts tests/attempt-accounting.test.ts tests/scheduler.test.ts tests/autopilot-perpetual.test.ts
       - name: Run verification command chain regressions
         run: npm test -- tests/verify-steps.test.ts
       - name: Run lock ownership regressions
