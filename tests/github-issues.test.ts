@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GithubConfigSchema, IssueSchema, eligible, type Issue } from '../src/github/config.js'
-import { type GithubClient } from '../src/github/client.js'
+import { GithubReadError, type GithubClient } from '../src/github/client.js'
 import { branchFor, fingerprint, readState, saveState, states, runDir, type IssueState } from '../src/github/state.js'
 import { issueTask } from '../src/github/job.js'
 import { publishIssue, runGithub } from '../src/github/runner.js'
@@ -40,7 +40,7 @@ test('partial intake keeps valid items, reports only safe rejects, and rechecks 
     { number: 10, field: 'body', reason: 'value exceeds the schema limit' },
   ], pagesRead: 1, partial: true, pageLimitReached: false })
   client.issue = vi.fn(async number => { events.push(`recheck-${number}`); return issue })
-  const execute = vi.fn(async () => { events.push('execute'); return { done: true, detail: 'done' } })
+  const execute = vi.fn(async () => { events.push('execute'); return { done: true, commit: 'a'.repeat(40), detail: 'done' } })
   const result = await runGithub(cfg, { client, execute })
   expect(result).toContain('partial coverage')
   expect(result).toContain('#10 body: value exceeds the schema limit')
@@ -50,6 +50,27 @@ test('partial intake keeps valid items, reports only safe rejects, and rechecks 
   expect(client.issue).toHaveBeenCalledWith(issue.number)
   expect(events.indexOf('recheck-7')).toBeLessThan(events.indexOf('execute'))
   expect(execute).toHaveBeenCalledTimes(1)
+})
+
+test('partial intake candidate recovery respects cooldown without a second intake or writer attempt', async () => {
+  const { cfg, issue, client } = fixture()
+  client.listBatch = vi.fn(async () => ({ issues: [issue], rejected: [
+    { number: 10, field: 'body', reason: 'value exceeds the schema limit' as const },
+  ], pagesRead: 1, partial: true, pageLimitReached: false }))
+  let reads = 0
+  client.issue = vi.fn(async () => { if (++reads === 3) throw new GithubReadError(503); return issue })
+  const commit = 'a'.repeat(40)
+  const execute = vi.fn(async () => ({ done: true, commit, detail: 'verified' }))
+  expect(await runGithub(cfg, { client, execute })).toContain('queued; partial coverage')
+  const saved = readState(cfg, issue.number)!
+  expect(saved).toMatchObject({ commit, runs: 1, candidateCheck: { attempts: 1 } })
+  vi.mocked(client.listBatch).mockClear(); vi.mocked(client.issue).mockClear()
+  expect(await runGithub(cfg, { client, execute })).toBe('idle')
+  expect(client.listBatch).not.toHaveBeenCalled(); expect(client.issue).not.toHaveBeenCalled()
+  saved.nextRunAt = 0; saveState(cfg, saved)
+  expect(await runGithub(cfg, { client, execute })).toBe('7: ready')
+  expect(client.listBatch).not.toHaveBeenCalled(); expect(execute).toHaveBeenCalledTimes(1)
+  expect(readState(cfg, issue.number)).toMatchObject({ commit, runs: 1, status: 'ready' })
 })
 
 test('saved PR observation proceeds only after that Issue passes a fresh authorization check', async () => {

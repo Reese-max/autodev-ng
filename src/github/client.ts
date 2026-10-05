@@ -54,10 +54,58 @@ export function command(exe: string, args: string[], cwd?: string, input?: strin
     env: { ...process.env, GH_HOST: 'github.com', GH_PROMPT_DISABLED: '1', GIT_TERMINAL_PROMPT: '0' },
   }).trim()
 }
-export function api(endpoint: string, body?: unknown): unknown {
-  return JSON.parse(command('gh', ['api', '--hostname', 'github.com', endpoint,
-    ...(body === undefined ? ['--method', 'GET'] : ['--method', 'POST', '--input', '-'])], undefined,
-  body === undefined ? undefined : JSON.stringify(body)))
+
+/** Only failed read requests with a structured HTTP response are retryable. */
+export class GithubReadError extends Error {
+  constructor(readonly statusCode: number, readonly retryAt?: number, readonly rateLimited = false) {
+    super(`GitHub read failed (HTTP ${statusCode})`)
+  }
+}
+function response(text: string): { status: number; headers: Map<string, string>; body: string } | undefined {
+  const split = /\r?\n\r?\n/.exec(text)
+  if (!split || split.index > 16_000) return undefined
+  const lines = text.slice(0, split.index).split(/\r?\n/)
+  const status = /^HTTP\/\S+\s+(\d{3})(?:\s|$)/.exec(lines[0]!)?.[1]
+  if (!status) return undefined
+  const headers = new Map<string, string>()
+  for (const line of lines.slice(1)) {
+    const colon = line.indexOf(':')
+    if (colon > 0) headers.set(line.slice(0, colon).toLowerCase(), line.slice(colon + 1).trim())
+  }
+  return { status: Number(status), headers, body: text.slice(split.index + split[0].length) }
+}
+function retryTimestamp(headers: Map<string, string>): number | undefined {
+  const after = headers.get('retry-after'), reset = headers.get('x-ratelimit-reset')
+  const dates: number[] = []
+  if (after) {
+    const at = /^\d+$/.test(after) ? Date.now() + Number(after) * 1000 : Date.parse(after)
+    if (Number.isSafeInteger(at)) dates.push(at)
+  }
+  if (headers.get('x-ratelimit-remaining') === '0' && reset && /^\d+$/.test(reset)) {
+    const at = Number(reset) * 1000
+    if (Number.isSafeInteger(at)) dates.push(at)
+  }
+  return dates.length ? Math.max(...dates) : undefined
+}
+export function transientGithubRead(error: unknown): GithubReadError | undefined {
+  return error instanceof GithubReadError && ([408, 429, 500, 502, 503, 504].includes(error.statusCode)
+    || (error.statusCode === 403 && error.rateLimited)) ? error : undefined
+}
+export function api(endpoint: string, body?: unknown, readOnly = false): unknown {
+  const read = body === undefined || readOnly
+  try {
+    const text = command('gh', ['api', '--hostname', 'github.com', endpoint,
+      ...(body === undefined ? ['--method', 'GET', '--include'] : ['--method', 'POST', '--input', '-', ...(readOnly ? ['--include'] : [])])], undefined,
+    body === undefined ? undefined : JSON.stringify(body))
+    return JSON.parse(read ? response(text)?.body ?? text : text)
+  } catch (error) {
+    if (read && error && typeof error === 'object' && 'stdout' in error) {
+      const raw = error.stdout
+      const parsed = typeof raw === 'string' ? response(raw) : Buffer.isBuffer(raw) ? response(raw.toString('utf8')) : undefined
+      if (parsed) throw new GithubReadError(parsed.status, retryTimestamp(parsed.headers), parsed.headers.get('x-ratelimit-remaining') === '0')
+    }
+    throw error
+  }
 }
 const PrSchema = z.object({
   number: z.number().int().positive(), html_url: z.string().url(), state: z.enum(['open', 'closed']),
@@ -128,7 +176,7 @@ function makeGithubClient(cfg: GithubConfig) {
       const result = api('graphql', {
         query: 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){closedByPullRequestsReferences(first:1,includeClosedPrs:true){nodes{url}}}}}',
         variables: { owner, name, number },
-      })
+      }, true) // Explicit read-only GraphQL query; PR creation remains a non-replayable write.
       return z.object({ data: z.object({ repository: z.object({ issue: z.object({
         closedByPullRequestsReferences: z.object({ nodes: z.array(z.object({ url: z.string().url() })) }),
       }) }) }) }).parse(result).data.repository.issue.closedByPullRequestsReferences.nodes[0]?.url
