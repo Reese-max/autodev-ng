@@ -125,6 +125,7 @@ test.each(['kill-allowed', 'kill-refused'] as const)('actual CLI exits nonzero w
     expect(line).toBeDefined()
     const receipt = JSON.parse(line!.slice('CONTROL_CLI_RESULT '.length))
     expect(receipt).toMatchObject({ mode, token: value, killAttempted: true, ownedStdioDestroyed: true,
+      helperDetached: true, observedBeforeControl: 'running',
       result: { status: 'unknown', reasonCodes: ['CONTROL_TIMEOUT'], pid: helperPid },
     })
     expect(receipt.observedReady.split(/\r?\n/)).toContain(readyLine(helperPid!, value))
@@ -132,6 +133,7 @@ test.each(['kill-allowed', 'kill-refused'] as const)('actual CLI exits nonzero w
     expect(receipt.result.stderr).toBe(`raw controlled stderr ${value}: 中文\n`)
     const beforeExternalCleanup = await waitForPid(helperPid!, state => mode === 'kill-refused' || state !== 'running')
     if (mode === 'kill-refused') {
+      expect(receipt.observedAfterControl).toBe('running')
       expect(beforeExternalCleanup).toBe('running')
       // External cleanup targets only the exact PID reported by our controlled helper.
       await cleanExactHelper(helperPid)

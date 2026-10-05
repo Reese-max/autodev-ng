@@ -8,7 +8,10 @@ if (!['kill-allowed', 'kill-refused'].includes(mode) || !/^[a-f0-9]{32}$/.test(t
 const { runProcessControl } = await import(moduleUrl)
 const command = process.execPath
 const args = [fileURLToPath(new URL('./process-control-helper.mjs', import.meta.url)), 'hang', token]
-const helper = spawn(command, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+// A non-detached Windows child is placed in libuv's kill-on-parent-exit job.
+// Own an independent fixture process so CLI exit cannot supply the kill that
+// this control deliberately refuses. The test externally cleans its exact PID.
+const helper = spawn(command, args, { detached: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
 let stdout = '', stderr = ''
 try {
   await new Promise((resolve, reject) => {
@@ -34,6 +37,7 @@ try {
     helper.once('error', failed)
     helper.once('exit', exited)
   })
+  process.kill(helper.pid, 0)
   process.stdout.write(`CONTROL_CLI_READY ${JSON.stringify({ pid: helper.pid, token })}\n`)
   let killAttempted = false
   const originalKill = helper.kill.bind(helper)
@@ -53,8 +57,17 @@ try {
       return helper
     },
   })
+  // Check real liveness after UNKNOWN, before the CLI itself can exit.
+  let observedAfterControl = 'absent'
+  try { process.kill(helper.pid, 0); observedAfterControl = 'running' } catch (error) {
+    if (error.code !== 'ESRCH') throw error
+  }
+  if (mode === 'kill-refused' && observedAfterControl !== 'running') {
+    throw new Error('Owned kill-refused helper must remain running after UNKNOWN')
+  }
   process.stdout.write(`CONTROL_CLI_RESULT ${JSON.stringify({ result, mode, token, killAttempted,
     observedReady: stdout, observedStderr: stderr,
+    helperDetached: true, observedBeforeControl: 'running', observedAfterControl,
     ownedStdioDestroyed: [helper.stdin, helper.stdout, helper.stderr].every(stream => stream.destroyed),
   })}\n`)
   // No process.exit(), extra unref(), or parent-side timer hides event-loop liveness.
