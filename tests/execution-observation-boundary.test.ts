@@ -67,11 +67,12 @@ vi.mock('node:fs', () => ({
 vi.mock('../src/guardian/incident.js', () => ({ writeJsonAtomic: fakeFs.writeJsonAtomic }))
 vi.mock('../src/engines/inventory-lock.js', () => ({ withInventoryLock: fakeFs.withInventoryLock }))
 
-import { MAX_ACTIVE_EXECUTIONS, readExecutions, type ExecutionSnapshot } from '../src/engines/execution-observation.js'
+import { MAX_ACTIVE_EXECUTIONS, MAX_TRACKED_EXECUTION_FILES, readExecutions, type ExecutionSnapshot } from '../src/engines/execution-observation.js'
 
 afterEach(() => {
   fakeFs.files.clear()
   vi.clearAllMocks()
+  fakeFs.opendirSync.mockReset()
 })
 
 function activeReceipt(executionId: string): ExecutionSnapshot {
@@ -94,10 +95,9 @@ function activeReceipt(executionId: string): ExecutionSnapshot {
   }
 }
 
-test('readExecutions classifies exactly 10,000 active receipts as full through synthetic filesystem entries', () => {
+test.each([9_999, 10_000, 10_001])('readExecutions classifies %i active receipts through synthetic filesystem entries without scanning history', count => {
   fakeFs.files.clear()
   vi.clearAllMocks()
-  const count = MAX_ACTIVE_EXECUTIONS
   const dataDir = 'synthetic-data-' + count
   const activeDir = `${dataDir}/executions/active`
   for (let index = 0; index < count; index++) {
@@ -106,10 +106,31 @@ test('readExecutions classifies exactly 10,000 active receipts as full through s
   }
 
   const inventory = readExecutions(dataDir, 100)
-  expect(inventory.records).toHaveLength(count)
-  expect(inventory.capacityExceeded).toBe(true)
-  expect(inventory.errors).toContain('active execution capacity reached (10000 >= 10000)')
+  expect(inventory.records).toHaveLength(Math.min(count, MAX_ACTIVE_EXECUTIONS))
+  expect(inventory.capacityExceeded).toBe(count >= MAX_ACTIVE_EXECUTIONS)
+  if (count >= MAX_ACTIVE_EXECUTIONS)
+    expect(inventory.errors).toContain('active execution capacity reached (' + count + ' >= 10000)')
+  else expect(inventory.errors).toEqual([])
   expect(fakeFs.readFileSync).toHaveBeenCalledTimes(count)
   expect(fakeFs.opendirSync.mock.calls.map(([path]) => String(path).replace(/\\/g, '/')))
     .not.toContain(join(dataDir, 'executions', 'history').replace(/\\/g, '/'))
+})
+
+test('oversized legacy inventory stops after a bounded traversal and reads no receipts or history', () => {
+  let visits = 0
+  fakeFs.opendirSync.mockImplementation(path => {
+    const isRoot = String(path).replace(/\\/g, '/').endsWith('/executions')
+    return { readSync: () => {
+      if (!isRoot) return null
+      const name = 'receipt-' + visits++ + '.json'
+      return { name, isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false } as Dirent
+    }, closeSync: vi.fn() }
+  })
+  const inventory = readExecutions('oversized-synthetic-data')
+  expect(inventory).toMatchObject({ protected: true, capacityExceeded: true, records: [] })
+  expect(inventory.errors).toContain('legacy execution directory exceeds the bounded migration scan')
+  expect(visits).toBeLessThanOrEqual(MAX_TRACKED_EXECUTION_FILES * 2 + 34)
+  expect(fakeFs.readFileSync).not.toHaveBeenCalled()
+  expect(fakeFs.opendirSync.mock.calls.map(([path]) => String(path).replace(/\\/g, '/')))
+    .not.toContain('oversized-synthetic-data/executions/history')
 })

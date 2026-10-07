@@ -1,4 +1,4 @@
-import { closeSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const PROCESS_STARTED_AT = Date.now() - process.uptime() * 1000
@@ -11,10 +11,11 @@ function processIsAlive(pid: number): boolean {
 
 function staleInventoryLock(lockFile: string): boolean {
   let stat
-  try { stat = statSync(lockFile) } catch { return false }
+  try { stat = lstatSync(lockFile) } catch { return false }
+  if (!stat.isFile() || stat.size > 1024) return false
   try {
     const owner = JSON.parse(readFileSync(lockFile, 'utf8')) as { pid?: unknown; processStartedAt?: unknown }
-    if (typeof owner.pid !== 'number' || !Number.isInteger(owner.pid) || typeof owner.processStartedAt !== 'number' || !Number.isFinite(owner.processStartedAt))
+    if (typeof owner.pid !== 'number' || !Number.isInteger(owner.pid) || owner.pid <= 0 || typeof owner.processStartedAt !== 'number' || !Number.isFinite(owner.processStartedAt))
       return Date.now() - stat.mtimeMs > 60_000
     const pid = owner.pid as number
     if (pid === process.pid) return Math.abs(owner.processStartedAt - PROCESS_STARTED_AT) > 2_000
@@ -26,7 +27,7 @@ function staleInventoryLock(lockFile: string): boolean {
  * Serialize execution inventory mutations. Stale locks intentionally fail closed:
  * reclaiming one by path can race with another process acquiring a replacement lock.
  */
-export function withInventoryLock<T>(dataDir: string, action: () => T): T {
+export function withInventoryLock<T>(dataDir: string, action: () => T, options: { retainOnError?: boolean } = {}): T {
   const root = join(dataDir, 'executions'), lockFile = join(root, '.inventory.lock')
   mkdirSync(root, { recursive: true })
   let descriptor: number
@@ -44,8 +45,12 @@ export function withInventoryLock<T>(dataDir: string, action: () => T): T {
     throw new Error('execution inventory lock could not be initialized; operator recovery is required')
   }
 
-  try { return action() } finally {
+  let retain = false
+  try { return action() } catch (error) {
+    retain = options.retainOnError === true
+    throw error
+  } finally {
     closeSync(descriptor)
-    unlinkSync(lockFile)
+    if (!retain) unlinkSync(lockFile)
   }
 }

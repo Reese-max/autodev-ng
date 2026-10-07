@@ -13,6 +13,7 @@ export const MAX_ACTIVE_EXECUTIONS = 10_000
 export const MAX_TRACKED_EXECUTION_FILES = 20_000
 const MAX_LEGACY_DIRECTORY_ENTRIES = MAX_TRACKED_EXECUTION_FILES * 2 + 32
 const MAX_RECEIPT_BYTES = 16_384
+const MAX_MIGRATION_MARKER_BYTES = MAX_LEGACY_DIRECTORY_ENTRIES * 256 + 1024
 const SAFE_ID = /^[A-Za-z0-9_-]{1,100}$/
 const SnapshotSchema = z.object({
   version: z.literal(1), executionId: z.string().regex(SAFE_ID), taskId: z.string(), adapter: z.string(),
@@ -112,9 +113,11 @@ function ensureLegacyLayout(dataDir: string, nowMs: number): { errors: string[];
   let marker: MigrationMarker | undefined
   if (existsSync(markerFile)) {
     try {
+      const info = lstatSync(markerFile)
+      if (!info.isFile() || info.size > MAX_MIGRATION_MARKER_BYTES) throw new Error('invalid migration marker file')
       const parsed = JSON.parse(readFileSync(markerFile, 'utf8')) as Partial<MigrationMarker>
-      if (parsed.version !== 1 || typeof parsed.migratedAt !== 'number' || !Array.isArray(parsed.quarantined) ||
-        parsed.quarantined.length > MAX_LEGACY_DIRECTORY_ENTRIES || parsed.quarantined.some(name => typeof name !== 'string'))
+      if (parsed.version !== 1 || typeof parsed.migratedAt !== 'number' || !Number.isFinite(parsed.migratedAt) || !Array.isArray(parsed.quarantined) ||
+        parsed.quarantined.length > MAX_LEGACY_DIRECTORY_ENTRIES || parsed.quarantined.some(name => typeof name !== 'string' || name.length > 255))
         throw new Error('invalid migration marker')
       marker = { version: 1, migratedAt: parsed.migratedAt, quarantined: parsed.quarantined as string[] }
     } catch { return { errors: ['execution inventory migration marker is invalid'], capacityExceeded: false } }
@@ -190,7 +193,10 @@ function ensureLegacyLayout(dataDir: string, nowMs: number): { errors: string[];
     if (migrationFailed) return { errors, capacityExceeded }
     marker = { version: 1, migratedAt: marker?.migratedAt ?? nowMs, quarantined }
   }
-  if (marker?.quarantined.length) errors.push('quarantined execution data requires review (' + marker.quarantined.length + ' files)')
+  // A crash/failed marker write or partial restore can preserve quarantined evidence
+  // without listing it in the marker. Inspect only its first entry, never its history.
+  if (marker?.quarantined.length || inventoryDirectoryHasEntries(executionQuarantineDir(dataDir)))
+    errors.push('quarantined execution data requires review')
   return { errors, capacityExceeded }
 }
 
@@ -216,6 +222,7 @@ function readExecutionsUnlocked(dataDir: string, nowMs: number): ExecutionInvent
   const names = bounded.entries.filter(entry => isReceiptName(entry.name) || isCancelName(entry.name)).map(entry => entry.name)
   const activeEntries = new Map(bounded.entries.map(entry => [entry.name, entry]))
   const receiptNames = names.filter(isReceiptName), cancelNames = new Set(names.filter(isCancelName))
+  const receiptNameSet = new Set(receiptNames)
   const unexpectedEntries = bounded.entries.filter(entry => !isReceiptName(entry.name) && !isCancelName(entry.name))
   if (unexpectedEntries.length) errors.push('unexpected files remain in the active execution directory')
   if (receiptNames.length > MAX_TRACKED_EXECUTION_FILES) { errors.push('active execution directory exceeds the bounded record limit'); capacityExceeded = true }
@@ -225,6 +232,7 @@ function readExecutionsUnlocked(dataDir: string, nowMs: number): ExecutionInvent
     const id = name.slice(0, -'.json'.length)
     if (!SAFE_ID.test(id)) { errors.push('invalid execution record filename: ' + name.slice(0, 100)); continue }
     const file = join(activeDir, name), hasCancel = cancelNames.has(id + '.cancel.json')
+    if (existsSync(executionHistoryFile(dataDir, id))) errors.push('execution identity exists in active and history: ' + id)
     try {
       if (!activeEntries.get(name)?.isFile()) throw new Error('non-regular execution entry')
       const record = parseReceipt(file, id)
@@ -238,12 +246,13 @@ function readExecutionsUnlocked(dataDir: string, nowMs: number): ExecutionInvent
       } else {
         if (records.length < MAX_ACTIVE_EXECUTIONS) records.push(record)
         if (hasCancel) errors.push('execution cancellation request remains pending: ' + id)
+        if (record.phase === 'terminal') errors.push('terminal execution state is unconfirmed: ' + id)
       }
     } catch { errors.push('invalid execution record: ' + name.slice(0, 110)) }
   }
   for (const name of cancelNames) {
     const id = name.slice(0, -'.cancel.json'.length)
-    if (!SAFE_ID.test(id) || !receiptNames.includes(id + '.json')) errors.push('orphan cancellation request: ' + name.slice(0, 110))
+    if (!SAFE_ID.test(id) || !receiptNameSet.has(id + '.json')) errors.push('orphan cancellation request: ' + name.slice(0, 110))
   }
   if (executionInventoryFull(activeFiles)) { errors.push('active execution capacity reached (' + activeFiles + ' >= ' + MAX_ACTIVE_EXECUTIONS + ')'); capacityExceeded = true }
   return { records, errors, protected: capacityExceeded || errors.length > 0 || records.length > 0,
@@ -327,7 +336,8 @@ export function createExecutionObservation(args: { dataDir: string; job: Job; ad
     writeJsonAtomic(file, state)
   })
   const persist = () => {
-    try { writeJsonAtomic(file, state); lastPersistedAt = Date.now() } catch { state.degraded = true }
+    try { writeJsonAtomic(file, state); lastPersistedAt = Date.now(); return true }
+    catch { state.degraded = true; return false }
   }
   const acceptObject = (value: unknown) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return
@@ -430,18 +440,20 @@ export function createExecutionObservation(args: { dataDir: string; job: Job; ad
       try {
         withInventoryLock(args.dataDir, () => {
           if (existsSync(cancellationFile)) {
-            state.cancelRequested = true; state.outcome = 'unconfirmed'; state.phase = 'unknown'; persist()
+            state.cancelRequested = true; state.outcome = 'unconfirmed'; state.phase = 'unknown'
+            if (!persist()) throw new Error('unconfirmed execution receipt could not be preserved')
             return
           }
           // Persist and archive as one serialized inventory update. A reader must not
           // move the terminal receipt between these two operations.
-          persist()
+          if (!persist()) throw new Error('terminal execution receipt could not be preserved')
           if (!archiveable(state) || state.degraded) return
           try { moveWithoutOverwrite(file, executionHistoryFile(args.dataDir, id)) }
           catch {
-            state.degraded = true; state.outcome = 'unconfirmed'; state.phase = 'unknown'; persist()
+            state.degraded = true; state.outcome = 'unconfirmed'; state.phase = 'unknown'
+            if (!persist()) throw new Error('unconfirmed execution receipt could not be preserved')
           }
-        })
+        }, { retainOnError: true })
       } catch {
         // Leave the last durable active receipt untouched when ownership is unknown.
         state.degraded = true; state.outcome = 'unconfirmed'; state.phase = 'unknown'

@@ -156,6 +156,8 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   const priorExecutions = (deps.executionInventory ?? readExecutions)(cfg.dataDir)
   if (priorExecutions.capacityExceeded)
     return blockTask({ store, events }, candidates[0]!, 'execution-inventory-capacity', '活動執行容量已滿；保留所有回執，僅封存已確認終結的紀錄後再派工')
+  if (priorExecutions.errors.length || priorExecutions.records.some(record => record.phase === 'unknown'))
+    return blockTask({ store, events }, candidates[0]!, 'team-state-quarantined', '既有執行狀態或回執尚未確認；保留工作區，需先核對後端狀態與容量儲存')
   let pending: PendingReview | undefined, pendingTask: Task | undefined
   for (const candidate of candidates) {
     try { pending = readPendingReview(cfg, candidate) } catch (err) { return blockTask({ store, events }, candidate, 'team-state-quarantined', String(err)) }
@@ -169,7 +171,12 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     return picked
   }
   const { task, engine, engineTag, fixedCost } = picked
-  if (priorExecutions.errors.length || priorExecutions.records.some(record => record.phase !== 'terminal' && (record.taskId === task.id || record.phase === 'unknown')))
+  // Preflight may await another process. Retain main's fresh state check before
+  // creating a claim/worktree, including legacy engines without an observer.
+  const currentExecutions = (deps.executionInventory ?? readExecutions)(cfg.dataDir)
+  if (currentExecutions.capacityExceeded)
+    return blockTask({ store, events }, task, 'execution-inventory-capacity', '活動執行容量已滿；保留所有回執，僅封存已確認終結的紀錄後再派工')
+  if (currentExecutions.errors.length || currentExecutions.records.some(record => record.taskId === task.id || record.phase === 'unknown'))
     return blockTask({ store, events }, task, 'team-state-quarantined', '既有執行尚未確認結束；保留工作區，需先核對後端狀態')
   const executionId = newExecutionId()
   const mainDirty = trackedDirtyFiles(cfg.projectPath, cfg.gitTimeoutMs)
@@ -483,6 +490,11 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   return resolveFailure(deps, task, 'failed', res.failureReason ?? '未知', failureClass, quotaUsage)
   } finally {
     observation?.finish(recoveryRequired ? 'unconfirmed' : learningResult.accepted || reviewWaiting ? 'completed' : 'failed')
+    if (observation?.recoveryRequired && !recoveryRequired) {
+      recoveryRequired = true
+      if (teamClaim) try { deps.team?.quarantine(executionId, teamClaim.token) } catch { /* Keep the unreleased claim for recovery. */ }
+      quiet(() => events.append('execution-receipt-unconfirmed', { executionId, taskId: task.id }))
+    }
     if (finishLearning && !recoveryRequired && !reviewWaiting) quiet(() => finishLearning!({ ...learningResult, failure: learningResult.accepted ? undefined : db.lastFailureFor(task.id) ?? undefined }))
     if (claimHeartbeat) clearInterval(claimHeartbeat)
     releaseClaim()

@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { afterEach, expect, test } from 'vitest'
+import { withInventoryLock } from '../src/engines/inventory-lock.js'
 
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
@@ -58,3 +59,25 @@ test('two concurrent contenders fail closed on a stale lock without either recla
   expect(results.every(result => !result.entered && result.error?.includes('stale execution inventory lock requires operator recovery'))).toBe(true)
   expect(readFileSync(lockFile, 'utf8')).toBe(originalLock)
 }, 15_000)
+
+test('a live lock rejects another writer and releases after the successful owner finishes', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-live-inventory-lock-'))
+  roots.push(root)
+  const lock = join(root, 'executions', '.inventory.lock')
+  withInventoryLock(root, () => {
+    const owner = readFileSync(lock, 'utf8')
+    expect(() => withInventoryLock(root, () => { throw new Error('second writer entered') })).toThrow('update is in progress')
+    expect(readFileSync(lock, 'utf8')).toBe(owner)
+  })
+  expect(existsSync(lock)).toBe(false)
+  expect(withInventoryLock(root, () => 'next writer')).toBe('next writer')
+})
+
+test('an oversized unknown owner stays untouched and fail-closed', () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-oversized-inventory-lock-'))
+  roots.push(root); mkdirSync(join(root, 'executions'))
+  const lock = join(root, 'executions', '.inventory.lock'), bytes = 'x'.repeat(2048)
+  writeFileSync(lock, bytes); utimesSync(lock, new Date(0), new Date(0))
+  expect(() => withInventoryLock(root, () => 'unsafe writer')).toThrow('owner is unknown')
+  expect(readFileSync(lock, 'utf8')).toBe(bytes)
+})

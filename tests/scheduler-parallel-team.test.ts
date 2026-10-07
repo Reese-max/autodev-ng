@@ -1,9 +1,24 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { writeFile as writeFileAsync } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterEach, beforeAll, describe, expect, test } from 'vitest'
+import { dirname, join } from 'node:path'
+import { afterEach, expect, test, vi } from 'vitest'
+
+const receiptFailures = vi.hoisted(() => ({ terminal: false, recovery: false, terminalAttempts: 0 }))
+vi.mock('../src/guardian/incident.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/guardian/incident.js')>()
+  return { ...actual, writeJsonAtomic(file: string, value: unknown) {
+    const phase = (value as { phase?: string })?.phase
+    if (receiptFailures.terminal && phase === 'terminal') {
+      receiptFailures.terminalAttempts++
+      throw Object.assign(new Error('fixture terminal receipt disk full'), { code: 'ENOSPC' })
+    }
+    if (receiptFailures.recovery && phase === 'unknown')
+      throw Object.assign(new Error('fixture recovery receipt disk full'), { code: 'ENOSPC' })
+    actual.writeJsonAtomic(file, value)
+  } }
+})
 import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { TeamState } from '../src/engines/team-state.js'
@@ -15,6 +30,7 @@ import { ConfigSchema, type Engine, type Job, type RunResult } from '../src/type
 
 const roots: string[] = []
 afterEach(() => {
+  receiptFailures.terminal = false; receiptFailures.recovery = false; receiptFailures.terminalAttempts = 0
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true })
 }, 180_000)
 
@@ -94,13 +110,16 @@ class SingleAdmissionEngine implements Engine {
   readonly id = 'single-admission-engine'
   preflightCalls = 0
   runCalls = 0
+  executionIds: string[] = []
   async preflight() { this.preflightCalls++; return { ok: true, detail: 'ok' } }
   async run(job: Job): Promise<RunResult> {
     this.runCalls++
+    this.executionIds.push(job.executionId!)
     const baseCommitHash = git(job.projectPath, ['rev-parse', 'HEAD'])
     writeFileSync(join(job.projectPath, 'archive-admission.txt'), `${job.task.text}\n`)
     git(job.projectPath, ['add', 'archive-admission.txt'])
     git(job.projectPath, ['commit', '-m', 'feat: admit with archived history'])
+    job.control?.onEvent?.({ type: 'exit', code: 0, reason: 'exit' })
     return { ok: true, output: 'admitted', costUsd: 0, baseCommitHash, commitHash: git(job.projectPath, ['rev-parse', 'HEAD']) }
   }
 }
@@ -160,6 +179,42 @@ test('observed scheduler keeps its receipt through verification and closes it af
   } finally { f.db.close(); f.team.close() }
 }, 60_000)
 
+test('finish-only receipt ENOSPC preserves the merged result, quarantines its claim and blocks the next task after storage recovers', async () => {
+  const f = fixture('- [ ] merge before receipt storage failure\n', 1), engine = new SingleAdmissionEngine()
+  let receiptFile = '', durableReceipt = ''
+  f.deps.cfg.engines[f.deps.cfg.defaultEngine]!.executionMode = 'observed'
+  f.deps.engines = { resolve: () => engine }
+  f.deps.verifier = { check: async job => {
+    receiptFile = join(f.deps.cfg.dataDir, 'executions', 'active', job.executionId! + '.json')
+    durableReceipt = readFileSync(receiptFile, 'utf8')
+    expect(JSON.parse(durableReceipt)).toMatchObject({ phase: 'validating', exit: { code: 0, reason: 'exit' }, degraded: false })
+    receiptFailures.terminal = true; receiptFailures.recovery = true
+    return { pass: true, alerts: [] }
+  } }
+  try {
+    expect(await runOnce(f.deps)).toBe('done')
+    expect(readFileSync(join(f.repo, 'archive-admission.txt'), 'utf8')).toContain('merge before receipt storage failure')
+    expect(readFileSync(f.backlog, 'utf8')).toContain('- [x]')
+    expect(receiptFailures.terminalAttempts).toBe(1)
+    expect(engine.runCalls).toBe(1)
+    const protectedTeam = f.team.snapshot()
+    expect(protectedTeam.claims).toMatchObject([{ execution_id: engine.executionIds[0], active: 1, state: 'QUARANTINED' }])
+    expect(protectedTeam.queue).toMatchObject([{ state: 'DONE' }])
+    expect(readFileSync(receiptFile, 'utf8')).toBe(durableReceipt)
+    expect(readdirSync(join(f.deps.cfg.dataDir, 'executions', 'history'))).toEqual([])
+    expect(existsSync(join(f.deps.cfg.dataDir, 'executions', '.inventory.lock'))).toBe(true)
+    expect(readExecutions(f.deps.cfg.dataDir)).toMatchObject({ protected: true, capacityExceeded: false })
+
+    receiptFailures.terminal = false; receiptFailures.recovery = false
+    writeFileSync(f.backlog, readFileSync(f.backlog, 'utf8') + '- [ ] fresh work after storage recovery\n')
+    expect(await runOnce(f.deps)).toMatchObject({ kind: 'blocked', reason: 'team-state-quarantined' })
+    expect(engine.preflightCalls).toBe(1)
+    expect(engine.runCalls).toBe(1)
+    expect(f.team.snapshot()).toEqual(protectedTeam)
+    expect(readFileSync(receiptFile, 'utf8')).toBe(durableReceipt)
+  } finally { f.db.close(); f.team.close() }
+}, 60_000)
+
 test('in-memory production inventory with exactly 10,000 active receipts blocks admission before preflight, team claim, or worktree', async () => {
   const f = fixture('- [ ] keep pending at capacity\n', 1), engine = new BarrierEngine()
   f.deps.engines = { resolve: () => engine }
@@ -180,26 +235,175 @@ test('in-memory production inventory with exactly 10,000 active receipts blocks 
   } finally { f.db.close(); f.team.close() }
 })
 
-describe('scheduler admission with a full-size archived execution history', () => {
-  let f!: ReturnType<typeof fixture>
-  let engine!: SingleAdmissionEngine
-  beforeAll(async () => {
-    f = fixture('- [ ] work with a large archive\n', 1)
-    engine = new SingleAdmissionEngine()
-    f.deps.engines = { resolve: () => engine }
-    const history = join(f.deps.cfg.dataDir, 'executions', 'history')
-    await writeReceiptFixture(history, 10_000, id => terminalReceipt(id, f.repo))
-  }, 300_000)
+test.each(['unknown', 'running same task', 'corrupt'])('legacy engine rereads a real %s receipt created during healthy preflight before claim or worktree', async state => {
+  const f = fixture('- [ ] task awaiting healthy preflight\n', 1), engine = new SingleAdmissionEngine()
+  const folder = join(f.deps.cfg.dataDir, 'executions'), id = 'preflight-race'
+  const task = f.deps.store.read()[0]!
+  const receipt = { ...activeReceipt(id, f.repo),
+    phase: state === 'unknown' ? 'unknown' : 'running', taskId: state === 'running same task' ? task.id : 'other-task' }
+  const bytes = state === 'corrupt' ? '{corrupt preflight receipt' : JSON.stringify(receipt)
+  f.deps.cfg.engines[f.deps.cfg.defaultEngine]!.executionMode = 'bounded'
+  f.deps.engines = { resolve: () => engine }
+  engine.preflight = async () => {
+    engine.preflightCalls++
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, id + '.json'), bytes)
+    return { ok: true, detail: 'healthy mocked preflight' }
+  }
+  try {
+    expect(f.deps.executionInventory).toBeUndefined()
+    expect(await runOnce(f.deps)).toMatchObject({ kind: 'blocked', reason: 'team-state-quarantined' })
+    expect(engine.preflightCalls).toBe(1)
+    expect(engine.runCalls).toBe(0)
+    expect(f.team.snapshot().claims).toEqual([])
+    expect(f.db.taskFailCount(task.id)).toBe(0)
+    expect(existsSync(f.deps.cfg.worktreesDir)).toBe(false)
+    expect(readExecutions(f.deps.cfg.dataDir)).toMatchObject({ protected: true, capacityExceeded: false })
+    expect(readFileSync(join(folder, 'active', id + '.json'), 'utf8')).toBe(bytes)
+  } finally { f.db.close(); f.team.close() }
+}, 60_000)
 
-  test('admits a ready task while preserving 10,000 archived receipts', async () => {
-    try {
-      expect(await runOnce(f.deps)).toBe('done')
-      expect(engine.preflightCalls).toBe(1)
-      expect(engine.runCalls).toBe(1)
-      expect(existsSync(join(f.deps.cfg.dataDir, 'executions', 'history', 'receipt-09999.json'))).toBe(true)
-    } finally { f.db.close(); f.team.close() }
-  }, 120_000)
-})
+test('capacity reached during healthy preflight is rechecked before legacy engine claim or worktree', async () => {
+  const f = fixture('- [ ] task awaiting capacity recheck\n', 1), engine = new SingleAdmissionEngine()
+  let inventoryReads = 0
+  const empty: ExecutionInventory = { records: [], errors: [], protected: false, diagnosisDue: false, capacityExceeded: false }
+  const full: ExecutionInventory = {
+    records: Array.from({ length: 10_000 }, (_, index) => activeReceipt('receipt-' + String(index).padStart(5, '0'), f.repo)),
+    errors: ['active execution capacity reached (10000 >= 10000)'], protected: true, diagnosisDue: true,
+    capacityExceeded: executionInventoryFull(10_000),
+  }
+  f.deps.cfg.engines[f.deps.cfg.defaultEngine]!.executionMode = 'bounded'
+  f.deps.engines = { resolve: () => engine }
+  f.deps.executionInventory = () => ++inventoryReads === 1 ? empty : full
+  try {
+    expect(await runOnce(f.deps)).toMatchObject({ kind: 'blocked', reason: 'execution-inventory-capacity' })
+    expect(inventoryReads).toBe(2)
+    expect(engine.preflightCalls).toBe(1)
+    expect(engine.runCalls).toBe(0)
+    expect(f.team.snapshot().claims).toEqual([])
+    expect(existsSync(f.deps.cfg.worktreesDir)).toBe(false)
+  } finally { f.db.close(); f.team.close() }
+}, 60_000)
+
+test.each([9_999, 10_000, 10_001])('physical legacy history with %i terminal receipts admits work, survives restart and restores from a backup', async count => {
+  const f = fixture('- [ ] work with a large legacy history\n', 1), engine = new SingleAdmissionEngine()
+  const folder = join(f.deps.cfg.dataDir, 'executions'), history = join(folder, 'history')
+  let db = f.db, team = f.team
+  const restoredData = mkdtempSync(join(tmpdir(), 'adng-history-restore-'))
+  roots.push(restoredData)
+  f.deps.engines = { resolve: () => engine }
+  f.deps.cfg.engines[f.deps.cfg.defaultEngine]!.executionMode = 'observed'
+  try {
+    await writeReceiptFixture(folder, count, id => {
+      const sequence = Number(id.slice('receipt-'.length))
+      return { ...terminalReceipt(id, f.repo), sequence, outputBytes: sequence,
+        outcome: sequence % 2 === 0 ? 'completed' : 'failed', exit: { code: sequence % 2, reason: 'exit' } }
+    })
+    expect(existsSync(history)).toBe(false)
+    const samples = [0, Math.floor(count / 2), count - 1].map(index => {
+      const id = 'receipt-' + String(index).padStart(5, '0')
+      return { id, bytes: readFileSync(join(folder, id + '.json'), 'utf8') }
+    })
+    const assertHistory = (dataDir: string, expectedCount: number): void => {
+      const executions = join(dataDir, 'executions')
+      expect(readExecutions(dataDir)).toEqual({ protected: false, diagnosisDue: false, records: [], errors: [], capacityExceeded: false })
+      expect(readdirSync(join(executions, 'active'))).toEqual([])
+      expect(readdirSync(join(executions, 'history'))).toHaveLength(expectedCount)
+      for (const sample of samples) {
+        expect(readExecution(dataDir, sample.id)).toEqual(JSON.parse(sample.bytes))
+        expect(readFileSync(join(executions, 'history', sample.id + '.json'), 'utf8')).toBe(sample.bytes)
+        expect(existsSync(join(executions, sample.id + '.json'))).toBe(false)
+      }
+    }
+    // runOnce must discover and migrate the real legacy files through its production inventory reader.
+    expect(f.deps.executionInventory).toBeUndefined()
+    expect(await runOnce(f.deps)).toBe('done')
+    expect(engine.preflightCalls).toBe(1)
+    expect(engine.runCalls).toBe(1)
+    assertHistory(f.deps.cfg.dataDir, count + 1)
+    assertHistory(f.deps.cfg.dataDir, count + 1)
+    expect(readExecution(f.deps.cfg.dataDir, engine.executionIds[0]!)).toMatchObject({ phase: 'terminal', outcome: 'completed' })
+
+    // Reopen the scheduler's durable state as an isolated restart simulation and dispatch another task.
+    db.close(); team.close()
+    db = new RunDb(join(dirname(f.backlog), 'run.db')); team = new TeamState(f.repo)
+    writeFileSync(f.backlog, '- [ ] work after isolated scheduler restart\n')
+    const restarted = { ...f.deps, db, team, store: new BacklogStore(f.backlog) }
+    assertHistory(restarted.cfg.dataDir, count + 1)
+    expect(await runOnce(restarted)).toBe('done')
+    expect(engine.preflightCalls).toBe(2)
+    expect(engine.runCalls).toBe(2)
+    assertHistory(restarted.cfg.dataDir, count + 2)
+
+    cpSync(folder, join(restoredData, 'executions'), { recursive: true })
+    assertHistory(restoredData, count + 2)
+    assertHistory(restoredData, count + 2)
+    for (const id of engine.executionIds)
+      expect(readExecution(restoredData, id)).toEqual(readExecution(restarted.cfg.dataDir, id))
+  } finally { db.close(); team.close() }
+}, 300_000)
+
+test.each([
+  'running same task', 'unknown different task', 'waiting_input same task', 'terminal cancellation sidecar',
+  'corrupt receipt', 'unverified terminal same task', 'unverified terminal different task',
+  'unconfirmed terminal different task', 'degraded terminal different task', 'duplicate restored identity',
+])('mixed legacy history rejects %s while preserving receipts and existing claims', async state => {
+  const meta = '<!-- adng:ownership {"write":["archive-admission.txt"],"resources":[],"risk":"low"} -->'
+  const f = fixture(`- [ ] protected admission ${meta}\n`, 1), engine = new SingleAdmissionEngine()
+  f.deps.engines = { resolve: () => engine }
+  const folder = join(f.deps.cfg.dataDir, 'executions'), id = 'protected-existing-execution'
+  const task = f.deps.store.read()[0]!
+  const claim = f.team.claim({ executionId: 'protected-claim', workerId: 'mock', reservedCostUsd: 0,
+    task: { ...task, id: 'other-owned-task', ownership: { write: ['protected.txt'], resources: [], risk: 'low' } },
+    spentUsd: 0, dailyHardUsd: 0, leaseMs: 300_000 })
+  expect(claim.ok).toBe(true)
+  const claimsBefore = f.team.snapshot()
+  try {
+    await writeReceiptFixture(folder, 2, receiptId => terminalReceipt(receiptId, f.repo))
+    let receipt: ExecutionSnapshot = { ...terminalReceipt(id, f.repo), taskId: task.id }
+    if (state === 'running same task') receipt = { ...activeReceipt(id, f.repo), taskId: task.id }
+    if (state === 'waiting_input same task') receipt = { ...activeReceipt(id, f.repo), taskId: task.id, phase: 'waiting_input' }
+    if (state === 'unknown different task') receipt = { ...activeReceipt(id, f.repo), taskId: 'other-task', phase: 'unknown', outcome: 'unconfirmed' }
+    if (state === 'duplicate restored identity') receipt = { ...activeReceipt(id, f.repo), taskId: 'other-task' }
+    if (state.startsWith('unverified terminal')) receipt = { ...receipt, exit: undefined }
+    if (state === 'unconfirmed terminal different task') receipt = { ...receipt, outcome: 'unconfirmed' }
+    if (state === 'degraded terminal different task') receipt = { ...receipt, degraded: true }
+    if (state.endsWith('different task')) receipt = { ...receipt, taskId: 'other-task' }
+    const bytes = state === 'corrupt receipt' ? '{broken' : JSON.stringify(receipt)
+    writeFileSync(join(folder, id + '.json'), bytes)
+    const restoredBytes = JSON.stringify({ ...terminalReceipt(id, f.repo), taskId: 'restored-older-task', sequence: 99, outputBytes: 123 })
+    if (state === 'duplicate restored identity') {
+      mkdirSync(join(folder, 'history'), { recursive: true })
+      writeFileSync(join(folder, 'history', id + '.json'), restoredBytes)
+    }
+    const cancelBytes = JSON.stringify({ executionId: id, hostPid: process.pid, hostStartedAt: 1, requestedAt: 1 })
+    if (state === 'terminal cancellation sidecar') writeFileSync(join(folder, id + '.cancel.json'), cancelBytes)
+
+    expect(f.deps.executionInventory).toBeUndefined()
+    expect(await runOnce(f.deps)).toMatchObject({ kind: 'blocked', reason: 'team-state-quarantined' })
+    expect(engine.runCalls).toBe(0)
+    if (state !== 'running same task' && state !== 'waiting_input same task') expect(engine.preflightCalls).toBe(0)
+    expect(f.db.taskFailCount(task.id)).toBe(0)
+    expect(f.team.snapshot()).toEqual(claimsBefore)
+    expect(existsSync(f.deps.cfg.worktreesDir)).toBe(false)
+    expect(readExecutions(f.deps.cfg.dataDir)).toMatchObject({ protected: true, capacityExceeded: false })
+    expect(readFileSync(join(folder, 'active', id + '.json'), 'utf8')).toBe(bytes)
+    const historyNames = ['receipt-00000.json', 'receipt-00001.json']
+    if (state === 'duplicate restored identity') historyNames.push(id + '.json')
+    expect(readdirSync(join(folder, 'history')).sort()).toEqual(historyNames.sort())
+    if (state === 'corrupt receipt') expect(() => readExecution(f.deps.cfg.dataDir, id)).toThrow()
+    else if (state === 'duplicate restored identity') {
+      expect(() => readExecution(f.deps.cfg.dataDir, id)).toThrow('both active and history')
+      expect(readFileSync(join(folder, 'history', id + '.json'), 'utf8')).toBe(restoredBytes)
+    }
+    else expect(readExecution(f.deps.cfg.dataDir, id)).toEqual(JSON.parse(bytes))
+    if (state === 'terminal cancellation sidecar') expect(readFileSync(join(folder, 'active', id + '.cancel.json'), 'utf8')).toBe(cancelBytes)
+    expect(await runOnce(f.deps)).toBe('idle')
+    expect(engine.runCalls).toBe(0)
+    expect(f.team.snapshot()).toEqual(claimsBefore)
+    if (claim.ok) expect(f.team.heartbeat('protected-claim', claim.token, 300_000)).toBe(true)
+  } finally { f.db.close(); f.team.close() }
+}, 60_000)
 
 test('concurrency=2：兩個 disjoint ownership Engineer 真正重疊，merge queue 仍依序完成', async () => {
   const metaA = '<!-- adng:ownership {"write":["a.txt"],"resources":[],"risk":"low"} -->'
