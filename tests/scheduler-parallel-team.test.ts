@@ -34,6 +34,8 @@ import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { TeamState } from '../src/engines/team-state.js'
 import { cancelledRun } from '../src/engines/run-control.js'
+import { InventoryLockBusyError } from '../src/engines/inventory-lock.js'
+import { alternativeRetryUsed } from '../src/engines/alternative-retry.js'
 import { createExecutionObservation, executionInventoryFull, readExecution, readExecutions, type ExecutionInventory, type ExecutionSnapshot } from '../src/engines/execution-observation.js'
 import { EventLog } from '../src/events.js'
 import { runOnce, type Deps } from '../src/scheduler.js'
@@ -363,6 +365,180 @@ test('inventory contention after healthy preflight defers without quarantining t
     expect(engine.preflightCalls).toBe(2)
     expect(engine.runCalls).toBe(1)
     expect(f.deps.store.read()[0]!.status).toBe('done')
+  } finally { f.db.close(); f.team.close() }
+}, 60_000)
+
+test.each([
+  { fixedCost: undefined, alternativeRetry: false },
+  { fixedCost: 2.75, alternativeRetry: false },
+  { fixedCost: undefined, alternativeRetry: true },
+])('late observer admission contention defers without worker or accounting effects (fixed cost $fixedCost, alternative retry $alternativeRetry)', async ({ fixedCost, alternativeRetry }) => {
+  const f = fixture('- [ ] task waiting for observer initialization\n', 1), engine = new SingleAdmissionEngine()
+  const tag = f.deps.cfg.defaultEngine, task = f.deps.store.read()[0]!, day = new Date().toISOString().slice(0, 10)
+  const folder = join(f.deps.cfg.dataDir, 'executions'), lockFile = join(folder, '.inventory.lock')
+  const ownerBytes = JSON.stringify({ pid: process.pid, processStartedAt: Date.now() - process.uptime() * 1000,
+    acquiredAt: Date.now(), fixture: 'late-admission-owner' })
+  let inventoryReads = 0, workerStarts = 0
+  f.deps.cfg.engines[tag]!.executionMode = 'observed'
+  f.deps.cfg.engines[tag]!.costPerRunUsd = fixedCost
+  f.deps.cfg.alternativeRetry = alternativeRetry
+  if (alternativeRetry) for (let attempt = 0; attempt < f.deps.cfg.maxAttempts; attempt++)
+    f.db.record({ taskId: task.id, ok: false, costUsd: 0, detail: 'prior isolated task failure', engine: tag, failureClass: 'task' })
+  const attemptBefore = f.db.lastAttempt(), failCountBefore = f.db.failCount(task.id), taskFailCountBefore = f.db.taskFailCount(task.id)
+  const accountingBefore = f.db.accountingForDay(day), statsBefore = f.db.dayStats(day), admissionsBefore = f.team.attemptsToday(tag)
+  f.deps.engines = { resolve: () => engine }
+  f.deps.onWorkerStart = () => { workerStarts++ }
+  f.deps.executionInventory = dataDir => {
+    const inventory = readExecutions(dataDir)
+    expect(inventory).toMatchObject({ records: [], errors: [], protected: false, capacityExceeded: false })
+    if (++inventoryReads === 2) {
+      // The fresh read has released its lock; a different live inventory owner wins before observer initialization.
+      mkdirSync(folder, { recursive: true })
+      writeFileSync(lockFile, ownerBytes, { flag: 'wx' })
+    }
+    return inventory
+  }
+  try {
+    const result = await runOnce(f.deps)
+    expect.soft(result).toBe('deferred')
+    expect.soft(inventoryReads).toBe(2)
+    expect.soft(engine.preflightCalls).toBe(1)
+    expect.soft(engine.runCalls).toBe(0)
+    expect.soft(workerStarts).toBe(0)
+    expect.soft(f.deps.store.read()[0]!.status).toBe('open')
+    expect.soft(f.db.lastAttempt()).toEqual(attemptBefore)
+    expect.soft(f.db.failCount(task.id)).toBe(failCountBefore)
+    expect.soft(f.db.taskFailCount(task.id)).toBe(taskFailCountBefore)
+    expect.soft(f.db.accountingForDay(day)).toEqual(accountingBefore)
+    expect.soft(f.db.dayStats(day)).toEqual(statsBefore)
+    // TeamState counts the admitted claim; defer adds no provider/RunDb attempt and releases ownership.
+    expect.soft(f.team.attemptsToday(tag)).toBe(admissionsBefore + 1)
+    expect.soft(alternativeRetryUsed(f.deps.cfg, task.id)).toBe(false)
+    const eventsFile = join(f.deps.cfg.dataDir, 'events.jsonl')
+    const learningEvents = existsSync(eventsFile) ? readFileSync(eventsFile, 'utf8').split('\n').filter(Boolean)
+      .map(line => JSON.parse(line) as { type: string }).filter(event => event.type === 'learning-started' || event.type === 'learning-outcome') : []
+    expect.soft(learningEvents).toEqual([])
+    expect.soft(f.team.snapshot().claims).toMatchObject([{ task_id: task.id, active: 0, state: 'RELEASED' }])
+    expect.soft(f.team.snapshot().queue).toEqual([])
+    const worktree = join(f.deps.cfg.worktreesDir, task.id)
+    expect.soft(existsSync(worktree)).toBe(true)
+    expect.soft(git(f.repo, ['branch', '--list', 'adng/' + task.id])).toContain('adng/' + task.id)
+    expect.soft(git(worktree, ['status', '--porcelain', '--untracked-files=no'])).toBe('')
+    expect.soft(git(worktree, ['rev-parse', 'HEAD'])).toBe(git(f.repo, ['rev-parse', 'HEAD']))
+    for (const location of ['active', 'history']) {
+      const path = join(folder, location)
+      expect.soft(existsSync(path) ? readdirSync(path) : []).toEqual([])
+    }
+    expect.soft(readFileSync(lockFile, 'utf8')).toBe(ownerBytes)
+    if (readFileSync(lockFile, 'utf8') === ownerBytes) rmSync(lockFile)
+    expect(await runOnce(f.deps)).toBe('done')
+    expect(engine.preflightCalls).toBe(2)
+    expect(engine.runCalls).toBe(1)
+    expect(workerStarts).toBe(1)
+    expect(f.deps.store.read()[0]!.status).toBe('done')
+    expect(alternativeRetryUsed(f.deps.cfg, task.id)).toBe(alternativeRetry)
+  } finally {
+    // Release only this exact test-owned lock; all paths belong to the isolated fixture.
+    if (existsSync(lockFile) && readFileSync(lockFile, 'utf8') === ownerBytes) rmSync(lockFile)
+    f.db.close(); f.team.close()
+  }
+}, 60_000)
+
+test.each(['unknown lock owner', 'active capacity'])('late observer initialization rejects %s without worker billing or learning effects', async state => {
+  const f = fixture('- [ ] task rejected during observer initialization\n', 1), engine = new SingleAdmissionEngine()
+  const tag = f.deps.cfg.defaultEngine, task = f.deps.store.read()[0]!, day = new Date().toISOString().slice(0, 10)
+  const folder = join(f.deps.cfg.dataDir, 'executions'), active = join(folder, 'active'), lockFile = join(folder, '.inventory.lock')
+  const ownerBytes = 'unknown-oversized-owner'.repeat(64)
+  const samples: Array<{ id: string; bytes: string }> = []
+  let inventoryReads = 0, workerStarts = 0, invalidations = 0
+  f.deps.cfg.engines[tag]!.executionMode = 'observed'
+  f.deps.cfg.engines[tag]!.costPerRunUsd = 2.75
+  f.deps.engines = { resolve: () => Object.assign(engine, { invalidatePreflight: () => { invalidations++ } }) }
+  f.deps.onWorkerStart = () => { workerStarts++ }
+  f.deps.executionInventory = dataDir => {
+    const inventory = readExecutions(dataDir)
+    expect(inventory).toMatchObject({ records: [], errors: [], protected: false, capacityExceeded: false })
+    if (++inventoryReads === 2) {
+      if (state === 'unknown lock owner') {
+        mkdirSync(folder, { recursive: true })
+        writeFileSync(lockFile, ownerBytes, { flag: 'wx' })
+      } else {
+        mkdirSync(active, { recursive: true })
+        for (let index = 0; index < 10_000; index++) {
+          const id = 'late-active-' + String(index).padStart(5, '0'), bytes = JSON.stringify(activeReceipt(id, f.repo))
+          writeFileSync(join(active, id + '.json'), bytes)
+          if (index === 0 || index === 5_000 || index === 9_999) samples.push({ id, bytes })
+        }
+      }
+    }
+    return inventory
+  }
+  try {
+    expect(await runOnce(f.deps)).toMatchObject({ kind: 'blocked',
+      reason: state === 'active capacity' ? 'execution-inventory-capacity' : 'team-state-quarantined' })
+    expect(inventoryReads).toBe(2)
+    expect(engine.preflightCalls).toBe(1)
+    expect(engine.runCalls).toBe(0)
+    expect(workerStarts).toBe(0)
+    expect(invalidations).toBe(0)
+    expect(f.db.lastAttempt()).toBeNull()
+    expect(f.db.failCount(task.id)).toBe(0)
+    expect(f.db.accountingForDay(day)).toMatchObject({ attempts: 0, estimatedUsd: 0, unknownCost: 0 })
+    expect(f.db.dayStats(day)).toEqual({ ok: 0, fail: 0, costUsd: 0, billedUsd: 0 })
+    expect(f.team.snapshot().claims).toMatchObject([{ task_id: task.id, active: 0, state: 'RELEASED' }])
+    expect(f.team.snapshot().queue).toEqual([])
+    const eventsFile = join(f.deps.cfg.dataDir, 'events.jsonl')
+    const learningEvents = existsSync(eventsFile) ? readFileSync(eventsFile, 'utf8').split('\n').filter(Boolean)
+      .map(line => JSON.parse(line) as { type: string }).filter(event => event.type === 'learning-started' || event.type === 'learning-outcome') : []
+    expect(learningEvents).toEqual([])
+    const history = join(folder, 'history')
+    expect(existsSync(history) ? readdirSync(history) : []).toEqual([])
+    if (state === 'unknown lock owner') {
+      expect(readFileSync(lockFile, 'utf8')).toBe(ownerBytes)
+      expect(existsSync(active) ? readdirSync(active) : []).toEqual([])
+      expect(readExecutions(f.deps.cfg.dataDir)).toMatchObject({ protected: true, capacityExceeded: false })
+    } else {
+      expect(readdirSync(active)).toHaveLength(10_000)
+      expect(readExecutions(f.deps.cfg.dataDir)).toMatchObject({ protected: true, capacityExceeded: true })
+      for (const sample of samples) {
+        expect(readFileSync(join(active, sample.id + '.json'), 'utf8')).toBe(sample.bytes)
+        expect(readExecution(f.deps.cfg.dataDir, sample.id)).toEqual(JSON.parse(sample.bytes))
+      }
+    }
+  } finally {
+    if (existsSync(lockFile) && readFileSync(lockFile, 'utf8') === ownerBytes) rmSync(lockFile)
+    f.db.close(); f.team.close()
+  }
+}, 180_000)
+
+test.each(['bounded', 'observed'] as const)('genuine %s worker InventoryLockBusyError retains engine failure accounting and invalidates preflight', async mode => {
+  const f = fixture('- [ ] genuine mock worker failure\n', 1), tag = f.deps.cfg.defaultEngine
+  const task = f.deps.store.read()[0]!, day = new Date().toISOString().slice(0, 10)
+  let preflightCalls = 0, runCalls = 0, invalidations = 0, workerStarts = 0
+  const engine: Engine = {
+    id: 'busy-error-worker',
+    preflight: async () => { preflightCalls++; return { ok: true, detail: 'healthy mocked preflight' } },
+    run: async () => { runCalls++; throw new InventoryLockBusyError() },
+    invalidatePreflight: () => { invalidations++ },
+  }
+  f.deps.cfg.engines[tag]!.executionMode = mode
+  f.deps.cfg.engines[tag]!.costPerRunUsd = 2.75
+  f.deps.engines = { resolve: () => engine }
+  f.deps.onWorkerStart = () => { workerStarts++ }
+  try {
+    expect(await runOnce(f.deps)).toBe('engine-error')
+    expect(preflightCalls).toBe(1)
+    expect(runCalls).toBe(1)
+    expect(workerStarts).toBe(1)
+    expect(invalidations).toBe(1)
+    expect(f.db.lastAttempt()).toMatchObject({ taskId: task.id, ok: false, costUsd: 2.75, failureClass: 'supply',
+      detail: expect.stringContaining('InventoryLockBusyError') })
+    expect(f.db.failCount(task.id)).toBe(1)
+    expect(f.db.taskFailCount(task.id)).toBe(0)
+    expect(f.db.accountingForDay(day)).toMatchObject({ attempts: 1, estimatedUsd: 2.75, unknownCost: 0 })
+    expect(f.db.dayStats(day)).toEqual({ ok: 0, fail: 1, costUsd: 2.75, billedUsd: 2.75 })
+    expect(f.team.attemptsToday(tag)).toBe(1)
+    expect(existsSync(join(f.deps.cfg.worktreesDir, task.id))).toBe(true)
   } finally { f.db.close(); f.team.close() }
 }, 60_000)
 

@@ -31,6 +31,13 @@ export type ExecutionSnapshot = z.infer<typeof SnapshotSchema>
 export type ExecutionInventory = { records: ExecutionSnapshot[]; errors: string[]; protected: boolean; diagnosisDue: boolean; capacityExceeded: boolean; updateInProgress?: boolean }
 export type ExecutionReceiptDestination = 'active' | 'history'
 
+export class ExecutionInventoryCapacityError extends Error {
+  constructor() {
+    super('Execution inventory capacity exceeded; preserve active records')
+    this.name = 'ExecutionInventoryCapacityError'
+  }
+}
+
 type MigrationMarker = { version: 1; migratedAt: number; quarantined: string[] }
 
 function executionRoot(dataDir: string): string { return join(dataDir, 'executions') }
@@ -327,14 +334,14 @@ export function createExecutionObservation(args: { dataDir: string; job: Job; ad
   // Admission is fail-closed before starting a worker; subsequent I/O failures preserve it.
   withInventoryLock(args.dataDir, () => {
     const inventory = readExecutionsUnlocked(args.dataDir, Date.now())
-    if (inventory.capacityExceeded) throw new Error('Execution inventory capacity exceeded; preserve active records')
+    if (inventory.capacityExceeded) throw new ExecutionInventoryCapacityError()
     if (inventory.errors.length) throw new Error('Execution inventory is unavailable; preserve existing records')
     if (inventory.records.some(record => record.taskId === args.job.task.id || record.phase === 'unknown'))
       throw new Error('An existing execution requires backend-state review before this task can start')
     if (existsSync(file) || existsSync(executionHistoryFile(args.dataDir, id)))
       throw new Error('Execution identity already exists; preserve the previous receipt')
     if (inventory.records.length >= MAX_ACTIVE_EXECUTIONS)
-      throw new Error('Execution inventory capacity exceeded; preserve active records')
+      throw new ExecutionInventoryCapacityError()
     writeJsonAtomic(file, state)
   })
   const persistUnlocked = () => {

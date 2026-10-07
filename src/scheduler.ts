@@ -28,7 +28,8 @@ import { checkOwnership, compatibleTasks } from './engines/ownership.js'
 import type { TeamState } from './engines/team-state.js'
 import { trackedDirtyFiles } from './engines/main-admission.js'
 import { observeLearning } from './learn/outcomes.js'
-import { createExecutionObservation, readExecutions, type ExecutionInventory } from './engines/execution-observation.js'
+import { createExecutionObservation, ExecutionInventoryCapacityError, readExecutions, type ExecutionInventory } from './engines/execution-observation.js'
+import { InventoryLockBusyError } from './engines/inventory-lock.js'
 import type { RunControl } from './engines/run-control.js'
 import { assertPendingCandidate, readPendingReview, savePendingReview, closePendingReview, type PendingReview } from './engines/pending-review.js'
 
@@ -245,21 +246,15 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   let lessonsText = ''
   try { lessonsText = deps.lessons?.inject() ?? '' } catch { /* 教訓面故障不擋派工 */ }
   if (lessonsText) directive = `${directive ?? task.text}\n\n${lessonsText}`
-  if (!pending) finishLearning = observeLearning(events, { executionId, taskId: task.id, model: cfg.engines[engineTag]?.model ?? engineTag, baseCommit: wt.baseHead, lessonsText })
   // 驗收回饋（judge 有效性分析 2026-07-28）：上一輪失敗原因餵回派工，終結同型連環打回
   // （491bd799 案例：引擎不知道打回原因，同款 claim 膨脹重複六輪）。fail-open 不擋派工。
   try {
     const lastFail = db.lastFailureFor(task.id)
     if (lastFail) directive = `${directive ?? task.text}\n\n上一次嘗試失敗被驗收打回，原因：${lastFail.replace(/\s+/g, ' ').trim().slice(0, 400)}\n請針對打回原因修正；宣稱改動的檔案與範圍必須與實際 diff 一致，不得宣稱未完成的部分。`
   } catch { /* 回饋面故障不擋派工 */ }
-  if (cfg.alternativeRetry && alternativeRetryDue(cfg, db.taskFailCount(task.id))) {
-    try { directive = `${directive ?? task.text}\n\n${startAlternativeRetry(cfg, task.id, executionId, db.lastFailureFor(task.id))}` }
-    catch { return blockTask({ store, events }, task, 'verification-infra', '二次修復收據無法安全建立，保留現場等待介入') }
-  }
   // 幻影完成對策（run.db 四大失敗來源分析 2026-07-27）：自證硬指令恆附派工尾。
   directive = `${directive ?? task.text}\n\n完成的定義＝工作區改動完成，且最終由引擎或可信宿主產生新 git commit。若 sandbox 保護 Git metadata，不得繞過沙箱，保留改動讓宿主提交；否則結束前執行 git log -1 --oneline 自證。\n完成定義＝最終存在新 commit，無 commit 視為未完成。`
 
-  // try 只包 engine.run：下游 I/O 故障不該被誤判成引擎錯誤而污染 failCount。
   let res: RunResult
   const job: Job = { task, projectPath: wt.cwd, directive, executionId, writerIdentity: engineTag, control: deps.runControl }
   const quarantineRun = (reason?: string): CycleResult => {
@@ -270,23 +265,41 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     return blockTask({ store, events }, task, 'team-state-quarantined', `執行 ${executionId} 的後端停止尚未確認；保留工作區與寫入權：${reason ?? 'unknown'}`)
   }
   if (pending) res = pending.result
-  else try {
+  else {
     const mode = cfg.engines[engineTag]?.executionMode
     if (mode === 'observed' || mode === 'supervised') {
-      observation = createExecutionObservation({ dataDir: cfg.dataDir, job, adapter: cfg.engines[engineTag]!.adapter, supervised: mode === 'supervised' })
+      try {
+        observation = createExecutionObservation({ dataDir: cfg.dataDir, job, adapter: cfg.engines[engineTag]!.adapter, supervised: mode === 'supervised' })
+      } catch (err) {
+        // No worker has been dispatched. The outer finally releases this cycle's
+        // claim; contention must not become a billed engine/supply failure.
+        if (err instanceof InventoryLockBusyError) return 'deferred'
+        if (err instanceof ExecutionInventoryCapacityError)
+          return blockTask({ store, events }, task, 'execution-inventory-capacity', '活動執行容量已滿；保留所有回執，僅封存已確認終結的紀錄後再派工')
+        return blockTask({ store, events }, task, 'team-state-quarantined', `執行回執初始化失敗，尚未派工：${String(err)}`)
+      }
       job.control = observation.control
     }
-    deps.onWorkerStart?.(task.id)
-    res = await engine!.run(job)
-  } catch (err) {
-    if (observation?.snapshot().worker) return quarantineRun('worker transport failed before a verified terminal result')
-    if (isExternalEngineTermination(err)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${String(err)}`) }
-    // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
-    db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, accounting: attemptAccounting({ ok: false, output: '', costUsd: 0, costUnknown: true }, cfg.engines?.[engineTag] ?? {}), durationMs: Date.now() - runStartMs, failureClass: 'supply' })
-    engine!.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
-    quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
-    quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-    return resolveFailure(deps, task, 'engine-error', String(err), 'supply', { costUsd: fixedCost ?? 0 })
+    // Consume the one-time retry receipt and observe learning only after admission.
+    if (cfg.alternativeRetry && alternativeRetryDue(cfg, db.taskFailCount(task.id))) {
+      try { job.directive = `${job.directive ?? task.text}\n\n${startAlternativeRetry(cfg, task.id, executionId, db.lastFailureFor(task.id))}` }
+      catch { return blockTask({ store, events }, task, 'verification-infra', '二次修復收據無法安全建立，保留現場等待介入') }
+    }
+    finishLearning = observeLearning(events, { executionId, taskId: task.id, model: cfg.engines[engineTag]?.model ?? engineTag, baseCommit: wt.baseHead, lessonsText })
+    // Only actual dispatch errors enter the existing engine failure/accounting path.
+    try {
+      deps.onWorkerStart?.(task.id)
+      res = await engine!.run(job)
+    } catch (err) {
+      if (observation?.snapshot().worker) return quarantineRun('worker transport failed before a verified terminal result')
+      if (isExternalEngineTermination(err)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${String(err)}`) }
+      // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
+      db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, accounting: attemptAccounting({ ok: false, output: '', costUsd: 0, costUnknown: true }, cfg.engines?.[engineTag] ?? {}), durationMs: Date.now() - runStartMs, failureClass: 'supply' })
+      engine!.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
+      quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
+      quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
+      return resolveFailure(deps, task, 'engine-error', String(err), 'supply', { costUsd: fixedCost ?? 0 })
+    }
   }
   if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
   if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`) }
