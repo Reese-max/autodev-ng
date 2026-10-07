@@ -1,9 +1,10 @@
 import { unknownAdmission } from './cli-admission.js'
 import { cliDiagnostic, cliPreflightKey, redactCli } from './cli-diagnostics.js'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
 import type { PreflightCache } from '../preflight.js'
 import type { Engine, Job, PreflightResult, RunResult } from '../types.js'
 import { commitCodexWorktree } from './codex.js'
@@ -106,7 +107,11 @@ export class HerdrEngine implements Engine {
     // request 綁定精確 execution：新 attempt＝新 ID；同一 execution 重查沿用原 ID（issue #32）。
     // 同一 execution 的 run() 不可並發（scheduler 每任務序列化）；結果檔路徑按 requestId 唯一。
     const executionId = job.executionId ?? randomUUID()
-    const requestId = `adng-${safeId(job.task.id)}-${before.slice(0, 8)}-${safeId(executionId)}`
+    // UUID／短安全 ID 保留原命名；較長或須清理的 ID 用完整 digest，避免截斷／替換撞 request。
+    // base64url SHA-256 為 43 字元，與至多 40 字元的未編碼 ID 分開；回執仍核對原始 executionId。
+    const executionKey = safeId(executionId) === executionId
+      ? executionId : createHash('sha256').update(executionId).digest('base64url')
+    const requestId = `adng-${safeId(job.task.id)}-${before.slice(0, 8)}-${executionKey}`
     const resultPath = herdrResultPath(this.resultsDir, requestId)
     const expected: HerdrExpectedBinding = {
       schemaVersion: 1, requestId, executionId, repo: resolve(job.projectPath),
@@ -135,12 +140,20 @@ export class HerdrEngine implements Engine {
     const output = tail(`${r.stdout}\n${r.stderr}`.trim())
     if (r.aborted || job.control?.signal?.aborted) return cancelledRun(output)
     if (r.timedOut) return { ...failure('timeout', output), recoveryRequired: true }
+    const missingReceiptReason = 'herdr-unsupported：launcher 未回傳結果契約 v1（Start-Herdr-Autopilot.ps1 須支援 -ResultFile 寫回；不再接受 stdout 字串成功）'
+    // 舊 advanced-script launcher 在 PowerShell 參數綁定階段拒絕新增欄位，尚未產生回執即 exit 1。
+    // 只對明確的新增參數拒絕＋缺檔給升級診斷；一般 crash／spawn error 仍是 blocked。
+    if (r.exitCode !== 0
+      && /parameter cannot be found that matches parameter name\s+['"](?:ExecutionId|ResultFile)['"]/i.test(stripVTControlCharacters(r.stderr))
+      && !existsSync(resultPath)) {
+      return { ...failure(missingReceiptReason, output), recoveryRequired: true }
+    }
     if (r.exitCode !== 0) return { ...failure(`herdr-blocked：exit ${r.exitCode} ${cliDiagnostic(r, undefined, [this.sessionName, this.provider]).slice(0, 700)}`, output), recoveryRequired: true }
     // 完成終態只信 launcher 寫回的結果契約檔；stdout 是人讀日誌，marker 字串或截斷都不算回執。
     const receipt = checkHerdrResultFile(resultPath, expected)
     if (!receipt.ok) {
       const reason = receipt.kind === 'missing'
-        ? 'herdr-unsupported：launcher 未回傳結果契約 v1（Start-Herdr-Autopilot.ps1 須支援 -ResultFile 寫回；不再接受 stdout 字串成功）'
+        ? missingReceiptReason
         : `herdr-${receipt.kind === 'unsupported' ? 'unsupported' : `result-${receipt.kind}`}：${receipt.reason}`
       return { ...failure(reason, output), recoveryRequired: true }
     }
