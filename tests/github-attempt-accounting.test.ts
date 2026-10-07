@@ -10,6 +10,7 @@ import { MockEngine } from '../src/engines/mock.js'
 import { KernelVerifier } from '../src/engines/kernel-verifier.js'
 import { TeamState } from '../src/engines/team-state.js'
 import { savePendingReview } from '../src/engines/pending-review.js'
+import { executionFile, executionHistoryFile, readExecution } from '../src/engines/execution-observation.js'
 import { prepareWorktree } from '../src/worktree.js'
 import { GithubConfigSchema, type Issue } from '../src/github/config.js'
 import type { GithubClient } from '../src/github/client.js'
@@ -233,7 +234,10 @@ test('a prior unresolved reservation survives refunding only the proven unstarte
   expect(readState(f.cfg, 7)).toMatchObject({ runs: 1, status: 'blocked' })
   expect(f.result()).toMatchObject({ startState: 'not-started', attempted: false, priorExecutionUnknown: true, recoveryRequired: true })
   expect(engine.calls).toHaveLength(0)
-  expect(readFileSync(file, 'utf8')).toBe(original)
+  expect(readFileSync(executionFile(runDir(f.cfg, f.state), 'previous-fixture'), 'utf8')).toBe(original)
+  expect(readExecution(runDir(f.cfg, f.state), 'previous-fixture')).toEqual(JSON.parse(original))
+  expect(existsSync(file)).toBe(false)
+  expect(existsSync(executionHistoryFile(runDir(f.cfg, f.state), 'previous-fixture'))).toBe(false)
   expect(await runGithub(f.cfg, { client: f.client, execute })).toBe('idle')
   expect(execute).toHaveBeenCalledTimes(1)
 })
@@ -327,7 +331,10 @@ test('explicit recovery refuses an unresolved execution without changing counter
   const doctor = offlineDoctor()
   await expect(recoverIssue(file, 7, 'Do not discard the protected synthetic execution', false, { client: f.client, doctor })).rejects.toThrow('stop remains unconfirmed')
   expect(readState(f.cfg, 7)).toEqual(before); expect(doctor).not.toHaveBeenCalled()
-  expect(readFileSync(receipt, 'utf8')).toBe(originalReceipt)
+  expect(readFileSync(executionFile(runDir(f.cfg, f.state), 'previous-fixture'), 'utf8')).toBe(originalReceipt)
+  expect(readExecution(runDir(f.cfg, f.state), 'previous-fixture')).toEqual(JSON.parse(originalReceipt))
+  expect(existsSync(receipt)).toBe(false)
+  expect(existsSync(executionHistoryFile(runDir(f.cfg, f.state), 'previous-fixture'))).toBe(false)
 })
 
 test('atomic state persistence failure retains the on-disk reservation across restart without a second refund', async () => {
