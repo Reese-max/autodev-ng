@@ -20,3 +20,16 @@ if (process.platform === 'win32') {
     }
   }
 }
+
+// vitest setupFile：部分整合測試斷言 dist 產物存在（如 proc-control CLI、HTTP 路由恢復）。
+// 乾淨 worktree 沒有先跑 npm run build 時會整批失敗；在 setup 階段補齊一次性建置。
+import { existsSync } from 'node:fs'
+import { execSync } from 'node:child_process'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)))
+const markers = ['dist/engines/proc.js', 'dist/autopilot/llm.js', 'dist/learn/store.js']
+if (markers.some((marker) => !existsSync(join(repoRoot, marker)))) {
+  execSync('npm run build', { cwd: repoRoot, stdio: 'ignore' })
+}
