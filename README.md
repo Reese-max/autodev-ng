@@ -20,11 +20,13 @@
 | `src/*.ts` | kernel：backlog、排程、daemon、SQLite 成本帳、事件、鎖與 worktree；頂層總量 ≤2250 行 |
 | `src/cli/` | CLI 分派、設定解析、相依組裝與各子指令；`src/cli.ts` 保留入口與相容匯出 |
 | `src/engines/` | 引擎 adapter／路由、驗證、ownership、團隊協調、merge queue、證據鏈與通知 |
+| `src/conductor/` | Conductor/Worker 協議：Task Envelope、任務分解、驗證閘、retry/escalate、`.autodev` checkpoint 與 task ledger（見 `docs/conductor-worker-protocol.md`） |
 | `src/autopilot/` | GOAL 解析、規劃、執行、評估、問題帳本與持續迴圈 |
 | `src/learn/` | 教訓儲存、失敗反思與派工提示注入 |
 | `src/bot/`、`web/` | Discord 與本機 Web 控制台；共用查詢／控制 handler |
 | `src/supervisor/`、`src/guardian/` | daemon 健康探測、保活，以及事故診斷與修復 |
 | `src/github/` | GitHub Issue 同步、執行與受設定控制的修復分支／草稿 PR 發布 |
+| `src/backends/` | 可插拔長時程執行後端（`ExecutionBackend`）；首個 adapter `long-horizon`（Manager→Executor→Auditor，見 [docs/long-horizon.md](docs/long-horizon.md)） |
 | `configs/`、`scripts/` | 各專案設定、Windows 啟動／排程腳本與檢查工具 |
 | `tests/`、`docs/` | 回歸測試、規格、維運說明與歷史驗收紀錄 |
 
@@ -180,6 +182,11 @@ node dist/cli.js notify-test --config <path>   # Discord 告警通道送達自�
 node dist/cli.js supervise --configs-dir configs                         # 相容模式：保活後 inline Guardian
 node dist/cli.js supervise --configs-dir configs --guardian off          # 只跑 supervisor（建議獨立排程）
 node dist/cli.js supervise --configs-dir configs --guardian only         # 獨立 Guardian 排程；仍先做一次安全探測
+
+# 長時程執行後端（issue #55，Manager→Executor→Auditor→checkpoint→resume）
+node dist/cli.js run start --config <path> --goal "<bounded goal>"        # 或 --goal-file / --github-config+--issue
+node dist/cli.js run resume|status|interrupt|approve|evidence --config <path> --id <runId>
+node dist/cli.js run metrics --config <path>                              # 跨 run 彙總，供 A/B 比較
 ```
 
 Guardian 不啟動 subagent，也不另設專案任務總時間／成本上限；Codex 完全無輸出進度 30 分鐘才由 idle watchdog 精準終止。相同事故以 supervisor 狀態與位元組事件游標去重，`failed`／`needs_attention`／卡死會送 Discord 告警；LLM 使用隔離 `CODEX_HOME` 與 `workspace-only` 權限，只能修改工作區檔案，Git 提交、重啟與驗收由宿主執行。每次決策、token、耗時與獨立驗收證據寫入各專案 `<dataDir>/guardian-runs.jsonl`，跨專案租約與輸出 schema 位於 `data/guardian/`。
@@ -193,6 +200,8 @@ pwsh -NoProfile -File scripts/herdr-fleet-console.ps1
 ```
 
 Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.herdr.command` 必須指向 `Start-Herdr-Autopilot.ps1`，並設定 `costPerRunUsd`。可選的 `engines.herdr.provider` 為 `Codex` 或 `Pi`，未設仍走 Codex；Pi 必須先有可用模型／provider。AutoDev 仍擁有 worktree、提交與最終驗收。
+
+完成回執採結果契約 v1（issue #32）：派工時帶 `-RequestId`（綁定 task＋base commit＋`executionId`）、`-ExecutionId` 與 `-ResultFile <path>`；launcher 必須在終態把 `{"schemaVersion":1,"requestId","executionId","repo","taskId","baseCommit","server","session","pane","status":"done"|"failed"}` 寫入該檔。宿主送件前先把預期綁定存到 `dataDir/herdr/<requestId>.expected.json`，回讀時逐欄位核對——缺檔、壞 JSON、欄位不符或 schemaVersion≠1 一律拒收（`herdr-unsupported`/`herdr-result-invalid`/`herdr-result-mismatch`），不做宿主提交。stdout 只作人讀日誌，marker 字串不再是成功證據（長輸出截斷也不影響終態判定）。不支援 `-ResultFile` 的舊 launcher 會得到明確 unsupported，需更新 launcher。
 
 ### 4. Discord bot（可選）
 

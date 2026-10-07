@@ -43,7 +43,7 @@ function superviseResult(f: ReturnType<typeof fixture>, over: Partial<SuperviseR
 
 function acceptedOptions(f: ReturnType<typeof fixture>) {
   return {
-    verifyFn: vi.fn(async (_opts: { command: string | undefined; cwd: string; timeoutMs: number }): Promise<VerifyOutcome> => ({ status: 'pass', detail: 'ok 12ms' })),
+    verifyFn: vi.fn(async (_opts: { command: string | readonly string[] | undefined; cwd: string; timeoutMs: number }): Promise<VerifyOutcome> => ({ status: 'pass', detail: 'ok 12ms' })),
     superviseFn: vi.fn(() => superviseResult(f, {
       pid: 456, heartbeatAgeMs: 100, childCount: 0, action: 'keep', probeErrors: [],
     })),

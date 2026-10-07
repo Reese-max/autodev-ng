@@ -219,7 +219,7 @@ function incidentCoolingDown(state: GuardianState, incidentKey: string, nowMs: n
     && nowMs - handledAt < GUARDIAN_INCIDENT_COOLDOWN_MS
 }
 
-function loadVerifyConfig(configPath: string): { command?: string; timeoutMs: number } {
+function loadVerifyConfig(configPath: string): { command?: string | string[]; timeoutMs: number } {
   const cfg = ConfigSchema.parse(JSON.parse(readFileSync(configPath, 'utf8')))
   return { command: cfg.verifyCommand, timeoutMs: cfg.verifyTimeoutMs }
 }

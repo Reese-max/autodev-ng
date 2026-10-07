@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { parseArgs } from 'node:util'
@@ -12,15 +12,17 @@ import { writeJsonAtomic } from '../guardian/incident.js'
 import { githubStopFile, loadGithubConfig, type GithubConfig } from './config.js'
 import { command, githubClient, type GithubClient } from './client.js'
 import { eligibleForRun } from './repair.js'
-import { assertPublishable, checkoutDir, git, issueTask, prepareCheckout } from './job.js'
-import { alternativeRunPending, branchFor, fingerprint, issueDir, runDir, readState, saveState, states, type IssueState } from './state.js'
+import { assertPublishable, checkoutDir, git, issueTask, prepareCheckout, runtimeConfig } from './job.js'
+import { alternativeRunPending, branchFor, candidatePolicyHash, fingerprint, issueDir, runDir, readState, saveState, states, type IssueState } from './state.js'
 import { readExecutions } from '../engines/execution-observation.js'
+import { hasPendingReview, readPendingReview } from '../engines/pending-review.js'
 
 export async function repairDoctor(cfg: GithubConfig, live = false) {
   const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
   const engine = source.engines[cfg.engine]
   if (!engine || ['mock', 'herdr'].includes(engine.adapter) || engine.timeoutMs === 0) throw new Error('Requires a bounded supported worker')
-  if (!(cfg.verifyCommand ?? source.verifyCommand)?.trim() || !(source.reviewEngine ?? source.auditModel)) throw new Error('Requires verification command and independent reviewer')
+  const verify = cfg.verifyCommand ?? source.verifyCommand
+  if (!(Array.isArray(verify) ? verify.length > 0 : verify?.trim()) || !(source.reviewEngine ?? source.auditModel)) throw new Error('Requires verification command and independent reviewer')
   const checks: Record<string, string> = { credentials: 'pass', verification: 'pass', reviewer: 'pass' }
   if (!cfg.template) {
     const origin = git(source.projectPath, ['remote', 'get-url', 'origin']).replace(/\.git$/, '').replace(/^git@github.com:/, 'https://github.com/').replace(/^https:\/\//, '').toLowerCase()
@@ -76,6 +78,7 @@ export async function recoverIssue(file: string, number: number, reason: string,
   try {
     const state = readState(cfg, number)
     if (!state || !['blocked', 'running', 'queued', 'ready'].includes(state.status)) throw new Error('State cannot be recovered')
+    if (state.candidateCheck && state.candidateCheck.policyHash !== candidatePolicyHash(cfg)) throw new Error('Candidate policy changed; restore original gate/source configuration before recovery')
     if (readExecutions(runDir(cfg, state)).protected) throw new Error('Execution stop remains unconfirmed; preserve ownership and verify the backend before recovery')
     const client = options.client ?? githubClient(cfg)
     const current = async () => {
@@ -92,27 +95,35 @@ export async function recoverIssue(file: string, number: number, reason: string,
       if (!pr || pr.state !== 'open' || pr.html_url !== state.pr || pr.head.sha !== state.revision.baseCommit || pr.base.ref !== cfg.base) throw new Error('Existing PR changed; inspect it before retry')
     } else if (pr || await client.findLinkedPr(number)) throw new Error('Existing PR; inspect it before retry')
     const cwd = checkoutDir(cfg, state)
+    let pending: ReturnType<typeof readPendingReview> = undefined
     if (existsSync(cwd)) {
       prepareCheckout(cfg, state)
       const head = git(cwd, ['rev-parse', 'HEAD'])
       if (head !== state.baseSha) { state.commit = head; assertPublishable(cfg, state); state.status = 'ready' }
       else if (state.commit || state.status === 'ready') throw new Error('Candidate missing; preserving state')
+      const backlog = join(runDir(cfg, state), 'BACKLOG.md')
+      const tasks = existsSync(backlog) ? new BacklogStore(backlog).read() : []
+      const reviewTask = tasks.length === 1 && tasks[0]!.text === issueTask(state) && tasks[0]!.status === 'open' ? tasks[0] : undefined
+      if (state.status !== 'ready' && reviewTask && hasPendingReview({ dataDir: runDir(cfg, state) }, reviewTask))
+        pending = readPendingReview(runtimeConfig(cfg, state), reviewTask) // Exact context/model/common-dir/path/marker/head/ancestry proof.
       // Preserve every interrupted worktree; a clean non-base commit also requires evidence recovery.
       for (const row of git(cwd, ['worktree', 'list', '--porcelain']).split(/\r?\n/).filter(l => l.startsWith('worktree '))) {
         const path = row.slice(9)
         if (git(path, ['status', '--porcelain'])) throw new Error('Dirty worktree preserved; inspect changes before retry')
         const head = git(path, ['rev-parse', 'HEAD'])
-        if (path.replace(/\\/g, '/') !== cwd.replace(/\\/g, '/') && head !== state.baseSha && head !== state.commit) throw new Error('Unreconciled worktree commit; inspect evidence before retry')
+        const preservedReview = pending && realpathSync.native(path) === realpathSync.native(pending.wt.cwd) && head === pending.candidateHead
+        if (path.replace(/\\/g, '/') !== cwd.replace(/\\/g, '/') && head !== state.baseSha && head !== state.commit && !preservedReview) throw new Error('Unreconciled worktree commit; inspect evidence before retry')
       }
     } else if (state.baseSha && !state.revision) throw new Error('Checkout missing; preserving state')
     if (state.status !== 'ready') {
-      if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state)) throw new Error('Attempt limit reached; counters will not be reset')
+      if (state.runs >= cfg.maxRuns && !alternativeRunPending(cfg, state) && !pending) throw new Error('Attempt limit reached; counters will not be reset')
       const backlog = join(runDir(cfg, state), 'BACKLOG.md')
       if (existsSync(backlog)) {
         const tasks = new BacklogStore(backlog).read()
         if (tasks.length !== 1 || tasks[0]!.text !== issueTask(state) || tasks[0]!.status !== 'open') throw new Error('Backlog requires evidence recovery; no automatic rewrite')
       }
       state.status = 'queued'; state.nextRunAt = 0
+      if (state.controlRuns !== undefined || state.controlReason !== undefined) { state.controlRuns = 0; delete state.controlReason }
     }
     if (state.status === 'queued' || pause !== undefined) {
       const doctor = await (options.doctor ?? repairDoctor)(cfg, true)
@@ -122,6 +133,7 @@ export async function recoverIssue(file: string, number: number, reason: string,
     const receipt = join(issueDir(cfg, number), `recovery-${randomUUID()}.json`)
     const intent = { at: new Date().toISOString(), reason, before: readState(cfg, number), plannedStatus: state.status }
     writeJsonAtomic(receipt, { ...intent, phase: 'prepared' })
+    if (state.status === 'ready') delete state.candidateCheck // Exact remote checks and local evidence recovered above.
     state.detail = `Recovery: ${reason.trim()}`; saveState(cfg, state)
     if (pause !== undefined) renameSync(stop, `${stop}.resumed-${randomUUID()}`)
     writeJsonAtomic(receipt, { ...intent, phase: 'completed', after: readState(cfg, number), paused: existsSync(stop) })
@@ -156,7 +168,7 @@ export function repairMetrics(cfg: GithubConfig) {
   const paused = !cfg.enabled || existsSync(githubStopFile(cfg))
   const failed = (s: Pick<IssueState, 'status' | 'runs' | 'detail'>) => s.runs > 0 && ['queued', 'blocked'].includes(s.status) && s.detail === 'failed'
   const failures = rows.map(s => {
-    const runs = new Set((s.history ?? []).filter((e, i, history) => e.runs > 0 && ['queued', 'blocked'].includes(e.status)
+    const runs = new Set((s.history ?? []).filter((e, i, history) => e.phase !== 'candidate-check' && e.runs > 0 && ['queued', 'blocked'].includes(e.status)
       && !e.detail?.startsWith('Recovery:') && !e.detail?.startsWith('Execution recovery required:') && (e.detail === 'failed' || (history[i - 1]?.status === 'running' && history[i - 1]?.runs === e.runs))).map(e => e.runs))
     if (failed(s)) runs.add(s.runs) // A legacy snapshot is evidence of this failure, not every earlier attempt.
     return runs.size

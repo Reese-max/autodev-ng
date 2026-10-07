@@ -15,7 +15,7 @@ import type { TaskTerminalNotice } from './engines/notify.js'
 import { freeOnlyListExhausted } from './engines/free-only-retry.js'
 import { sequentialReadyTasks, tryFreeOnlySplit } from './engines/free-only-split.js'
 import { quiet, type EventLog } from './events.js'
-import { globalBilledToday } from './globalcost.js'
+import { globalBilledToday, extraBillingScopes, type ExtraBillingScope } from './globalcost.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
 import type { VerifierCheck } from './verifier.js'
 import { cleanupWorktree, prepareWorktree, WorktreeCleanupPartialError, type WorktreeHandle } from './worktree.js'
@@ -63,6 +63,15 @@ export interface Deps {
   lessons?: LessonsPort
   /** M10.5：config 檔絕對路徑（assemble 填入）——globalBilledToday 掃兄弟專案用。測試可不設。 */
   cfgPath?: string
+  /** Bind global accounting to the exact source bytes used to construct this runtime. */
+  billingSourceHash?: string
+  /** #40：額外計帳目錄（GitHub Issue 入口的 cfg.dataDir）——其 issue-N/run.db 樹納入全域查帳，
+   *  否則 Issue/revision 動態帳務游離在任何被掃描專案的 dataDir 之外。 */
+  billingScopeDirs?: string[]
+  /** owner 模式可為各 repo 提供自己的 timezone/subscription policy；延後到全域頂閘才呼叫。 */
+  billingScopes?: ExtraBillingScope[] | (() => ExtraBillingScope[])
+  /** 執行器即將被呼叫時通知外層；區分派工前停止與已消耗 worker 嘗試的停止。 */
+  onWorkerStart?: (taskId: string) => void
 }
 
 /** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
@@ -107,9 +116,23 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   }
 
   // M10.5：全域日頂（第二道防線）。查帳不完整時停止派工，不把未知當成零。
-  if (cfg.globalDailyHardUsd !== undefined && deps.cfgPath) {
+  // #40：已設上限但缺查帳 scope 不是「略過」——靜默放行正是本 bug。
+  if (cfg.globalDailyHardUsd !== undefined) {
+    if (!deps.cfgPath) {
+      quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global-no-scope' }))
+      writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
+      return 'cost-hard-stop'
+    }
     let g = 0
-    try { g = globalBilledToday(deps.cfgPath, new Date().toISOString()) } catch { quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global' })); writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent }); return 'cost-hard-stop' }
+    try {
+      const extra = typeof deps.billingScopes === 'function' ? deps.billingScopes()
+        : deps.billingScopes ?? extraBillingScopes(cfg, deps.billingScopeDirs)
+      g = globalBilledToday(deps.cfgPath, new Date().toISOString(), extra, deps.billingSourceHash)
+    } catch {
+      quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global' }))
+      writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
+      return 'cost-hard-stop'
+    }
     if (g >= cfg.globalDailyHardUsd) {
       quiet(() => events.appendOnce('cost-hard-stop-global', { spent: g }))
       writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
@@ -244,6 +267,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
       observation = createExecutionObservation({ dataDir: cfg.dataDir, job, adapter: cfg.engines[engineTag]!.adapter, supervised: mode === 'supervised' })
       job.control = observation.control
     }
+    deps.onWorkerStart?.(task.id)
     res = await engine!.run(job)
   } catch (err) {
     if (observation?.snapshot().worker) return quarantineRun('worker transport failed before a verified terminal result')

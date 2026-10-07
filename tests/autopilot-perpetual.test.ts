@@ -16,7 +16,8 @@ import type { SessionResult } from '../src/autopilot/session.js'
 // 回傳值——整檔只 mock globalcost.js（不 mock 本檔主角 perpetual.js），runPerpetualCycle
 // 本體仍走真實實作，僅 maybeRunPerpetual 內部呼叫到的 globalBilledToday 被替換。
 const globalBilledTodayMock = vi.hoisted(() => vi.fn((_cfgPath: string, _nowIso: string): number => 0))
-vi.mock('../src/globalcost.js', () => ({ globalBilledToday: globalBilledTodayMock }))
+const extraBillingScopesMock = vi.hoisted(() => vi.fn((_cfg: unknown, _dirs?: string[]) => []))
+vi.mock('../src/globalcost.js', () => ({ globalBilledToday: globalBilledTodayMock, extraBillingScopes: extraBillingScopesMock }))
 // discoverProblems 也整檔 mock：只有全域頂放行、真的走進 runBody 的無 GOAL 分支才會呼叫到它——
 // 藉此驗證前置閘確實在 discover 之前短路，而非只是巧合地因 surveyCommand 未設而跳過。
 const discoverProblemsMock = vi.hoisted(() => vi.fn())
@@ -551,6 +552,7 @@ describe('maybeRunPerpetual 殼層：全域日頂前置閘', () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'adng-perp-shell-'))
     globalBilledTodayMock.mockReset()
+    extraBillingScopesMock.mockReset()
     discoverProblemsMock.mockReset()
   })
   afterEach(() => safeRm(dir))
@@ -572,6 +574,9 @@ describe('maybeRunPerpetual 殼層：全域日頂前置閘', () => {
     const result = await maybeRunPerpetual({ ...deps, cfgPath: join(dir, 'self.json') }, { send: async () => true })
     expect(result).toBe(false)
     expect(discoverProblemsMock).not.toHaveBeenCalled()
+    expect(extraBillingScopesMock).toHaveBeenCalledWith(cfg, undefined)
+    expect(globalBilledTodayMock).toHaveBeenCalledTimes(1)
+    expect(eventTypes(dir)).not.toContain('cost-accounting-incomplete')
   })
 
   test('未設 globalDailyHardUsd → 前置閘不介入（現狀回歸線，仍走到 discover 之前的既有閘門）', async () => {
@@ -581,5 +586,6 @@ describe('maybeRunPerpetual 殼層：全域日頂前置閘', () => {
     const result = await maybeRunPerpetual({ ...deps, cfgPath: join(dir, 'self.json') }, { send: async () => true })
     expect(result).toBe(false)
     expect(globalBilledTodayMock).not.toHaveBeenCalled()
+    expect(extraBillingScopesMock).not.toHaveBeenCalled()
   })
 })
