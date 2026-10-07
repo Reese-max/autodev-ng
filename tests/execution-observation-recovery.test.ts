@@ -42,6 +42,27 @@ function terminal(executionId: string): ExecutionSnapshot {
     exit: { code: 0, reason: 'exit' }, outcome: 'completed' }
 }
 
+test('a schema-valid terminal receipt with a mismatched filename ID stays corrupt and protected after migration and restore', () => {
+  const root = fixture(), filenameId = 'identity-a', embeddedId = 'identity-b'
+  const bytes = JSON.stringify(terminal(embeddedId))
+  writeFileSync(join(root, 'executions', filenameId + '.json'), bytes)
+  for (const attempt of [1, 2]) {
+    const inventory = readExecutions(root)
+    expect(inventory).toMatchObject({ protected: true, capacityExceeded: false, records: [] })
+    expect(inventory.errors).toContain('invalid execution record: ' + filenameId + '.json')
+    expect(readFileSync(executionFile(root, filenameId), 'utf8'), 'migration attempt ' + attempt).toBe(bytes)
+    expect(existsSync(executionHistoryFile(root, filenameId))).toBe(false)
+    expect(existsSync(executionHistoryFile(root, embeddedId))).toBe(false)
+    expect(() => readExecution(root, filenameId)).toThrow('identity mismatch')
+    expect(readExecution(root, embeddedId)).toBeUndefined()
+  }
+  const restored = fixture()
+  cpSync(join(root, 'executions'), join(restored, 'executions'), { recursive: true })
+  expect(readExecutions(restored)).toMatchObject({ protected: true, records: [] })
+  expect(readFileSync(executionFile(restored, filenameId), 'utf8')).toBe(bytes)
+  expect(() => readExecution(restored, filenameId)).toThrow('identity mismatch')
+})
+
 test('quarantined identity survives a failed migration marker, subsequent reads, and isolated backup restore', () => {
   const root = fixture(), original = '{corrupt identity must remain protected'
   writeFileSync(join(root, 'executions', 'invalid.identity.json'), original)

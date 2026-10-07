@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto'
-import { existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, renameSync, statSync, type Dir, type Dirent } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, renameSync, type Dir, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { writeJsonAtomic } from '../guardian/incident.js'
 import type { Job } from '../types.js'
-import { withInventoryLock } from './inventory-lock.js'
+import { InventoryLockBusyError, withInventoryLock } from './inventory-lock.js'
 import { observeRun, type RunControl, type RunEvent } from './run-control.js'
 
 export const OBSERVATION_INTERVAL_MS = 60_000
@@ -28,7 +28,7 @@ const SnapshotSchema = z.object({
   outcome: z.enum(['completed', 'failed', 'unconfirmed']).optional(),
 })
 export type ExecutionSnapshot = z.infer<typeof SnapshotSchema>
-export type ExecutionInventory = { records: ExecutionSnapshot[]; errors: string[]; protected: boolean; diagnosisDue: boolean; capacityExceeded: boolean }
+export type ExecutionInventory = { records: ExecutionSnapshot[]; errors: string[]; protected: boolean; diagnosisDue: boolean; capacityExceeded: boolean; updateInProgress?: boolean }
 export type ExecutionReceiptDestination = 'active' | 'history'
 
 type MigrationMarker = { version: 1; migratedAt: number; quarantined: string[] }
@@ -166,9 +166,7 @@ function ensureLegacyLayout(dataDir: string, nowMs: number): { errors: string[];
       }
       let snapshot: ExecutionSnapshot | undefined
       try {
-        if (statSync(source).size > MAX_RECEIPT_BYTES) throw new Error('oversized record')
-        snapshot = SnapshotSchema.parse(JSON.parse(readFileSync(source, 'utf8')))
-        if (snapshot.executionId !== id) throw new Error('identity mismatch')
+        snapshot = parseReceipt(source, id)
       } catch { /* Keep validly named but corrupt records in active storage for direct review. */ }
       const destination = snapshot && executionReceiptDestination(snapshot, hasCancel) === 'history'
         ? join(executionHistoryDir(dataDir), id + '.json') : executionFile(dataDir, id)
@@ -276,7 +274,11 @@ export function readExecutions(dataDir: string, nowMs = Date.now()): ExecutionIn
     if (!inventoryDirectoryHasEntries(executionRoot(dataDir))) return emptyInventory()
     return withInventoryLock(dataDir, () => readExecutionsUnlocked(dataDir, nowMs))
   }
-  catch { return emptyInventory(['execution inventory unavailable']) }
+  catch (error) {
+    const inventory = emptyInventory(['execution inventory unavailable'])
+    if (error instanceof InventoryLockBusyError) inventory.updateInProgress = true
+    return inventory
+  }
 }
 
 /** Direct ID lookup includes both the bounded active directory and permanent history. */
@@ -335,9 +337,18 @@ export function createExecutionObservation(args: { dataDir: string; job: Job; ad
       throw new Error('Execution inventory capacity exceeded; preserve active records')
     writeJsonAtomic(file, state)
   })
-  const persist = () => {
+  const persistUnlocked = () => {
     try { writeJsonAtomic(file, state); lastPersistedAt = Date.now(); return true }
     catch { state.degraded = true; return false }
+  }
+  const persist = () => {
+    try { return withInventoryLock(args.dataDir, persistUnlocked) }
+    catch (error) {
+      // Keep the last durable receipt protective and retry the latest in-memory
+      // state on the next event/sample. Contention is not backend degradation.
+      if (!(error instanceof InventoryLockBusyError)) state.degraded = true
+      return false
+    }
   }
   const acceptObject = (value: unknown) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return
@@ -441,17 +452,17 @@ export function createExecutionObservation(args: { dataDir: string; job: Job; ad
         withInventoryLock(args.dataDir, () => {
           if (existsSync(cancellationFile)) {
             state.cancelRequested = true; state.outcome = 'unconfirmed'; state.phase = 'unknown'
-            if (!persist()) throw new Error('unconfirmed execution receipt could not be preserved')
+            if (!persistUnlocked()) throw new Error('unconfirmed execution receipt could not be preserved')
             return
           }
           // Persist and archive as one serialized inventory update. A reader must not
           // move the terminal receipt between these two operations.
-          if (!persist()) throw new Error('terminal execution receipt could not be preserved')
+          if (!persistUnlocked()) throw new Error('terminal execution receipt could not be preserved')
           if (!archiveable(state) || state.degraded) return
           try { moveWithoutOverwrite(file, executionHistoryFile(args.dataDir, id)) }
           catch {
             state.degraded = true; state.outcome = 'unconfirmed'; state.phase = 'unknown'
-            if (!persist()) throw new Error('unconfirmed execution receipt could not be preserved')
+            if (!persistUnlocked()) throw new Error('unconfirmed execution receipt could not be preserved')
           }
         }, { retainOnError: true })
       } catch {

@@ -154,6 +154,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
 
   const candidates = retry.taskId ? openTasks.filter(task => task.id === retry.taskId) : openTasks; if (candidates.length === 0) return 'idle'
   const priorExecutions = (deps.executionInventory ?? readExecutions)(cfg.dataDir)
+  if (priorExecutions.updateInProgress) return 'deferred'
   if (priorExecutions.capacityExceeded)
     return blockTask({ store, events }, candidates[0]!, 'execution-inventory-capacity', '活動執行容量已滿；保留所有回執，僅封存已確認終結的紀錄後再派工')
   if (priorExecutions.errors.length || priorExecutions.records.some(record => record.phase === 'unknown'))
@@ -174,6 +175,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   // Preflight may await another process. Retain main's fresh state check before
   // creating a claim/worktree, including legacy engines without an observer.
   const currentExecutions = (deps.executionInventory ?? readExecutions)(cfg.dataDir)
+  if (currentExecutions.updateInProgress) return 'deferred'
   if (currentExecutions.capacityExceeded)
     return blockTask({ store, events }, task, 'execution-inventory-capacity', '活動執行容量已滿；保留所有回執，僅封存已確認終結的紀錄後再派工')
   if (currentExecutions.errors.length || currentExecutions.records.some(record => record.taskId === task.id || record.phase === 'unknown'))

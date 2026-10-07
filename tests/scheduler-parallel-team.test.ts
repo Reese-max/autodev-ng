@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { writeFile as writeFileAsync } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, expect, test, vi } from 'vitest'
 
-const receiptFailures = vi.hoisted(() => ({ terminal: false, recovery: false, terminalAttempts: 0 }))
+const receiptFailures = vi.hoisted(() => ({ terminal: false, recovery: false, terminalAttempts: 0,
+  atomicWriteFile: '', duringAtomicWrite: undefined as ((temporaryFile: string) => void) | undefined }))
 vi.mock('../src/guardian/incident.js', async importOriginal => {
   const actual = await importOriginal<typeof import('../src/guardian/incident.js')>()
   return { ...actual, writeJsonAtomic(file: string, value: unknown) {
@@ -16,6 +17,16 @@ vi.mock('../src/guardian/incident.js', async importOriginal => {
     }
     if (receiptFailures.recovery && phase === 'unknown')
       throw Object.assign(new Error('fixture recovery receipt disk full'), { code: 'ENOSPC' })
+    if (receiptFailures.duringAtomicWrite && file === receiptFailures.atomicWriteFile) {
+      const hook = receiptFailures.duringAtomicWrite
+      receiptFailures.duringAtomicWrite = undefined
+      mkdirSync(dirname(file), { recursive: true })
+      const temporaryFile = file + '.tmp'
+      writeFileSync(temporaryFile, JSON.stringify(value, null, 2))
+      hook(temporaryFile)
+      renameSync(temporaryFile, file)
+      return
+    }
     actual.writeJsonAtomic(file, value)
   } }
 })
@@ -23,7 +34,7 @@ import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { TeamState } from '../src/engines/team-state.js'
 import { cancelledRun } from '../src/engines/run-control.js'
-import { executionInventoryFull, readExecution, readExecutions, type ExecutionInventory, type ExecutionSnapshot } from '../src/engines/execution-observation.js'
+import { createExecutionObservation, executionInventoryFull, readExecution, readExecutions, type ExecutionInventory, type ExecutionSnapshot } from '../src/engines/execution-observation.js'
 import { EventLog } from '../src/events.js'
 import { runOnce, type Deps } from '../src/scheduler.js'
 import { ConfigSchema, type Engine, type Job, type RunResult } from '../src/types.js'
@@ -31,6 +42,7 @@ import { ConfigSchema, type Engine, type Job, type RunResult } from '../src/type
 const roots: string[] = []
 afterEach(() => {
   receiptFailures.terminal = false; receiptFailures.recovery = false; receiptFailures.terminalAttempts = 0
+  receiptFailures.atomicWriteFile = ''; receiptFailures.duringAtomicWrite = undefined
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true })
 }, 180_000)
 
@@ -179,7 +191,7 @@ test('observed scheduler keeps its receipt through verification and closes it af
   } finally { f.db.close(); f.team.close() }
 }, 60_000)
 
-test('finish-only receipt ENOSPC preserves the merged result, quarantines its claim and blocks the next task after storage recovers', async () => {
+test('finish-only receipt ENOSPC preserves the merged result, quarantines its claim and defers the next task after storage recovers', async () => {
   const f = fixture('- [ ] merge before receipt storage failure\n', 1), engine = new SingleAdmissionEngine()
   let receiptFile = '', durableReceipt = ''
   f.deps.cfg.engines[f.deps.cfg.defaultEngine]!.executionMode = 'observed'
@@ -207,12 +219,56 @@ test('finish-only receipt ENOSPC preserves the merged result, quarantines its cl
 
     receiptFailures.terminal = false; receiptFailures.recovery = false
     writeFileSync(f.backlog, readFileSync(f.backlog, 'utf8') + '- [ ] fresh work after storage recovery\n')
-    expect(await runOnce(f.deps)).toMatchObject({ kind: 'blocked', reason: 'team-state-quarantined' })
+    // A retained live-owner fence defers admission and leaves the fresh task open until recovery.
+    expect(await runOnce(f.deps)).toBe('deferred')
+    expect(f.deps.store.read().find(task => task.text === 'fresh work after storage recovery')?.status).toBe('open')
     expect(engine.preflightCalls).toBe(1)
     expect(engine.runCalls).toBe(1)
     expect(f.team.snapshot()).toEqual(protectedTeam)
     expect(readFileSync(receiptFile, 'utf8')).toBe(durableReceipt)
   } finally { f.db.close(); f.team.close() }
+}, 60_000)
+
+test('ordinary atomic receipt write defers concurrent admission with a real temporary file and allows the next cycle', async () => {
+  const f = fixture('- [ ] fresh work during another receipt update\n', 1), engine = new SingleAdmissionEngine()
+  f.deps.engines = { resolve: () => engine }
+  let observer: ReturnType<typeof createExecutionObservation> | undefined
+  let concurrentCycle: ReturnType<typeof runOnce> | undefined, updatingInventory: ExecutionInventory | undefined
+  let temporaryFile = ''
+  try {
+    observer = createExecutionObservation({ dataDir: f.deps.cfg.dataDir, adapter: 'mock',
+      job: { executionId: 'updating-observed-worker', projectPath: f.repo,
+        task: { id: 'other-running-task', text: 'other active work', line: 0, status: 'open' } } })
+    receiptFailures.atomicWriteFile = join(f.deps.cfg.dataDir, 'executions', 'active', 'updating-observed-worker.json')
+    receiptFailures.duringAtomicWrite = file => {
+      temporaryFile = file
+      expect(existsSync(file)).toBe(true)
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ executionId: 'updating-observed-worker', phase: 'running' })
+      updatingInventory = readExecutions(f.deps.cfg.dataDir)
+      concurrentCycle = runOnce(f.deps)
+    }
+    observer.control.onEvent!({ type: 'spawn', pid: process.pid, startedAt: Date.now() })
+    expect(concurrentCycle).toBeDefined()
+    expect(await concurrentCycle).toBe('deferred')
+    expect(updatingInventory).toMatchObject({ updateInProgress: true, protected: true, diagnosisDue: true, capacityExceeded: false })
+    expect(updatingInventory!.errors.length).toBeGreaterThan(0)
+    expect(engine.preflightCalls).toBe(0)
+    expect(engine.runCalls).toBe(0)
+    expect(f.team.snapshot().claims).toEqual([])
+    expect(existsSync(f.deps.cfg.worktreesDir)).toBe(false)
+    expect(f.deps.store.read()[0]!.status).toBe('open')
+    expect(existsSync(temporaryFile)).toBe(false)
+    expect(readExecution(f.deps.cfg.dataDir, 'updating-observed-worker')).toMatchObject({ phase: 'running', degraded: false })
+    expect(await runOnce(f.deps)).toBe('done')
+    expect(engine.preflightCalls).toBe(1)
+    expect(engine.runCalls).toBe(1)
+    expect(f.deps.store.read()[0]!.status).toBe('done')
+  } finally {
+    receiptFailures.duringAtomicWrite = undefined
+    observer?.control.onEvent!({ type: 'exit', code: 0, reason: 'exit' })
+    observer?.finish('completed')
+    f.db.close(); f.team.close()
+  }
 }, 60_000)
 
 test('in-memory production inventory with exactly 10,000 active receipts blocks admission before preflight, team claim, or worktree', async () => {
@@ -282,6 +338,31 @@ test('capacity reached during healthy preflight is rechecked before legacy engin
     expect(engine.runCalls).toBe(0)
     expect(f.team.snapshot().claims).toEqual([])
     expect(existsSync(f.deps.cfg.worktreesDir)).toBe(false)
+  } finally { f.db.close(); f.team.close() }
+}, 60_000)
+
+test('inventory contention after healthy preflight defers without quarantining the task and the next cycle succeeds', async () => {
+  const f = fixture('- [ ] task awaiting an inventory update\n', 1), engine = new SingleAdmissionEngine()
+  let inventoryReads = 0
+  const empty: ExecutionInventory = { records: [], errors: [], protected: false, diagnosisDue: false, capacityExceeded: false }
+  const updating: ExecutionInventory & { updateInProgress: true } = { records: [], errors: ['execution inventory update is in progress'],
+    protected: true, diagnosisDue: true, capacityExceeded: false, updateInProgress: true }
+  f.deps.cfg.engines[f.deps.cfg.defaultEngine]!.executionMode = 'bounded'
+  f.deps.engines = { resolve: () => engine }
+  f.deps.executionInventory = () => ++inventoryReads === 2 ? updating : empty
+  try {
+    expect(await runOnce(f.deps)).toBe('deferred')
+    expect(inventoryReads).toBe(2)
+    expect(engine.preflightCalls).toBe(1)
+    expect(engine.runCalls).toBe(0)
+    expect(f.team.snapshot().claims).toEqual([])
+    expect(existsSync(f.deps.cfg.worktreesDir)).toBe(false)
+    expect(f.deps.store.read()[0]!.status).toBe('open')
+    expect(await runOnce(f.deps)).toBe('done')
+    expect(inventoryReads).toBe(4)
+    expect(engine.preflightCalls).toBe(2)
+    expect(engine.runCalls).toBe(1)
+    expect(f.deps.store.read()[0]!.status).toBe('done')
   } finally { f.db.close(); f.team.close() }
 }, 60_000)
 
@@ -402,6 +483,33 @@ test.each([
     expect(engine.runCalls).toBe(0)
     expect(f.team.snapshot()).toEqual(claimsBefore)
     if (claim.ok) expect(f.team.heartbeat('protected-claim', claim.token, 300_000)).toBe(true)
+  } finally { f.db.close(); f.team.close() }
+}, 60_000)
+
+test('legacy receipt filename identity mismatch blocks admission and preserves the corrupt bytes outside history', async () => {
+  const f = fixture('- [ ] reject mismatched legacy identity\n', 1), engine = new SingleAdmissionEngine()
+  const folder = join(f.deps.cfg.dataDir, 'executions'), fileId = 'legacy-identity-a', recordId = 'legacy-identity-b'
+  const bytes = JSON.stringify(terminalReceipt(recordId, f.repo))
+  f.deps.engines = { resolve: () => engine }
+  try {
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, fileId + '.json'), bytes)
+    expect(f.deps.executionInventory).toBeUndefined()
+    expect(await runOnce(f.deps)).toMatchObject({ kind: 'blocked', reason: 'team-state-quarantined' })
+    expect(engine.preflightCalls).toBe(0)
+    expect(engine.runCalls).toBe(0)
+    expect(f.team.snapshot().claims).toEqual([])
+    expect(existsSync(f.deps.cfg.worktreesDir)).toBe(false)
+    expect(readExecutions(f.deps.cfg.dataDir)).toMatchObject({ protected: true, capacityExceeded: false })
+    expect(existsSync(join(folder, 'history', fileId + '.json'))).toBe(false)
+    expect(existsSync(join(folder, 'history', recordId + '.json'))).toBe(false)
+    const preservedFiles = ['active', 'quarantine'].flatMap(location =>
+      readdirSync(join(folder, location)).map(name => join(folder, location, name)))
+    expect(preservedFiles.filter(file => readFileSync(file, 'utf8') === bytes)).toHaveLength(1)
+    if (existsSync(join(folder, 'active', fileId + '.json')))
+      expect(() => readExecution(f.deps.cfg.dataDir, fileId)).toThrow('identity mismatch')
+    else expect(readExecution(f.deps.cfg.dataDir, fileId)).toBeUndefined()
+    expect(readExecution(f.deps.cfg.dataDir, recordId)).toBeUndefined()
   } finally { f.db.close(); f.team.close() }
 }, 60_000)
 
