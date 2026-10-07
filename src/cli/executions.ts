@@ -1,15 +1,22 @@
 import { parseArgs } from 'node:util'
 import { loadMonitorConfig } from '../bot/monitor.js'
 import { capabilityReport } from '../engines/capabilities.js'
-import { readExecutions, requestExecutionCancel } from '../engines/execution-observation.js'
+import { readExecution, readExecutions, requestExecutionCancel } from '../engines/execution-observation.js'
 
 export function executionCli(args: string[]): void {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { config: { type: 'string' }, id: { type: 'string' } } })
   const action = positionals[0] ?? 'list'
-  if (!values.config || positionals.length > 1 || !['list', 'capabilities', 'cancel'].includes(action) || (action === 'cancel') !== !!values.id)
-    throw new Error('用法：adng execution list|capabilities --config <path>；adng execution cancel --config <path> --id <executionId>')
+  const needsId = action === 'cancel' || action === 'get'
+  if (!values.config || positionals.length > 1 || !['list', 'get', 'capabilities', 'cancel'].includes(action) || needsId !== !!values.id)
+    throw new Error('用法：adng execution list|capabilities --config <path>；adng execution get|cancel --config <path> --id <executionId>')
   const cfg = loadMonitorConfig(values.config)
   if (action === 'capabilities') { console.log(JSON.stringify(capabilityReport(cfg), null, 2)); return }
+  if (action === 'get') {
+    const record = readExecution(cfg.dataDir, values.id!)
+    if (!record) throw new Error('Execution not found')
+    console.log(JSON.stringify(record, null, 2))
+    return
+  }
   if (action === 'cancel') {
     requestExecutionCancel(cfg.dataDir, values.id!)
     console.log(JSON.stringify({ executionId: values.id, cancellationRequested: true, backendStopConfirmed: false }))

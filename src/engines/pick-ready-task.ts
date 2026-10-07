@@ -24,7 +24,7 @@ export function blockTask(
     quiet(() => events.append('report-failed', { task: task.text, kind: 'blocked', error: String(err), willRepick: true }))
   }
   quiet(() => events.append('task-blocked', { task: task.text, reason, ...(eventDetail ? { detail: eventDetail } : {}), ...(humanReason.includes('retried=1') ? { retried: 1 } : {}) }))
-  return { kind: 'blocked', taskId: task.id, taskText: task.text, reason, ...(['dirty-worktree', 'completion-gate', 'verification-infra', 'review-unavailable', 'release-approval', 'ownership-drift', 'merge-queue-recovery', 'team-state-quarantined'].includes(reason) ? { alertDetail: humanReason } : {}) }
+  return { kind: 'blocked', taskId: task.id, taskText: task.text, reason, ...(['dirty-worktree', 'completion-gate', 'verification-infra', 'review-unavailable', 'release-approval', 'ownership-drift', 'merge-queue-recovery', 'team-state-quarantined', 'execution-inventory-capacity'].includes(reason) ? { alertDetail: humanReason } : {}) }
 }
 
 /** 戰績隔離→輪替候選→preflight；全壞→preflight-failed；白名單外/單候選 resolve 拋→blocked。 */
