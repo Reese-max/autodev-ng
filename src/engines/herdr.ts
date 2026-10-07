@@ -144,7 +144,7 @@ export class HerdrEngine implements Engine {
     // 舊 advanced-script launcher 在 PowerShell 參數綁定階段拒絕新增欄位，尚未產生回執即 exit 1。
     // 只對明確的新增參數拒絕＋缺檔給升級診斷；一般 crash／spawn error 仍是 blocked。
     if (r.exitCode !== 0
-      && /parameter cannot be found that matches parameter name\s+['"](?:ExecutionId|ResultFile)['"]/i.test(stripVTControlCharacters(r.stderr))
+      && legacyParameterRejected(r.stderr)
       && !existsSync(resultPath)) {
       return { ...failure(missingReceiptReason, output), recoveryRequired: true }
     }
@@ -175,6 +175,22 @@ export class HerdrEngine implements Engine {
   }
 
   private cacheKey(): string { return cliPreflightKey(this.command, [this.sessionName, this.provider]) }
+}
+
+// PowerShell 7 的 zh-TW native -File 診斷（HP 實測）；只辨識明確拒絕這兩個新參數的完整訊息。
+// CP950 stderr 經既有 UTF-8 decoder 會損壞；完整 bytes 用相同解碼產生診斷簽名，
+// 不改 launcher argv／全域 proc 解碼或人讀輸出，也不把參數名或 FQErrorId 的 context 當拒絕證據。
+const localizedLegacyParameterErrors = [
+  "找不到符合參數名稱 'ExecutionId' 的參數。",
+  "找不到符合參數名稱 'ResultFile' 的參數。",
+  Buffer.from('a7e4a4a3a8ecb2c5a658b0d1bcc6a657bad92027457865637574696f6e49642720aabab0d1bcc6a143', 'hex').toString('utf8'),
+  Buffer.from('a7e4a4a3a8ecb2c5a658b0d1bcc6a657bad92027526573756c7446696c652720aabab0d1bcc6a143', 'hex').toString('utf8'),
+]
+
+function legacyParameterRejected(stderr: string): boolean {
+  const text = stripVTControlCharacters(stderr)
+  return /parameter cannot be found that matches parameter name\s+['"](?:ExecutionId|ResultFile)['"]/i.test(text)
+    || localizedLegacyParameterErrors.some(message => text.includes(message))
 }
 
 function safeId(value: string): string {
