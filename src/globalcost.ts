@@ -26,6 +26,14 @@ const accountingProjection = z.object({
   costSource: z.enum(['provider-reported', 'configured-estimate', 'failure-estimate', 'unknown']).optional(),
 })
 
+// RunDb writes UTC ISO milliseconds; retain the supported older seconds form.
+// Other encodings cannot be ordered safely by the existing lexical SQL window.
+function validBillingTimestamp(ts: unknown): ts is string {
+  if (typeof ts !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(ts)) return false
+  const parsed = Date.parse(ts)
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === (ts.length === 20 ? ts.slice(0, -1) + '.000Z' : ts)
+}
+
 /** Read-only scope inventory. Missing/corrupt evidence is incomplete, never zero spend. */
 export function globalCostReport(cfgPath: string, nowIso: string, extraScopes: ExtraBillingScope[] = [], sourceHash?: string) {
   const report = { bookedUsd: 0, complete: true, databases: 0, errors: [] as string[] }
@@ -42,6 +50,11 @@ export function globalCostReport(cfgPath: string, nowIso: string, extraScopes: E
       // Validate present receipts before billing/validation exemptions. Both
       // queries share one read transaction so a concurrent row cannot evade this.
       db.transaction(() => {
+        // Establish every row's day before filtering. An unusable timestamp
+        // outside the lexical window is unresolved evidence, not zero spend.
+        for (const row of db.prepare('SELECT ts FROM attempts').iterate() as Iterable<{ ts: unknown }>) {
+          if (!validBillingTimestamp(row.ts)) throw new Error('Invalid recorded timestamp')
+        }
         const columns = db.prepare('PRAGMA table_info(attempts)').all() as { name: string }[]
         const hasSnapshot = columns.some(c => c.name.toLowerCase() === 'accounting_json')
         const rows = db.prepare(`SELECT engine, cost_usd, ${hasSnapshot ? 'accounting_json AS accounting_json' : 'NULL AS accounting_json'} FROM attempts WHERE ts >= ? AND ts < ?`).all(range.startIso, range.endIso) as { engine: string; cost_usd: number; accounting_json: string | null }[]
