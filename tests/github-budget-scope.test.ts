@@ -385,3 +385,20 @@ test('未設全域上限 → 相容行為不變（可派工，不因 cfgPath 接
   })
   expect(engine.calls.length).toBeGreaterThan(0) // 真的派工了（後續驗證閘怎麼判不重要）
 })
+
+test.each(['not-a-date', ''])('an Issue ledger with unusable timestamp %j stops before mocked worker dispatch', async ts => {
+  const { cfg, state } = fixture({ globalLimit: 10, siblingSpent: 0 })
+  seedDb(join(cfg.dataDir, 'issue-9'), [{ ts, cost: 50, engine: 'writer' }])
+  const engine = new MockEngine([{ ok: true }])
+  const result = await executeIssue(cfg, state, (runtime, cfgPath) => {
+    const app = assembleConfig(runtime, cfgPath)
+    app.deps.engines = { resolve: () => engine }
+    app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+    return app
+  })
+  expect(engine.calls).toHaveLength(0)
+  expect(result.detail).toBe('cost-hard-stop')
+  expect(result.attempted).toBe(false)
+  expect(readFileSync(join(cfg.dataDir, 'issue-7', 'events.jsonl'), 'utf8')).toContain('"type":"cost-accounting-incomplete"')
+  expect(readState(cfg, 7)!.runs).toBe(0)
+})
