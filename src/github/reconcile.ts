@@ -5,9 +5,10 @@ import { parseArgs } from 'node:util'
 import { acquireLock, releaseLock } from '../lock.js'
 import { writeJsonAtomic } from '../guardian/incident.js'
 import { githubClient, type GithubClient } from './client.js'
-import { githubStopFile, loadGithubConfig } from './config.js'
+import { githubStopFile, loadGithubConfig, type Issue } from './config.js'
 import { eligibleForRun } from './repair.js'
 import { fingerprint, issueDir, readState, saveState } from './state.js'
+import { requirementHandoff } from './requirement-handoff.js'
 
 export async function reconcileIssue(file: string, number: number, options: { apply?: boolean; reason?: string; client?: GithubClient } = {}) {
   if (!Number.isSafeInteger(number) || number < 1) throw new Error('Positive Issue number required')
@@ -24,9 +25,11 @@ export async function reconcileIssue(file: string, number: number, options: { ap
     const inputs = [file, cfg.sourceConfig, ...(cfg.repair ? [cfg.repair.reportConfig] : [])].map(path => [path, readFileSync(path, 'utf8')] as const)
     const pauseFile = githubStopFile(cfg), pause = existsSync(pauseFile) ? readFileSync(pauseFile, 'utf8') : undefined
     const client = options.client ?? githubClient(cfg)
+    let observedIssue: Issue
     const observe = async () => {
       const issue = await client.issue(number)
       if (issue.number !== number) throw new Error('Issue identity mismatch')
+      observedIssue = issue
       const currentFingerprint = fingerprint(issue), eligible = eligibleForRun(issue, cfg)
       const linked = await client.findLinkedPr(number)
       let pr
@@ -37,7 +40,8 @@ export async function reconcileIssue(file: string, number: number, options: { ap
         if (!client.inspectPr) throw new Error('PR inspection unavailable; no reconciliation performed')
         const remote = await client.inspectPr(Number(parts[4]))
         if (remote.html_url !== linked || remote.number !== Number(parts[4]) || remote.base.ref !== cfg.base || (remote.merged && !remote.merge_commit_sha)) throw new Error('Linked PR identity/base/merge evidence mismatch')
-        pr = { url: linked, state: remote.merged ? 'merged' : remote.state, mergeCommit: remote.merged ? remote.merge_commit_sha : null }
+        if (!/^[a-f0-9]{40,64}$/.test(remote.head.sha)) throw new Error('Linked PR head identity unavailable')
+        pr = { url: linked, state: remote.merged ? 'merged' : remote.state, head: remote.head.sha, mergeCommit: remote.merged ? remote.merge_commit_sha : null }
       }
       const kind = pr?.state === 'merged' ? 'merged-pr-found' : issue.state === 'closed' ? 'issue-closed'
         : currentFingerprint !== state.fingerprint ? 'requirements-changed' : !eligible ? 'authorization-withdrawn'
@@ -54,7 +58,15 @@ export async function reconcileIssue(file: string, number: number, options: { ap
     unchanged()
     const result = { ...observation, key, applied: false, status: state.status, runs: state.runs,
       workerDeliveryVerified: false, nextAction: observation.kind === 'merged-pr-found' ? 'Verify the merged result; original worker attempt remains unsuccessful' : 'Review current requirements before any new repair' }
-    if (!options.apply) return result
+    if (!options.apply) {
+      if (observation.kind !== 'requirements-changed') return result
+      // The packet pins two matching remote observations and unchanged local inputs.
+      const originalIssue = JSON.stringify(observedIssue!)
+      if (JSON.stringify(await observe()) !== JSON.stringify(observation) || JSON.stringify(observedIssue!) !== originalIssue)
+        throw new Error('Remote evidence changed; inspect again before handoff')
+      unchanged()
+      return { ...result, handoff: requirementHandoff(cfg, state, observedIssue!, { stateText: original, configuration: inputs, pr: observation.pr }) }
+    }
     if (state.reconciliation?.key === key) return { ...result, alreadyReconciled: true, receipt: state.reconciliation.receipt }
     if (!['queued', 'blocked', 'cancelled'].includes(state.status) || ['current', 'existing-pr'].includes(observation.kind)) throw new Error('No safe retirement decision; preserve the candidate and inspect current work')
     if (JSON.stringify(await observe()) !== JSON.stringify(observation)) throw new Error('Remote evidence changed; inspect again before applying')

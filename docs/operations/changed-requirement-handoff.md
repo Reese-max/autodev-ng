@@ -1,0 +1,9 @@
+# Changed requirement handoff
+
+`adng github reconcile --config FILE --issue N` is read-only by default. When the saved and live requirement fingerprints differ, it returns a `handoff` packet with both snapshots, their exact fingerprints, repository/Issue identity, unchanged local state/configuration hashes and the linked PR head. Two remote observations must agree; local state, configuration and pause must remain unchanged. A drifting observation produces an error, not a stable packet.
+
+The packet preserves the recorded attempt count, historical evidence references and candidate identity. It explicitly reports cumulative cost as unknown. It does not create a successor, approve new requirements, queue a Worker or reset state, attempts or budget. A reconciliation retirement receipt is not backend termination evidence. The existing `--apply` retirement behavior remains separate and does not authorize continuation.
+
+The operator can use this packet to review the exact old/new requirements and preserve the existing state, PR/worktree and billing evidence during a manual handoff. Issue prose, removing/readding labels and repeating sync/retry cannot supply approval. Before any future successor implementation is enabled, it needs an authenticated allowed-operator receipt bound to this pair, confirmed old-backend termination, reconciled current PR/worktree ownership and complete cumulative fleet-budget scope. Current main has no successor requirement lineage or atomic transition; these are software work still required, separately from real operator/backend/accounting acceptance.
+
+This is the bounded refusal/manual-handoff exit of [Issue #46](https://github.com/Reese-max/autodev-ng/issues/46), following its [NARROW research predicates](https://github.com/Reese-max/autodev-ng/issues/46#issuecomment-5715900923). It does not claim the successor-version acceptance checklist is complete.
