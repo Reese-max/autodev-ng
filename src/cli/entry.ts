@@ -18,6 +18,7 @@ export const CLI_HELP = [
   '  adng monitor --config <path> [--json] [--check]  心跳、PID、暫停與積壓監控',
   '  adng monitor --configs-dir <dir> [--json]       多專案監控',
   '  adng execution list|capabilities --config <path>  執行觀測／全接頭能力契約',
+  '  adng execution inspect-herdr --config <path> --id <executionId> [--request-id <requestId>]  唯讀 v1 關聯查核（不是派工或交付驗收）',
   '  adng execution cancel --config <path> --id <executionId>  要求指定執行停止（仍須核對後端）',
   '  adng pause|resume --config <path> [--json]      暫停／恢復單一專案派工',
   '  adng cost|backlog|log --config <path> [--json]  查看成本、任務與事件',

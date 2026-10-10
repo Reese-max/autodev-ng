@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto'
-import { closeSync, fstatSync, mkdirSync, openSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import { closeSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 /**
@@ -44,6 +44,15 @@ export type HerdrResultFailureKind = 'missing' | 'invalid' | 'unsupported' | 'mi
 export type HerdrResultCheck =
   | { ok: true; result: HerdrResultContract }
   | { ok: false; kind: HerdrResultFailureKind; reason: string }
+
+/** Digest of the very same bounded bytes passed to the strict result parser. */
+export type HerdrResultCapture = {
+  check: HerdrResultCheck
+  evidence?: { sha256: string; bytes: number }
+}
+export type HerdrExpectedCapture =
+  | { ok: true; expected: HerdrExpectedBinding; sha256: string; bytes: number }
+  | { ok: false; kind: 'missing' | 'invalid' | 'unsupported' | 'unavailable' }
 
 const bad = (kind: HerdrResultFailureKind, reason: string): HerdrResultCheck => ({ ok: false, kind, reason })
 
@@ -96,23 +105,49 @@ export function parseHerdrResult(raw: string): HerdrResultCheck {
 /** 讀回結果檔並逐欄位綁定本次 request；reason 只帶欄位名，不回洩檔案內容。
  * 同一 fd 上 fstat＋限量 read：檔案被換／長大也無法繞過大小上限。 */
 export function checkHerdrResultFile(path: string, expected: HerdrExpectedBinding): HerdrResultCheck {
+  return captureHerdrResultFile(path, expected).check
+}
+
+/** Default preserves the existing run/check contract; inspection additionally rejects link paths.
+ * No second read is used to compute result evidence. */
+export function captureHerdrResultFile(path: string, expected: HerdrExpectedBinding, requireRegularPath = false): HerdrResultCapture {
+  if (requireRegularPath) {
+    try {
+      const info = lstatSync(path)
+      if (!info.isFile() || info.size <= 0 || info.size > HERDR_RESULT_MAX_BYTES) return { check: bad('invalid', '結果檔不是有效的一般檔案') }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { check: bad('missing', 'launcher 未寫入結果契約檔') }
+      throw error
+    }
+  }
   let fd: number
   try {
     fd = openSync(path, 'r')
-  } catch {
-    return bad('missing', 'launcher 未寫入結果契約檔')
+  } catch (error) {
+    if (requireRegularPath && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    return { check: bad('missing', 'launcher 未寫入結果契約檔') }
   }
   let raw: string
+  let evidence: { sha256: string; bytes: number }
   try {
     const stat = fstatSync(fd)
-    if (!stat.isFile() || stat.size <= 0) return bad('invalid', `結果檔大小異常：${stat.size} bytes`)
+    if (!stat.isFile() || stat.size <= 0) return { check: bad('invalid', `結果檔大小異常：${stat.size} bytes`) }
+    if (requireRegularPath) {
+      const current = lstatSync(path)
+      if (!current.isFile() || current.dev !== stat.dev || current.ino !== stat.ino) return { check: bad('invalid', '結果檔路徑已變更') }
+    }
     const buf = Buffer.alloc(HERDR_RESULT_MAX_BYTES + 1)
     const n = readSync(fd, buf, 0, buf.length, 0)
-    if (n > HERDR_RESULT_MAX_BYTES) return bad('invalid', `結果檔大小異常：超過 ${HERDR_RESULT_MAX_BYTES} bytes`)
+    if (n > HERDR_RESULT_MAX_BYTES) return { check: bad('invalid', `結果檔大小異常：超過 ${HERDR_RESULT_MAX_BYTES} bytes`) }
     raw = buf.toString('utf8', 0, n)
+    evidence = { sha256: createHash('sha256').update(buf.subarray(0, n)).digest('hex'), bytes: n }
   } finally {
     closeSync(fd)
   }
+  return { check: checkHerdrResultRaw(raw, expected), evidence }
+}
+
+function checkHerdrResultRaw(raw: string, expected: HerdrExpectedBinding): HerdrResultCheck {
   const parsed = parseHerdrResult(raw)
   if (!parsed.ok) return parsed
   const r = parsed.result
@@ -126,7 +161,37 @@ export function checkHerdrResultFile(path: string, expected: HerdrExpectedBindin
   return { ok: true, result: r }
 }
 
-function normalizeRepoPath(path: string): string {
+export function normalizeRepoPath(path: string): string {
   const normalized = resolve(path).replace(/\\/g, '/').replace(/\/+$/, '')
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
+/** Inspection only: read an existing host expected record without creating/changing anything. */
+export function captureHerdrExpectedFile(path: string): HerdrExpectedCapture {
+  let fd: number | undefined
+  try {
+    const pathInfo = lstatSync(path)
+    if (!pathInfo.isFile() || pathInfo.size <= 0 || pathInfo.size > HERDR_RESULT_MAX_BYTES) return { ok: false, kind: 'invalid' }
+    fd = openSync(path, 'r')
+    const info = fstatSync(fd)
+    if (!info.isFile() || info.size <= 0 || info.size > HERDR_RESULT_MAX_BYTES) return { ok: false, kind: 'invalid' }
+    const current = lstatSync(path)
+    if (!current.isFile() || current.dev !== info.dev || current.ino !== info.ino) return { ok: false, kind: 'invalid' }
+    const buffer = Buffer.alloc(HERDR_RESULT_MAX_BYTES + 1)
+    const bytes = readSync(fd, buffer, 0, buffer.length, 0)
+    if (bytes > HERDR_RESULT_MAX_BYTES) return { ok: false, kind: 'invalid' }
+    let value: unknown
+    try { value = JSON.parse(buffer.toString('utf8', 0, bytes)) } catch { return { ok: false, kind: 'invalid' } }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, kind: 'invalid' }
+    const record = value as Record<string, unknown>
+    if (record.schemaVersion !== 1) return { ok: false, kind: record.schemaVersion === undefined ? 'invalid' : 'unsupported' }
+    for (const key of ['requestId', 'executionId', 'repo', 'taskId', 'baseCommit', 'session', 'launcher', 'issuedAt'] as const) {
+      if (typeof record[key] !== 'string' || !(record[key] as string).trim()) return { ok: false, kind: 'invalid' }
+    }
+    return { ok: true, expected: record as unknown as HerdrExpectedBinding, bytes, sha256: createHash('sha256').update(buffer.subarray(0, bytes)).digest('hex') }
+  } catch (error) {
+    return { ok: false, kind: (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'unavailable' }
+  } finally {
+    if (fd !== undefined) try { closeSync(fd) } catch { return { ok: false, kind: 'unavailable' } }
+  }
 }
