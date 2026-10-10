@@ -82,12 +82,12 @@ export function parseHerdrResult(raw: string): HerdrResultCheck {
   const v = value as Record<string, unknown>
   if (v.schemaVersion === undefined) return bad('invalid', '結果缺少或型別錯誤：schemaVersion')
   if (v.schemaVersion !== HERDR_RESULT_SCHEMA_VERSION) {
-    return bad('unsupported', `結果契約版本不受支援：${String(v.schemaVersion).slice(0, 20)}`)
+    return bad('unsupported', '結果契約版本不受支援')
   }
   for (const field of ['requestId', 'executionId', 'repo', 'taskId', 'baseCommit', 'server', 'session', 'pane'] as const) {
     if (typeof v[field] !== 'string' || !(v[field] as string).trim()) return bad('invalid', `結果缺少或型別錯誤：${field}`)
   }
-  if (v.status !== 'done' && v.status !== 'failed') return bad('invalid', `結果 status 非契約值：${String(v.status).slice(0, 20)}`)
+  if (v.status !== 'done' && v.status !== 'failed') return bad('invalid', '結果 status 非契約值')
   if (v.candidateCommit !== undefined && (typeof v.candidateCommit !== 'string' || !v.candidateCommit.trim())) return bad('invalid', 'candidateCommit 型別錯誤')
   if (v.detail !== undefined && typeof v.detail !== 'string') return bad('invalid', 'detail 型別錯誤')
   return { ok: true, result: v as unknown as HerdrResultContract }

@@ -78,9 +78,10 @@ export class HerdrEngine implements Engine {
           cwd: process.cwd(), stdinText: '', timeoutMs: this.pingTimeoutMs,
         })
         const status = JSON.parse(r.stdout) as { running?: boolean; compatible?: boolean; protocol?: number }
+        const protocol = typeof status.protocol === 'number' && Number.isFinite(status.protocol) ? status.protocol : '?'
         result = r.exitCode === 0 && !r.timedOut && status.running === true && status.compatible === true
-          ? { ok: true, detail: `Herdr compatible protocol=${status.protocol ?? '?'}` }
-          : { ok: false, detail: `Herdr 未就緒或不相容（exit=${r.exitCode} protocol=${status.protocol ?? '?'}）` }
+          ? { ok: true, detail: `Herdr compatible protocol=${protocol}` }
+          : { ok: false, detail: `Herdr 未就緒或不相容（exit=${r.exitCode} protocol=${protocol}）` }
       } catch (err) {
         result = { ok: false, detail: redactCli(String(err), { ...process.env }, [this.sessionName, this.provider]).slice(0, 700) }
       }
