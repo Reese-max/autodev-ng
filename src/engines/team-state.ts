@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import Database from 'better-sqlite3'
+import { closeAfterConstructionFailure } from '../cli/owned-resources.js'
 import type { Task } from '../types.js'
 import { ownershipConflicts, ownershipManifest, type OwnershipManifest } from './ownership.js'
 
@@ -22,9 +23,10 @@ export class TeamState {
     this.path = join(common, 'autodev-ng', 'team.db')
     mkdirSync(dirname(this.path), { recursive: true })
     this.db = new Database(this.path)
-    this.db.pragma('journal_mode = WAL')
-    this.db.pragma('busy_timeout = 5000')
-    this.db.exec(`
+    try {
+      this.db.pragma('journal_mode = WAL')
+      this.db.pragma('busy_timeout = 5000')
+      this.db.exec(`
       CREATE TABLE IF NOT EXISTS team_claims(
         execution_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, worker_id TEXT NOT NULL,
         lease_token TEXT NOT NULL, manifest_json TEXT NOT NULL, ownership_hash TEXT NOT NULL,
@@ -43,6 +45,7 @@ export class TeamState {
         lease_until INTEGER NOT NULL, updated_at TEXT NOT NULL
       );
     `)
+    } catch (error) { closeAfterConstructionFailure(error, [this.db]) }
   }
 
   claim(args: {
