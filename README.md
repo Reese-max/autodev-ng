@@ -203,6 +203,11 @@ Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.her
 
 完成回執採結果契約 v1（issue #32）：派工時帶 `-RequestId`（綁定 task＋base commit＋`executionId`）、`-ExecutionId` 與 `-ResultFile <path>`；launcher 必須在終態把 `{"schemaVersion":1,"requestId","executionId","repo","taskId","baseCommit","server","session","pane","status":"done"|"failed"}` 寫入該檔。宿主送件前先把預期綁定存到 `dataDir/herdr/<requestId>.expected.json`，回讀時逐欄位核對——缺檔、壞 JSON、欄位不符或 schemaVersion≠1 一律拒收（`herdr-unsupported`/`herdr-result-invalid`/`herdr-result-mismatch`），不做宿主提交。stdout 只作人讀日誌，marker 字串不再是成功證據（長輸出截斷也不影響終態判定）。不支援 `-ResultFile` 的舊 launcher 會得到明確 unsupported，需更新 launcher。
 
+唯讀重查既有工作：`adng execution inspect-herdr --config <path> --id <executionId> [--request-id <requestId>]`。
+此入口只讀取既有 host execution snapshot、唯一匹配的 host expected record 與有界 v1 result；不派工、不清除或重寫回執、不建立 inventory lock、不遷移／封存／取消、不提交或驗收成果。`--request-id` 只是核對 selector，不能指定任意 expected/result 檔案或自稱 repo／base／session 身分。沒有 snapshot 的 bounded 工作會回 `untracked`，多個候選或查核期間 snapshot／expected selection 改變則拒絕採信。`execution get/list` 保留既有 inventory 行為，並非這個嚴格零寫入入口。
+`correlated-v1-done`／`correlated-v1-failed` 的 exit0 **只代表讀到關聯相符的觀察**（包含失敗終態），不是任務成功或交付；其他狀態 exit2。每次輸出都明示 `trustedTerminal:false`、`trustedServerPaneOccupant:"UNVERIFIED"`、`deadlineOrExpiry:"UNVERIFIED"`、`deliveryVerified:false`。result digest 取自 strict checker 實際解析的同一份 bytes，屬單次時間點證據；之後的矛盾回執不會因此得到可信終態保證。舊 `issuedAt` 不被臆測成過期。真實 launcher 版本／server 與 pane occupant／明確 deadline 契約和另外授權的 Windows canary 仍待驗證。
+正常 `Engine.run` 仍是明確 START；既有 eligible no-commit nudge 保留最多一次 CONTINUE。需要重查時用上述 inspection 入口，不把重跑 `run()` 當成狀態查詢。
+
 ### 4. Discord bot（可選）
 
 ```powershell

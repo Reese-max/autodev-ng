@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, renameSync, type Dir, type Dirent } from 'node:fs'
+import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, opendirSync, readFileSync, readSync, renameSync, type Dir, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { writeJsonAtomic } from '../guardian/incident.js'
@@ -298,6 +298,56 @@ export function readExecution(dataDir: string, id: string): ExecutionSnapshot | 
       history: existsSync(history) ? history : undefined, legacy: existsSync(legacy) ? legacy : undefined })
     return file ? parseReceipt(file, id) : undefined
   })
+}
+
+export type ReadonlyExecutionCapture =
+  | { ok: true; record: ExecutionSnapshot; location: 'active' | 'history' | 'legacy'; sha256: string }
+  | { ok: false; kind: 'invalid' | 'missing' | 'conflict' | 'unavailable' }
+
+/** Completion inspection must never acquire/create inventory locks or migrate/archive records.
+ * Select one existing location and parse/hash the same fd-bounded bytes. */
+export function captureExecutionReadonly(dataDir: string, id: string): ReadonlyExecutionCapture {
+  if (typeof id !== 'string' || !SAFE_ID.test(id)) return { ok: false, kind: 'invalid' }
+  const candidates = [
+    { location: 'active' as const, path: executionFile(dataDir, id) },
+    { location: 'history' as const, path: executionHistoryFile(dataDir, id) },
+    { location: 'legacy' as const, path: join(executionRoot(dataDir), id + '.json') },
+  ]
+  const present: typeof candidates = []
+  for (const folder of [executionRoot(dataDir), executionActiveDir(dataDir), executionHistoryDir(dataDir)]) {
+    try { if (!lstatSync(folder).isDirectory()) return { ok: false, kind: 'invalid' } }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return { ok: false, kind: 'unavailable' } }
+  }
+  for (const candidate of candidates) {
+    try {
+      const info = lstatSync(candidate.path)
+      if (!info.isFile() || info.size <= 0 || info.size > MAX_RECEIPT_BYTES) return { ok: false, kind: 'invalid' }
+      present.push(candidate)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return { ok: false, kind: 'unavailable' }
+    }
+  }
+  if (present.length > 1) return { ok: false, kind: 'conflict' }
+  const selected = present[0]
+  if (!selected) return { ok: false, kind: 'missing' }
+  let fd: number | undefined
+  try {
+    fd = openSync(selected.path, 'r')
+    const info = fstatSync(fd)
+    if (!info.isFile() || info.size <= 0 || info.size > MAX_RECEIPT_BYTES) return { ok: false, kind: 'invalid' }
+    const current = lstatSync(selected.path)
+    if (!current.isFile() || current.dev !== info.dev || current.ino !== info.ino) return { ok: false, kind: 'invalid' }
+    const buffer = Buffer.alloc(MAX_RECEIPT_BYTES + 1)
+    const bytes = readSync(fd, buffer, 0, buffer.length, 0)
+    if (bytes > MAX_RECEIPT_BYTES) return { ok: false, kind: 'invalid' }
+    const record = SnapshotSchema.parse(JSON.parse(buffer.toString('utf8', 0, bytes)))
+    if (record.executionId !== id) return { ok: false, kind: 'invalid' }
+    return { ok: true, record, location: selected.location, sha256: createHash('sha256').update(buffer.subarray(0, bytes)).digest('hex') }
+  } catch (error) {
+    return { ok: false, kind: error instanceof SyntaxError || error instanceof z.ZodError ? 'invalid' : 'unavailable' }
+  } finally {
+    if (fd !== undefined) try { closeSync(fd) } catch { return { ok: false, kind: 'unavailable' } }
+  }
 }
 
 export function requestExecutionCancel(dataDir: string, id: string): void {
