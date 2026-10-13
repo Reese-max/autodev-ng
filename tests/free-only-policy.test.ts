@@ -173,6 +173,36 @@ test.each(['codex', 'freebuff', 'devin', 'agy', 'grok', 'copilot', 'claude-cli',
   expect(() => makeEngineRegistry(cfg).resolve('oc-free-alias')).toThrow('free-policy')
 })
 
+test.each([
+  { name: 'explicit OpenRouter free model', model: `openrouter/${model}`, accepted: true },
+  { name: 'OpenRouter model without free suffix', model: 'openrouter/test/planner', accepted: false },
+  { name: 'OpenCode Zen namespace', model: 'opencode/mimo-v2.5-free', accepted: false },
+  { name: 'Kilo namespace', model: 'kilo/kilo-auto/free', accepted: false },
+  { name: 'NVIDIA namespace', model: 'nvidia/z-ai/glm-5.2', accepted: false },
+  { name: 'missing model', model: undefined, accepted: false },
+  { name: 'caller-controlled arguments', model: `openrouter/${model}`, baseArgs: ['run', '-m', 'paid/model'], accepted: false },
+])('free-only OpenCode admission matrix: $name', ({ model: candidate, baseArgs, accepted }) => {
+  const opts = options()
+  const make = () => new OpencodeEngine({ model: candidate, baseArgs, freeOnly: true, policyDataDir: opts.dataDir,
+    profileDir: join(opts.dataDir, 'profile'), cache: new PreflightCache(join(opts.dataDir, 'cache.json')) })
+  if (accepted) expect(make).not.toThrow()
+  else expect(make).toThrow('free-policy')
+})
+
+test('registry admission error identifies config engine without printing env values', () => {
+  const opts = options(), secret = 'test-secret-must-not-appear'
+  const cfg = ConfigSchema.parse({ projectPath: '.', backlogFile: 'BACKLOG.md', dataDir: opts.dataDir, tierMode: 'free-only',
+    defaultEngine: 'oc-mimo', engines: { 'oc-mimo': { adapter: 'opencode', model: 'opencode/mimo-v2.5-free',
+      env: { OPENROUTER_API_KEY: secret }, subscription: true, costPerRunUsd: 0 } } })
+  let message = ''
+  try { makeEngineRegistry(cfg).resolve('oc-mimo') } catch (err) { message = err instanceof Error ? err.message : String(err) }
+  expect(message).toContain('engine "oc-mimo"')
+  expect(message).toContain('adapter=opencode')
+  expect(message).toContain('model=opencode/mimo-v2.5-free')
+  expect(message).toContain('free-policy')
+  expect(message).not.toContain(secret)
+})
+
 test('free-only lesson publication requires independent free review even over HTTP', async () => {
   const opts = options(), add = vi.fn(() => true)
   vi.stubGlobal('fetch', vi.fn(async (url, init) => url === FREE_MODEL_CATALOG ? catalog() : new Response(JSON.stringify({

@@ -6,6 +6,9 @@ import { GithubConfigSchema, type Issue } from '../src/github/config.js'
 import type { GithubClient } from '../src/github/client.js'
 import { fingerprint, type IssueState } from '../src/github/state.js'
 import { reconcileIssue } from '../src/github/reconcile.js'
+import * as stateModule from '../src/github/state.js'
+import * as configModule from '../src/github/config.js'
+import { createHash } from 'node:crypto'
 
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
@@ -117,4 +120,38 @@ test('Issue prose claiming approval and repeated preview cannot rearm or reset a
   expect(first).toMatchObject({ handoff: { executionAuthorized: false, successorCreated: false, preservedEvidence: { recordedAttempts: 2 }, approval: { collected: false } } })
   expect(readFileSync(f.stateFile, 'utf8')).toBe(before)
   expect(f.client.createPr).not.toHaveBeenCalled()
+})
+
+
+test('packet semantics and state hash come from one captured snapshot despite an inconsistent second read', async () => {
+  const f = fixture(), original = readFileSync(f.stateFile, 'utf8')
+  const substitutedIssue = { ...f.old, body: 'Another valid old snapshot' }
+  const substituted = { ...f.state, issue: substitutedIssue, fingerprint: fingerprint(substitutedIssue), runs: 4, commit: 'e'.repeat(40) }
+  const readState = vi.spyOn(stateModule, 'readState').mockReturnValueOnce(f.state).mockReturnValue(substituted)
+  try {
+    const result = await reconcileIssue(f.file, 4, { client: f.client })
+    expect(result).toMatchObject({ runs: 2, handoff: {
+      observedInputs: { stateSha256: createHash('sha256').update(original).digest('hex') },
+      requirements: { old: { snapshot: f.old, fingerprint: fingerprint(f.old) } },
+      preservedEvidence: { recordedAttempts: 2, candidate: { commit: f.state.commit } },
+    } })
+    expect(readFileSync(f.stateFile, 'utf8')).toBe(original)
+  } finally { readState.mockRestore() }
+})
+
+test('allowed operators are parsed from the exact configuration bytes reported by the packet', async () => {
+  const f = fixture(), captured = { ...f.cfg, authors: ['other-owner'] }
+  const text = JSON.stringify(captured)
+  writeFileSync(f.file, text)
+  // Counterfactual stale loader: the old two-read implementation could export
+  // owner authorization while hashing bytes that name a different operator.
+  const loader = vi.spyOn(configModule, 'loadGithubConfig').mockReturnValue(f.cfg)
+  try {
+    const result = await reconcileIssue(f.file, 4, { client: f.client })
+    expect(result).toMatchObject({ handoff: {
+      approval: { allowedOperators: captured.authors, collected: false },
+      observedInputs: { configuration: [{ path: f.file, sha256: createHash('sha256').update(text).digest('hex') }, { path: f.source, sha256: expect.any(String) }] },
+    } })
+    expect(readFileSync(f.file, 'utf8')).toBe(text)
+  } finally { loader.mockRestore() }
 })

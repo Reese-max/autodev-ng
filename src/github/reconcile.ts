@@ -5,24 +5,25 @@ import { parseArgs } from 'node:util'
 import { acquireLock, releaseLock } from '../lock.js'
 import { writeJsonAtomic } from '../guardian/incident.js'
 import { githubClient, type GithubClient } from './client.js'
-import { githubStopFile, loadGithubConfig, type Issue } from './config.js'
+import { githubStopFile, parseGithubConfig, type Issue } from './config.js'
 import { eligibleForRun } from './repair.js'
-import { fingerprint, issueDir, readState, saveState } from './state.js'
+import { fingerprint, issueDir, parseIssueState, readState, saveState } from './state.js'
 import { requirementHandoff } from './requirement-handoff.js'
 
 export async function reconcileIssue(file: string, number: number, options: { apply?: boolean; reason?: string; client?: GithubClient } = {}) {
   if (!Number.isSafeInteger(number) || number < 1) throw new Error('Positive Issue number required')
   if (options.apply && (!options.reason || options.reason.trim().length < 8 || options.reason.length > 1000)) throw new Error('Apply requires a specific reason (8–1000 characters)')
-  const cfg = loadGithubConfig(file)
+  const configurationText = readFileSync(file, 'utf8')
+  const cfg = parseGithubConfig(file, configurationText)
   if (!readState(cfg, number)) throw new Error('Issue state not found')
   const lock = join(cfg.dataDir, 'runner.lock')
   const lockToken = acquireLock(lock)
   if (!lockToken) throw new Error('Runner active; no reconciliation performed')
   try {
     const original = readFileSync(join(issueDir(cfg, number), 'state.json'), 'utf8')
-    const state = readState(cfg, number)!
-    if (JSON.stringify(loadGithubConfig(file)) !== JSON.stringify(cfg)) throw new Error('Configuration changed before reconciliation')
-    const inputs = [file, cfg.sourceConfig, ...(cfg.repair ? [cfg.repair.reportConfig] : [])].map(path => [path, readFileSync(path, 'utf8')] as const)
+    const state = parseIssueState(cfg, number, original)
+    if (readFileSync(file, 'utf8') !== configurationText) throw new Error('Configuration changed before reconciliation')
+    const inputs = [[file, configurationText] as const, ...[cfg.sourceConfig, ...(cfg.repair ? [cfg.repair.reportConfig] : [])].map(path => [path, readFileSync(path, 'utf8')] as const)]
     const pauseFile = githubStopFile(cfg), pause = existsSync(pauseFile) ? readFileSync(pauseFile, 'utf8') : undefined
     const client = options.client ?? githubClient(cfg)
     let observedIssue: Issue

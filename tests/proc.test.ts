@@ -203,10 +203,31 @@ test('hang-worktree-lock：實機引擎逾時斬樹完成後，worktree 目錄�
   writeFileSync(lockedFile, 'locked')
   process.env.FAKE_MODE = 'hang-worktree-lock'
   process.env.FAKE_LOCK_FILE = lockedFile
+  let observedStderr = ''
+  let lockProbe = 'not-observed'
   try {
-    const r = await runProcess({ ...base, stdinText: 'x', timeoutMs: 3_000 })
+    // The measured engine timeout includes Node and nested PowerShell startup.
+    // CI 37261076940 reached the old 3s deadline without lock readiness. Keep a
+    // finite 8s wall window and the original 20s framework bound; readiness and
+    // real Windows deletion denial are required before tree cleanup is credited.
+    const r = await runProcess({ ...base, stdinText: 'x', timeoutMs: 8_000,
+      control: { onEvent: event => {
+        if (event.type !== 'output' || event.stream !== 'stderr') return
+        observedStderr = (observedStderr + event.text).slice(-8192)
+        if (lockProbe !== 'not-observed' || !observedStderr.split(/\r?\n/).includes('WORKTREE_LOCK_READY_OBSERVED')) return
+        try {
+          rmSync(lockedFile)
+          lockProbe = 'deleted'
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code
+          lockProbe = code === 'EPERM' || code === 'EACCES' || code === 'EBUSY' ? 'locked' : 'unexpected-error'
+        }
+      } },
+    })
     expect(r.timedOut).toBe(true)
     expect(r.stderr).toContain('WORKTREE_LOCK_READY')
+    expect(r.stderr).toContain('WORKTREE_LOCK_READY_OBSERVED')
+    expect(lockProbe).toBe('locked')
     rmSync(worktree, { recursive: true, force: true, maxRetries: 5 })
     expect(existsSync(worktree)).toBe(false)
   } finally {

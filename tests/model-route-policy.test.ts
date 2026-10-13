@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'vitest'
+import { describe, test, expect, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -35,6 +35,9 @@ describe('RoutePolicySchema bounds', () => {
   test('rejects maxAttempts > 3 and empty routeId', () => {
     expect(() => RoutePolicySchema.parse({ routeId: 'r', maxAttempts: 4, candidates: [{ id: 'a', url: 'u', model: 'm' }] })).toThrow()
     expect(() => RoutePolicySchema.parse({ routeId: '', candidates: [{ id: 'a', url: 'u', model: 'm' }] })).toThrow()
+  })
+  test('rejects conflicting duplicate candidate references before routing', () => {
+    expect(() => policy({}, [{ id: 'same', url: 'http://u0/v1' }, { id: 'same', url: 'http://u1/v1' }])).toThrow(/duplicate candidate reference/i)
   })
 })
 
@@ -87,13 +90,45 @@ describe('breaker state', () => {
       mkdirSync(join(dir, 'route-breakers'), { recursive: true })
       writeFileSync(join(dir, 'route-breakers', 'k.json'), 'not json')
       expect(readBreaker(dir, 'k').kind).toBe('invalid')
+      for (const shape of ['null', '[]', '42']) {
+        writeFileSync(join(dir, 'route-breakers', 'k.json'), shape)
+        expect(readBreaker(dir, 'k').kind).toBe('invalid')
+      }
       quarantineRouteCandidate(dir, 'q', 'identity-violation:x')
       expect(readBreaker(dir, 'q')).toEqual({ kind: 'quarantined', reason: 'identity-violation:x' })
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+  test('quarantine marker survives a concurrent legacy CLOSED or OPEN write', () => {
+    const dir = dataDir()
+    try {
+      quarantineRouteCandidate(dir, 'q', 'identity-violation:writer')
+      const legacy = join(dir, 'route-breakers', 'q.json')
+      rmSync(legacy)
+      expect(readBreaker(dir, 'q')).toEqual({ kind: 'quarantined', reason: 'identity-violation:writer' })
+      writeFileSync(legacy, JSON.stringify({ state: 'OPEN', retryAt: Date.now() + 5000 }))
+      expect(readBreaker(dir, 'q')).toEqual({ kind: 'quarantined', reason: 'identity-violation:writer' })
+      writeFileSync(join(dir, 'route-breakers', 'q.quarantine.json'), JSON.stringify({ state: 'OPEN', retryAt: Date.now() + 5000 }))
+      expect(readBreaker(dir, 'q').kind).toBe('invalid')
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 })
 
 describe('callRoutedAgent', () => {
+  test('one normalized candidate is never redispatched in the same call after cooldown advances', async () => {
+    const dir = dataDir()
+    let now = 1_000_000
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => { now += 10; return now })
+    let calls = 0
+    const transient = (async () => { calls++; return new Response('{}', { status: 503, headers: { 'retry-after': '0.001' } }) }) as typeof fetch
+    const candidate = { url: 'http://u0/v1', model: 'm0', apiKey: 'k0', credentialRef: 'r0' }
+    try {
+      const out = await callRoutedAgent({ route: policy({}, [{ ...candidate, id: 'first' }, { ...candidate, url: 'HTTP://U0/v1/', id: 'same-target' }]), dataDir: dir, model: 'alias', fetchFn: transient }, 'prompt')
+      expect(out.error).toMatch(/unavailable/)
+      expect(calls).toBe(1)
+      const lines = readFileSync(join(dir, 'route-calls.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line))
+      expect(lines.at(-1)).toMatchObject({ phase: 'blocked', attempts: 1 })
+    } finally { clock.mockRestore(); rmSync(dir, { recursive: true, force: true }) }
+  })
   test('falls back only on transient classes and records receipts', async () => {
     const dir = dataDir()
     const seen: string[] = []
@@ -155,19 +190,22 @@ describe('callRoutedAgent', () => {
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
-  test('cost hard cap: unknown cost blocks, over-cap quarantines', async () => {
+  test('cost hard cap: unknown worst-case cost blocks before response or over-cap spend', async () => {
     const dir = dataDir()
+    let calls = 0
+    const observedFetch = (async () => { calls++; return okFetch('m9', 'ok', { cost: 0.5 })('http://unused') }) as unknown as typeof fetch
     try {
       const unknown = await callRoutedAgent({
-        route: policy({ maxCostUsd: 1 }, [{}]), dataDir: dir, model: 'a', fetchFn: okFetch('m0'),
+        route: policy({ maxCostUsd: 1 }, [{}]), dataDir: dir, model: 'a', fetchFn: observedFetch,
       }, 'p')
       expect(unknown.error).toMatch(/cost unknown/i)
       const over = await callRoutedAgent({
         route: policy({ maxCostUsd: 0.01 }, [{ id: 'c9', url: 'http://u9/v1', model: 'm9', apiKey: 'k9', credentialRef: 'cr9' }]),
-        dataDir: dir, model: 'a', fetchFn: okFetch('m9', 'ok', { cost: 0.5 }),
+        dataDir: dir, model: 'a', fetchFn: observedFetch,
       }, 'p')
-      expect(over.error).toMatch(/exceeds policy cap/i)
-      expect(readBreaker(dir, breakerKey({ url: 'http://u9/v1', model: 'm9', apiKey: 'k9', credentialRef: 'cr9' })).kind).toBe('quarantined')
+      expect(over.error).toMatch(/cost unknown/i)
+      expect(calls).toBe(0)
+      expect(readBreaker(dir, breakerKey({ url: 'http://u9/v1', model: 'm9', apiKey: 'k9', credentialRef: 'cr9' })).kind).toBe('closed')
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 

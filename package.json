@@ -28,7 +28,8 @@
     "zod": "^4.4.3"
   },
   "overrides": {
-    "undici": "^6.27.0"
+    "undici": "^6.27.0",
+    "qs": "^6.16.0"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^10.0.0",
@@ -36,9 +37,9 @@
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^26.1.0",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.11",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.11"
   },
   "allowScripts": {
     "better-sqlite3@12.11.1": true
