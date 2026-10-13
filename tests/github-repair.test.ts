@@ -9,7 +9,7 @@ import { eligibleForRun, prepareRepair, reviewRepair } from '../src/github/repai
 import { command, type GithubClient, type IssueBatch } from '../src/github/client.js'
 import { assertPublishable, checkoutDir, git, runtimeConfig } from '../src/github/job.js'
 import { publishIssue, runGithub } from '../src/github/runner.js'
-import { branchFor, fingerprint, readState, saveState, type IssueState } from '../src/github/state.js'
+import { branchFor, fingerprint, readState, runDir, saveState, type IssueState } from '../src/github/state.js'
 import { observeProject, reportFingerprint } from '../src/autopilot/report-research.js'
 import * as proc from '../src/engines/proc.js'
 import { githubCli } from '../src/github/cli.js'
@@ -20,6 +20,7 @@ import * as incident from '../src/guardian/incident.js'
 import { FreebuffEngine } from '../src/engines/freebuff.js'
 import * as admission from '../src/engines/cli-admission.js'
 import { PreflightCache } from '../src/preflight.js'
+import { buildFollowupDiagnostic, readFirstFailedAttempt, writeFollowupDiagnostic } from './helpers/github-repair-followup-diagnostic.js'
 
 const dirs: string[] = []
 const availableCodexAdmission = () => {
@@ -204,8 +205,19 @@ test('report repair follow-up preserves the original fix, proves a new regressio
   expect(queued.status).toBe('queued'); expect(queued.revision?.baseCommit).toBe(first.commit)
   expect(repairMetrics(f.cfg).recordedFailedAttempts).toBe(0)
   queued.nextRunAt = 0; saveState(f.cfg, queued)
+  const followUpBefore = readState(f.cfg, 4)!
   const followUp = await runGithub(f.cfg, options), followUpState = readState(f.cfg, 4)
-  expect(followUp, `GitHub repair follow-up state: ${JSON.stringify(followUpState)}`).toBe('4: published')
+  let failureSummary = 'Synthetic follow-up returned a non-published result.'
+  if (followUp !== '4: published') {
+    const captured = readFirstFailedAttempt(join(runDir(f.cfg, followUpBefore), 'run.db'))
+    let candidateCommit: string | undefined
+    try { candidateCommit = git(checkoutDir(f.cfg, followUpBefore), ['rev-parse', 'HEAD']) } catch { /* no candidate commit may exist yet */ }
+    const input = { before: followUpBefore, after: followUpState, firstPublishedCommit: first.commit,
+      candidateCommit, attempt: captured.attempt, attemptLookup: captured.lookup, fixtureRoot: f.dir }
+    failureSummary = JSON.stringify(buildFollowupDiagnostic(input))
+    writeFollowupDiagnostic(input)
+  }
+  expect(followUp, failureSummary).toBe('4: published')
   const second = readState(f.cfg, 4)!
   assertPublishable(f.cfg, second)
   expect(second.runs).toBe(2); expect(second.pr).toBe(first.pr); expect(second.commit).not.toBe(first.commit)
