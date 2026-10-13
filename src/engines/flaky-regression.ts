@@ -2,7 +2,7 @@
 /**
  * 修復後候選 flaky spec 的雙輪回歸守門。
  *
- * 連續執行兩輪 `npx vitest run --reporter=dot`，任一轮失敗即非 0；
+ * 連續執行兩輪 `npx vitest run --reporter=dot --reporter=default`，任一轮失敗即非 0；
  * 失敗時輸出最小診斷：spec 名稱、輪次、關鍵 fixture 狀態（隔離契約＋失敗訊號）。
  */
 import { pathToFileURL } from 'node:url'
@@ -15,7 +15,10 @@ import {
 } from './test-isolation.js'
 
 const ROUNDS = 2
-const TIMEOUT_MS = 15 * 60_000
+// Windows CI 37258055648: 217 spec files (92 when this gate was introduced).
+// Its passing round took 894,960ms, leaving only 5,040ms under the old 15m cap.
+// Keep a finite 20m wall budget; test/fixture timeouts and serial execution remain separate.
+const TIMEOUT_MS = 20 * 60_000
 
 /**
  * 已修復、需雙輪回歸鎖住的候選 specs（來源：flaky-analysis / flaky-bisection）。
@@ -97,6 +100,10 @@ export function regressionDiagnostic(round: number, result: ProcResult): string 
     `target=${target}`,
     `exit=${String(result.exitCode)}`,
     `timedOut=${result.timedOut}`,
+    `durationMs=${result.durationMs}`,
+    `timeoutMs=${TIMEOUT_MS}`,
+    `timeoutReason=${JSON.stringify(result.timeoutReason ?? null)}`,
+    `cleanup=${JSON.stringify(result.cleanup ?? null)}`,
     `fixture=${JSON.stringify(fixture)}`,
     `detail=${JSON.stringify(detail)}`,
   ].join(' ')
@@ -110,16 +117,24 @@ export async function flakyRegressionMain(
   for (let round = 1; round <= ROUNDS; round++) {
     const result = await run({
       command: 'npx',
-      args: ['vitest', 'run', '--reporter=dot'],
+      args: ['vitest', 'run', '--reporter=dot', '--reporter=default'],
       cwd,
       stdinText: '',
       timeoutMs: TIMEOUT_MS,
     })
-    if (result.exitCode === 0 && !result.timedOut) {
-      console.log(`[flaky-regression] round=${round}/${ROUNDS} ok durationMs=${result.durationMs}`)
+    const consistentCleanup = result.cleanup === undefined || (result.cleanup.status === 'confirmed'
+      && result.cleanup.rootClosed && result.cleanup.remainingPids.length === 0 && result.cleanup.reasonCodes.length === 0
+      && (result.cleanup.unconfirmedControlPids?.length ?? 0) === 0)
+    if (result.exitCode === 0 && !result.timedOut && !result.aborted && consistentCleanup) {
+      console.log(`[flaky-regression] round=${round}/${ROUNDS} ok durationMs=${result.durationMs} timeoutMs=${TIMEOUT_MS}`)
+      if (result.stdout) console.log(result.stdout)
+      if (result.stderr) console.error(result.stderr)
     } else {
       failed = true
       console.error(regressionDiagnostic(round, result), result.stdout, result.stderr)
+      // An unconfirmed/aborted previous process cannot authorize another suite child.
+      if (result.exitCode === null || result.aborted || !consistentCleanup
+        || (result.timedOut && result.cleanup === undefined)) break
     }
   }
   return failed ? 1 : 0

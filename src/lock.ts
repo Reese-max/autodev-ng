@@ -1,5 +1,8 @@
 import { acquireLockLease, recoverRetainedLockLease, releaseDeadLockLease, releaseLockLease } from './lock/coordinator.js'
 
+/** Read-only owner observation; it never acquires, reclaims, or releases a generation. */
+export { checkLockOwner } from './lock/internal.js'
+
 /**
  * Acquire a process-safe local lease. SQLite serializes the stale-owner check and
  * generation replacement, and its OS lock is released automatically after a crash.

@@ -118,6 +118,7 @@ export type EngineConfig = z.infer<typeof EngineConfigSchema>
 // M10.6：timezoneOffsetHours 的 Zod 預設單一真相源——globalcost 讀 raw JSON 拿不到 Zod default，
 // 改從此常數鏡像（M10.5 缺欄低估事故的根因就是兩處預設不一致）。台灣 +8。
 export const DEFAULT_TIMEZONE_OFFSET_HOURS = 8
+export const TimezoneOffsetHoursSchema = z.number().int().min(-12).max(14)
 export const DEFAULT_STALE_THRESHOLD_MS = 30 * 60_000
 export const DEFAULT_WEDGE_HARD_CAP_MS = 120 * 60_000
 export const DEFAULT_REAP_GRACE_MS = 90 * 60_000 // §1.1 長輪寬限：引擎子進程在且凍結未逾此值不 reap（單輪實測 50 分＋verify 10 分）
@@ -142,7 +143,7 @@ export const ConfigSchema = z.object({
   // supervisor：有子進程時的 wedge 硬上限；預設 120 分鐘。
   wedgeHardCapMs: z.number().int().min(900_001).default(DEFAULT_WEDGE_HARD_CAP_MS),
   // M4 Task 3（成本記帳）：本地日界線與失敗成本估計。台灣預設 +8；成本日界線與 digest 報日共用同一個 offset。
-  timezoneOffsetHours: z.number().int().min(-12).max(14).default(DEFAULT_TIMEZONE_OFFSET_HOURS),
+  timezoneOffsetHours: TimezoneOffsetHoursSchema.default(DEFAULT_TIMEZONE_OFFSET_HOURS),
   failureCostEstimateUsd: z.number().nonnegative().default(1),
   // M4 Task 6：worktreesDir 相對 config 檔目錄展開；worktree.ts 收絕對路徑，extraDirective 可注入 engine prompt 尾端。
   worktreesDir: z.string().default('worktrees'),
@@ -155,7 +156,8 @@ export const ConfigSchema = z.object({
   engineIsolation: z.boolean().default(true),
   extraDirective: z.string().optional(),
   stopFile: z.string().default('.adng.stop'),
-  verifyCommand: z.string().optional(),
+  // #48：單步字串或有序步驟清單；字串內 && 視為序接鏈逐步執行，其他 shell 元字元拒絕。
+  verifyCommand: z.union([z.string(), z.array(z.string().trim().min(1)).min(1)]).optional(),
   verifyTimeoutMs: z.number().int().positive().default(600_000),
   defaultRisk: z.enum(['low', 'medium', 'high']).default('medium'),
   // 併發基建骨架（GOAL A 2026-07-28）：>1 的併發池屬 GOAL B，骨架僅收設定並防呆。
@@ -202,7 +204,19 @@ export const ConfigSchema = z.object({
   // M10.0 永續外環：perpetual 未設（false）＝外環完全停用，daemon 行為與 M9.9 一致（硬回歸線）。
   perpetual: z.boolean().default(false),
   perpetualCooldownMs: z.number().int().positive().default(6 * 60 * 60 * 1000),
-  perpetualValueThreshold: z.number().int().min(0).max(10).default(6)
+  perpetualValueThreshold: z.number().int().min(0).max(10).default(6),
+  // issue #55：可插拔長時程執行後端。三角色各自獨立設定（不綁同一 provider）：
+  // managerModel/auditorModel 走 LLM（judgeUrl/judgeApiKey 檔位），executorEngine/escalationEngine
+  // 引用 engines 白名單 tag（如 herdr）；未設時 executor 用 defaultEngine、無 LLM 角色、無升級。
+  executionBackend: z.object({
+    adapter: z.enum(['long-horizon']).default('long-horizon'),
+    managerModel: z.string().optional(),
+    auditorModel: z.string().optional(),
+    executorEngine: z.string().optional(),
+    escalationEngine: z.string().optional(),
+    maxRounds: z.number().int().positive().default(10),
+    maxSameFingerprint: z.number().int().positive().default(3),
+  }).strict().optional()
 })
   .superRefine((c, ctx) => {
     if (!c.engines && !c.engine) ctx.addIssue({ code: 'custom', path: ['engine'], message: 'engines map 與 legacy engine 欄位至少須設一個' })
@@ -225,4 +239,5 @@ export const ConfigSchema = z.object({
   .transform(c => ({ ...c, engines: c.engines ?? { claude: { adapter: c.engine ?? 'claude-cli' } } }))
   .refine(c => c.defaultEngine in c.engines, { message: 'defaultEngine 必須存在於 engines 白名單內', path: ['defaultEngine'] })
   .refine(c => (c.engineRotation ?? []).every(t => t in c.engines), { message: 'engineRotation 每個 tag 必須存在於 engines 白名單內', path: ['engineRotation'] })
+  .refine(c => [c.executionBackend?.executorEngine, c.executionBackend?.escalationEngine].every(t => !t || t in c.engines), { message: 'executionBackend 引用的 engine tag 必須存在於 engines 白名單內', path: ['executionBackend'] })
 export type Config = z.infer<typeof ConfigSchema>
