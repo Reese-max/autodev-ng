@@ -10,16 +10,12 @@ export async function nudgeNoCommit(
   initial: RunResult,
   fallbackBaseCommit: string,
   getCommitHash: (cwd: string) => string | undefined = defaultCommitHash,
-  dispatch?: { beforeRun: () => Promise<boolean>; onDispatch: () => void },
 ): Promise<RunResult> {
   const baseCommitHash = initial.baseCommitHash ?? fallbackBaseCommit
   if (initial.recoveryRequired || initial.cancelled || job.control?.signal?.aborted || !initial.failureReason?.startsWith('no-commit') || getCommitHash(job.projectPath) !== baseCommitHash) return initial
 
-  if (dispatch && !await dispatch.beforeRun()) return initial
-  if (job.control?.signal?.aborted) return initial
   let nudged: RunResult
   try {
-    dispatch?.onDispatch()
     nudged = await engine.run({ ...job, directive: NO_COMMIT_NUDGE })
   } catch (err) {
     return {
@@ -44,8 +40,7 @@ export async function nudgeNoCommit(
   return { ...combined, ok: true, commitHash, baseCommitHash, failureReason: undefined }
 }
 
-/** 同 execution 多回合結果合併（nudge 與 Issue #11 queue follow-up 共用）：保留雙方輸出與成本系譜。 */
-export function combineRuns(first: RunResult, second: RunResult): RunResult {
+function combineRuns(first: RunResult, second: RunResult): RunResult {
   return {
     ...second,
     actualModel: first.actualModel === second.actualModel ? first.actualModel : 'multiple/unknown',

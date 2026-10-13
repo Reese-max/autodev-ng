@@ -10,9 +10,7 @@ import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetryReason, retriedBlockedReason, worktreeFailureReason, type InfrastructureRetryReason, type InfraRetryState } from './engines/infra-retry.js'
 import { enqueueMerge, enqueueTeamMerge } from './engines/merge-queue.js'
-import { combineRuns, nudgeNoCommit } from './engines/no-commit-nudge.js'
-import { createControls, additionalTurnHooks, deliverQueuedControls } from './engines/queued-controls.js'
-import { ENGINE_CAPABILITIES, type Adapter } from './engines/capabilities.js'
+import { nudgeNoCommit } from './engines/no-commit-nudge.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
 import { freeOnlyListExhausted } from './engines/free-only-retry.js'
 import { sequentialReadyTasks, tryFreeOnlySplit } from './engines/free-only-split.js'
@@ -105,7 +103,6 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
 
 async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleResult> {
   const { cfg, store, db, engines, events, verifier, notify } = deps
-  const controls = createControls(deps)
   if (deps.runControl?.signal?.aborted) return 'stopped'
   if (existsSync(cfg.stopFile)) {
     writeHeartbeat(events, cfg, { state: 'stopped', todayCostUsd: todayCost(db, cfg) })
@@ -259,7 +256,6 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   directive = `${directive ?? task.text}\n\n完成的定義＝工作區改動完成，且最終由引擎或可信宿主產生新 git commit。若 sandbox 保護 Git metadata，不得繞過沙箱，保留改動讓宿主提交；否則結束前執行 git log -1 --oneline 自證。\n完成定義＝最終存在新 commit，無 commit 視為未完成。`
 
   let res: RunResult
-  const controlCost = { dispatchedTurns: 1 }
   const job: Job = { task, projectPath: wt.cwd, directive, executionId, writerIdentity: engineTag, control: deps.runControl }
   const quarantineRun = (reason?: string): CycleResult => {
     recoveryRequired = true
@@ -284,10 +280,6 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
       }
       job.control = observation.control
     }
-    // Issue #11：把 in-flight 指示通道接進 job.control——只有能力表 inFlightSteer=true
-    // 的 adapter 才有 port 可 poll()；未接線的 adapter 從源頭就取不到 STEER 信封。
-    if (ENGINE_CAPABILITIES[cfg.engines[engineTag]?.adapter as Adapter]?.control.inFlightSteer === true)
-      job.control = { ...(job.control ?? {}), steer: controls.steerPort(executionId) }
     // Consume the one-time retry receipt and observe learning only after admission.
     if (cfg.alternativeRetry && alternativeRetryDue(cfg, db.taskFailCount(task.id))) {
       try { job.directive = `${job.directive ?? task.text}\n\n${startAlternativeRetry(cfg, task.id, executionId, db.lastFailureFor(task.id))}` }
@@ -308,28 +300,17 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
       quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
       return resolveFailure(deps, task, 'engine-error', String(err), 'supply', { costUsd: fixedCost ?? 0 })
     }
-
   }
   if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
   if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`) }
-  if (!pending) res = await nudgeNoCommit(engine!, job, res, wt.baseHead, undefined, additionalTurnHooks(deps, engine!, job, () => res, () => observation?.recoveryRequired === true, engineTag, fixedCost, controlCost))
+  if (!pending) res = await nudgeNoCommit(engine!, job, res, wt.baseHead)
   if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
-  // Issue #11：QUEUE 信封在回合邊界送達——同一 executionId 的有界 follow-up turn。
-  // 僅首回合成功時接續；verify/merge critical section 在其後，控制訊息絕不注入該段。
-  if (!pending && res.ok) {
-    try { res = await deliverQueuedControls(deps, engine!, job, res, controls, () => observation?.recoveryRequired === true, engineTag, fixedCost, controlCost) }
-    catch (err) {
-      res = combineRuns(res, { ok: false, output: `[control-turn error] ${String(err)}`, costUsd: 0, costUnknown: true, failureReason: `control-turn：${String(err)}` })
-    }
-    if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
-    if (!res.ok && observation?.snapshot().worker && observation.snapshot().phase === 'running') return quarantineRun('queued worker transport failed before a verified terminal result')
-  }
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默。失敗成本估計（M4 Task 3）：costUnknown===true
   // （timeout/exit≠0/輸出不可解析）改記 cfg.failureCostEstimateUsd，detail 帶 cost-estimated 標記；
   // 引擎解析出真值（含 is_error、真值恰好 0）照記真值。M5 Task 1：fixedCost 有設（非真值引擎）
   // → 成功失敗一律入帳固定估計值，估計語意只留給真值引擎（claude）。
   const costEstimated = fixedCost === undefined && !res.ok && res.costUnknown === true
-  const recordedCostUsd = fixedCost === undefined ? (costEstimated ? Math.max(res.costUsd, cfg.failureCostEstimateUsd) : res.costUsd) : fixedCost * controlCost.dispatchedTurns
+  const recordedCostUsd = fixedCost ?? (costEstimated ? cfg.failureCostEstimateUsd : res.costUsd)
   const baseDetail = res.failureReason ?? res.commitHash ?? ''
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
   const failureClass = res.failureReason?.startsWith('no-commit') ? 'task' as const : 'supply' as const
@@ -523,8 +504,6 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
   return resolveFailure(deps, task, 'failed', res.failureReason ?? '未知', failureClass, quotaUsage)
   } finally {
-    // Issue #11：execution 收尾即結案所有仍未送達的控制信封（STEER→NOT_DELIVERED、QUEUE→STALE）。
-    try { controls.endExecution(executionId) } catch { /* 控制面收尾故障不反殺主迴圈 */ }
     observation?.finish(recoveryRequired ? 'unconfirmed' : learningResult.accepted || reviewWaiting ? 'completed' : 'failed')
     if (observation?.recoveryRequired && !recoveryRequired) {
       recoveryRequired = true
@@ -537,9 +516,6 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   }
 }
 
-/** Issue #11：QUEUE 控制信封的「下一安全回合」送達。同一 executionId 下以有界 follow-up
- *  run 攜入操作員指示（每回合 drain 全部 pending、FIFO 排序）；stopFile／abort／日硬頂
- *  都會中止送達，未被取走的信封由 endExecution/sweep fail closed 結案，絕不落下一題。 */
 async function retryInfrastructure(deps: Deps, task: Task, retry: InfraRetryState, reason: InfrastructureRetryReason, detail: string): Promise<CycleResult> {
   if (retry.retried) return blockTask({ store: deps.store, events: deps.events }, task, reason, retriedBlockedReason(detail))
   quiet(() => deps.events.append('infra-retry', { task: task.text, reason, retried: 1 }))
