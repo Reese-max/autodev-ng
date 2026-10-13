@@ -20,6 +20,7 @@ AutoDev NG 將使用者授權的 backlog／GOAL 交給引擎，在隔離工作�
 | 引擎路由與不穩定測試調查 | [路由入口](engine-routing-insertion-points.md)、[隔離修正](flaky-isolation-fix.md) |
 | 金鑰輪替處理 | [security/CREDENTIAL_ROTATION.md](security/CREDENTIAL_ROTATION.md) |
 | GOAL 規格、待驗收項目與歷史草稿 | [goal-queue/README.md](goal-queue/README.md) |
+| Herdr 無人值守總驗收契約 | [herdr-unattended-acceptance.md](herdr-unattended-acceptance.md) |
 | 歷史探針標記 | [Pi Canary](legacy/probes/PI_PROVIDER_CANARY.md)、[Pi Canary V2](legacy/probes/PI_PROVIDER_CANARY_V2.md)、[probe.txt](legacy/probes/probe.txt) |
 | 跨專案產品稽核 | [Portfolio 稽核規則](portfolio-audit/2026-09-06-50-persona-audit.md)、[2026-09-07 進度](portfolio-audit/round-2-progress-2026-09-07.md) |
 
