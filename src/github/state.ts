@@ -48,7 +48,11 @@ export function fingerprint(issue: Issue): string {
 export function readState(cfg: GithubConfig, number: number): IssueState | undefined {
   const file = join(issueDir(cfg, number), 'state.json')
   if (!existsSync(file)) return undefined
-  const state = StateSchema.parse(JSON.parse(readFileSync(file, 'utf8')))
+  return parseIssueState(cfg, number, readFileSync(file, 'utf8'))
+}
+/** Validate the same captured bytes that a read-only packet hashes. */
+export function parseIssueState(cfg: GithubConfig, number: number, text: string): IssueState {
+  const state = StateSchema.parse(JSON.parse(text))
   if (state.repo !== cfg.repo || state.base !== cfg.base || state.issue.number !== number) throw new Error('Issue state repository/base mismatch')
   return state
 }
