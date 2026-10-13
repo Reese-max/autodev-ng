@@ -15,7 +15,7 @@ import type { TaskTerminalNotice } from './engines/notify.js'
 import { freeOnlyListExhausted } from './engines/free-only-retry.js'
 import { sequentialReadyTasks, tryFreeOnlySplit } from './engines/free-only-split.js'
 import { quiet, type EventLog } from './events.js'
-import { globalBilledToday } from './globalcost.js'
+import { globalBilledToday, extraBillingScopes, type ExtraBillingScope } from './globalcost.js'
 import type { Config, Engine, EngineResolver, Job, RunResult, Task } from './types.js'
 import type { VerifierCheck } from './verifier.js'
 import { cleanupWorktree, prepareWorktree, WorktreeCleanupPartialError, type WorktreeHandle } from './worktree.js'
@@ -28,7 +28,8 @@ import { checkOwnership, compatibleTasks } from './engines/ownership.js'
 import type { TeamState } from './engines/team-state.js'
 import { trackedDirtyFiles } from './engines/main-admission.js'
 import { observeLearning } from './learn/outcomes.js'
-import { createExecutionObservation, readExecutions } from './engines/execution-observation.js'
+import { createExecutionObservation, ExecutionInventoryCapacityError, readExecutions, type ExecutionInventory } from './engines/execution-observation.js'
+import { InventoryLockBusyError } from './engines/inventory-lock.js'
 import type { RunControl } from './engines/run-control.js'
 import { assertPendingCandidate, readPendingReview, savePendingReview, closePendingReview, type PendingReview } from './engines/pending-review.js'
 
@@ -41,6 +42,8 @@ export interface LessonsPort {
 
 export interface Deps {
   runControl?: RunControl
+  /** Optional inventory adapter for embedded callers and deterministic admission tests. */
+  executionInventory?: (dataDir: string) => ExecutionInventory
   cfg: Config
   store: BacklogStore
   db: RunDb
@@ -61,12 +64,21 @@ export interface Deps {
   lessons?: LessonsPort
   /** M10.5：config 檔絕對路徑（assemble 填入）——globalBilledToday 掃兄弟專案用。測試可不設。 */
   cfgPath?: string
+  /** Bind global accounting to the exact source bytes used to construct this runtime. */
+  billingSourceHash?: string
+  /** #40：額外計帳目錄（GitHub Issue 入口的 cfg.dataDir）——其 issue-N/run.db 樹納入全域查帳，
+   *  否則 Issue/revision 動態帳務游離在任何被掃描專案的 dataDir 之外。 */
+  billingScopeDirs?: string[]
+  /** owner 模式可為各 repo 提供自己的 timezone/subscription policy；延後到全域頂閘才呼叫。 */
+  billingScopes?: ExtraBillingScope[] | (() => ExtraBillingScope[])
+  /** 執行器即將被呼叫時通知外層；區分派工前停止與已消耗 worker 嘗試的停止。 */
+  onWorkerStart?: (taskId: string) => void
 }
 
 /** MEDIUM 1 修復：機器可讀的 blocked 原因碼。daemon.baseAlertMessage 依此挑對應人話文案
  * ——不是每種 blocked 都是「連敗」，含糊文案會誤導人工介入的方向。 */
 // infra codes distinguish retryable worktree／外部終止，其他 reason 維持既有終態。
-export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'completion-gate' | 'verification-infra' | 'review-unavailable' | 'release-approval' | 'ownership-drift' | 'merge-queue-recovery' | 'team-state-quarantined' | 'dirty-worktree' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
+export type BlockedReason = 'max-attempts' | 'not-a-git-repo' | 'merge-conflict' | 'completion-gate' | 'verification-infra' | 'review-unavailable' | 'release-approval' | 'ownership-drift' | 'merge-queue-recovery' | 'team-state-quarantined' | 'execution-inventory-capacity' | 'dirty-worktree' | 'branch-switched' | 'engine-not-allowed' | 'worktree-locked' | 'worktree-invalid' | 'infra:worktree-timeout' | 'infra:engine-external-termination'
 
 export type CycleResult =
   | 'stopped' | 'cost-hard-stop' | 'idle' | 'done'
@@ -105,9 +117,23 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   }
 
   // M10.5：全域日頂（第二道防線）。查帳不完整時停止派工，不把未知當成零。
-  if (cfg.globalDailyHardUsd !== undefined && deps.cfgPath) {
+  // #40：已設上限但缺查帳 scope 不是「略過」——靜默放行正是本 bug。
+  if (cfg.globalDailyHardUsd !== undefined) {
+    if (!deps.cfgPath) {
+      quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global-no-scope' }))
+      writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
+      return 'cost-hard-stop'
+    }
     let g = 0
-    try { g = globalBilledToday(deps.cfgPath, new Date().toISOString()) } catch { quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global' })); writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent }); return 'cost-hard-stop' }
+    try {
+      const extra = typeof deps.billingScopes === 'function' ? deps.billingScopes()
+        : deps.billingScopes ?? extraBillingScopes(cfg, deps.billingScopeDirs)
+      g = globalBilledToday(deps.cfgPath, new Date().toISOString(), extra, deps.billingSourceHash)
+    } catch {
+      quiet(() => events.appendOnce('cost-accounting-incomplete', { scope: 'global' }))
+      writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
+      return 'cost-hard-stop'
+    }
     if (g >= cfg.globalDailyHardUsd) {
       quiet(() => events.appendOnce('cost-hard-stop-global', { spent: g }))
       writeHeartbeat(events, cfg, { state: 'cost-stopped', todayCostUsd: spent })
@@ -128,6 +154,12 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   if (dups.length > 0) quiet(() => events.appendOnce('duplicate-tasks', { ids: dups }))
 
   const candidates = retry.taskId ? openTasks.filter(task => task.id === retry.taskId) : openTasks; if (candidates.length === 0) return 'idle'
+  const priorExecutions = (deps.executionInventory ?? readExecutions)(cfg.dataDir)
+  if (priorExecutions.updateInProgress) return 'deferred'
+  if (priorExecutions.capacityExceeded)
+    return blockTask({ store, events }, candidates[0]!, 'execution-inventory-capacity', '活動執行容量已滿；保留所有回執，僅封存已確認終結的紀錄後再派工')
+  if (priorExecutions.errors.length || priorExecutions.records.some(record => record.phase === 'unknown'))
+    return blockTask({ store, events }, candidates[0]!, 'team-state-quarantined', '既有執行狀態或回執尚未確認；保留工作區，需先核對後端狀態與容量儲存')
   let pending: PendingReview | undefined, pendingTask: Task | undefined
   for (const candidate of candidates) {
     try { pending = readPendingReview(cfg, candidate) } catch (err) { return blockTask({ store, events }, candidate, 'team-state-quarantined', String(err)) }
@@ -141,8 +173,13 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     return picked
   }
   const { task, engine, engineTag, fixedCost } = picked
-  const priorExecutions = readExecutions(cfg.dataDir)
-  if (priorExecutions.errors.length || priorExecutions.records.some(record => record.phase !== 'terminal' && (record.taskId === task.id || record.phase === 'unknown')))
+  // Preflight may await another process. Retain main's fresh state check before
+  // creating a claim/worktree, including legacy engines without an observer.
+  const currentExecutions = (deps.executionInventory ?? readExecutions)(cfg.dataDir)
+  if (currentExecutions.updateInProgress) return 'deferred'
+  if (currentExecutions.capacityExceeded)
+    return blockTask({ store, events }, task, 'execution-inventory-capacity', '活動執行容量已滿；保留所有回執，僅封存已確認終結的紀錄後再派工')
+  if (currentExecutions.errors.length || currentExecutions.records.some(record => record.taskId === task.id || record.phase === 'unknown'))
     return blockTask({ store, events }, task, 'team-state-quarantined', '既有執行尚未確認結束；保留工作區，需先核對後端狀態')
   const executionId = newExecutionId()
   const mainDirty = trackedDirtyFiles(cfg.projectPath, cfg.gitTimeoutMs)
@@ -209,21 +246,15 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   let lessonsText = ''
   try { lessonsText = deps.lessons?.inject() ?? '' } catch { /* 教訓面故障不擋派工 */ }
   if (lessonsText) directive = `${directive ?? task.text}\n\n${lessonsText}`
-  if (!pending) finishLearning = observeLearning(events, { executionId, taskId: task.id, model: cfg.engines[engineTag]?.model ?? engineTag, baseCommit: wt.baseHead, lessonsText })
   // 驗收回饋（judge 有效性分析 2026-07-28）：上一輪失敗原因餵回派工，終結同型連環打回
   // （491bd799 案例：引擎不知道打回原因，同款 claim 膨脹重複六輪）。fail-open 不擋派工。
   try {
     const lastFail = db.lastFailureFor(task.id)
     if (lastFail) directive = `${directive ?? task.text}\n\n上一次嘗試失敗被驗收打回，原因：${lastFail.replace(/\s+/g, ' ').trim().slice(0, 400)}\n請針對打回原因修正；宣稱改動的檔案與範圍必須與實際 diff 一致，不得宣稱未完成的部分。`
   } catch { /* 回饋面故障不擋派工 */ }
-  if (cfg.alternativeRetry && alternativeRetryDue(cfg, db.taskFailCount(task.id))) {
-    try { directive = `${directive ?? task.text}\n\n${startAlternativeRetry(cfg, task.id, executionId, db.lastFailureFor(task.id))}` }
-    catch { return blockTask({ store, events }, task, 'verification-infra', '二次修復收據無法安全建立，保留現場等待介入') }
-  }
   // 幻影完成對策（run.db 四大失敗來源分析 2026-07-27）：自證硬指令恆附派工尾。
   directive = `${directive ?? task.text}\n\n完成的定義＝工作區改動完成，且最終由引擎或可信宿主產生新 git commit。若 sandbox 保護 Git metadata，不得繞過沙箱，保留改動讓宿主提交；否則結束前執行 git log -1 --oneline 自證。\n完成定義＝最終存在新 commit，無 commit 視為未完成。`
 
-  // try 只包 engine.run：下游 I/O 故障不該被誤判成引擎錯誤而污染 failCount。
   let res: RunResult
   const job: Job = { task, projectPath: wt.cwd, directive, executionId, writerIdentity: engineTag, control: deps.runControl }
   const quarantineRun = (reason?: string): CycleResult => {
@@ -234,22 +265,41 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     return blockTask({ store, events }, task, 'team-state-quarantined', `執行 ${executionId} 的後端停止尚未確認；保留工作區與寫入權：${reason ?? 'unknown'}`)
   }
   if (pending) res = pending.result
-  else try {
+  else {
     const mode = cfg.engines[engineTag]?.executionMode
     if (mode === 'observed' || mode === 'supervised') {
-      observation = createExecutionObservation({ dataDir: cfg.dataDir, job, adapter: cfg.engines[engineTag]!.adapter, supervised: mode === 'supervised' })
+      try {
+        observation = createExecutionObservation({ dataDir: cfg.dataDir, job, adapter: cfg.engines[engineTag]!.adapter, supervised: mode === 'supervised' })
+      } catch (err) {
+        // No worker has been dispatched. The outer finally releases this cycle's
+        // claim; contention must not become a billed engine/supply failure.
+        if (err instanceof InventoryLockBusyError) return 'deferred'
+        if (err instanceof ExecutionInventoryCapacityError)
+          return blockTask({ store, events }, task, 'execution-inventory-capacity', '活動執行容量已滿；保留所有回執，僅封存已確認終結的紀錄後再派工')
+        return blockTask({ store, events }, task, 'team-state-quarantined', `執行回執初始化失敗，尚未派工：${String(err)}`)
+      }
       job.control = observation.control
     }
-    res = await engine!.run(job)
-  } catch (err) {
-    if (observation?.snapshot().worker) return quarantineRun('worker transport failed before a verified terminal result')
-    if (isExternalEngineTermination(err)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${String(err)}`) }
-    // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
-    db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, accounting: attemptAccounting({ ok: false, output: '', costUsd: 0, costUnknown: true }, cfg.engines?.[engineTag] ?? {}), durationMs: Date.now() - runStartMs, failureClass: 'supply' })
-    engine!.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
-    quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
-    quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
-    return resolveFailure(deps, task, 'engine-error', String(err), 'supply', { costUsd: fixedCost ?? 0 })
+    // Consume the one-time retry receipt and observe learning only after admission.
+    if (cfg.alternativeRetry && alternativeRetryDue(cfg, db.taskFailCount(task.id))) {
+      try { job.directive = `${job.directive ?? task.text}\n\n${startAlternativeRetry(cfg, task.id, executionId, db.lastFailureFor(task.id))}` }
+      catch { return blockTask({ store, events }, task, 'verification-infra', '二次修復收據無法安全建立，保留現場等待介入') }
+    }
+    finishLearning = observeLearning(events, { executionId, taskId: task.id, model: cfg.engines[engineTag]?.model ?? engineTag, baseCommit: wt.baseHead, lessonsText })
+    // Only actual dispatch errors enter the existing engine failure/accounting path.
+    try {
+      deps.onWorkerStart?.(task.id)
+      res = await engine!.run(job)
+    } catch (err) {
+      if (observation?.snapshot().worker) return quarantineRun('worker transport failed before a verified terminal result')
+      if (isExternalEngineTermination(err)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${String(err)}`) }
+      // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
+      db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, accounting: attemptAccounting({ ok: false, output: '', costUsd: 0, costUnknown: true }, cfg.engines?.[engineTag] ?? {}), durationMs: Date.now() - runStartMs, failureClass: 'supply' })
+      engine!.invalidatePreflight?.() // 引擎健康存疑，下輪真探針再驗
+      quiet(() => events.append('engine-error', { task: task.text, error: String(err) }))
+      quiet(() => events.append('worktree-kept', { taskId: task.id, branch: wt.branch, worktreePath: wt.cwd }))
+      return resolveFailure(deps, task, 'engine-error', String(err), 'supply', { costUsd: fixedCost ?? 0 })
+    }
   }
   if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
   if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`) }
@@ -455,6 +505,11 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   return resolveFailure(deps, task, 'failed', res.failureReason ?? '未知', failureClass, quotaUsage)
   } finally {
     observation?.finish(recoveryRequired ? 'unconfirmed' : learningResult.accepted || reviewWaiting ? 'completed' : 'failed')
+    if (observation?.recoveryRequired && !recoveryRequired) {
+      recoveryRequired = true
+      if (teamClaim) try { deps.team?.quarantine(executionId, teamClaim.token) } catch { /* Keep the unreleased claim for recovery. */ }
+      quiet(() => events.append('execution-receipt-unconfirmed', { executionId, taskId: task.id }))
+    }
     if (finishLearning && !recoveryRequired && !reviewWaiting) quiet(() => finishLearning!({ ...learningResult, failure: learningResult.accepted ? undefined : db.lastFailureFor(task.id) ?? undefined }))
     if (claimHeartbeat) clearInterval(claimHeartbeat)
     releaseClaim()

@@ -189,7 +189,8 @@ beforeEach(async () => {
   await resetFsMocksToActual()
 })
 
-test('整合基準：探測成功 + stale + 無 child → reap 並 taskkill + launch', () => {
+// taskkill 命令由 reapDaemonTree 的 win32 分支發出（POSIX 後備為 SIGKILL），僅 Windows 可驗
+test.skipIf(process.platform !== 'win32')('整合基準：探測成功 + stale + 無 child → reap 並 taskkill + launch', () => {
   const { result, commands, commandLines, launchCalls } = runIntegration('none')
 
   expect(result.action).toBe('reap')

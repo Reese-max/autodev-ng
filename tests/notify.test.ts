@@ -128,10 +128,11 @@ test('DLQ 剛好 2000 行（未超過）不觸發保尾', async () => {
 
 test('TelegramNotifier：設定齊全時送至 Bot API，chat ID 與文字放 JSON body', async () => {
   const { fn, calls } = okFetch()
-  const n = new TelegramNotifier({ botToken: '123:ABC', chatId: '-100123', fetchFn: fn })
+  const token = '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi'
+  const n = new TelegramNotifier({ botToken: token, chatId: '-100123', fetchFn: fn })
   expect(await n.send('任務完成')).toBe(true)
   expect(calls).toHaveLength(1)
-  expect(calls[0]!.url).toBe('https://api.telegram.org/bot123:ABC/sendMessage')
+  expect(calls[0]!.url).toBe(`https://api.telegram.org/bot${token}/sendMessage`)
   expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ chat_id: '-100123', text: '任務完成' })
 })
 

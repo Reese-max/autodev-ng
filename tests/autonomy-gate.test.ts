@@ -5,8 +5,9 @@ import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { GithubConfigSchema } from '../src/github/config.js'
 import { saveState } from '../src/github/state.js'
+import { RUNTIME_BUILT } from './helpers/runtime-build.js'
 
-test('autonomy gate refuses obsolete Issues and ambiguous completed candidates without a hardcoded Issue number', () => {
+test.skipIf(!RUNTIME_BUILT)('autonomy gate refuses obsolete Issues and ambiguous completed candidates without a hardcoded Issue number', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-autonomy-gate-'))
   try {
     const cfg = GithubConfigSchema.parse({ repo: 'fixture/project', sourceConfig: join(dir, 'unused.json'), dataDir: dir, authors: ['fixture'], engine: 'writer' })
