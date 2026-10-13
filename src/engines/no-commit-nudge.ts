@@ -24,8 +24,7 @@ export async function nudgeNoCommit(
   } catch (err) {
     return {
       ...initial,
-      output: joinOutput(initial.output, `[nudge engine error] ${String(err)}`),
-      costUnknown: true,
+      ...combineRuns(initial, { ok: false, output: `[nudge engine error] ${String(err)}`, costUsd: 0, costUnknown: true }),
       actualModel: 'multiple/unknown',
       tokensIn: undefined,
       tokensOut: undefined,
@@ -46,16 +45,27 @@ export async function nudgeNoCommit(
 
 /** 同 execution 多回合結果合併（nudge 與 Issue #11 queue follow-up 共用）：保留雙方輸出與成本系譜。 */
 export function combineRuns(first: RunResult, second: RunResult): RunResult {
+  const unknownTurnCostsUsd = [...unknownTurnCosts(first), ...unknownTurnCosts(second)]
   return {
     ...second,
     actualModel: first.actualModel === second.actualModel ? first.actualModel : 'multiple/unknown',
     output: joinOutput(first.output, second.output),
     costUsd: first.costUsd + second.costUsd,
     costUnknown: first.costUnknown || second.costUnknown || undefined,
+    unknownTurnCostsUsd: unknownTurnCostsUsd.length ? unknownTurnCostsUsd : undefined,
     tokensIn: add(first.tokensIn, second.tokensIn),
     tokensOut: add(first.tokensOut, second.tokensOut),
     tokensCached: add(first.tokensCached, second.tokensCached),
   }
+}
+
+/** Add each uncertain turn's missing estimate without replacing prior known spend. */
+export function costWithUnknownTurnEstimates(result: RunResult, estimateUsd: number): number {
+  return result.costUsd + unknownTurnCosts(result).reduce((extra, lowerBound) => extra + Math.max(0, estimateUsd - lowerBound), 0)
+}
+
+function unknownTurnCosts(result: RunResult): number[] {
+  return result.unknownTurnCostsUsd ?? (result.costUnknown ? [result.costUsd] : [])
 }
 
 function joinOutput(first: string, second: string): string { return [first, second].filter(Boolean).join('\n') }

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, lstatSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, lstatSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { writeJsonAtomic } from '../guardian/incident.js'
@@ -20,7 +20,7 @@ const MAX_PENDING_PER_EXECUTION = 16
 const SAFE_ID = /^[A-Za-z0-9_-]{1,100}$/
 
 const DISPOSITIONS = [
-  'PENDING', 'QUEUED', 'STEERED', 'DELIVERED', 'TOO_LATE_QUEUED',
+  'PENDING', 'QUEUED', 'CLAIMED', 'STEERED', 'DELIVERED', 'DELIVERY_UNKNOWN', 'TOO_LATE_QUEUED',
   'REJECTED_INVALID', 'REJECTED_STALE_TARGET', 'UNSUPPORTED', 'NOT_DELIVERED', 'STALE',
 ] as const
 export type ControlDisposition = (typeof DISPOSITIONS)[number]
@@ -43,11 +43,14 @@ const EnvelopeSchema = z.object({
   seq: z.number().int().nonnegative(),
   createdAt: z.number().finite(),
   expiresAt: z.number().finite(),
-  state: z.enum(['pending', 'resolved']),
+  state: z.enum(['pending', 'claimed', 'resolved']),
+  claimId: z.string().regex(SAFE_ID).optional(),
+  claimedAt: z.number().finite().optional(),
+  commitId: z.string().regex(SAFE_ID).optional(),
   disposition: z.enum(DISPOSITIONS),
   resolvedAt: z.number().finite().optional(),
   detail: z.string().max(500).optional(),
-})
+}).refine(env => env.state !== 'claimed' || env.disposition === 'CLAIMED' && !!env.claimId && env.claimedAt !== undefined, 'invalid control claim')
 export type ControlEnvelope = z.infer<typeof EnvelopeSchema>
 
 export interface ControlRequest {
@@ -87,6 +90,8 @@ export class ControlStore {
   private controlsDir(): string { return join(this.dataDir, 'controls') }
   private receiptsDir(): string { return join(this.dataDir, 'controls', 'receipts') }
   private file(id: string): string { return join(this.controlsDir(), `${id}.json`) }
+  private transactionsDir(): string { return join(this.controlsDir(), '.transactions') }
+  private transactionFile(id: string): string { return join(this.transactionsDir(), `${id}.json`) }
 
   private withControlLock<T>(operation: () => T): T {
     mkdirSync(this.controlsDir(), { recursive: true })
@@ -108,6 +113,17 @@ export class ControlStore {
 
   private persist(env: ControlEnvelope): void { writeJsonAtomic(this.file(env.id), env) }
 
+  /** A durable intent blocks delivery until both envelope and receipt commit.
+   * Failed transactions remain quarantined; restart never executes them. */
+  private commit(env: ControlEnvelope): void {
+    env.commitId = randomUUID()
+    const intent = this.transactionFile(env.id)
+    writeJsonAtomic(intent, { schemaVersion: 1, commitId: env.commitId, proposedEnvelope: env })
+    this.writeReceipt(env)
+    this.persist(env)
+    rmSync(intent)
+  }
+
   /** 每次狀態轉移寫一份不可變收據：issuer、target、hash、requested mode、actual disposition、時間戳。 */
   private writeReceipt(env: ControlEnvelope): void {
     const body = {
@@ -115,6 +131,8 @@ export class ControlStore {
       executionId: env.executionId, taskId: env.taskId,
       requestedMode: env.requestedMode, disposition: env.disposition,
       issuer: env.issuer, channel: env.channel, instructionHash: env.instructionHash,
+      commitId: env.commitId ?? null,
+      authority: env.commitId ? 'committed matching envelope with no unresolved transaction' : 'rejection-only receipt; no executable record created',
       occurredAt: new Date().toISOString(),
       ...(env.detail ? { detail: env.detail } : {}),
     }
@@ -126,24 +144,26 @@ export class ControlStore {
   }
 
   /** pending 信封的終態轉移（STEERED/DELIVERED/STALE/NOT_DELIVERED）。 */
-  private transition(env: ControlEnvelope, disposition: ControlDisposition, detail?: string): boolean {
+  private transition(env: ControlEnvelope, disposition: ControlDisposition, detail?: string, expectedState: 'pending' | 'claimed' = 'pending'): boolean {
     return this.withControlLock(() => {
       const current = this.readAll().envelopes.find(record => record.id === env.id)
-      if (!current || current.state !== 'pending' || current.executionId !== env.executionId || current.taskId !== env.taskId || current.instructionHash !== env.instructionHash) return false
+      if (!current || current.state !== expectedState || current.executionId !== env.executionId || current.taskId !== env.taskId || current.instructionHash !== env.instructionHash || expectedState === 'claimed' && current.claimId !== env.claimId) return false
       current.state = 'resolved'; current.disposition = disposition; current.resolvedAt = Date.now()
       if (detail) current.detail = detail
-      this.persist(current); this.writeReceipt(current); this.emit('control-resolve', current)
+      this.commit(current); this.emit('control-resolve', current)
       return true
     })
   }
 
   /** 提交當下的結案／暫存：一律先寫 disposition 再落地＋收據＋事件（回覆以 envelope.disposition 為準）。 */
-  private reply(env: ControlEnvelope, disposition: ControlDisposition, ok: boolean, text: string, detail?: string): ControlReply {
+  private reply(env: ControlEnvelope, disposition: ControlDisposition, ok: boolean, text: string, detail?: string, persistRecord = true): ControlReply {
     env.disposition = disposition
     env.state = disposition === 'PENDING' || disposition === 'QUEUED' || disposition === 'TOO_LATE_QUEUED' ? 'pending' : 'resolved'
     if (env.state === 'resolved') env.resolvedAt = Date.now()
     if (detail) env.detail = detail
-    this.persist(env); this.writeReceipt(env); this.emit('control-submit', env)
+    if (persistRecord) this.commit(env)
+    else this.writeReceipt(env) // Inventory-full rejection cannot add an invisible record.
+    this.emit('control-submit', env)
     return { ok, text, envelope: env }
   }
 
@@ -151,12 +171,19 @@ export class ControlStore {
     const envelopes: ControlEnvelope[] = [], errors: string[] = []
     const dir = this.controlsDir()
     if (!existsSync(dir)) return { envelopes, errors }
+    if (existsSync(this.transactionsDir())) {
+      try {
+        for (const file of readdirSync(this.transactionsDir()).filter(f => f.endsWith('.json')).slice(0, 10_001))
+          errors.push(`uncommitted control transaction: ${file.slice(0, 110)}`)
+      } catch { errors.push('control transaction inventory unavailable') }
+    }
     let files: string[]
     try { files = readdirSync(dir).filter(f => f.endsWith('.json')) }
     catch { return { envelopes, errors: ['control inventory unavailable'] } }
     if (files.length > 10_000) return { envelopes, errors: ['control inventory exceeds 10000 records'] }
     for (const file of files) {
       try {
+        if (existsSync(this.transactionFile(file.slice(0, -5)))) continue
         const info = lstatSync(join(dir, file))
         if (!info.isFile() || info.size > 16_384) throw new Error('oversized or non-regular record')
         const env = EnvelopeSchema.parse(JSON.parse(readFileSync(join(dir, file), 'utf8')))
@@ -202,13 +229,16 @@ export class ControlStore {
       createdAt: now, expiresAt: now + CONTROL_TTL_MS,
       state: 'resolved', disposition: 'REJECTED_INVALID',
     }
+    const inventory = this.readAll()
+    if (inventory.errors.length || this.envelopeCount() >= 10_000)
+      return this.reply(env, 'REJECTED_INVALID', false, '控制指令被拒：控制紀錄已滿或尚有未完成交易；請先檢查 /controls，不會接受不可投遞的信封', undefined, false)
     if (!SAFE_ID.test(args.executionId))
       return this.reply(env, 'REJECTED_INVALID', false, `控制指令被拒：executionId 格式不合法`)
     const violation = instructionViolation(args.instruction)
     if (violation) return this.reply(env, 'REJECTED_INVALID', false, `控制指令被拒：${violation}`)
 
     const record = readExecutions(this.dataDir, now).records.find(r => r.executionId === args.executionId)
-    if (!record || record.phase === 'terminal' || !pidAlive(record.hostPid)) {
+    if (!record || record.phase === 'terminal' || record.phase === 'unknown' || record.degraded || record.cancelRequested || !pidAlive(record.hostPid)) {
       env.taskId = record?.taskId ?? ''
       if (record) env.adapter = record.adapter
       return this.reply(env, 'REJECTED_STALE_TARGET', false, '目標執行不存在、已終結或宿主已不在；已拒絕（fail closed，不投遞至其他執行）')
@@ -218,7 +248,7 @@ export class ControlStore {
     const cap = ENGINE_CAPABILITIES[record.adapter as Adapter]?.control
     const inFlight = cap?.inFlightSteer === true, nextTurn = cap?.nextTurnQueue === true
 
-    const pending = this.pendingFor(record.executionId, now)
+    const pending = inventory.envelopes.filter(e => e.executionId === record.executionId && (e.state === 'claimed' || e.state === 'pending' && e.expiresAt > now))
     if (pending.some(e => e.instructionHash === env.instructionHash))
       return this.reply(env, 'REJECTED_INVALID', false, '控制指令被拒：相同指示已在 pending 佇列中（拒絕重放）')
     if (pending.length >= MAX_PENDING_PER_EXECUTION)
@@ -275,19 +305,46 @@ export class ControlStore {
     } catch { return [] }
   }
 
+  /** Reserve the exact pending FIFO before dispatch; TTL cannot reclassify work
+   * already in flight. Claimed commands are never automatically replayed. */
+  claimQueue(executionId: string, taskId: string, now = Date.now()): ControlEnvelope[] {
+    return this.withControlLock(() => {
+      const target = readExecution(this.dataDir, executionId), inventory = this.readAll()
+      if (inventory.errors.length || !target || target.taskId !== taskId || target.phase !== 'running' && target.phase !== 'validating' || target.degraded || target.cancelRequested || !pidAlive(target.hostPid)) return []
+      const batch = inventory.envelopes.filter(e => e.state === 'pending' && e.mode === 'QUEUE' && e.executionId === executionId && e.taskId === taskId && e.expiresAt > now)
+      const claimId = randomUUID(), claimed: ControlEnvelope[] = []
+      try {
+        for (const env of batch) {
+          env.state = 'claimed'; env.disposition = 'CLAIMED'; env.claimId = claimId; env.claimedAt = now
+          this.commit(env); claimed.push(env); this.emit('control-claim', env)
+        }
+        return claimed
+      } catch (error) {
+        for (const env of claimed) {
+          try { env.state = 'resolved'; env.disposition = 'NOT_DELIVERED'; env.resolvedAt = now; env.detail = 'Claim batch failed before dispatch'; this.commit(env) } catch { /* Keep the durable uncommitted intent fenced. */ }
+        }
+        throw error
+      }
+    })
+  }
+
   markDelivered(batch: ControlEnvelope[]): number {
     let delivered = 0
     for (const env of batch) {
-      try { if (this.transition(env, 'DELIVERED', '於同一 execution 的 follow-up 回合送出')) delivered++ } catch { /* Keep uncertain delivery unconfirmed. */ }
+      try { if (this.transition(env, 'DELIVERED', '於同一 execution 的 follow-up 回合送出', 'claimed')) delivered++ } catch { /* Keep uncertain delivery unconfirmed. */ }
     }
     return delivered
   }
 
+  finishClaim(batch: ControlEnvelope[], disposition: 'NOT_DELIVERED' | 'DELIVERY_UNKNOWN', detail: string): void {
+    for (const env of batch) { try { this.transition(env, disposition, detail, 'claimed') } catch { /* Uncommitted intents remain non-dispatchable. */ } }
+  }
+
   /** execution 收尾（scheduler finally）：未取走的 pending 一律 fail closed 結案。 */
   endExecution(executionId: string, now = Date.now()): void {
-    for (const env of this.readAll().envelopes.filter(e => e.state === 'pending' && e.executionId === executionId)) {
+    for (const env of this.readAll().envelopes.filter(e => e.state !== 'resolved' && e.executionId === executionId)) {
       try {
-        this.transition(env, env.mode === 'STEER' ? 'NOT_DELIVERED' : 'STALE', 'execution 已結束，信封不再可安全送達')
+        this.transition(env, env.state === 'claimed' ? 'DELIVERY_UNKNOWN' : env.mode === 'STEER' ? 'NOT_DELIVERED' : 'STALE', 'execution 已結束；已派工但未確認的信封不得重送', env.state === 'claimed' ? 'claimed' : 'pending')
       } catch { /* 單筆收尾失敗不影響其餘 */ }
     }
   }
@@ -318,7 +375,7 @@ export class ControlStore {
     try { this.sweep(now) } catch { /* sweep 故障時仍回原始狀態 */ }
     const { envelopes, errors } = this.readAll()
     return {
-      pending: envelopes.filter(e => e.state === 'pending'),
+      pending: envelopes.filter(e => e.state !== 'resolved'),
       resolved: envelopes.filter(e => e.state === 'resolved'),
       errors,
     }

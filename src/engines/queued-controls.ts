@@ -71,17 +71,20 @@ export async function deliverQueuedControls(deps: Deps, engine: Engine, job: Job
     if (!await additionalTurnAdmission(deps, engine, job, res, isDegraded, engineTag, fixedCost, costState)) break
     // Preflight can yield long enough for a control to expire or be resolved.
     // Read the same execution's current pending FIFO again at dispatch time.
-    const currentBatch = controls.peekQueue(job.executionId ?? '')
+    let currentBatch
+    try { currentBatch = controls.claimQueue(job.executionId ?? '', job.task.id) } catch { break }
     if (currentBatch.length === 0) break
     const directive = `${job.directive ?? job.task.text}\n\n[操作員於本次執行追加 ${currentBatch.length} 則指示，請依序納入當前工作]\n${currentBatch.map((e, i) => `${i + 1}. ${e.instruction}`).join('\n')}`
-    try { deps.onWorkerStart?.(job.task.id) } catch { return res }
+    try { deps.onWorkerStart?.(job.task.id) } catch { controls.finishClaim(currentBatch, 'NOT_DELIVERED', 'Dispatch hook failed before worker invocation'); return res }
     costState.dispatchedTurns++
     try { res = combineRuns(res, await engine.run({ ...job, directive })) }
     catch (err) {
+      controls.finishClaim(currentBatch, 'DELIVERY_UNKNOWN', 'Worker invocation failed after dispatch; do not resend without reconciliation')
       // Retain charges/output from every earlier successful queued turn.
       return combineRuns(res, { ok: false, output: `[control-turn error] ${String(err)}`, costUsd: 0, costUnknown: true, failureReason: `control-turn：${String(err)}` })
     }
-    const delivered = controls.markDelivered(currentBatch)
+    if (res.cancelled || res.recoveryRequired) controls.finishClaim(currentBatch, 'DELIVERY_UNKNOWN', 'Worker returned without verified completion; do not resend')
+    const delivered = res.cancelled || res.recoveryRequired ? 0 : controls.markDelivered(currentBatch)
     quiet(() => deps.events.append('control-delivered', { executionId: job.executionId, taskId: job.task.id, count: delivered }))
   }
   return res
