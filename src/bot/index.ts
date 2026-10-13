@@ -83,7 +83,8 @@ export async function main(cfgPath: string): Promise<void> {
   const botDeps: BotDeps = { cfg, store: deps.store, db: deps.db, llm, cfgPath: resolve(cfgPath), events: deps.events }
 
   const lockDir = join(cfg.dataDir, 'bot.lock')
-  if (!acquireLock(lockDir)) {
+  const lockToken = acquireLock(lockDir)
+  if (!lockToken) {
     console.error('bot 已在執行中（lock busy），避免雙 bot 同時上線')
     process.exit(1)
   }
@@ -91,7 +92,7 @@ export async function main(cfgPath: string): Promise<void> {
   const client = new Client({ intents: [GatewayIntentBits.Guilds, ...(botCfg.testPeer ? [GatewayIntentBits.GuildMessages] : [])] })
   attachTestPeer(client, new Map([[basename(cfgPath, '.json'), { deps: botDeps, allowed: botCfg.allowedUserIds, testPeer: botCfg.testPeer }]]))
   client.on(Events.ShardError, (error, shardId) => console.error(`Discord shard ${shardId} 連線錯誤：`, error.message))
-  process.once('uncaughtExceptionMonitor', () => releaseLock(lockDir)) // 不吞例外；只讓 guardian 能立即接手
+  process.once('uncaughtExceptionMonitor', () => releaseLock(lockDir, lockToken)) // 不吞例外；只讓 guardian 能立即接手
 
   client.once(Events.ClientReady, async (c) => {
     try {
@@ -142,7 +143,7 @@ export async function main(cfgPath: string): Promise<void> {
 
   const shutdown = (signal: string): void => {
     console.log(`收到 ${signal}，準備關閉 bot`)
-    releaseLock(lockDir)
+    releaseLock(lockDir, lockToken)
     client.destroy().finally(() => process.exit(0))
   }
   process.once('SIGINT', () => shutdown('SIGINT'))
@@ -194,7 +195,8 @@ export async function mainMulti(configsDir: string): Promise<void> {
   // 單一 bot.lock 放 repo 頂層 data/（非任一專案 dataDir）；單專案 --config 模式 lock 位置不變。
   const lockDir = join(dirname(resolve(configsDir)), 'data', 'bot.lock')
   mkdirSync(dirname(lockDir), { recursive: true })
-  if (!acquireLock(lockDir)) {
+  const lockToken = acquireLock(lockDir)
+  if (!lockToken) {
     console.error('bot 已在執行中（lock busy），避免雙 bot 同時上線')
     process.exit(1)
   }
@@ -202,7 +204,7 @@ export async function mainMulti(configsDir: string): Promise<void> {
   const client = new Client({ intents: [GatewayIntentBits.Guilds, ...([...projects.values()].some(p => p.testPeer) ? [GatewayIntentBits.GuildMessages] : [])] })
   attachTestPeer(client, projects)
   client.on(Events.ShardError, (error, shardId) => console.error(`Discord shard ${shardId} 連線錯誤：`, error.message))
-  process.once('uncaughtExceptionMonitor', () => releaseLock(lockDir)) // 不吞例外；只讓 guardian 能立即接手
+  process.once('uncaughtExceptionMonitor', () => releaseLock(lockDir, lockToken)) // 不吞例外；只讓 guardian 能立即接手
 
   client.once(Events.ClientReady, async (c) => {
     try {
@@ -252,7 +254,7 @@ export async function mainMulti(configsDir: string): Promise<void> {
 
   const shutdown = (signal: string): void => {
     console.log(`收到 ${signal}，準備關閉 bot`)
-    releaseLock(lockDir)
+    releaseLock(lockDir, lockToken)
     client.destroy().finally(() => process.exit(0))
   }
   process.once('SIGINT', () => shutdown('SIGINT'))

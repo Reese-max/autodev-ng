@@ -56,14 +56,14 @@ test('以完整 dot suite 連續跑兩輪', async () => {
   expect(run).toHaveBeenCalledTimes(2)
   expect(run).toHaveBeenNthCalledWith(1, {
     command: 'npx',
-    args: ['vitest', 'run', '--reporter=dot'],
+    args: ['vitest', 'run', '--reporter=dot', '--reporter=default'],
     cwd: 'repo',
     stdinText: '',
-    timeoutMs: 15 * 60_000,
+    timeoutMs: 20 * 60_000,
   })
   expect(run).toHaveBeenNthCalledWith(2, expect.objectContaining({
     command: 'npx',
-    args: ['vitest', 'run', '--reporter=dot'],
+    args: ['vitest', 'run', '--reporter=dot', '--reporter=default'],
   }))
 })
 
@@ -154,4 +154,61 @@ test('兩輪皆失敗各自輸出診斷', async () => {
   expect(error.mock.calls[0]![0]).toContain('target=candidate')
   expect(error.mock.calls[1]![0]).toContain('round=2/2')
   expect(error.mock.calls[1]![0]).toContain('target=other')
+})
+
+test('行程診斷保留實際耗時、有界預算與 timeout 原因', () => {
+  const timedOut = result({
+    exitCode: 1,
+    timedOut: true,
+    timeoutReason: 'wall',
+    durationMs: 1_202_345,
+  })
+  const line = regressionDiagnostic(1, timedOut)
+  expect(line).toContain('durationMs=1202345')
+  expect(line).toContain('timeoutMs=1200000')
+  expect(line).toContain('timeoutReason="wall"')
+  expect(regressionDiagnostic(2, result({ timeoutReason: 'idle' }))).toContain('timeoutReason="idle"')
+  expect(regressionDiagnostic(2, result())).toContain('timeoutReason=null')
+})
+
+test('每輪維持 20 分鐘有界預算，exit 0 但 timedOut 仍失敗且完成第二輪', async () => {
+  const timedOut = result({
+    exitCode: 0,
+    timedOut: true,
+    timeoutReason: 'wall',
+    durationMs: 1_200_010,
+    cleanup: { status: 'confirmed', reasonCodes: [], remainingPids: [], rootClosed: true },
+  })
+  const run = vi.fn()
+    .mockResolvedValueOnce(timedOut)
+    .mockResolvedValueOnce(result())
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+  await expect(flakyRegressionMain('repo', run)).resolves.toBe(1)
+  expect(run).toHaveBeenCalledTimes(2)
+  for (const [options] of run.mock.calls) {
+    expect(options.timeoutMs).toBe(20 * 60_000)
+    expect(options.args).toEqual(['vitest', 'run', '--reporter=dot', '--reporter=default'])
+  }
+  expect(error).toHaveBeenCalledOnce()
+  expect(error).toHaveBeenCalledWith(regressionDiagnostic(1, timedOut), timedOut.stdout, timedOut.stderr)
+  expect(error.mock.calls[0]![0]).toContain('exit=0 timedOut=true')
+})
+
+test('兩輪成功仍保留各自完整 stdout 與 stderr 供檔案耗時與 suite 摘要核對', async () => {
+  const first = result({ stdout: '✓ tests/first.test.ts (2 tests) 10ms\nTest Files 1 passed (1)\nDuration 0.20s', stderr: 'first warning' })
+  const second = result({ stdout: '✓ tests/second.test.ts (3 tests) 12ms\nTest Files 1 passed (1)\nDuration 0.25s', stderr: 'second warning' })
+  const run = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second)
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+  await expect(flakyRegressionMain('repo', run)).resolves.toBe(0)
+  expect(run).toHaveBeenCalledTimes(2)
+  expect(log).toHaveBeenCalledWith(first.stdout)
+  expect(log).toHaveBeenCalledWith(second.stdout)
+  expect(error).toHaveBeenCalledWith(first.stderr)
+  expect(error).toHaveBeenCalledWith(second.stderr)
+  expect(log.mock.calls[0]![0]).toContain('round=1/2 ok')
+  expect(log.mock.calls[2]![0]).toContain('round=2/2 ok')
 })

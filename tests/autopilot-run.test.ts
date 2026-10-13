@@ -1,11 +1,11 @@
 import { describe, test, expect, vi, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { stopAlertMessage, main } from '../src/autopilot/run.js'
 import { runGoalWithDeps, sessionAlive } from '../src/autopilot/session.js'
 import type { Config } from '../src/types.js'
-import { acquireLock, releaseLock } from '../src/lock.js'
+import { acquireLock } from '../src/lock.js'
 
 describe('sessionAlive（M10.5 補洞：config 移除須在任務間煞停 session）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'adng-alive-'))
@@ -80,7 +80,7 @@ describe('main：single-instance lock', () => {
   let dataDir: string | undefined
 
   afterEach(() => {
-    if (dataDir) releaseLock(join(dataDir, 'autopilot.lock'))
+    if (dataDir) rmSync(join(dataDir, 'autopilot.lock'), { recursive: true, force: true })
   })
 
   test('lock 被佔時提早返回，不跑 session（不產生 goal-*.jsonl audit 檔）', async () => {
@@ -98,7 +98,7 @@ describe('main：single-instance lock', () => {
     }))
 
     // 搶先持鎖，模擬另一個 autopilot session 已在跑。
-    expect(acquireLock(join(dataDir, 'autopilot.lock'))).toBe(true)
+    expect(acquireLock(join(dataDir, 'autopilot.lock'))).toBeTruthy()
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     let calls: unknown[][]

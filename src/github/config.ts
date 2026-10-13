@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { z } from 'zod'
 import { QualityConfigSchema } from './quality.js'
+import { issueQualityVeto } from './intake-quality.js'
 const outputPattern = z.string().min(3).max(200).refine(value => { try { new RegExp(value); return true } catch { return false } }, 'Invalid output pattern')
 
 export const GithubConfigSchema = z.object({
@@ -11,8 +12,10 @@ export const GithubConfigSchema = z.object({
   authors: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/)).min(1),
   sourceConfig: z.string().min(1),
   dataDir: z.string().min(1),
+  /** 額外全域計帳根目錄；GitHub Issue 的 dataDir 仍必計入。owner 模式由內部 resolver 依 repo 套用政策。 */
+  billingScope: z.string().min(1).optional(),
   engine: z.string().min(1),
-  verifyCommand: z.string().trim().min(1).optional(),
+  verifyCommand: z.union([z.string().trim().min(1), z.array(z.string().trim().min(1)).min(1)]).optional(),
   regressionPrepareCommand: z.string().trim().min(1).optional(),
   regression: z.object({
     file: z.string().regex(/^tests\/regressions\/[A-Za-z0-9_.{}-]+$/).refine(v => v.includes('{issue}') && v.includes('{revision}') && !/[{}]/.test(v.replaceAll('{issue}', '1').replaceAll('{revision}', '0'))),
@@ -39,6 +42,7 @@ export const githubStopFile = (cfg: GithubConfig): string => cfg.stopFile ?? joi
 export function loadGithubConfig(path: string): GithubConfig {
   const cfg = GithubConfigSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
   return { ...cfg, sourceConfig: resolve(dirname(path), cfg.sourceConfig), dataDir: resolve(dirname(path), cfg.dataDir),
+    billingScope: cfg.billingScope ? resolve(dirname(path), cfg.billingScope) : undefined,
     stopFile: cfg.stopFile ? resolve(dirname(path), cfg.stopFile) : undefined,
     repair: cfg.repair ? { ...cfg.repair, reportConfig: resolve(dirname(path), cfg.repair.reportConfig) } : undefined }
 }
@@ -54,6 +58,7 @@ export type Issue = z.infer<typeof IssueSchema>
 export function eligible(issue: Issue, cfg: GithubConfig, approvedReport = false): boolean {
   const reported = issue.body?.includes('<!-- adng:report:') || issue.labels.some(label => label.name.toLowerCase() === 'autodev-reported')
   return !issue.pull_request && issue.state === 'open'
+    && !issueQualityVeto(issue.body)
     && (reported ? approvedReport : !cfg.repair)
     && cfg.authors.some(author => author.toLowerCase() === issue.user.login.toLowerCase())
     && !issue.labels.some(label => label.name.toLowerCase() === 'no-autofix')

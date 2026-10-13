@@ -23,8 +23,9 @@ export const ENGINE_CAPABILITIES = {
   grok: { transport: 'process', nativeLimit: 'native limits unverified', events: 'NDJSON tool_call/update/text/end; legacy JSON supported', unbounded: 'unverified', stop: 'transport cancellation; backend confirmation pending', control: CONTROL_NEXT_TURN },
   opencode: { transport: 'process', nativeLimit: 'provider timeout=180s; chunkTimeout=60s', events: 'NDJSON step_finish/text', unbounded: 'unverified', stop: 'transport cancellation; session confirmation pending', control: CONTROL_NEXT_TURN },
   devin: { transport: 'process', nativeLimit: 'native limits unverified', events: 'export file; live stream unverified', unbounded: 'unverified', stop: 'transport cancellation; backend confirmation pending', control: CONTROL_NEXT_TURN },
-  herdr: { transport: 'launcher', nativeLimit: 'launcher TimeoutMs + WaitTimeoutMs; MaxRounds=1', events: 'launcher output/AUTOPILOT_WAIT_OK', unbounded: 'finite', stop: 'launcher cancellation; pane/request confirmation pending', control: CONTROL_NONE },
+  herdr: { transport: 'launcher', nativeLimit: 'launcher TimeoutMs + WaitTimeoutMs; MaxRounds=1', events: 'launcher result contract v1 (-ResultFile JSON bound to request/execution); stdout not a receipt', unbounded: 'finite', stop: 'launcher cancellation; pane/request confirmation pending', control: CONTROL_NONE },
   freebuff: { transport: 'mcp', nativeLimit: 'MCP wall timeout; max_agent_steps=20', events: 'MCP messages/route/delegate result', unbounded: 'finite', stop: 'MCP cancellation notification; session quarantined until confirmed', control: CONTROL_NONE },
+
 } as const satisfies Record<Adapter, Capability>
 
 export function assertExecutionMode(ec: EngineConfig): void {

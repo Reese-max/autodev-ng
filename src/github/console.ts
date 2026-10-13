@@ -34,11 +34,12 @@ export async function githubConsole(sourceFile: string, input: { action?: string
     if (input.action === 'accept') return acceptDelivery(file, input.issue!, input.commit ?? '', input.reason ?? '')
     if (input.action !== 'refresh') throw new Error('Unknown GitHub action')
     const lock = join(cfg.dataDir, 'runner.lock')
-    if (!existsSync(cfg.dataDir) || !acquireLock(lock)) throw new Error('No initialized data or runner active')
+    const lockToken = existsSync(cfg.dataDir) ? acquireLock(lock) : null
+    if (!lockToken) throw new Error('No initialized data or runner active')
     const original = readFileSync(file, 'utf8'), source = readFileSync(sourceFile, 'utf8')
     const active = () => readFileSync(file, 'utf8') === original && readFileSync(sourceFile, 'utf8') === source && cfg.enabled && !existsSync(githubStopFile(cfg))
     try { for (const state of states(cfg).filter(s => s.status === 'published')) await observePr(cfg, state, githubClient(cfg), active) }
-    finally { releaseLock(lock) }
+    finally { releaseLock(lock, lockToken) }
   }
   return { integrations: integrations.map(({ name, cfg, error }) => ({ name, error, repo: cfg?.repo,
     enabled: cfg?.enabled, paused: cfg ? !cfg.enabled || existsSync(githubStopFile(cfg)) : true, followup: cfg?.followup,

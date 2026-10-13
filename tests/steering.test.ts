@@ -9,9 +9,11 @@ import { BacklogStore } from '../src/backlog.js'
 import { RunDb } from '../src/db.js'
 import { EventLog } from '../src/events.js'
 import { MockEngine } from '../src/engines/mock.js'
-import { createExecutionObservation } from '../src/engines/execution-observation.js'
+import { createExecutionObservation, executionFile, readExecutions } from '../src/engines/execution-observation.js'
 import { ControlStore, CONTROL_TTL_MS, type ControlEnvelope } from '../src/engines/steering.js'
 import { ConfigSchema } from '../src/types.js'
+import * as globalAccounting from '../src/globalcost.js'
+import { localDay } from '../src/db.js'
 
 const roots: string[] = []
 const runDbs: RunDb[] = []
@@ -81,6 +83,7 @@ test('偽造/不合法 executionId（路徑穿越字元）→ REJECTED_INVALID�
 test('目標執行已 terminal → STEER 與 QUEUE 皆 REJECTED_STALE_TARGET，絕不落下一題', () => {
   const dir = root()
   const obs = liveExecution(dir, 'exec-dead')
+  obs.control.onEvent?.({ type: 'exit', code: 0, reason: 'exit' })
   obs.finish('completed')
   expect(submit(dir, { executionId: 'exec-dead', mode: 'STEER' }).envelope.disposition).toBe('REJECTED_STALE_TARGET')
   expect(submit(dir, { executionId: 'exec-dead', mode: 'QUEUE' }).envelope.disposition).toBe('REJECTED_STALE_TARGET')
@@ -208,6 +211,7 @@ test('目標執行 terminal 後 pending queue → sweep STALE；pending steer �
   const q = submit(dir, { mode: 'QUEUE', instruction: '排隊中' })
   const st = submit(dir, { mode: 'STEER', instruction: 'in-flight 中' })
   expect(st.envelope.disposition).toBe('PENDING')
+  obs.control.onEvent?.({ type: 'exit', code: 0, reason: 'exit' })
   obs.finish('completed')
   store(dir).sweep()
   const resolved = store(dir).list().resolved
@@ -221,7 +225,7 @@ test('host 進程消失（daemon 重啟舊執行未確認）→ pending 信封 s
   const r = submit(dir, { executionId: 'exec-orphan', mode: 'QUEUE', instruction: '給孤兒執行' })
   expect(r.envelope.disposition).toBe('QUEUED') // 提交時宿主仍活著 → 受理
   // 模擬 daemon 重啟前的宿主死亡：快照仍在但 hostPid 已不存在（非終端、未確認）
-  const file = join(dir, 'executions', 'exec-orphan.json')
+  const file = executionFile(dir, 'exec-orphan')
   const snap = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
   writeFileSync(file, JSON.stringify({ ...snap, hostPid: 4_000_000 }))
   expect(store(dir).sweep()).toBe(1)
@@ -362,10 +366,9 @@ test('e2e：STEER 於引擎運行中送達 → MockEngine 透過 steer port 取�
   // 等 execution 快照落地（observed 模式於 engine.run 前建立）
   let executionId = ''
   await vi.waitFor(() => {
-    const folder = join(dataDir, 'executions')
-    const file = existsSync(folder) ? readdirSync(folder).find(f => f.endsWith('.json') && !f.endsWith('.cancel.json')) : undefined
-    expect(file).toBeTruthy()
-    executionId = file!.replace(/\.json$/, '')
+    const record = readExecutions(dataDir).records.find(record => record.phase === 'running')
+    expect(record).toBeTruthy()
+    executionId = record!.executionId
   }, { timeout: 10_000, interval: 10 })
   const r = new ControlStore(dataDir).submit({
     project: 'proj', executionId, mode: 'STEER', instruction: '改方向：只補測試', issuer: 'op', channel: 'cli',
@@ -376,3 +379,114 @@ test('e2e：STEER 於引擎運行中送達 → MockEngine 透過 steer port 取�
   expect(engine.steeredInstructions).toEqual(['改方向：只補測試'])
   expect(new ControlStore(dataDir).list().resolved.find(e => e.id === r.envelope.id)?.disposition).toBe('STEERED')
 }, 30_000)
+
+
+function queueOnFirstTurn(dir: string, onQueued?: () => void): MockEngine {
+  return new MockEngine([{ ok: true, beforeResult: job => {
+    const reply = new ControlStore(join(dir, 'data')).submit({
+      project: 'proj', executionId: job.executionId!, mode: 'QUEUE',
+      instruction: '有界追加測試', issuer: 'op', channel: 'cli',
+    })
+    expect(reply.envelope.disposition).toBe('QUEUED')
+    onQueued?.()
+  } }])
+}
+
+test('QUEUE rechecks global spend after the first turn; a reached cap prevents another dispatch', async () => {
+  const dir = root(); initGitRepo(dir)
+  const engine = queueOnFirstTurn(dir), d = e2eDeps(dir, engine)
+  d.cfg.globalDailyHardUsd = 5; d.cfgPath = join(dir, 'config.json')
+  const ledger = vi.spyOn(globalAccounting, 'globalBilledToday').mockReturnValueOnce(0).mockReturnValue(5)
+  try {
+    await runOnce(d)
+    expect(engine.calls).toHaveLength(1)
+    expect(ledger).toHaveBeenCalledTimes(2)
+    expect(new ControlStore(d.cfg.dataDir).list().resolved[0]?.disposition).toBe('STALE')
+  } finally { ledger.mockRestore() }
+})
+
+test('QUEUE stops on incomplete global accounting instead of treating it as zero', async () => {
+  const dir = root(); initGitRepo(dir)
+  const engine = queueOnFirstTurn(dir), d = e2eDeps(dir, engine)
+  d.cfg.globalDailyHardUsd = 5; d.cfgPath = join(dir, 'config.json')
+  const ledger = vi.spyOn(globalAccounting, 'globalBilledToday').mockReturnValueOnce(0).mockImplementation(() => { throw new Error('unavailable') })
+  try {
+    await runOnce(d)
+    expect(engine.calls).toHaveLength(1)
+    expect(ledger).toHaveBeenCalledTimes(2)
+  } finally { ledger.mockRestore() }
+})
+
+test('QUEUE refuses a follow-up after the trusted accounting scope disappears', async () => {
+  const dir = root(); initGitRepo(dir)
+  let d: Deps
+  const engine = queueOnFirstTurn(dir, () => { d.cfgPath = undefined })
+  d = e2eDeps(dir, engine); d.cfg.globalDailyHardUsd = 5; d.cfgPath = join(dir, 'config.json')
+  const ledger = vi.spyOn(globalAccounting, 'globalBilledToday').mockReturnValue(0)
+  try {
+    await runOnce(d)
+    expect(engine.calls).toHaveLength(1)
+    expect(ledger).toHaveBeenCalledTimes(1)
+  } finally { ledger.mockRestore() }
+})
+
+test('QUEUE records the fixed charge for each dispatched turn', async () => {
+  const dir = root(); initGitRepo(dir)
+  const engine = queueOnFirstTurn(dir), d = e2eDeps(dir, engine)
+  d.cfg.engines.mock!.costPerRunUsd = 2; d.cfg.dailyHardUsd = 10
+  await runOnce(d)
+  expect(engine.calls).toHaveLength(2)
+  expect(d.db.billedCostForLocalDay(localDay(new Date().toISOString(), 0), 0, [])).toBe(4)
+})
+
+test('QUEUE reserves the next fixed charge before dispatching it', async () => {
+  const dir = root(); initGitRepo(dir)
+  const engine = queueOnFirstTurn(dir), d = e2eDeps(dir, engine)
+  d.cfg.engines.mock!.costPerRunUsd = 2; d.cfg.dailyHardUsd = 3
+  await runOnce(d)
+  expect(engine.calls).toHaveLength(1)
+  expect(d.db.billedCostForLocalDay(localDay(new Date().toISOString(), 0), 0, [])).toBe(2)
+})
+
+test('QUEUE never turns unknown in-flight provider spend into zero-cost authority', async () => {
+  const dir = root(); initGitRepo(dir)
+  const engine = queueOnFirstTurn(dir), d = e2eDeps(dir, engine)
+  const original = engine.run.bind(engine)
+  const run = vi.spyOn(engine, 'run').mockImplementation(async job => ({ ...(await original(job)), costUnknown: true, costUsd: 0 }))
+  try {
+    await runOnce(d)
+    expect(engine.calls).toHaveLength(1)
+  } finally { run.mockRestore() }
+})
+
+test('QUEUE needs a fresh readiness result before each additional dispatch', async () => {
+  const dir = root(); initGitRepo(dir)
+  const engine = queueOnFirstTurn(dir), d = e2eDeps(dir, engine)
+  const readiness = vi.spyOn(engine, 'preflight').mockResolvedValueOnce({ ok: true, detail: 'ready' }).mockResolvedValue({ ok: false, detail: 'quota unknown' })
+  try {
+    await runOnce(d)
+    expect(engine.calls).toHaveLength(1)
+    expect(readiness).toHaveBeenCalledTimes(2)
+  } finally { readiness.mockRestore() }
+})
+
+
+test('QUEUE cannot reuse the first dispatch daily-attempt authority', async () => {
+  const dir = root(); initGitRepo(dir)
+  let d: Deps
+  const engine = queueOnFirstTurn(dir, () => { d.cfg.engines.mock!.dailyAttemptCap = 1 })
+  d = e2eDeps(dir, engine)
+  await runOnce(d)
+  expect(engine.calls).toHaveLength(1)
+  expect(new ControlStore(d.cfg.dataDir).list().resolved[0]?.disposition).toBe('STALE')
+})
+
+test('QUEUE cannot reuse a team reservation for an additional writer turn', async () => {
+  const dir = root(); initGitRepo(dir)
+  let d: Deps
+  const engine = queueOnFirstTurn(dir, () => { d.team = {} as NonNullable<Deps['team']> })
+  d = e2eDeps(dir, engine)
+  await runOnce(d)
+  expect(engine.calls).toHaveLength(1)
+  expect(new ControlStore(d.cfg.dataDir).list().resolved[0]?.disposition).toBe('STALE')
+})
