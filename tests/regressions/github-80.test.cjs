@@ -193,3 +193,23 @@ test('parent crash before job attachment cannot release an unowned watcher', win
     assert.deepEqual(f.markers(), [], 'missing start event must never launch the watcher')
   } finally { if (alive(pid)) process.kill(pid) }
 })
+
+test('existing real watcher mutex is preserved without a replacement or takeover', windows, async t => {
+  const f = fixture(t)
+  const watcher = spawn(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
+    join(f.root, 'scripts/watch-github-owner.ps1'), '-Config', f.config, '-Mode', 'issues'],
+  { windowsHide: true, stdio: 'ignore' })
+  t.after(async () => {
+    if (alive(watcher.pid)) watcher.kill()
+    await waitFor(() => watcher.exitCode !== null || watcher.signalCode !== null, 'owned fixture watcher did not exit')
+  })
+  await waitFor(() => f.markers().length === 1, 'existing inert watcher did not start')
+  const original = f.markers()[0]
+  assert.equal(original.watcherPid, watcher.pid)
+  const supervisor = f.launch()
+  await exited(supervisor)
+  assert.equal(json(f.state).status, 'stopped')
+  assert.equal(json(f.state).restartCount, 0)
+  assert.equal(f.markers().length, 1, 'supervisor must not dispatch a competing worker')
+  assert.ok(alive(original.pid) && alive(watcher.pid), 'existing owner must remain alive')
+})

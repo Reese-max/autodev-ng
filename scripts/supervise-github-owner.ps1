@@ -90,6 +90,7 @@ public sealed class AdngWatcherJob : IDisposable {
     public UIntPtr ProcessMemory, JobMemory, PeakProcessMemory, PeakJobMemory;
   }
   [StructLayout(LayoutKind.Sequential)] struct Accounting {
+    // Four LARGE_INTEGER and four DWORD fields: 48-byte native accounting ABI.
     public long UserTime, KernelTime, PeriodUserTime, PeriodKernelTime;
     public uint PageFaults, TotalProcesses, ActiveProcesses, TerminatedProcesses;
   }
@@ -168,13 +169,24 @@ public sealed class AdngWatcherJob : IDisposable {
   if ($adngAcquired) { Write-State 'error' }
   throw 'GitHub watcher supervision failed; no restart was attempted'
 } finally {
-  if ($adngJob) { $adngJob.Dispose() }
-  if ($adngChild) {
-    # Only an unstarted bootstrap can escape job assignment on an error.
-    if (-not $adngChild.HasExited) { $adngChild.Kill(); $adngChild.WaitForExit(5000) | Out-Null }
-    $adngChild.Dispose()
+  try {
+    if ($adngJob) { $adngJob.Dispose() }
+  } finally {
+    try {
+      if ($adngChild) {
+        try {
+          # Only an unstarted bootstrap can escape job assignment on an error.
+          if (-not $adngChild.HasExited) { $adngChild.Kill(); $adngChild.WaitForExit(5000) | Out-Null }
+        } catch [InvalidOperationException] {
+          # The process may exit between HasExited and Kill; cleanup must continue.
+        } finally { $adngChild.Dispose() }
+      }
+    } finally {
+      try { if ($adngGate) { $adngGate.Dispose() } }
+      finally {
+        try { if ($adngAcquired) { $adngMutex.ReleaseMutex() } }
+        finally { $adngMutex.Dispose() }
+      }
+    }
   }
-  if ($adngGate) { $adngGate.Dispose() }
-  if ($adngAcquired) { $adngMutex.ReleaseMutex() }
-  $adngMutex.Dispose()
 }

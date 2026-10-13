@@ -33,6 +33,9 @@ on:
       - tests/github-quality.test.ts
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   quality:
     # The supervisor regression uses Windows Job Objects and inert local CLI fixtures.
@@ -48,6 +51,17 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      - name: Record tested commit and tree
+        run: |
+          git rev-parse HEAD | Tee-Object -FilePath supervisor-checkout.txt
+          git rev-parse 'HEAD^{tree}' | Tee-Object -FilePath supervisor-tree.txt
+      - name: Native Windows supervisor canary with zero skipped cases
+        run: |
+          node --test --test-reporter=tap tests/regressions/github-80.test.cjs | Tee-Object -FilePath github-supervisor-native.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Select-String -Path github-supervisor-native.tap -Pattern '^# skipped 0$' -Quiet)) {
+            throw 'Native Windows supervisor canary did not prove zero skipped cases'
+          }
       - name: Full unit tests including the supervisor process matrix
         run: npm test
       - name: Full coverage gate
@@ -56,3 +70,13 @@ jobs:
         run: npm run quality:crap
       - name: Mutation quality gate
         run: npm run test:mutation
+      - name: Retain exact native canary and checkout receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-supervisor-native-${{ github.run_id }}
+          path: |
+            github-supervisor-native.tap
+            supervisor-checkout.txt
+            supervisor-tree.txt
+          if-no-files-found: error

@@ -1,5 +1,36 @@
 # GitHub watcher supervisor：Issue #80
 
+## Integration and native evidence refresh (2026-10-13 UTC)
+
+The refreshed candidate includes `main@7c6135fabac90fcc9945d98ac3ce68240d9ca18b`
+and the independently reviewed PR #122 head
+`3a5fc7314b1fab9a409e17c69b2eedb5c0bd06a7`. The supervisor PR is held until
+that control/accounting candidate lands. Its scheduler, control store, budget
+admission and original regression tests are preserved unchanged.
+
+The quality workflow now records its actual checkout commit and complete tree,
+runs a separate native Windows supervisor canary with an explicit **zero skips**
+assertion, and retains those receipts as a workflow artifact. The four required
+unit, coverage, CRAP and mutation commands remain separate named steps with the
+original thresholds. A Linux wrapper skip is explicit and cannot stand in for
+this Windows process acceptance.
+
+The original thirteen native cases remain; a fourteenth runs an already-owned
+real watcher with the inert CLI and verifies that the supervisor respects the
+watcher mutex without dispatching another worker or terminating the existing
+owner. Cleanup now always releases gate and mutex handles, including a child
+exit racing the final kill. No production config, provider, GitHub mutation,
+scheduled task or live Herdr is used by the canary.
+
+The earlier review's proposed accounting-structure size change is not adopted:
+Microsoft defines `JOBOBJECT_BASIC_ACCOUNTING_INFORMATION` with **four**
+`LARGE_INTEGER` and four `DWORD` fields, matching the existing 48-byte layout.
+Reference: https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_accounting_information
+
+Fresh local checks and exact-head hosted results are recorded separately in the
+PR/issue evidence. The older counts and receipts below remain historical and
+must not be attributed to the refreshed head.
+
 ## Current-main verification refresh (2026-10-04 UTC)
 
 The candidate includes `main@f5892611c856502b8a0a754250689e5ac101c390`.
