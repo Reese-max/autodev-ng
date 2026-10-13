@@ -1,6 +1,22 @@
 # GitHub watcher supervisor：Issue #80
 
-## Integration and native evidence refresh (2026-10-13 UTC)
+## Independent supervisor candidate (2026-10-13 UTC)
+
+This candidate contains current `main@7c6135fabac90fcc9945d98ac3ce68240d9ca18b`
+and only the seven supervisor paths. The unmerged PR #122 control/accounting
+feature is excluded; the native fixture imports only Node builtins and copies
+the existing watcher with an inert local CLI. All other source and existing
+tests match main. The supervisor, original thirteen native cases plus the
+watcher-mutex case, and quality workflow retain their previous implementations.
+
+The Windows native and four-command quality receipt from run `38337099835`
+belongs to historical candidate `4ad25f1c5283c514a20884c40feb3110ad856c73`,
+full tree `53a812f9af33cced80df5036efd0e447da2f6818`. It is preserved as evidence
+for that coupled tree. This independent candidate requires its own exact-tree
+native, unit, coverage, CRAP, mutation, and standard two-round CI results before
+normal merge; unchanged native blobs do not replace that fresh acceptance.
+
+## Historical coupled candidate 4ad25f1 (2026-10-13 UTC)
 
 The refreshed candidate includes `main@7c6135fabac90fcc9945d98ac3ce68240d9ca18b`
 and the independently reviewed PR #122 head

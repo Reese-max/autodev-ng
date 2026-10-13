@@ -89,11 +89,16 @@ export function readMonitor(cfg: Config, cfgPath: string, now = Date.now()) {
     controls: { pending: controls.pending.length, resolved: controls.resolved.length } }
 }
 
-/** active executions 的 taskId/executionId 短碼（operator 用來對 /steer、/enqueue 指定目標）。 */
+/** Keep execution IDs complete for exact /steer and /enqueue lookup; bound only task labels and item count. */
 function activeExecutionIds(m: ReturnType<typeof readMonitor>): string {
   const active = m.executions.records.filter(r => r.phase !== 'terminal')
   if (!active.length) return ''
-  const shown = active.slice(0, 5).map(r => `${r.taskId}/${r.executionId.slice(0, 8)}`).join('、')
+  // Five 100-character execution IDs plus 64-character labels fit a 1024-character Discord field.
+  const shown = active.slice(0, 5).map(r => {
+    const task = r.taskId.replace(/\s+/g, ' ')
+    const label = task.length > 64 ? `${task.slice(0, 63)}…` : task
+    return `${label}/${r.executionId}`
+  }).join('、')
   return `｜${shown}${active.length > 5 ? ` 等 ${active.length} 項` : ''}`
 }
 

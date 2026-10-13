@@ -7,6 +7,12 @@ export function requirementHandoff(cfg: GithubConfig, state: IssueState, current
   inputs: { stateText: string; configuration: readonly (readonly [string, string])[]; pr: unknown }) {
   if (state.fingerprint !== fingerprint(state.issue)) throw new Error('Saved requirement fingerprint does not match its snapshot; preserve state for manual inspection')
   const hash = (value: string) => createHash('sha256').update(value).digest('hex')
+  const stateSha256 = hash(inputs.stateText)
+  const identity = (value: string, pattern: RegExp) => pattern.test(value) ? value : null
+  const commit = (value: string) => identity(value, /^[a-f0-9]{40,64}$/)
+  const key = (value: string) => identity(value, /^[a-f0-9]{64}$/)
+  const at = (value: string) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value) && Number.isFinite(Date.parse(value)) ? value : null
+  const reference = (jsonPointer: string, text: string) => ({ source: 'captured-state', stateSha256, jsonPointer, sha256: hash(text) })
   return {
     version: 1,
     decision: 'manual-handoff' as const,
@@ -22,7 +28,7 @@ export function requirementHandoff(cfg: GithubConfig, state: IssueState, current
           : state.issue[field] !== current[field]),
     },
     observedInputs: {
-      stateSha256: hash(inputs.stateText),
+      stateSha256,
       configuration: inputs.configuration.map(([path, text]) => ({ path, sha256: hash(text) })),
       linkedPr: inputs.pr,
     },
@@ -33,6 +39,14 @@ export function requirementHandoff(cfg: GithubConfig, state: IssueState, current
       reconciliation: state.reconciliation ?? null,
       reconciliationIsBackendStopProof: false,
       candidate: { baseSha: state.baseSha ?? null, commit: state.commit ?? null, pr: state.pr ?? null },
+      candidateCheck: state.candidateCheck ? { ...state.candidateCheck, receiptRefs: [...state.candidateCheck.receiptRefs] } : null,
+      revision: state.revision ? { round: state.revision.round, baseCommit: commit(state.revision.baseCommit), key: key(state.revision.key),
+        feedbackReference: reference('/revision/feedback', state.revision.feedback) } : null,
+      remote: state.remote ? { at: at(state.remote.at), head: commit(state.remote.head), state: state.remote.state, checks: state.remote.checks, key: key(state.remote.key),
+        feedbackReference: reference('/remote/feedback', state.remote.feedback) } : null,
+      acceptance: state.acceptance ? { commit: commit(state.acceptance.commit), at: at(state.acceptance.at),
+        actor: identity(state.acceptance.actor, /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/),
+        evidenceReference: reference('/acceptance/evidence', state.acceptance.evidence) } : null,
       cost: { status: 'unknown', amountUsd: null, reason: 'Reconciliation does not read or reconcile cumulative billing databases' },
     },
     approval: { collected: false, allowedOperators: [...cfg.authors],

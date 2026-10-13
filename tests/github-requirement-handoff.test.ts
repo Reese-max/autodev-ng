@@ -155,3 +155,49 @@ test('allowed operators are parsed from the exact configuration bytes reported b
     expect(readFileSync(f.file, 'utf8')).toBe(text)
   } finally { loader.mockRestore() }
 })
+
+test('manual handoff carries saved immutable evidence references without copying private feedback', async () => {
+  const f = fixture(), at = '2026-09-17T14:00:00.000Z', privateText = 'PRIVATE fixture feedback and evidence, never exported verbatim'
+  Object.assign(f.state, {
+    candidateCheck: { schema: 'github-candidate-checkpoint/v1', at, policyHash: 'd'.repeat(64), attempts: 2, phase: 'publication-read',
+      receiptRefs: ['evidence', `regression-${f.state.commit}.json`, `acceptance-${f.state.commit}.json`, `quality-${f.state.commit}.json`] },
+    revision: { round: 2, baseCommit: f.state.baseSha, feedback: privateText, key: 'e'.repeat(64) },
+    remote: { at, head: f.state.commit, state: 'open', checks: 'pass', feedback: privateText, key: 'f'.repeat(64) },
+    acceptance: { commit: f.state.commit, at, actor: 'owner', evidence: privateText },
+  })
+  const before = JSON.stringify(f.state); writeFileSync(f.stateFile, before)
+  const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
+  const reference = (pointer: string) => ({ source: 'captured-state', stateSha256: sha256(before), jsonPointer: pointer, sha256: sha256(privateText) })
+  const result = await reconcileIssue(f.file, 4, { client: f.client })
+  expect(result).toMatchObject({ handoff: {
+    observedInputs: { stateSha256: sha256(before) }, executionAuthorized: false, successorCreated: false,
+    preservedEvidence: {
+      candidateCheck: f.state.candidateCheck,
+      revision: { round: 2, baseCommit: f.state.baseSha, key: 'e'.repeat(64), feedbackReference: reference('/revision/feedback') },
+      remote: { at, head: f.state.commit, state: 'open', checks: 'pass', key: 'f'.repeat(64), feedbackReference: reference('/remote/feedback') },
+      acceptance: { commit: f.state.commit, at, actor: 'owner', evidenceReference: reference('/acceptance/evidence') },
+      cost: { status: 'unknown', amountUsd: null }, reconciliationIsBackendStopProof: false,
+    },
+  } })
+  expect(JSON.stringify(result)).not.toContain(privateText)
+  expect(readFileSync(f.stateFile, 'utf8')).toBe(before)
+  expect(readFileSync(f.pause, 'utf8')).toBe('Original pause')
+  expect(readdirSync(f.issueDir)).toEqual(['state.json'])
+  expect(f.client.createPr).not.toHaveBeenCalled()
+})
+
+test('loose historical identity fields cannot export unvalidated values as evidence metadata', async () => {
+  const f = fixture(), privateValue = 'PRIVATE unvalidated historical value'
+  f.state.remote = { at: privateValue, head: privateValue, state: 'open', checks: 'unknown', feedback: privateValue, key: privateValue }
+  f.state.revision = { round: 1, baseCommit: 'a'.repeat(40), feedback: privateValue, key: privateValue }
+  f.state.acceptance = { commit: privateValue, at: privateValue, actor: privateValue, evidence: privateValue }
+  const before = JSON.stringify(f.state); writeFileSync(f.stateFile, before)
+  const result = await reconcileIssue(f.file, 4, { client: f.client })
+  expect(result).toMatchObject({ handoff: { preservedEvidence: {
+    remote: { at: null, head: null, key: null, checks: 'unknown' },
+    revision: { baseCommit: 'a'.repeat(40), key: null },
+    acceptance: { commit: null, at: null, actor: null },
+  } } })
+  expect(JSON.stringify(result)).not.toContain(privateValue)
+  expect(readFileSync(f.stateFile, 'utf8')).toBe(before)
+})

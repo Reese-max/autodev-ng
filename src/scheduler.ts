@@ -10,7 +10,7 @@ import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetryReason, retriedBlockedReason, worktreeFailureReason, type InfrastructureRetryReason, type InfraRetryState } from './engines/infra-retry.js'
 import { enqueueMerge, enqueueTeamMerge } from './engines/merge-queue.js'
-import { combineRuns, nudgeNoCommit } from './engines/no-commit-nudge.js'
+import { combineRuns, costWithUnknownTurnEstimates, nudgeNoCommit } from './engines/no-commit-nudge.js'
 import { createControls, additionalTurnHooks, deliverQueuedControls } from './engines/queued-controls.js'
 import { ENGINE_CAPABILITIES, type Adapter } from './engines/capabilities.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
@@ -328,8 +328,8 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   // （timeout/exit≠0/輸出不可解析）改記 cfg.failureCostEstimateUsd，detail 帶 cost-estimated 標記；
   // 引擎解析出真值（含 is_error、真值恰好 0）照記真值。M5 Task 1：fixedCost 有設（非真值引擎）
   // → 成功失敗一律入帳固定估計值，估計語意只留給真值引擎（claude）。
-  const costEstimated = fixedCost === undefined && !res.ok && res.costUnknown === true
-  const recordedCostUsd = fixedCost === undefined ? (costEstimated ? Math.max(res.costUsd, cfg.failureCostEstimateUsd) : res.costUsd) : fixedCost * controlCost.dispatchedTurns
+  const costEstimated = fixedCost === undefined && res.costUnknown === true
+  const recordedCostUsd = fixedCost === undefined ? (costEstimated ? costWithUnknownTurnEstimates(res, cfg.failureCostEstimateUsd) : res.costUsd) : fixedCost * controlCost.dispatchedTurns
   const baseDetail = res.failureReason ?? res.commitHash ?? ''
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
   const failureClass = res.failureReason?.startsWith('no-commit') ? 'task' as const : 'supply' as const

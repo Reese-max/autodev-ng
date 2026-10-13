@@ -14,6 +14,7 @@ import { ControlStore, CONTROL_TTL_MS, type ControlEnvelope } from '../src/engin
 import { ConfigSchema } from '../src/types.js'
 import * as globalAccounting from '../src/globalcost.js'
 import { localDay } from '../src/db.js'
+import * as incident from '../src/guardian/incident.js'
 
 const roots: string[] = []
 const runDbs: RunDb[] = []
@@ -173,13 +174,13 @@ test('兩筆 QUEUE → FIFO 順序 drain，皆 DELIVERED 且各有不可變收�
 
   const batch = store(dir).peekQueue('exec-1')
   expect(batch.map(e => e.instruction)).toEqual(['第一件事', '第二件事'])
-  store(dir).markDelivered(batch)
+  store(dir).markDelivered(store(dir).claimQueue('exec-1', batch[0]!.taskId))
   const resolved = store(dir).list().resolved
   expect(resolved.find(e => e.id === a.envelope.id)?.disposition).toBe('DELIVERED')
   expect(resolved.find(e => e.id === b.envelope.id)?.disposition).toBe('DELIVERED')
   for (const env of [a.envelope, b.envelope]) {
     const receipts = receiptsFor(dir, env.id)
-    expect(receipts.map(r => r.disposition)).toEqual(['QUEUED', 'DELIVERED'])
+    expect(receipts.map(r => r.disposition)).toEqual(['QUEUED', 'CLAIMED', 'DELIVERED'])
     for (const r of receipts) expect(receiptDigestOk(r)).toBe(true)
   }
 })
@@ -570,4 +571,164 @@ test('oversized rejected instructions retain a readable bounded rejection receip
   expect(reply.envelope.disposition).toBe('REJECTED_INVALID')
   expect(store(dir).list().errors).toHaveLength(0)
   expect(store(dir).list().resolved[0]?.disposition).toBe('REJECTED_INVALID')
+})
+
+// Independent P1 counterfactuals. Append unchanged to the frozen steering suite.
+test('PEER_P1 dispatched QUEUE survives TTL and is not offered twice', async () => {
+  const dir = root(); initGitRepo(dir)
+  const dataDir = join(dir, 'data'), instruction = 'peer TTL instruction already dispatched'
+  let envelope: ControlEnvelope | undefined
+  let included = false, midflightDisposition = '', offeredAgain: string[] = []
+  const engine = new MockEngine([
+    { ok: true, beforeResult: job => {
+      envelope = new ControlStore(dataDir).submit({ project: 'proj', executionId: job.executionId!, mode: 'QUEUE', instruction, issuer: 'peer', channel: 'test' }).envelope
+    } },
+    { ok: true, beforeResult: job => {
+      included = job.directive?.includes(instruction) === true
+      const controls = new ControlStore(dataDir)
+      offeredAgain = controls.peekQueue(job.executionId!).map(e => e.id)
+      controls.sweep(envelope!.expiresAt + 1)
+      midflightDisposition = JSON.parse(readFileSync(join(dataDir, 'controls', `${envelope!.id}.json`), 'utf8')).disposition
+    } },
+  ])
+  const d = e2eDeps(dir, engine)
+  await runOnce(d)
+  expect(engine.calls).toHaveLength(2)
+  expect(included).toBe(true)
+  expect(midflightDisposition).not.toBe('STALE')
+  expect(offeredAgain).not.toContain(envelope!.id)
+  expect(new ControlStore(dataDir).list().resolved.find(e => e.id === envelope!.id)?.disposition).toBe('DELIVERED')
+})
+
+test('PEER_P1 failed initial receipt cannot leave a deliverable QUEUE after restart', () => {
+  const dir = root(); liveExecution(dir)
+  const controls = new ControlStore(dir), instruction = 'peer rejected storage transaction'
+  mkdirSync(join(dir, 'controls'), { recursive: true })
+  const blockedReceipts = join(dir, 'controls', 'receipts')
+  writeFileSync(blockedReceipts, 'deterministic I/O fault: receipt directory is a file')
+  let acknowledged = false
+  try { acknowledged = controls.submit({ project: 'proj', executionId: 'exec-1', mode: 'QUEUE', instruction, issuer: 'peer', channel: 'test' }).ok }
+  catch { /* Submission reported a storage failure. */ }
+  expect(acknowledged).toBe(false)
+  rmSync(blockedReceipts, { force: true })
+  expect(new ControlStore(dir).peekQueue('exec-1').map(e => e.instruction)).not.toContain(instruction)
+})
+
+test('PEER_P1 failed STEER receipt cannot report delivery when poll returned nothing', async () => {
+  const dir = root(); liveExecution(dir)
+  const controls = new ControlStore(dir), instruction = 'peer steering receipt fault'
+  const reply = controls.submit({ project: 'proj', executionId: 'exec-1', mode: 'STEER', instruction, issuer: 'peer', channel: 'test' })
+  expect(reply.ok).toBe(true)
+  const receipts = join(dir, 'controls', 'receipts'), backup = join(dir, 'controls', 'receipt-backup')
+  const { renameSync } = await import('node:fs')
+  renameSync(receipts, backup)
+  writeFileSync(receipts, 'deterministic I/O fault during resolved transition')
+  expect(controls.takeInFlight('exec-1')).toBeUndefined()
+  rmSync(receipts, { force: true }); renameSync(backup, receipts)
+  expect(new ControlStore(dir).list().resolved.find(e => e.id === reply.envelope.id)?.disposition).not.toBe('STEERED')
+})
+
+test.each(['throw', 'unknown-return'] as const)('PEER_P1 prior known spend adds the newly dispatched unknown-turn estimate: %s', async mode => {
+  const dir = root(); initGitRepo(dir)
+  const dataDir = join(dir, 'data')
+  const enqueue = (job: Parameters<MockEngine['run']>[0], instruction: string) => new ControlStore(dataDir).submit({ project: 'proj', executionId: job.executionId!, mode: 'QUEUE', instruction, issuer: 'peer', channel: 'test' })
+  const engine = new MockEngine([
+    { ok: true, costUsd: 2, beforeResult: job => { enqueue(job, 'peer first queued turn') } },
+    { ok: true, costUsd: 3, beforeResult: job => { enqueue(job, 'peer later unknown turn') } },
+    mode === 'throw' ? { throw: 'peer unavailable unknown third turn' } : { ok: false, costUsd: 0, costUnknown: true, reason: 'peer unknown third-turn cost' },
+  ])
+  const d = e2eDeps(dir, engine)
+  d.cfg.failureCostEstimateUsd = 1
+  await runOnce(d)
+  expect(engine.calls).toHaveLength(3)
+  expect(d.db.billedCostForLocalDay(localDay(new Date().toISOString(), 0), 0, [])).toBeGreaterThanOrEqual(6)
+})
+
+
+test.each(['degraded', 'cancelRequested', 'unknown'] as const)('submission rejects an already unhealthy exact target: %s', kind => {
+  const dir = root(); liveExecution(dir)
+  const path = executionFile(dir, 'exec-1'), prior = JSON.parse(readFileSync(path, 'utf8'))
+  writeFileSync(path, JSON.stringify({ ...prior, ...(kind === 'unknown' ? { phase: 'unknown' } : { [kind]: true }) }))
+  const reply = submit(dir)
+  expect(reply.ok).toBe(false)
+  expect(reply.envelope.disposition).toBe('REJECTED_STALE_TARGET')
+  expect(store(dir).peekQueue('exec-1')).toEqual([])
+})
+
+test('full control inventory refuses admission before creating the unreadable 10001st record', () => {
+  const dir = root(); liveExecution(dir)
+  const accepted = submit(dir), template = JSON.parse(readFileSync(join(dir, 'controls', `${accepted.envelope.id}.json`), 'utf8'))
+  template.state = 'resolved'; template.disposition = 'STALE'; template.resolvedAt = Date.now()
+  for (let i = 1; i < 10000; i++) {
+    const id = `inventory-${i}`
+    writeFileSync(join(dir, 'controls', `${id}.json`), JSON.stringify({ ...template, id, seq: i + 1 }))
+  }
+  const reply = submit(dir, { instruction: 'must not be hidden' })
+  expect(reply.ok).toBe(false)
+  expect(reply.envelope.disposition).toBe('REJECTED_INVALID')
+  expect(readdirSync(join(dir, 'controls')).filter(name => name.endsWith('.json'))).toHaveLength(10000)
+  expect(store(dir).list().errors).toEqual([])
+  expect(store(dir).peekQueue('exec-1').map(env => env.instruction)).not.toContain('must not be hidden')
+}, 30000)
+
+test('claimed queue failure resolves uncertainty without replaying the same command', () => {
+  const dir = root(); liveExecution(dir)
+  const accepted = submit(dir), claimed = store(dir).claimQueue('exec-1', accepted.envelope.taskId)
+  expect(claimed).toHaveLength(1)
+  expect(store(dir).sweep(accepted.envelope.expiresAt + 1)).toBe(0)
+  expect(store(dir).claimQueue('exec-1', accepted.envelope.taskId)).toEqual([])
+  expect(submit(dir).ok).toBe(false)
+  store(dir).finishClaim(claimed, 'DELIVERY_UNKNOWN', 'Fixture transport lost after dispatch')
+  expect(store(dir).list().resolved.find(env => env.id === accepted.envelope.id)?.disposition).toBe('DELIVERY_UNKNOWN')
+  expect(store(dir).peekQueue('exec-1')).toEqual([])
+})
+
+
+test.each(['initial-submit', 'steer-resolution'] as const)('failed envelope write after preparing a receipt remains non-dispatchable: %s', phase => {
+  const dir = root(); liveExecution(dir)
+  const controls = store(dir), original = phase === 'steer-resolution' ? submit(dir, { mode: 'STEER' }) : undefined
+  const originalText = original ? readFileSync(join(dir, 'controls', `${original.envelope.id}.json`), 'utf8') : undefined
+  const write = incident.writeJsonAtomic
+  const fault = vi.spyOn(incident, 'writeJsonAtomic').mockImplementation((path, data) => {
+    if (path.startsWith(join(dir, 'controls')) && !path.startsWith(join(dir, 'controls', 'receipts')) && !path.startsWith(join(dir, 'controls', '.transactions'))) throw new Error('deterministic envelope persistence failure')
+    return write(path, data)
+  })
+  try {
+    if (original) expect(controls.takeInFlight('exec-1')).toBeUndefined()
+    else expect(() => submit(dir)).toThrow('persistence failure')
+  } finally { fault.mockRestore() }
+  const restarted = store(dir)
+  expect(restarted.peekQueue('exec-1')).toEqual([])
+  expect(restarted.takeInFlight('exec-1')).toBeUndefined()
+  expect(restarted.list().errors.some(error => error.includes('uncommitted control transaction'))).toBe(true)
+  expect(submit(dir, { instruction: 'cannot bypass unfinished storage transaction' }).ok).toBe(false)
+  if (original) {
+    expect(readFileSync(join(dir, 'controls', `${original.envelope.id}.json`), 'utf8')).toBe(originalText)
+    expect(restarted.list().resolved.find(env => env.id === original.envelope.id)?.disposition).not.toBe('STEERED')
+    const receipts = receiptsFor(dir, original.envelope.id)
+    expect(receipts.at(-1)?.commitId).not.toBe(original.envelope.commitId)
+  }
+})
+
+
+test('observed worker exit preserves the permitted next-turn QUEUE boundary', async () => {
+  const dir = root(); initGitRepo(dir)
+  const dataDir = join(dir, 'data'), instruction = 'continue after verified worker exit'
+  let envelopeId = '', seenPhase = '', included = false
+  const engine = new MockEngine([
+    { ok: true, beforeResult: job => {
+      job.control?.onEvent?.({ type: 'exit', code: 0, reason: 'exit' })
+      seenPhase = readExecutions(dataDir).records.find(record => record.executionId === job.executionId)?.phase ?? ''
+      const reply = new ControlStore(dataDir).submit({ project: 'proj', executionId: job.executionId!, mode: 'STEER', instruction, issuer: 'op', channel: 'test' })
+      expect(reply.envelope.disposition).toBe('TOO_LATE_QUEUED')
+      envelopeId = reply.envelope.id
+    } },
+    { ok: true, beforeResult: job => { included = job.directive?.includes(instruction) === true } },
+  ])
+  await runOnce(e2eDeps(dir, engine))
+  expect(seenPhase).toBe('validating')
+  expect(engine.calls).toHaveLength(2)
+  expect(engine.calls[1]!.executionId).toBe(engine.calls[0]!.executionId)
+  expect(included).toBe(true)
+  expect(new ControlStore(dataDir).list().resolved.find(env => env.id === envelopeId)?.disposition).toBe('DELIVERED')
 })
