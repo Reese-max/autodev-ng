@@ -490,3 +490,84 @@ test('QUEUE cannot reuse a team reservation for an additional writer turn', asyn
   expect(engine.calls).toHaveLength(1)
   expect(new ControlStore(d.cfg.dataDir).list().resolved[0]?.disposition).toBe('STALE')
 })
+
+
+test('regression: global cap changed during follow-up preflight must block dispatch', async () => {
+ const dir=root();initGitRepo(dir);const engine=queueOnFirstTurn(dir),d=e2eDeps(dir,engine)
+ d.cfg.globalDailyHardUsd=5;d.cfgPath=join(dir,'config.json')
+ let spent=0,calls=0
+ const ledger=vi.spyOn(globalAccounting,'globalBilledToday').mockImplementation(()=>spent)
+ const pf=vi.spyOn(engine,'preflight').mockImplementation(async()=>{calls++;if(calls===2)spent=5;return{ok:true,detail:'ready'}})
+ try {await runOnce(d);expect(engine.calls).toHaveLength(1)}finally{ledger.mockRestore();pf.mockRestore()}
+})
+
+test('regression: expired and independently swept queue must not be resurrected after preflight', async () => {
+ const dir=root();initGitRepo(dir);const engine=queueOnFirstTurn(dir),d=e2eDeps(dir,engine)
+ let calls=0
+ const pf=vi.spyOn(engine,'preflight').mockImplementation(async()=>{calls++;if(calls===2){
+  const cdir=join(d.cfg.dataDir,'controls')
+  for(const name of readdirSync(cdir).filter(n=>n.endsWith('.json'))){const p=join(cdir,name),e=JSON.parse(readFileSync(p,'utf8'));writeFileSync(p,JSON.stringify({...e,expiresAt:0}))}
+  new ControlStore(d.cfg.dataDir).sweep()
+ }return{ok:true,detail:'ready'}})
+ try{await runOnce(d);expect(engine.calls).toHaveLength(1);expect(new ControlStore(d.cfg.dataDir).list().resolved[0]?.disposition).toBe('STALE')}finally{pf.mockRestore()}
+})
+
+test('regression: no-commit nudge plus queue must charge all three fixed dispatches',async()=>{
+ const dir=root();initGitRepo(dir)
+ const engine=new MockEngine([
+ {ok:false,reason:'no-commit: test',beforeResult:job=>{
+  new ControlStore(join(dir,'data')).submit({project:'proj',executionId:job.executionId!,mode:'QUEUE',instruction:'queue after nudge',issuer:'op',channel:'test'})
+  return execFileSync('git',['rev-parse','HEAD'],{cwd:job.projectPath,encoding:'utf8'}).trim()
+ }},
+ {ok:true,beforeResult:job=>{
+  writeFileSync(join(job.projectPath,'README.md'),'changed\n');execFileSync('git',['add','README.md'],{cwd:job.projectPath});execFileSync('git',['commit','-m','fix: nudge'],{cwd:job.projectPath})
+ }}])
+ const d=e2eDeps(dir,engine);d.cfg.engines.mock!.costPerRunUsd=2;d.cfg.dailyHardUsd=10
+ await runOnce(d);expect(engine.calls).toHaveLength(3);expect(d.db.billedCostForLocalDay(localDay(new Date().toISOString(),0),0,[])).toBe(6)
+})
+
+test('regression: successful queued cost must survive a later queue exception',async()=>{
+ const dir=root();initGitRepo(dir)
+ const enqueue=(job:any,text:string)=>new ControlStore(join(dir,'data')).submit({project:'proj',executionId:job.executionId!,mode:'QUEUE',instruction:text,issuer:'op',channel:'test'})
+ const engine=new MockEngine([{ok:true,costUsd:2,beforeResult:job=>{enqueue(job,'first queued')}},{ok:true,costUsd:3,beforeResult:job=>{enqueue(job,'second queued')}},{throw:'third turn unavailable'}])
+ const d=e2eDeps(dir,engine);d.cfg.failureCostEstimateUsd=1;d.cfg.dailyHardUsd=100
+ await runOnce(d);expect(engine.calls).toHaveLength(3);expect(d.db.billedCostForLocalDay(localDay(new Date().toISOString(),0),0,[])).toBeGreaterThanOrEqual(5)
+})
+
+
+test('a stale sweep cannot be overwritten by an old delivery snapshot', () => {
+  const dir = root(); liveExecution(dir)
+  submit(dir)
+  const pending = store(dir).peekQueue('exec-1')
+  store(dir).sweep(Date.now() + CONTROL_TTL_MS + 1)
+  expect(store(dir).markDelivered(pending)).toBe(0)
+  expect(store(dir).list().resolved[0]?.disposition).toBe('STALE')
+})
+
+
+test('STEER cannot cross into validation through a previously created port', () => {
+  const dir = root(), obs = liveExecution(dir)
+  const reply = submit(dir, { mode: 'STEER' })
+  const port = store(dir).steerPort('exec-1')
+  obs.control.onEvent?.({ type: 'exit', code: 0, reason: 'exit' })
+  expect(port.poll()).toBeUndefined()
+  expect(store(dir).list().pending.find(env => env.id === reply.envelope.id)?.disposition).toBe('PENDING')
+})
+
+test('changed control bytes cannot retain an old instruction hash and reach the engine', () => {
+  const dir = root(); liveExecution(dir)
+  const reply = submit(dir, { mode: 'STEER' })
+  const file = join(dir, 'controls', `${reply.envelope.id}.json`)
+  const env = JSON.parse(readFileSync(file, 'utf8'))
+  writeFileSync(file, JSON.stringify({ ...env, instruction: 'changed content' }))
+  expect(store(dir).takeInFlight('exec-1')).toBeUndefined()
+  expect(store(dir).list().errors).toHaveLength(1)
+})
+
+test('oversized rejected instructions retain a readable bounded rejection receipt', () => {
+  const dir = root(); liveExecution(dir)
+  const reply = submit(dir, { instruction: 'x'.repeat(5000) })
+  expect(reply.envelope.disposition).toBe('REJECTED_INVALID')
+  expect(store(dir).list().errors).toHaveLength(0)
+  expect(store(dir).list().resolved[0]?.disposition).toBe('REJECTED_INVALID')
+})

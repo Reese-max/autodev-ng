@@ -11,7 +11,7 @@ import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetryReason, retriedBlockedReason, worktreeFailureReason, type InfrastructureRetryReason, type InfraRetryState } from './engines/infra-retry.js'
 import { enqueueMerge, enqueueTeamMerge } from './engines/merge-queue.js'
 import { combineRuns, nudgeNoCommit } from './engines/no-commit-nudge.js'
-import { ControlStore } from './engines/steering.js'
+import { createControls, additionalTurnHooks, deliverQueuedControls } from './engines/queued-controls.js'
 import { ENGINE_CAPABILITIES, type Adapter } from './engines/capabilities.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
 import { freeOnlyListExhausted } from './engines/free-only-retry.js'
@@ -105,10 +105,7 @@ export async function runOnce(deps: Deps, retry: InfraRetryState = { retried: fa
 
 async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleResult> {
   const { cfg, store, db, engines, events, verifier, notify } = deps
-  // Issue #11：控制信封（STEER/QUEUE）的持久化與投遞。sweep 每輪惰性結案逾 TTL／
-  // 目標已終結／宿主死亡的 pending 信封（daemon 重啟後舊 execution 的信封絕不誤投新 execution）。
-  const controls = new ControlStore(cfg.dataDir, events)
-  try { controls.sweep() } catch { /* 控制面治理故障不擋派工 */ }
+  const controls = createControls(deps)
   if (deps.runControl?.signal?.aborted) return 'stopped'
   if (existsSync(cfg.stopFile)) {
     writeHeartbeat(events, cfg, { state: 'stopped', todayCostUsd: todayCost(db, cfg) })
@@ -315,7 +312,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   }
   if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
   if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`) }
-  if (!pending) res = await nudgeNoCommit(engine!, job, res, wt.baseHead)
+  if (!pending) res = await nudgeNoCommit(engine!, job, res, wt.baseHead, undefined, additionalTurnHooks(deps, engine!, job, () => res, () => observation?.recoveryRequired === true, engineTag, fixedCost, controlCost))
   if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
   // Issue #11：QUEUE 信封在回合邊界送達——同一 executionId 的有界 follow-up turn。
   // 僅首回合成功時接續；verify/merge critical section 在其後，控制訊息絕不注入該段。
@@ -325,13 +322,14 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
       res = combineRuns(res, { ok: false, output: `[control-turn error] ${String(err)}`, costUsd: 0, costUnknown: true, failureReason: `control-turn：${String(err)}` })
     }
     if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
+    if (!res.ok && observation?.snapshot().worker && observation.snapshot().phase === 'running') return quarantineRun('queued worker transport failed before a verified terminal result')
   }
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默。失敗成本估計（M4 Task 3）：costUnknown===true
   // （timeout/exit≠0/輸出不可解析）改記 cfg.failureCostEstimateUsd，detail 帶 cost-estimated 標記；
   // 引擎解析出真值（含 is_error、真值恰好 0）照記真值。M5 Task 1：fixedCost 有設（非真值引擎）
   // → 成功失敗一律入帳固定估計值，估計語意只留給真值引擎（claude）。
   const costEstimated = fixedCost === undefined && !res.ok && res.costUnknown === true
-  const recordedCostUsd = fixedCost === undefined ? (costEstimated ? cfg.failureCostEstimateUsd : res.costUsd) : fixedCost * controlCost.dispatchedTurns
+  const recordedCostUsd = fixedCost === undefined ? (costEstimated ? Math.max(res.costUsd, cfg.failureCostEstimateUsd) : res.costUsd) : fixedCost * controlCost.dispatchedTurns
   const baseDetail = res.failureReason ?? res.commitHash ?? ''
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
   const failureClass = res.failureReason?.startsWith('no-commit') ? 'task' as const : 'supply' as const
@@ -542,56 +540,6 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
 /** Issue #11：QUEUE 控制信封的「下一安全回合」送達。同一 executionId 下以有界 follow-up
  *  run 攜入操作員指示（每回合 drain 全部 pending、FIFO 排序）；stopFile／abort／日硬頂
  *  都會中止送達，未被取走的信封由 endExecution/sweep fail closed 結案，絕不落下一題。 */
-const MAX_CONTROL_TURNS = 4
-async function deliverQueuedControls(deps: Deps, engine: Engine, job: Job, initial: RunResult, controls: ControlStore, isDegraded: () => boolean, engineTag: string, fixedCost: number | undefined, costState: { dispatchedTurns: number }): Promise<RunResult> {
-  let res = initial
-  for (let turn = 0; turn < MAX_CONTROL_TURNS; turn++) {
-    if (!res.ok || res.cancelled || res.recoveryRequired || isDegraded() || job.control?.signal?.aborted || existsSync(deps.cfg.stopFile)) break
-    const batch = controls.peekQueue(job.executionId ?? '')
-    if (batch.length === 0) break
-    const engineConfig = deps.cfg.engines[engineTag]
-    // A queued turn is another dispatch. Team reservations and daily-attempt
-    // receipts currently cover one dispatch only; retain the queue until a
-    // separate reservation/attempt contract can authorize an additional turn.
-    if (deps.team || engineConfig?.dailyAttemptCap !== undefined) {
-      quiet(() => deps.events.append('control-admission-blocked', { executionId: job.executionId, reason: 'additional-dispatch-authority-unverified' }))
-      break
-    }
-    const subscription = engineConfig?.subscription === true
-    if (!subscription && fixedCost === undefined && res.costUnknown === true) {
-      quiet(() => deps.events.append('control-admission-blocked', { executionId: job.executionId, reason: 'in-flight-cost-unknown' }))
-      break
-    }
-    // The current execution has not reached the ledger. Include every already
-    // dispatched fixed-cost turn, and reserve the next known fixed charge.
-    const inFlightCost = subscription ? 0 : fixedCost === undefined ? res.costUsd : fixedCost * costState.dispatchedTurns
-    const nextCharge = subscription ? 0 : fixedCost ?? 0
-    const localSpent = todayCost(deps.db, deps.cfg) + inFlightCost
-    if (deps.cfg.dailyHardUsd > 0 && (localSpent >= deps.cfg.dailyHardUsd || localSpent + nextCharge > deps.cfg.dailyHardUsd)) break
-    if (deps.cfg.globalDailyHardUsd !== undefined) {
-      if (!deps.cfgPath) break
-      try {
-        const extra = typeof deps.billingScopes === 'function' ? deps.billingScopes()
-          : deps.billingScopes ?? extraBillingScopes(deps.cfg, deps.billingScopeDirs)
-        const globalSpent = globalBilledToday(deps.cfgPath, new Date().toISOString(), extra, deps.billingSourceHash) + inFlightCost
-        if (globalSpent >= deps.cfg.globalDailyHardUsd || globalSpent + nextCharge > deps.cfg.globalDailyHardUsd) break
-      } catch {
-        quiet(() => deps.events.append('control-admission-blocked', { executionId: job.executionId, reason: 'global-accounting-incomplete' }))
-        break
-      }
-    }
-    const readiness = await engine.preflight()
-    if (!readiness.ok || job.control?.signal?.aborted || existsSync(deps.cfg.stopFile) || isDegraded()) break
-    const directive = `${job.directive ?? job.task.text}\n\n[操作員於本次執行追加 ${batch.length} 則指示，請依序納入當前工作]\n${batch.map((e, i) => `${i + 1}. ${e.instruction}`).join('\n')}`
-    deps.onWorkerStart?.(job.task.id)
-    costState.dispatchedTurns++
-    res = combineRuns(res, await engine.run({ ...job, directive }))
-    controls.markDelivered(batch) // 回合真的跑完才記 DELIVERED；run 拋錯時信封維持 pending，由 endExecution 結案
-    quiet(() => deps.events.append('control-delivered', { executionId: job.executionId, taskId: job.task.id, count: batch.length }))
-  }
-  return res
-}
-
 async function retryInfrastructure(deps: Deps, task: Task, retry: InfraRetryState, reason: InfrastructureRetryReason, detail: string): Promise<CycleResult> {
   if (retry.retried) return blockTask({ store: deps.store, events: deps.events }, task, reason, retriedBlockedReason(detail))
   quiet(() => deps.events.append('infra-retry', { task: task.text, reason, retried: 1 }))

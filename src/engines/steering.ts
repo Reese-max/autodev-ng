@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, lstatSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { writeJsonAtomic } from '../guardian/incident.js'
+import { acquireLock, releaseLock } from '../lock.js'
 import { ENGINE_CAPABILITIES, type Adapter } from './capabilities.js'
-import { readExecutions } from './execution-observation.js'
+import { readExecution, readExecutions } from './execution-observation.js'
 import type { SteerPort } from './run-control.js'
 
 /** Issue #11：人類 follow-up 是 target-bound command envelope，不是自由漂移的聊天文字。
@@ -87,6 +88,14 @@ export class ControlStore {
   private receiptsDir(): string { return join(this.dataDir, 'controls', 'receipts') }
   private file(id: string): string { return join(this.controlsDir(), `${id}.json`) }
 
+  private withControlLock<T>(operation: () => T): T {
+    mkdirSync(this.controlsDir(), { recursive: true })
+    const folder = join(this.controlsDir(), '.transition-lock')
+    const token = acquireLock(folder)
+    if (!token) throw new Error('control update is already in progress')
+    try { return operation() } finally { releaseLock(folder, token) }
+  }
+
   private emit(type: string, env: ControlEnvelope): void {
     try {
       this.events?.append(type, {
@@ -117,10 +126,15 @@ export class ControlStore {
   }
 
   /** pending 信封的終態轉移（STEERED/DELIVERED/STALE/NOT_DELIVERED）。 */
-  private transition(env: ControlEnvelope, disposition: ControlDisposition, detail?: string): void {
-    env.state = 'resolved'; env.disposition = disposition; env.resolvedAt = Date.now()
-    if (detail) env.detail = detail
-    this.persist(env); this.writeReceipt(env); this.emit('control-resolve', env)
+  private transition(env: ControlEnvelope, disposition: ControlDisposition, detail?: string): boolean {
+    return this.withControlLock(() => {
+      const current = this.readAll().envelopes.find(record => record.id === env.id)
+      if (!current || current.state !== 'pending' || current.executionId !== env.executionId || current.taskId !== env.taskId || current.instructionHash !== env.instructionHash) return false
+      current.state = 'resolved'; current.disposition = disposition; current.resolvedAt = Date.now()
+      if (detail) current.detail = detail
+      this.persist(current); this.writeReceipt(current); this.emit('control-resolve', current)
+      return true
+    })
   }
 
   /** 提交當下的結案／暫存：一律先寫 disposition 再落地＋收據＋事件（回覆以 envelope.disposition 為準）。 */
@@ -143,9 +157,11 @@ export class ControlStore {
     if (files.length > 10_000) return { envelopes, errors: ['control inventory exceeds 10000 records'] }
     for (const file of files) {
       try {
-        if (statSync(join(dir, file)).size > 16_384) throw new Error('oversized record')
+        const info = lstatSync(join(dir, file))
+        if (!info.isFile() || info.size > 16_384) throw new Error('oversized or non-regular record')
         const env = EnvelopeSchema.parse(JSON.parse(readFileSync(join(dir, file), 'utf8')))
         if (file !== `${env.id}.json`) throw new Error('identity mismatch')
+        if (env.disposition !== 'REJECTED_INVALID' && createHash('sha256').update(env.instruction).digest('hex') !== env.instructionHash) throw new Error('instruction hash mismatch')
         envelopes.push(env)
       } catch { errors.push(`invalid control record: ${file.slice(0, 110)}`) }
     }
@@ -169,6 +185,11 @@ export class ControlStore {
    * 最終送達與否以 /controls 查詢或收據為準。任何拒絕（REJECTED_*／UNSUPPORTED）同樣落收據。
    */
   submit(args: ControlRequest): ControlReply {
+    try { this.sweep(args.now ?? Date.now()) } catch { /* Dispatch still validates the exact target below. */ }
+    return this.withControlLock(() => this.submitUnlocked(args))
+  }
+
+  private submitUnlocked(args: ControlRequest): ControlReply {
     const now = args.now ?? Date.now()
     const env: ControlEnvelope = {
       schemaVersion: 1, id: randomUUID(),
@@ -185,7 +206,6 @@ export class ControlStore {
       return this.reply(env, 'REJECTED_INVALID', false, `控制指令被拒：executionId 格式不合法`)
     const violation = instructionViolation(args.instruction)
     if (violation) return this.reply(env, 'REJECTED_INVALID', false, `控制指令被拒：${violation}`)
-    try { this.sweep(now) } catch { /* 治理故障不擋新請求的 fail-closed 判定 */ }
 
     const record = readExecutions(this.dataDir, now).records.find(r => r.executionId === args.executionId)
     if (!record || record.phase === 'terminal' || !pidAlive(record.hostPid)) {
@@ -231,10 +251,13 @@ export class ControlStore {
 
   /** adapter 的 in-flight 通道：於其安全點輪詢；取到即轉 STEERED（一次性，不重送）。 */
   takeInFlight(executionId: string, now = Date.now()): string | undefined {
-    const next = this.pendingFor(executionId, now).find(e => e.mode === 'STEER')
-    if (!next) return undefined
-    this.transition(next, 'STEERED')
-    return next.instruction
+    try {
+      const target = readExecution(this.dataDir, executionId)
+      if (!target || target.phase !== 'running' || target.degraded || target.cancelRequested || !pidAlive(target.hostPid)) return undefined
+      const next = this.pendingFor(executionId, now).find(e => e.mode === 'STEER' && e.taskId === target.taskId)
+      if (!next) return undefined
+      return this.transition(next, 'STEERED') ? next.instruction : undefined
+    } catch { return undefined }
   }
 
   /** 供 scheduler 接進 job.control.steer；adapter 於自家安全邊界呼叫 poll()。 */
@@ -245,13 +268,19 @@ export class ControlStore {
   /** 回合邊界（scheduler follow-up turn 前）讀出全部 pending QUEUE（不轉態）；
    *  配對 markDelivered——只有引擎真的跑完該回合才把信封記 DELIVERED，避免「收據說已送達但其實沒送出」。 */
   peekQueue(executionId: string, now = Date.now()): ControlEnvelope[] {
-    return this.pendingFor(executionId, now).filter(e => e.mode === 'QUEUE')
+    try {
+      const target = readExecution(this.dataDir, executionId)
+      if (!target || target.phase === 'terminal' || target.phase === 'unknown' || target.degraded || target.cancelRequested || !pidAlive(target.hostPid)) return []
+      return this.pendingFor(executionId, now).filter(e => e.mode === 'QUEUE' && e.taskId === target.taskId)
+    } catch { return [] }
   }
 
-  markDelivered(batch: ControlEnvelope[]): void {
+  markDelivered(batch: ControlEnvelope[]): number {
+    let delivered = 0
     for (const env of batch) {
-      try { this.transition(env, 'DELIVERED', '於同一 execution 的 follow-up 回合送出') } catch { /* 單筆收據失敗不擋其餘 */ }
+      try { if (this.transition(env, 'DELIVERED', '於同一 execution 的 follow-up 回合送出')) delivered++ } catch { /* Keep uncertain delivery unconfirmed. */ }
     }
+    return delivered
   }
 
   /** execution 收尾（scheduler finally）：未取走的 pending 一律 fail closed 結案。 */
@@ -278,7 +307,7 @@ export class ControlStore {
         : dead ? (env.mode === 'STEER' ? 'NOT_DELIVERED' : 'STALE')
         : null
       if (!disposition) continue
-      try { this.transition(env, disposition, env.expiresAt <= now ? '控制信封逾 TTL 未送達' : '目標執行已不在可投遞狀態'); changed++ }
+      try { if (this.transition(env, disposition, env.expiresAt <= now ? '控制信封逾 TTL 未送達' : '目標執行已不在可投遞狀態')) changed++ }
       catch { /* 治理面故障留待下輪 */ }
     }
     return changed

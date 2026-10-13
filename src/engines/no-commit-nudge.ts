@@ -10,12 +10,16 @@ export async function nudgeNoCommit(
   initial: RunResult,
   fallbackBaseCommit: string,
   getCommitHash: (cwd: string) => string | undefined = defaultCommitHash,
+  dispatch?: { beforeRun: () => Promise<boolean>; onDispatch: () => void },
 ): Promise<RunResult> {
   const baseCommitHash = initial.baseCommitHash ?? fallbackBaseCommit
   if (initial.recoveryRequired || initial.cancelled || job.control?.signal?.aborted || !initial.failureReason?.startsWith('no-commit') || getCommitHash(job.projectPath) !== baseCommitHash) return initial
 
+  if (dispatch && !await dispatch.beforeRun()) return initial
+  if (job.control?.signal?.aborted) return initial
   let nudged: RunResult
   try {
+    dispatch?.onDispatch()
     nudged = await engine.run({ ...job, directive: NO_COMMIT_NUDGE })
   } catch (err) {
     return {
