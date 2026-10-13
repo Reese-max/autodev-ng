@@ -19,20 +19,20 @@ const MAX_CONTROL_TURNS = 4
 /** The fixed one-time nudge uses the same admission and charge lineage as QUEUE. */
 export function additionalTurnHooks(deps: Deps, engine: Engine, job: Job, result: () => RunResult, isDegraded: () => boolean, engineTag: string, fixedCost: number | undefined, costState: { dispatchedTurns: number }) {
   return {
-    beforeRun: () => additionalTurnAdmission(deps, engine, job, result(), isDegraded, engineTag, fixedCost, costState),
+    beforeRun: () => additionalTurnAdmission(deps, engine, job, result(), isDegraded, engineTag, fixedCost, costState, true),
     onDispatch: () => { deps.onWorkerStart?.(job.task.id); costState.dispatchedTurns++ },
   }
 }
 
-export async function additionalTurnAdmission(deps: Deps, engine: Engine, job: Job, res: RunResult, isDegraded: () => boolean, engineTag: string, fixedCost: number | undefined, costState: { dispatchedTurns: number }): Promise<boolean> {
+export async function additionalTurnAdmission(deps: Deps, engine: Engine, job: Job, res: RunResult, isDegraded: () => boolean, engineTag: string, fixedCost: number | undefined, costState: { dispatchedTurns: number }, builtInNudge = false): Promise<boolean> {
   let readiness
   try { readiness = await engine.preflight() } catch { return false }
   if (!readiness.ok || !res.ok && !res.failureReason?.startsWith('no-commit') || res.cancelled || res.recoveryRequired || job.control?.signal?.aborted || existsSync(deps.cfg.stopFile) || isDegraded()) return false
   const engineConfig = deps.cfg.engines[engineTag]
-  // A queued turn is another dispatch. Team reservations and daily-attempt
-  // receipts currently cover one dispatch only; retain the queue until a
-  // separate reservation/attempt contract can authorize an additional turn.
-  if (deps.team || engineConfig?.dailyAttemptCap !== undefined) {
+  // QUEUE introduces an extra turn requiring separate team/attempt authority.
+  // The inherited single no-commit nudge remains part of the approved attempt;
+  // preserve its uncertain-stop/quarantine behavior and count its actual fee.
+  if (!builtInNudge && (deps.team || engineConfig?.dailyAttemptCap !== undefined)) {
     quiet(() => deps.events.append('control-admission-blocked', { executionId: job.executionId, reason: 'additional-dispatch-authority-unverified' }))
     return false
   }
