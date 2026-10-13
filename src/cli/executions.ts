@@ -1,18 +1,25 @@
 import { parseArgs } from 'node:util'
+import { basename } from 'node:path'
 import { loadMonitorConfig } from '../bot/monitor.js'
 import { capabilityReport } from '../engines/capabilities.js'
 import { readExecution, readExecutions, requestExecutionCancel } from '../engines/execution-observation.js'
 import { inspectHerdrCompletion } from '../engines/herdr-inspection.js'
+import { ControlStore, formatControls } from '../engines/steering.js'
+
+const USAGE = '用法：adng execution list|capabilities|controls --config <path>；adng execution get|cancel --config <path> --id <executionId>；adng execution steer|enqueue --config <path> --id <executionId> --text <指示>'
 
 export function executionCli(args: string[]): void {
-  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { config: { type: 'string' }, id: { type: 'string' }, 'request-id': { type: 'string' } } })
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { config: { type: 'string' }, id: { type: 'string' }, text: { type: 'string' }, 'request-id': { type: 'string' } } })
   const action = positionals[0] ?? 'list'
-  const needsId = action === 'cancel' || action === 'get' || action === 'inspect-herdr'
-  if (!values.config || positionals.length > 1 || !['list', 'get', 'capabilities', 'cancel', 'inspect-herdr'].includes(action) || needsId !== !!values.id
+  const needsId = ['get', 'cancel', 'inspect-herdr', 'steer', 'enqueue'].includes(action)
+  const needsText = ['steer', 'enqueue'].includes(action)
+  // Empty steering text goes through the rejection-receipt path.
+  if (!values.config || positionals.length > 1 || !['list', 'get', 'capabilities', 'cancel', 'inspect-herdr', 'steer', 'enqueue', 'controls'].includes(action)
+    || needsId !== !!values.id || (needsText && values.text === undefined)
     || (values['request-id'] !== undefined && action !== 'inspect-herdr'))
     throw new Error(action === 'inspect-herdr'
       ? '用法：adng execution inspect-herdr --config <path> --id <executionId> [--request-id <requestId>]'
-      : '用法：adng execution list|capabilities --config <path>；adng execution get|cancel --config <path> --id <executionId>')
+      : USAGE)
   const cfg = loadMonitorConfig(values.config)
   if (action === 'inspect-herdr') {
     const observation = inspectHerdrCompletion(cfg.dataDir, { executionId: values.id!, ...(values['request-id'] === undefined ? {} : { requestId: values['request-id'] }) })
@@ -31,6 +38,26 @@ export function executionCli(args: string[]): void {
   if (action === 'cancel') {
     requestExecutionCancel(cfg.dataDir, values.id!)
     console.log(JSON.stringify({ executionId: values.id, cancellationRequested: true, backendStopConfirmed: false }))
+    return
+  }
+  // Issue #11：控制信封只需 dataDir（loadMonitorConfig 不碰憑證），與 cancel 同級的唯讀設定路徑。
+  if (action === 'steer' || action === 'enqueue') {
+    const reply = new ControlStore(cfg.dataDir).submit({
+      project: basename(values.config, '.json'), executionId: values.id!,
+      mode: action === 'steer' ? 'STEER' : 'QUEUE',
+      instruction: values.text!, issuer: 'cli', channel: 'cli',
+    })
+    console.log(JSON.stringify({
+      ok: reply.ok, envelopeId: reply.envelope.id, disposition: reply.envelope.disposition,
+      detail: reply.envelope.detail ?? null, text: reply.text,
+    }))
+    if (!reply.ok) process.exitCode = 1
+    return
+  }
+  if (action === 'controls') {
+    const list = new ControlStore(cfg.dataDir).list()
+    console.log(formatControls(list))
+    if (list.errors.length) process.exitCode = 2
     return
   }
   const inventory = readExecutions(cfg.dataDir)

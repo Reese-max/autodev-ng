@@ -236,8 +236,19 @@ node web/server.mjs --config <path>
 | 加任務 | 直接編輯 backlog 檔 | `/task <文字>` | POST `/api/task` |
 | 靜音告警 | — | `/silence <分鐘>` | POST `/api/silence` |
 | 問 LLM | — | `/ask <問題>` | — |
+| 執行控制 | `adng execution steer\|enqueue\|controls` | `/steer <id> <指示>` `/enqueue <id> <指示>` `/controls` | — |
 | GOAL 自主迴圈 | `node dist/autopilot/run.js --config <path>`（前景） | `/goal set\|run\|status\|stop` | Goal 面板 + set/run/stop 按鈕 |
 | 告警自檢 | `notify-test` | — | — |
+
+### 執行控制（Issue #11）
+
+`/steer` 與 `/enqueue` 針對**正在跑的 exact execution**（`/status`、`/controls` 或 `adng execution list` 會列出 `taskId/executionId`）送 target-bound 控制信封，不是自由漂移的聊天文字：
+
+- **STEER**＝送到執行中的回合：只有能力表 `inFlightSteer=true` 的 adapter 能於安全點接收（目前僅 mock；真實 adapter 一律回 `UNSUPPORTED`，不假裝成功）。回合已結束但執行仍活著且支援 queue 時，明確轉為 `TOO_LATE_QUEUED`（收據記錄，非 silent fallback）。
+- **QUEUE**＝不打斷當前回合，排入同一 execution 的下一個安全回合邊界（`executionMode=observed/supervised` 才有快照可綁定目標）；派工前先記 `CLAIMED`，回合完成後記 `DELIVERED`。派工中的信封不因 TTL 過期變成未送達；`DELIVERY_UNKNOWN` 表示已派工但欠缺確認，應先核對執行結果與收據，勿直接重送。
+- 每個信封有 TTL、單行/長度/`<!-- -->`/`adng:` 註記注入防線、重放拒絕；目標不存在/已終結/宿主死亡→`REJECTED_STALE_TARGET` 或 sweep 結案 `STALE`/`NOT_DELIVERED`——daemon 重啟後舊 execution 的信封**絕不**投給新 execution。
+- 每次狀態轉移（受理/預留/送達/結案）在 `dataDir/controls/receipts/` 寫一份 sha256 收據。只有 matching `commitId` 的信封已落地、且無未完成交易時，收據才代表已提交狀態；I/O 失敗留下的交易會阻止投遞，重啟不會自動執行曾回報失敗的指示。`adng execution controls` 或 `/controls` 可查狀態及交易錯誤；請保留故障紀錄供人工核對。
+- `/status` 與 `/monitor` 顯示完整 execution ID，請將它原樣貼入控制指令。已 degraded、正在取消或未知狀態的目標會立即拒收；控制紀錄已滿或有未完成交易時亦拒收。
 
 ## 鐵律摘要
 
