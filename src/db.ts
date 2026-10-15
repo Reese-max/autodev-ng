@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3'
+import { closeAfterConstructionFailure } from './cli/owned-resources.js'
 import { migrateAccounting, accountingSummary, billedSnapshotCost, type AccountingSnapshot } from './engines/attempt-accounting.js'
 export type AttemptFailureClass = 'task' | 'supply' | 'infra' | 'goal' | 'legacy'
 
@@ -51,8 +52,9 @@ export class RunDb {
 
   constructor(file: string) {
     this.db = new Database(file)
-    this.db.pragma('journal_mode = WAL')
-    this.db.exec(`CREATE TABLE IF NOT EXISTS attempts(
+    try {
+      this.db.pragma('journal_mode = WAL')
+      this.db.exec(`CREATE TABLE IF NOT EXISTS attempts(
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
       task_id TEXT NOT NULL,
       ts TEXT NOT NULL,
@@ -60,30 +62,31 @@ export class RunDb {
       cost_usd REAL NOT NULL,
       detail TEXT NOT NULL
     )`)
-    // M9.9 分離帳 migration：舊庫補 engine 欄（冪等；空值＝歷史列，billed 端 fail-safe 算真金）。
-    // try/catch 防雙進程首開競態：兩進程同時通過 PRAGMA 檢查、都跑 ALTER，輸家拋
-    // duplicate column name——欄位已在，吞掉即等價冪等；其他錯誤照拋（不掩蓋真故障）。
-    const cols = this.db.prepare(`PRAGMA table_info(attempts)`).all() as { name: string }[]
-    if (!cols.some(c => c.name === 'engine')) {
-      try {
-        this.db.exec(`ALTER TABLE attempts ADD COLUMN engine TEXT NOT NULL DEFAULT ''`)
-      } catch (err) {
-        if (!String(err).includes('duplicate column')) throw err
-      }
-    }
-    // duration_ms／tokens migration（2026-07-28/29 觀測性）：同 engine 欄冪等手法；NULL＝歷史列。
-    for (const col of ['duration_ms', 'tokens_in', 'tokens_out', 'tokens_cached']) {
-      if (!cols.some(c => c.name === col)) {
+      // M9.9 分離帳 migration：舊庫補 engine 欄（冪等；空值＝歷史列，billed 端 fail-safe 算真金）。
+      // try/catch 防雙進程首開競態：兩進程同時通過 PRAGMA 檢查、都跑 ALTER，輸家拋
+      // duplicate column name——欄位已在，吞掉即等價冪等；其他錯誤照拋（不掩蓋真故障）。
+      const cols = this.db.prepare(`PRAGMA table_info(attempts)`).all() as { name: string }[]
+      if (!cols.some(c => c.name === 'engine')) {
         try {
-          this.db.exec(`ALTER TABLE attempts ADD COLUMN ${col} INTEGER`)
+          this.db.exec(`ALTER TABLE attempts ADD COLUMN engine TEXT NOT NULL DEFAULT ''`)
         } catch (err) {
           if (!String(err).includes('duplicate column')) throw err
         }
       }
-    }
-    migrateAccounting(this.db)
-    // 舊列無法可靠分辨 provider、verify 或任務失敗；保留 legacy，讓 taskFailCount fail-safe 計入。
-    if (!cols.some(c => c.name === 'failure_class')) try { this.db.exec(`ALTER TABLE attempts ADD COLUMN failure_class TEXT NOT NULL DEFAULT 'legacy'`) } catch (err) { if (!String(err).includes('duplicate column')) throw err }
+      // duration_ms／tokens migration（2026-07-28/29 觀測性）：同 engine 欄冪等手法；NULL＝歷史列。
+      for (const col of ['duration_ms', 'tokens_in', 'tokens_out', 'tokens_cached']) {
+        if (!cols.some(c => c.name === col)) {
+          try {
+            this.db.exec(`ALTER TABLE attempts ADD COLUMN ${col} INTEGER`)
+          } catch (err) {
+            if (!String(err).includes('duplicate column')) throw err
+          }
+        }
+      }
+      migrateAccounting(this.db)
+      // 舊列無法可靠分辨 provider、verify 或任務失敗；保留 legacy，讓 taskFailCount fail-safe 計入。
+      if (!cols.some(c => c.name === 'failure_class')) try { this.db.exec(`ALTER TABLE attempts ADD COLUMN failure_class TEXT NOT NULL DEFAULT 'legacy'`) } catch (err) { if (!String(err).includes('duplicate column')) throw err }
+    } catch (error) { closeAfterConstructionFailure(error, [this.db]) }
   }
 
   record(r: AttemptRecord): void {

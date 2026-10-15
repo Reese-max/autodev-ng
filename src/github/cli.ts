@@ -1,5 +1,5 @@
 import { githubStopFile, loadGithubConfig } from './config.js'
-import { githubClient } from './client.js'
+import { describeIssueBatchCoverage, githubClient, issueBatchFor } from './client.js'
 import { runGithub } from './runner.js'
 import { issueDir, states } from './state.js'
 import { eligibleForRun } from './repair.js'
@@ -68,13 +68,19 @@ export async function githubCli(argv: string[]): Promise<void> {
   const cfg = loadGithubConfig(file)
   if (mode!.startsWith('repair') && !cfg.repair) throw new Error('Repair CLI requires a local report/probe policy in configuration')
   if (mode === 'scan' || (mode === 'repair' && extra[0] === '--dry-run')) {
-    console.log(JSON.stringify((await githubClient(cfg).list()).filter(i => eligibleForRun(i, cfg)).map(i => ({ number: i.number, title: i.title })), null, 2))
+    const batch = await issueBatchFor(githubClient(cfg))
+    const issues = batch.issues.filter(i => eligibleForRun(i, cfg)).map(i => ({ number: i.number, title: i.title }))
+    const result = batch.partial ? { coverage: 'partial', pagesRead: batch.pagesRead,
+      pageLimitReached: batch.pageLimitReached, issues,
+      rejected: batch.rejected.slice(0, 20), omittedRejectedCount: Math.max(0, batch.rejected.length - 20),
+      summary: describeIssueBatchCoverage(batch) ?? null } : issues
+    console.log(JSON.stringify(result, null, 2))
   } else if (mode === 'status' || mode === 'repair-status') {
     console.log(JSON.stringify({ enabled: cfg.enabled, publish: cfg.publish, paused: !cfg.enabled || existsSync(githubStopFile(cfg)), repo: cfg.repo,
       issues: states(cfg).map(s => ({ number: s.issue.number, status: s.status, runs: s.runs, detail: s.detail, commit: s.commit, directory: issueDir(cfg, s.issue.number), pr: s.pr })) }, null, 2))
   } else {
     const result = await runGithub(cfg, { syncOnly: mode === 'sync', configPath: file })
     console.log(result)
-    if (/blocked$/.test(result) || /: queued$/.test(result)) process.exitCode = 1
+    if (/(?:^|: )blocked(?:$|;)/.test(result) || /: queued(?:$|;)/.test(result) || /; partial coverage/.test(result)) process.exitCode = 1
   }
 }

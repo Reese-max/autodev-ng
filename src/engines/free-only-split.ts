@@ -1,5 +1,6 @@
 import { callAgent, llmFromConfig } from '../autopilot/llm.js'
 import type { BacklogStore } from '../backlog.js'
+import { verifyCommandText } from '../verify.js'
 import type { Config, Task } from '../types.js'
 import type { SplitChild } from './backlog-split.js'
 
@@ -39,7 +40,7 @@ export async function tryFreeOnlySplit(input: {
   const { cfg, store, task, failures, failure } = input
   if (cfg.tierMode !== 'free-only' || failures < FREE_ONLY_SPLIT_FAILURES) return { kind: 'not-eligible' }
   if ((task.split?.depth ?? 0) >= 2) return { kind: 'blocked', detail: 'split depth limit reached' }
-  const parentAcceptance = cfg.verifyCommand?.trim() ?? ''
+  const parentAcceptance = verifyCommandText(cfg.verifyCommand)?.trim() ?? ''
   const plan = await requestSplit(cfg, task, failure, parentAcceptance, input.fetchFn ?? fetch)
   if (!plan) return { kind: 'blocked', detail: 'judge split output invalid' }
   const parentId = task.id.slice(0, 8), depth = (task.split?.depth ?? 0) + 1
