@@ -1,5 +1,9 @@
 node_modules/
 dist/
+coverage/
+coverage-*/
+reports/
+.stryker-tmp/
 test_output.txt
 .serena/
 data/

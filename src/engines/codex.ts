@@ -203,7 +203,7 @@ export function commitCodexWorktree(cwd: string, message: string): string | unde
   runGit(['-C', cwd, 'add', '-A', '--', '.'])
   const staged = runGit(['-C', cwd, 'diff', '--cached', '--name-only', '--']).trim()
   if (!staged) return undefined
-  runGit(['-C', cwd, '-c', 'commit.gpgSign=false', 'commit', '--no-verify', '-m', message])
+  runGit(['-C', cwd, '-c', 'commit.gpgSign=false', '-c', 'user.name=AutoDev', '-c', 'user.email=autodev@localhost', 'commit', '--no-verify', '-m', message])
   return defaultCommitHash(cwd)
 }
 

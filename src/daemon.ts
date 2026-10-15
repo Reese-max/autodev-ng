@@ -1,7 +1,7 @@
 import { reviewRetryDelay } from './engines/pending-review.js'
 import { refreshFreeModelCatalog } from './engines/free-model-catalog.js'
 import { existsSync } from 'node:fs'
-import { fenceUsurped, releaseLockIfOwned } from './engines/daemon-fence.js'
+import { fenceUsurped } from './engines/daemon-fence.js'
 import { freemem, totalmem } from 'node:os'
 import { acquireLock, releaseLock } from './lock.js'
 import { buildDigest, markDigestSent, shouldSendDigest } from './digest.js'
@@ -113,7 +113,7 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
   const alert = (key: string, message: string) =>
     sendCooldownAlert(notifier, deps.cfg.dataDir, cooldownTable, deps.events, key, message)
 
-  let locked: boolean
+  let locked: string | null
   try {
     locked = acquireLock(lockDir)
   } catch (err) {
@@ -217,6 +217,6 @@ export async function runDaemon(opts: DaemonOpts): Promise<DaemonResult> {
       }
     }
   } finally {
-    releaseLockIfOwned(lockDir, process.pid, releaseLock)
+    releaseLock(lockDir, locked)
   }
 }

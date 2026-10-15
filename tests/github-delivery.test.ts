@@ -13,6 +13,7 @@ import { assertRegression, verifyRegression } from '../src/github/regression.js'
 import { assertAcceptance, verifyAcceptance } from '../src/github/acceptance.js'
 import { runGithub } from '../src/github/runner.js'
 import { repairMetrics } from '../src/github/operations.js'
+import { RUNTIME_BUILT } from './helpers/runtime-build.js'
 
 const dirs: string[] = []
 afterEach(() => { vi.restoreAllMocks(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
@@ -70,7 +71,7 @@ test('console restricts configuration selection and reports unverified evidence 
   expect(result.integrations).toHaveLength(1); expect(result.integrations[0]!.issues[0]!.verified).toBe(false)
   await expect(githubConsole(f.source, { action: 'retry', integration: '../source.json', issue: 7 })).rejects.toThrow()
 })
-test('HTTP console requires token for reads and writes, limits config selection, and serves its browser module', async () => {
+test.skipIf(!RUNTIME_BUILT)('HTTP console requires token for reads and writes, limits config selection, and serves its browser module', async () => {
   const f = setup(), path = '../web/server.mjs', { createServer } = await import(path)
   const server = createServer({ cfgPath: f.source, token: 'fixture-token', indexHtml: '<html>fixture</html>' })
   await new Promise<void>(done => server.listen(0, '127.0.0.1', done))

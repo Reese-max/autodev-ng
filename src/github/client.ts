@@ -2,6 +2,51 @@ import { execFileSync } from 'node:child_process'
 import { z } from 'zod'
 import { IssueSchema, type GithubConfig, type Issue } from './config.js'
 
+export const GITHUB_ISSUE_PAGE_SIZE = 100
+export const GITHUB_ISSUE_PAGE_LIMIT = 10
+export type IssueRejection = { number?: number; field: string; reason: string }
+export type IssueBatch = {
+  issues: Issue[]
+  rejected: IssueRejection[]
+  pagesRead: number
+  partial: boolean
+  pageLimitReached: boolean
+  stoppedEarly?: boolean
+}
+
+function rejection(row: unknown, error: z.ZodError): IssueRejection {
+  const first = error.issues[0]
+  const field = first?.path
+    .filter((part): part is string | number => typeof part === 'number' || (typeof part === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(part)))
+    .slice(0, 5).map(String).join('.') || '$'
+  const reason = first?.code === 'too_big' ? 'value exceeds the schema limit'
+    : first?.code === 'too_small' ? 'value is below the schema minimum'
+      : first?.code === 'invalid_type' ? 'value has the wrong type'
+        : first?.code === 'invalid_value' ? 'value is outside the accepted set'
+          : 'value does not match the schema'
+  const number = typeof row === 'object' && row !== null && !Array.isArray(row) && 'number' in row
+    && typeof row.number === 'number' && Number.isSafeInteger(row.number) && row.number > 0 ? row.number : undefined
+  return { ...(number === undefined ? {} : { number }), field, reason }
+}
+
+export function describeIssueBatchCoverage(batch: IssueBatch): string | undefined {
+  if (!batch.partial) return undefined
+  const parts: string[] = []
+  if (batch.rejected.length) {
+    const examples = batch.rejected.slice(0, 5).map(item => `#${item.number ?? 'unknown'} ${item.field}: ${item.reason}`)
+    const remainder = batch.rejected.length > examples.length ? `; ${batch.rejected.length - examples.length} more omitted` : ''
+    parts.push(`rejected ${batch.rejected.length} invalid item(s) [${examples.join('; ')}${remainder}]`)
+  }
+  if (batch.pageLimitReached) parts.push(`page budget reached at ${batch.pagesRead}/${GITHUB_ISSUE_PAGE_LIMIT}; more issues may remain`)
+  if (batch.stoppedEarly) parts.push('intake stopped before all parsed items were saved')
+  return `partial coverage (${parts.join('; ') || 'incomplete intake'})`
+}
+
+export async function issueBatchFor(client: GithubClient): Promise<IssueBatch> {
+  if (client.listBatch) return client.listBatch()
+  return { issues: await client.list(), rejected: [], pagesRead: 0, partial: false, pageLimitReached: false }
+}
+
 export function command(exe: string, args: string[], cwd?: string, input?: string): string {
   return execFileSync(exe, args, {
     cwd, input, encoding: 'utf8', windowsHide: true, timeout: 120_000,
@@ -9,10 +54,58 @@ export function command(exe: string, args: string[], cwd?: string, input?: strin
     env: { ...process.env, GH_HOST: 'github.com', GH_PROMPT_DISABLED: '1', GIT_TERMINAL_PROMPT: '0' },
   }).trim()
 }
-export function api(endpoint: string, body?: unknown): unknown {
-  return JSON.parse(command('gh', ['api', '--hostname', 'github.com', endpoint,
-    ...(body === undefined ? ['--method', 'GET'] : ['--method', 'POST', '--input', '-'])], undefined,
-  body === undefined ? undefined : JSON.stringify(body)))
+
+/** Only failed read requests with a structured HTTP response are retryable. */
+export class GithubReadError extends Error {
+  constructor(readonly statusCode: number, readonly retryAt?: number, readonly rateLimited = false) {
+    super(`GitHub read failed (HTTP ${statusCode})`)
+  }
+}
+function response(text: string): { status: number; headers: Map<string, string>; body: string } | undefined {
+  const split = /\r?\n\r?\n/.exec(text)
+  if (!split || split.index > 16_000) return undefined
+  const lines = text.slice(0, split.index).split(/\r?\n/)
+  const status = /^HTTP\/\S+\s+(\d{3})(?:\s|$)/.exec(lines[0]!)?.[1]
+  if (!status) return undefined
+  const headers = new Map<string, string>()
+  for (const line of lines.slice(1)) {
+    const colon = line.indexOf(':')
+    if (colon > 0) headers.set(line.slice(0, colon).toLowerCase(), line.slice(colon + 1).trim())
+  }
+  return { status: Number(status), headers, body: text.slice(split.index + split[0].length) }
+}
+function retryTimestamp(headers: Map<string, string>): number | undefined {
+  const after = headers.get('retry-after'), reset = headers.get('x-ratelimit-reset')
+  const dates: number[] = []
+  if (after) {
+    const at = /^\d+$/.test(after) ? Date.now() + Number(after) * 1000 : Date.parse(after)
+    if (Number.isSafeInteger(at)) dates.push(at)
+  }
+  if (headers.get('x-ratelimit-remaining') === '0' && reset && /^\d+$/.test(reset)) {
+    const at = Number(reset) * 1000
+    if (Number.isSafeInteger(at)) dates.push(at)
+  }
+  return dates.length ? Math.max(...dates) : undefined
+}
+export function transientGithubRead(error: unknown): GithubReadError | undefined {
+  return error instanceof GithubReadError && ([408, 429, 500, 502, 503, 504].includes(error.statusCode)
+    || (error.statusCode === 403 && error.rateLimited)) ? error : undefined
+}
+export function api(endpoint: string, body?: unknown, readOnly = false): unknown {
+  const read = body === undefined || readOnly
+  try {
+    const text = command('gh', ['api', '--hostname', 'github.com', endpoint,
+      ...(body === undefined ? ['--method', 'GET', '--include'] : ['--method', 'POST', '--input', '-', ...(readOnly ? ['--include'] : [])])], undefined,
+    body === undefined ? undefined : JSON.stringify(body))
+    return JSON.parse(read ? response(text)?.body ?? text : text)
+  } catch (error) {
+    if (read && error && typeof error === 'object' && 'stdout' in error) {
+      const raw = error.stdout
+      const parsed = typeof raw === 'string' ? response(raw) : Buffer.isBuffer(raw) ? response(raw.toString('utf8')) : undefined
+      if (parsed) throw new GithubReadError(parsed.status, retryTimestamp(parsed.headers), parsed.headers.get('x-ratelimit-remaining') === '0')
+    }
+    throw error
+  }
 }
 const PrSchema = z.object({
   number: z.number().int().positive(), html_url: z.string().url(), state: z.enum(['open', 'closed']),
@@ -47,20 +140,43 @@ function makeGithubClient(cfg: GithubConfig) {
         checks: pending ? 'pending' as const : failed.length ? 'fail' as const : checks.length && checks.every(c => ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(c.conclusion ?? c.state ?? '')) ? 'pass' as const : 'unknown' as const,
         feedback }
     },
-    async list(): Promise<Issue[]> {
-      const pages = JSON.parse(command('gh', ['api', '--hostname', 'github.com',
-        `${root}/issues?state=open${cfg.label === null ? '' : `&labels=${encodeURIComponent(cfg.label)}`}&sort=created&direction=asc&per_page=100`,
-        '--paginate', '--slurp'])) as unknown
-      return z.array(z.array(z.unknown())).parse(pages).flat().filter(row =>
-        typeof row === 'object' && row !== null && !('pull_request' in row)).map(row => IssueSchema.parse(row))
+    async listBatch(): Promise<IssueBatch> {
+      const issues: Issue[] = [], rejected: IssueRejection[] = []
+      let pagesRead = 0, pageLimitReached = false
+      for (let page = 1; page <= GITHUB_ISSUE_PAGE_LIMIT; page++) {
+        const endpoint = `${root}/issues?state=open${cfg.label === null ? '' : `&labels=${encodeURIComponent(cfg.label)}`}&sort=created&direction=asc&per_page=${GITHUB_ISSUE_PAGE_SIZE}&page=${page}`
+        let output: string
+        try {
+          output = command('gh', ['api', '--hostname', 'github.com', endpoint, '--method', 'GET'])
+        } catch {
+          throw new Error(`GitHub Issues request failed on page ${page}`)
+        }
+        let response: unknown
+        try { response = JSON.parse(output) } catch {
+          throw new Error(`GitHub Issues response was invalid JSON on page ${page}`)
+        }
+        if (!Array.isArray(response)) throw new Error(`GitHub Issues response was not an array on page ${page}`)
+        if (response.length > GITHUB_ISSUE_PAGE_SIZE) throw new Error(`GitHub Issues response exceeded the page bound on page ${page}`)
+        pagesRead++
+        for (const row of response) {
+          if (typeof row === 'object' && row !== null && !Array.isArray(row) && 'pull_request' in row) continue
+          const parsed = IssueSchema.safeParse(row)
+          if (parsed.success) issues.push(parsed.data)
+          else rejected.push(rejection(row, parsed.error))
+        }
+        if (response.length < GITHUB_ISSUE_PAGE_SIZE) break
+        if (page === GITHUB_ISSUE_PAGE_LIMIT) pageLimitReached = true
+      }
+      return { issues, rejected, pagesRead, partial: rejected.length > 0 || pageLimitReached, pageLimitReached }
     },
+    async list(): Promise<Issue[]> { return (await this.listBatch()).issues },
     async issue(number: number): Promise<Issue> { return IssueSchema.parse(api(`${root}/issues/${number}`)) },
     async findLinkedPr(number: number): Promise<string | undefined> {
       const [owner, name] = cfg.repo.split('/')
       const result = api('graphql', {
         query: 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){closedByPullRequestsReferences(first:1,includeClosedPrs:true){nodes{url}}}}}',
         variables: { owner, name, number },
-      })
+      }, true) // Explicit read-only GraphQL query; PR creation remains a non-replayable write.
       return z.object({ data: z.object({ repository: z.object({ issue: z.object({
         closedByPullRequestsReferences: z.object({ nodes: z.array(z.object({ url: z.string().url() })) }),
       }) }) }) }).parse(result).data.repository.issue.closedByPullRequestsReferences.nodes[0]?.url
@@ -73,5 +189,6 @@ function makeGithubClient(cfg: GithubConfig) {
     },
   }
 }
-export type GithubClient = Omit<ReturnType<typeof makeGithubClient>, 'feedback' | 'inspectPr'> & Partial<Pick<ReturnType<typeof makeGithubClient>, 'feedback' | 'inspectPr'>>
+export type GithubClient = Omit<ReturnType<typeof makeGithubClient>, 'feedback' | 'inspectPr' | 'listBatch'>
+  & Partial<Pick<ReturnType<typeof makeGithubClient>, 'feedback' | 'inspectPr' | 'listBatch'>>
 export function githubClient(cfg: GithubConfig): GithubClient { return makeGithubClient(cfg) }
