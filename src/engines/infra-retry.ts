@@ -31,7 +31,7 @@ export function isInfrastructureRetryReason(reason: WorktreeFailureReason | Infr
 export function isExternalEngineTermination(error: unknown): boolean {
   const code = (error as { code?: unknown } | undefined)?.code
   const text = `${String(error)} ${String(code ?? '')}`
-  return /\b(?:1073807364|3221225786|-1073741510)\b|\b0x(?:40010004|c000013a)\b|STATUS_CONTROL_C_EXIT/i.test(text)
+  return /(?<![\w-])(?:1073807364|3221225786|-1073741510)(?!\w)|\b0x(?:40010004|c000013a)\b|\bSTATUS_CONTROL_C_EXIT\b/i.test(text)
 }
 
 export function retriedBlockedReason(detail: string): string {

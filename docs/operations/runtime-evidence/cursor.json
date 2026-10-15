@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "task": "runtime-evidence",
+  "policy": "docs/operations/fair-selection-v2.md",
+  "status": "RETIRED_PUBLIC_SNAPSHOT",
+  "role": "HISTORICAL_NOT_AUTHORITATIVE",
+  "visibility_scope": "PUBLIC_ONLY",
+  "migration": {
+    "required": false,
+    "state_authority": "Use the private coordination location configured in the task prompt; do not resume writes to this public snapshot.",
+    "evidence_refs": [
+      "Reese-max/lobsterpulse#3:runtime-receipt-5674624019",
+      "Reese-max/spotify-playlist-organizer-mcp#6:runtime-receipt-5700840064",
+      "Reese-max/taiwan-intel-dashboard#35:runtime-receipt-5703191112"
+    ]
+  },
+  "inventory": {
+    "complete": false,
+    "observed_at": "2026-09-16T19:19:02Z",
+    "repository_ids": [1369117921, 1276211068],
+    "discovery_cursor": null,
+    "note": "Historical public subset only; no complete candidate denominator is established here."
+  },
+  "selection": {
+    "priority_streak": 2,
+    "aging_due": true,
+    "next_fair_target": null,
+    "fair_cycle_remaining_repo_ids": [],
+    "last_selection_reason": "Historical PRIORITY selection for the newly merged location-news verification path; the pending aging obligation was preserved during migration.",
+    "emergency_fingerprint": null
+  },
+  "selection_lease": null,
+  "discovery_watermarks": {},
+  "items": {
+    "1369117921#6#provider-timeout-cancellation": {
+      "repository_id": 1369117921,
+      "issue_number": 6,
+      "scenario_id": "provider-timeout-cancellation",
+      "state": "BLOCKED_ENVIRONMENT",
+      "lane": "PRIORITY",
+      "first_seen_at": "2026-09-14T08:32:29Z",
+      "blocked_fingerprint": "stdio-mcp-closure-needs-repo-dependencies-not-present-in-isolated-runtime",
+      "blocked_since": "2026-09-16T16:23:00Z",
+      "last_attempted_at": "2026-09-16T16:19:26Z",
+      "last_completed_evidence_at": "2026-09-16T16:23:00Z",
+      "last_relevant_evidence_version": "main@9b99f580acaf1e0b6631aa911b9222c262ddc1ec;http-blob@c6bc82c07c2ea3d0999035a1b87a6f1b436a36f8;receipt@5700840064",
+      "next_probe_at": "2026-09-17T16:23:00Z",
+      "resume_subcursor": "Historical pending scope: real stdio MCP timeout/cancellation integration using a local stub, with typed result, retry count and mutation count. No production provider calls."
+    },
+    "1276211068#35#location-news-runtime-postmerge": {
+      "repository_id": 1276211068,
+      "issue_number": 35,
+      "scenario_id": "location-news-runtime-postmerge",
+      "state": "BLOCKED_ENVIRONMENT",
+      "lane": "PRIORITY",
+      "first_seen_at": null,
+      "blocked_fingerprint": "browser-execution-policy-blocks-local-artifact-and-pages-preview-before-page-load",
+      "blocked_since": "2026-09-16T19:16:17Z",
+      "last_attempted_at": "2026-09-16T19:18:15Z",
+      "last_completed_evidence_at": "2026-09-16T19:18:15Z",
+      "last_relevant_evidence_version": "main@3358fa2f8badb130c8befd1c477ff151e92e5e5c;pr33@1bf16e09526b5866363e65bd62ebdc87cbac4da1;correlate-blob@45bcd38f3ddb77d8299073c1f905fd70e9701a0f;actions-run@35107729902;artifact@10450657789;receipt@5703191112",
+      "next_probe_at": "2026-09-17T19:19:02Z",
+      "resume_subcursor": "Historical pending scope: authorized desktop/mobile browser checks for location links, focus/new-tab behavior, long labels and no-coordinate cases. Do not bypass browser security or substitute mock DOM."
+    }
+  },
+  "active_queue": [],
+  "waiting_queue": [
+    "1369117921#6#provider-timeout-cancellation",
+    "1276211068#35#location-news-runtime-postmerge"
+  ],
+  "waiting_probe_cursor": "1369117921#6#provider-timeout-cancellation",
+  "last_run_id": "2026-09-16T19:10:04Z-runtime-evidence-3",
+  "last_completed_check_at": "2026-09-16T19:19:02Z",
+  "coverage": {
+    "eligible": null,
+    "known_public_work_items": 2,
+    "full_completed_known": 0,
+    "partial_known": 2,
+    "waiting_known": 2,
+    "note": "Partial evidence and waiting state overlap; these counts are not additive and are not whole-portfolio coverage."
+  },
+  "notes": "Retired public snapshot. Current coordination metadata is maintained only at the task-configured private location. This edit changes neither product evidence nor Issue severity/status, and is not a new runtime run. Out-of-scope metadata was removed from the current file; Git history was not rewritten."
+}

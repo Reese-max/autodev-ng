@@ -16,8 +16,8 @@ test('合法設定通過驗證且套用預設值', () => {
   expect(cfg.telegramChatId).toBeUndefined()
 })
 
-test('Telegram token 與字串／數字 chat ID 可由設定讀取', () => {
-  const base = { projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'mock' as const, telegramBotToken: '123:ABC' }
+test('Telegram 秘密參考與字串／數字 chat ID 可由設定讀取', () => {
+  const base = { projectPath: 'x', backlogFile: 'x', dataDir: 'x', engine: 'mock' as const, telegramBotToken: '{env:TELEGRAM_BOT_TOKEN}' }
   expect(ConfigSchema.parse({ ...base, telegramChatId: '-100123' }).telegramChatId).toBe('-100123')
   expect(ConfigSchema.parse({ ...base, telegramChatId: 123 }).telegramChatId).toBe(123)
 })
