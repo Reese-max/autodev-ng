@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "executionId": "execution-cancel-D",
+  "taskId": "research0010",
+  "adapter": "freebuff",
+  "projectPath": "/workspace/issue-work/autodev17-research/frozen-author-shared-control/run-B1qaMl/execution-cancel-D/project",
+  "hostPid": 242797,
+  "hostStartedAt": 1791180109149.9868,
+  "startedAt": 1791180113554,
+  "observedAt": 1791180113923,
+  "sequence": 6,
+  "phase": "unknown",
+  "outputBytes": 663,
+  "unknownSamples": 1,
+  "degraded": false,
+  "cancelRequested": true,
+  "worker": {
+    "pid": 243088,
+    "startedAt": 1791180113579
+  },
+  "lastOutputAt": 1791180113660,
+  "exit": {
+    "code": 0,
+    "reason": "cancelled"
+  },
+  "outcome": "unconfirmed"
+}

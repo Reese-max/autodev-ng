@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "executionId": "execution-cancel-D",
+  "taskId": "research0010",
+  "taskText": "Offline principal attribution fixture",
+  "risk": "low",
+  "candidateCommit": "9a2ba9f15aa0bd1cf70d5ce0a682b9779f5ce618",
+  "writer": {
+    "identity": "freebuff"
+  },
+  "gates": {
+    "ci": {
+      "status": "not-run",
+      "executed": false,
+      "detail": "transport did not produce an admitted candidate"
+    },
+    "reviewer": {
+      "status": "not-run",
+      "detail": "independent human/model reviewer unavailable; research is not promotion"
+    },
+    "release": {
+      "status": "not-applicable",
+      "detail": "task has no release intent"
+    }
+  },
+  "verdict": "blocked",
+  "recordedAt": "2026-10-05T06:01:53.926Z",
+  "bundleHash": "4b1bcfa4afc9cb97666d9f91547e828ddefd5fbd2b0cc652ed7bacfd041bb947"
+}

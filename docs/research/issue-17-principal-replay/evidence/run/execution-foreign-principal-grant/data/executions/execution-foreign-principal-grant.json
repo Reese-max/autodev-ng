@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "executionId": "execution-foreign-principal-grant",
+  "taskId": "research0005",
+  "adapter": "freebuff",
+  "projectPath": "/workspace/issue-work/autodev17-research/frozen-author-shared-control/run-B1qaMl/execution-foreign-principal-grant/project",
+  "hostPid": 242797,
+  "hostStartedAt": 1791180109149.8794,
+  "startedAt": 1791180111474,
+  "observedAt": 1791180111830,
+  "sequence": 5,
+  "phase": "terminal",
+  "outputBytes": 661,
+  "unknownSamples": 0,
+  "degraded": false,
+  "cancelRequested": false,
+  "worker": {
+    "pid": 242945,
+    "startedAt": 1791180111480
+  },
+  "lastOutputAt": 1791180111577,
+  "exit": {
+    "code": 0,
+    "reason": "exit"
+  },
+  "outcome": "failed"
+}

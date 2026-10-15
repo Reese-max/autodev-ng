@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "executionId": "execution-B-first",
+  "taskId": "research0001",
+  "taskText": "Offline principal attribution fixture",
+  "risk": "low",
+  "candidateCommit": "a37ab13ee4588af5fba7b098f33230dd780023ee",
+  "writer": {
+    "identity": "freebuff"
+  },
+  "gates": {
+    "ci": {
+      "status": "pass",
+      "command": "node --test check.cjs",
+      "executed": true,
+      "exitCode": 0,
+      "detail": "actual synthetic local Git result checked"
+    },
+    "reviewer": {
+      "status": "not-run",
+      "detail": "independent human/model reviewer unavailable; research is not promotion"
+    },
+    "release": {
+      "status": "not-applicable",
+      "detail": "task has no release intent"
+    }
+  },
+  "verdict": "blocked",
+  "recordedAt": "2026-10-05T06:01:50.738Z",
+  "bundleHash": "f47b8e4e938ae9bd5e3c7b7b060e0af8efeb677faceb8fff13ecf23b78b68647"
+}

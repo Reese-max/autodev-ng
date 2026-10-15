@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "principal-research/v1",
+  "principalId": "B",
+  "executionId": "execution-foreign-principal-grant",
+  "leaseId": "lease-A-execution-A-first",
+  "engineTag": "freebuff",
+  "scope": "MOCK_AUTHORITY_ONLY",
+  "identityIsolation": "MOCK_DEDICATED",
+  "credentialBinding": "MOCK_REFERENCE",
+  "parentPrincipalId": null,
+  "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+  "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+  "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6",
+  "result": "BLOCKED_OR_UNCONFIRMED",
+  "reason": "LEASE_BINDING_MISMATCH",
+  "gateBundleHash": "567a0d5d42483ac0dd5438e1c58a38c84ce7901bd5dd7b37be7928b5ed870c7a",
+  "originalReviewerGate": "not-run",
+  "backendRecoveryRequired": false,
+  "providerCalls": 0,
+  "networkAttempts": 0,
+  "receiptDigest": "186eaf3e2d81d330ec54faf455d8348d493a2a276871031b6607e48aeaa87ebf"
+}

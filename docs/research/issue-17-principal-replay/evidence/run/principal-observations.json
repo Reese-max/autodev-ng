@@ -1,0 +1,101 @@
+[
+  {
+    "schemaVersion": "principal-research/v1",
+    "adapter": "mock",
+    "classification": "UNKNOWN",
+    "credentialBinding": "UNKNOWN",
+    "perPrincipalRevocation": "UNVERIFIED",
+    "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+    "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+  },
+  {
+    "schemaVersion": "principal-research/v1",
+    "adapter": "claude-cli",
+    "classification": "UNKNOWN",
+    "credentialBinding": "UNKNOWN",
+    "perPrincipalRevocation": "UNVERIFIED",
+    "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+    "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+  },
+  {
+    "schemaVersion": "principal-research/v1",
+    "adapter": "codex",
+    "classification": "UNKNOWN",
+    "credentialBinding": "UNKNOWN",
+    "perPrincipalRevocation": "UNVERIFIED",
+    "evidence": "src/engines/registry.ts: shared fleet codex-home; src/engines/codex-runtime.ts: file/env credential policy, no provider revocation observation",
+    "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+  },
+  {
+    "schemaVersion": "principal-research/v1",
+    "adapter": "agy",
+    "classification": "UNKNOWN",
+    "credentialBinding": "UNKNOWN",
+    "perPrincipalRevocation": "UNVERIFIED",
+    "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+    "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+  },
+  {
+    "schemaVersion": "principal-research/v1",
+    "adapter": "copilot",
+    "classification": "UNKNOWN",
+    "credentialBinding": "UNKNOWN",
+    "perPrincipalRevocation": "UNVERIFIED",
+    "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+    "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+  },
+  {
+    "schemaVersion": "principal-research/v1",
+    "adapter": "qwen",
+    "classification": "UNKNOWN",
+    "credentialBinding": "UNKNOWN",
+    "perPrincipalRevocation": "UNVERIFIED",
+    "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+    "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+  },
+  {
+    "schemaVersion": "principal-research/v1",
+    "adapter": "grok",
+    "classification": "UNKNOWN",
+    "credentialBinding": "UNKNOWN",
+    "perPrincipalRevocation": "UNVERIFIED",
+    "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+    "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+  },
+  {
+    "schemaVersion": "principal-research/v1",
+    "adapter": "opencode",
+    "classification": "UNKNOWN",
+    "credentialBinding": "UNKNOWN",
+    "perPrincipalRevocation": "UNVERIFIED",
+    "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+    "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+  },
+  {
+    "schemaVersion": "principal-research/v1",
+    "adapter": "herdr",
+    "classification": "UNKNOWN",
+    "credentialBinding": "UNKNOWN",
+    "perPrincipalRevocation": "UNVERIFIED",
+    "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+    "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+  },
+  {
+    "schemaVersion": "principal-research/v1",
+    "adapter": "devin",
+    "classification": "UNKNOWN",
+    "credentialBinding": "UNKNOWN",
+    "perPrincipalRevocation": "UNVERIFIED",
+    "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+    "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+  },
+  {
+    "schemaVersion": "principal-research/v1",
+    "adapter": "freebuff",
+    "classification": "SHARED",
+    "credentialBinding": "UNKNOWN",
+    "perPrincipalRevocation": "UNVERIFIED",
+    "evidence": "src/engines/registry.ts: per-user homedir freebuff.lock; src/engines/freebuff.ts: shared session serialization",
+    "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+  }
+]

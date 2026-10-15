@@ -1,0 +1,566 @@
+{
+  "schemaVersion": "principal-research/v1",
+  "decision": "NARROW",
+  "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+  "sourceTree": "26314c41dbe5f7b40da0f242fd8268ec5f0178f8",
+  "sourceHashes": {
+    "src/engines/freebuff.ts": {
+      "gitBlob": "ca344e3708890f50457b6db8e4295a068c88938f",
+      "sha256": "7c54917c00e1523f2c78be34b340d5809c89bffc07c289b3e03b674885532630"
+    },
+    "src/preflight.ts": {
+      "gitBlob": "82a75267053d7ba3f641fa66da7a8d6ef9fe09b4",
+      "sha256": "2ee1bea4303bc8ae8384006bb4c68be2c95e270c7d8dcb685887605d70a60f6a"
+    },
+    "src/engines/evidence-chain.ts": {
+      "gitBlob": "ab9e3a3b7bfb9058ebe773626c93208e4247aa98",
+      "sha256": "c567bdc9f707ebab7db8265a226cd8c693968d46ae5ed90b0d08dab8d6444a75"
+    },
+    "src/engines/execution-observation.ts": {
+      "gitBlob": "a28d9cc60d5dad9075736b15ab2b2528e53b690f",
+      "sha256": "76a23bca2c7cbbf2f99688d4420dad388e2a158447c1b7e52b67f88e53456172"
+    },
+    "src/engines/kernel-verifier.ts": {
+      "gitBlob": "936e498d373412b2730921872931c0eaf982788c",
+      "sha256": "f93c0c09bad2b33711c0d34cc53ab586af75298a24c2b906adf3adfb9fac0ace"
+    },
+    "src/scheduler.ts": {
+      "gitBlob": "13a4b3b83bc477d2b0f7054e8c0d8e41d8270630",
+      "sha256": "7861725a6d6ae3abba2dcb1b6603cd56e86bc59d951621d46c46a98e91301543"
+    },
+    "src/engines/registry.ts": {
+      "gitBlob": "e9a736657e28700be76254a3fca53e870e81ca34",
+      "sha256": "ba4892bbd7720fb1130f0b27bf87e3f5597eb83ed0e85815f56b09274de87024"
+    },
+    "src/types.ts": {
+      "gitBlob": "0c32540780c7cf659ab9942ad6a46a051bd3945f",
+      "sha256": "41d09bd436ea322fb9e48499fe2b33bdd3f649124bf5e6fd3d9ad14cea8879b2"
+    }
+  },
+  "buildReceipt": {
+    "source_sha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+    "node": "v22.23.3",
+    "command": [
+      "/workspace/tools/node22/node_modules/node/bin/node",
+      "/workspace/repos/autodev-principal-research/node_modules/typescript/bin/tsc",
+      "-p",
+      "tsconfig.build.json"
+    ],
+    "exit_code": 0,
+    "source_build_script": "tsc -p tsconfig.build.json",
+    "environment_keys": [
+      "PATH"
+    ],
+    "compiled_sha256": {
+      "dist/engines/freebuff.js": "57c137354c5495d0e7c41832601c01fff62916de3151d314d11090d1409fdab9",
+      "dist/preflight.js": "1564b04eb5f5b3fc00bc085392199199d9dcfedf91b600e48f34f3ce63bfc94a",
+      "dist/engines/evidence-chain.js": "4195f21e93c16562dd7bb1b89a467b19eebe2d597f0a2da5f3cfab48c37bbd90",
+      "dist/engines/execution-observation.js": "7f6c9b3746f8078cea0348c757f28d95e87a69b79da6fa79da905ccee1451d5d"
+    }
+  },
+  "instruments": {
+    "replay.mjs": "20583927ec4f8010d5142e3abb5e90b37ca17bd84d81c9ac3f4d7144497f789e",
+    "mock-authority.mjs": "bb5cbcfebe840702d8ec6c5c48a01430b065b295f5fdda7fbf35bd734da90241",
+    "mock-mcp.mjs": "b444428eadd9138b0bd9fa3981192a81b3a9b706b8cea5547b1ee52539c4f8ba",
+    "schemas.mjs": "cda2ad7f5620d81b1eb43ca3a6800140be8de4099d6ab959c74307ed62a5471b",
+    "run.py": "d2818e4eae4347311fb1901162b98726daef6d646ded65ee1d62542dce0edf52",
+    "README.md": "9839b805fc79fcea46fed882659bc279c1a364093eb40471ef954d440965f82a"
+  },
+  "canonicalResearchPr": 25,
+  "canonicalResearchHead": "7db9509a5650e12f0a1f1e243bbd2ebe758d6e97",
+  "runtime": {
+    "node": "v22.23.3",
+    "platform": "linux",
+    "arch": "x64",
+    "actualTransport": "unchanged FreebuffEngine NDJSON stdio + controlled local Node MCP",
+    "credentialAuthority": "MOCK_ONLY; no provider-native revocation",
+    "externalCalls": 0,
+    "fixtureNetworkAttempts": 0,
+    "fixtureNetworkSentinel": "trusted-fixture API instrumentation; not hard host enforcement"
+  },
+  "startedAndFinishedAt": "2026-10-05T06:01:54.070Z",
+  "root": "/workspace/issue-work/autodev17-research/frozen-author-shared-control/run-B1qaMl",
+  "relativeRunDirectory": "run-B1qaMl",
+  "cases": [
+    {
+      "id": "same-engine-distinct-and-revoke-A-while-B-runs",
+      "result": "PASS",
+      "evidence": {
+        "first": "execution-A-first/principal-receipt.json",
+        "revoked": "execution-A-revoked/principal-receipt.json",
+        "sibling": "execution-B-first/principal-receipt.json",
+        "freshAdminProcess": {
+          "schemaVersion": "principal-research/v1",
+          "operation": "revoke",
+          "id": "A",
+          "registryDigest": "d32f5ccf84e69c48b89f1226ad28775a03dd5d48e8149e2317e963d05da559da"
+        }
+      }
+    },
+    {
+      "id": "completed-grant-replay-after-fresh-process-restart",
+      "result": "PASS",
+      "evidence": "restart-replay-B/principal-receipt.json"
+    },
+    {
+      "id": "lease-cannot-move-to-another-execution",
+      "result": "PASS",
+      "evidence": "execution-unbound-B/principal-receipt.json"
+    },
+    {
+      "id": "cross-principal-credential-reference-replay-denied",
+      "result": "PASS",
+      "evidence": "execution-foreign-principal-grant/principal-receipt.json"
+    },
+    {
+      "id": "expired-lease-after-fresh-process-restart",
+      "result": "PASS",
+      "evidence": "execution-expired/principal-receipt.json"
+    },
+    {
+      "id": "ambient-shared-auth-not-mislabeled-revocable",
+      "result": "PASS",
+      "evidence": "execution-shared/principal-receipt.json"
+    },
+    {
+      "id": "real-controlled-child-narrow-lineage-and-no-widening",
+      "result": "PASS",
+      "evidence": {
+        "receipt": "execution-child-C/principal-receipt.json",
+        "actualFreshProcessCreation": {
+          "schemaVersion": "principal-research/v1",
+          "operation": "create-child",
+          "id": "explicit-child-grant.json",
+          "registryDigest": "5034ecbdc9104cf8d5f22a383bee36ef32194bab8387d32bd0c0f57d2d61a406"
+        },
+        "actualFreshProcessEscalationRefusal": true,
+        "logicalParent": "B",
+        "osSpawner": "unchanged host FreebuffEngine; logical grant lineage is not OS process ancestry"
+      }
+    },
+    {
+      "id": "valid-principal-cannot-bypass-separate-synthetic-effect-policy",
+      "result": "PASS",
+      "evidence": "execution-effect-denied/principal-receipt.json"
+    },
+    {
+      "id": "exact-execution-manual-cancel-does-not-fan-out-to-sibling",
+      "result": "PASS",
+      "evidence": {
+        "cancelled": "execution-cancel-D/principal-receipt.json",
+        "continued": "execution-continue-E/principal-receipt.json",
+        "sharedControlDirectory": "shared-execution-control",
+        "nativeExecutionIds": [
+          "execution-cancel-D",
+          "execution-continue-E"
+        ],
+        "sameActualObservationStore": true
+      }
+    },
+    {
+      "id": "existing-native-execution-identity-collision-refuses-reuse",
+      "result": "PASS",
+      "evidence": "execution-continue-E/principal-receipt.json"
+    },
+    {
+      "id": "no-raw-fixture-secret-in-requests-logs-evidence-or-receipts",
+      "result": "PASS",
+      "evidence": {
+        "filesChecked": 104,
+        "fixtureParentEnvStripped": true
+      }
+    },
+    {
+      "id": "strict-machine-schemas-reject-secret-fields-unbound-credentials-and-false-review",
+      "result": "PASS",
+      "evidence": {
+        "schemas": "schemas.json",
+        "principalRecords": 8,
+        "leaseRecords": 9,
+        "receiptRecords": 12
+      }
+    },
+    {
+      "id": "complete-read-only-adapter-inventory-preserves-shared-or-unknown",
+      "result": "PASS",
+      "evidence": [
+        {
+          "schemaVersion": "principal-research/v1",
+          "adapter": "mock",
+          "classification": "UNKNOWN",
+          "credentialBinding": "UNKNOWN",
+          "perPrincipalRevocation": "UNVERIFIED",
+          "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+          "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+        },
+        {
+          "schemaVersion": "principal-research/v1",
+          "adapter": "claude-cli",
+          "classification": "UNKNOWN",
+          "credentialBinding": "UNKNOWN",
+          "perPrincipalRevocation": "UNVERIFIED",
+          "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+          "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+        },
+        {
+          "schemaVersion": "principal-research/v1",
+          "adapter": "codex",
+          "classification": "UNKNOWN",
+          "credentialBinding": "UNKNOWN",
+          "perPrincipalRevocation": "UNVERIFIED",
+          "evidence": "src/engines/registry.ts: shared fleet codex-home; src/engines/codex-runtime.ts: file/env credential policy, no provider revocation observation",
+          "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+        },
+        {
+          "schemaVersion": "principal-research/v1",
+          "adapter": "agy",
+          "classification": "UNKNOWN",
+          "credentialBinding": "UNKNOWN",
+          "perPrincipalRevocation": "UNVERIFIED",
+          "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+          "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+        },
+        {
+          "schemaVersion": "principal-research/v1",
+          "adapter": "copilot",
+          "classification": "UNKNOWN",
+          "credentialBinding": "UNKNOWN",
+          "perPrincipalRevocation": "UNVERIFIED",
+          "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+          "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+        },
+        {
+          "schemaVersion": "principal-research/v1",
+          "adapter": "qwen",
+          "classification": "UNKNOWN",
+          "credentialBinding": "UNKNOWN",
+          "perPrincipalRevocation": "UNVERIFIED",
+          "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+          "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+        },
+        {
+          "schemaVersion": "principal-research/v1",
+          "adapter": "grok",
+          "classification": "UNKNOWN",
+          "credentialBinding": "UNKNOWN",
+          "perPrincipalRevocation": "UNVERIFIED",
+          "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+          "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+        },
+        {
+          "schemaVersion": "principal-research/v1",
+          "adapter": "opencode",
+          "classification": "UNKNOWN",
+          "credentialBinding": "UNKNOWN",
+          "perPrincipalRevocation": "UNVERIFIED",
+          "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+          "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+        },
+        {
+          "schemaVersion": "principal-research/v1",
+          "adapter": "herdr",
+          "classification": "UNKNOWN",
+          "credentialBinding": "UNKNOWN",
+          "perPrincipalRevocation": "UNVERIFIED",
+          "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+          "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+        },
+        {
+          "schemaVersion": "principal-research/v1",
+          "adapter": "devin",
+          "classification": "UNKNOWN",
+          "credentialBinding": "UNKNOWN",
+          "perPrincipalRevocation": "UNVERIFIED",
+          "evidence": "src/types.ts + src/engines/registry.ts: adapter exists; credential ownership not read or tested",
+          "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+        },
+        {
+          "schemaVersion": "principal-research/v1",
+          "adapter": "freebuff",
+          "classification": "SHARED",
+          "credentialBinding": "UNKNOWN",
+          "perPrincipalRevocation": "UNVERIFIED",
+          "evidence": "src/engines/registry.ts: per-user homedir freebuff.lock; src/engines/freebuff.ts: shared session serialization",
+          "inventoryMode": "READ_ONLY_SOURCE_ONLY"
+        }
+      ]
+    }
+  ],
+  "receipts": [
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "A",
+      "executionId": "execution-A-first",
+      "leaseId": "lease-A-execution-A-first",
+      "engineTag": "freebuff",
+      "scope": "MOCK_AUTHORITY_ONLY",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6",
+      "result": "MOCK_LOCAL_FIXTURE_COMPLETED",
+      "reason": "LOCAL_FIXTURE_COMMITTED",
+      "gateBundleHash": "5e4a45bd83d814c338dcf1497b5f3f8e9b29dfa88d0b8f1b9c44a1631ce52697",
+      "originalReviewerGate": "not-run",
+      "backendRecoveryRequired": false,
+      "providerCalls": 0,
+      "networkAttempts": 0,
+      "receiptDigest": "7af42da57bacedd760bb752dce76618ed80acda211a0e32b759c9deaa4bb123e"
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "A",
+      "executionId": "execution-A-revoked",
+      "leaseId": "lease-A-execution-A-revoked",
+      "engineTag": "freebuff",
+      "scope": "MOCK_AUTHORITY_ONLY",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6",
+      "result": "BLOCKED_OR_UNCONFIRMED",
+      "reason": "PRINCIPAL_REVOKED",
+      "gateBundleHash": "d96029d2f7c27ca5a28926b558a38ec2d517994c8c31f0b84ec2eb7721871234",
+      "originalReviewerGate": "not-run",
+      "backendRecoveryRequired": false,
+      "providerCalls": 0,
+      "networkAttempts": 0,
+      "receiptDigest": "e8a1a1ffc89efab70d9c590ef416d1a277a8ffcfbe3f29fbeb38309890395214"
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "B",
+      "executionId": "execution-B-first",
+      "leaseId": "lease-B-execution-B-first",
+      "engineTag": "freebuff",
+      "scope": "MOCK_AUTHORITY_ONLY",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6",
+      "result": "MOCK_LOCAL_FIXTURE_COMPLETED",
+      "reason": "LOCAL_FIXTURE_COMMITTED",
+      "gateBundleHash": "f47b8e4e938ae9bd5e3c7b7b060e0af8efeb677faceb8fff13ecf23b78b68647",
+      "originalReviewerGate": "not-run",
+      "backendRecoveryRequired": false,
+      "providerCalls": 0,
+      "networkAttempts": 0,
+      "receiptDigest": "b9815e1eba36fe1debc0cbb95f1d2191050df97b600a942fb15f5ceac888771d"
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "B",
+      "executionId": "execution-B-first",
+      "leaseId": "lease-B-execution-B-first",
+      "engineTag": "freebuff",
+      "scope": "MOCK_AUTHORITY_ONLY",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6",
+      "result": "BLOCKED_OR_UNCONFIRMED",
+      "reason": "EXECUTION_REPLAY",
+      "gateBundleHash": "d030f9d275ff6d1d92b31bef8576d3e8f47d3e74a24debdb93d15948cf841398",
+      "originalReviewerGate": "not-run",
+      "backendRecoveryRequired": false,
+      "providerCalls": 0,
+      "networkAttempts": 0,
+      "receiptDigest": "05cab1d673ac3795d2f0af9bfe3913461b910f488eaef9ef2ade3556e918a094"
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "B",
+      "executionId": "execution-unbound-B",
+      "leaseId": "lease-B-execution-B-first",
+      "engineTag": "freebuff",
+      "scope": "MOCK_AUTHORITY_ONLY",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6",
+      "result": "BLOCKED_OR_UNCONFIRMED",
+      "reason": "LEASE_BINDING_MISMATCH",
+      "gateBundleHash": "1a41ed4144fa18a06a53914801e343f3468a5a5029b4a1573c960c5680b282c7",
+      "originalReviewerGate": "not-run",
+      "backendRecoveryRequired": false,
+      "providerCalls": 0,
+      "networkAttempts": 0,
+      "receiptDigest": "ad25cbb775bc6e95052be7eaeed543936455c2ee11889cce5ba25cd99318409c"
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "B",
+      "executionId": "execution-foreign-principal-grant",
+      "leaseId": "lease-A-execution-A-first",
+      "engineTag": "freebuff",
+      "scope": "MOCK_AUTHORITY_ONLY",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6",
+      "result": "BLOCKED_OR_UNCONFIRMED",
+      "reason": "LEASE_BINDING_MISMATCH",
+      "gateBundleHash": "567a0d5d42483ac0dd5438e1c58a38c84ce7901bd5dd7b37be7928b5ed870c7a",
+      "originalReviewerGate": "not-run",
+      "backendRecoveryRequired": false,
+      "providerCalls": 0,
+      "networkAttempts": 0,
+      "receiptDigest": "186eaf3e2d81d330ec54faf455d8348d493a2a276871031b6607e48aeaa87ebf"
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "EXPIRED",
+      "executionId": "execution-expired",
+      "leaseId": "lease-EXPIRED-execution-expired",
+      "engineTag": "freebuff",
+      "scope": "MOCK_AUTHORITY_ONLY",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6",
+      "result": "BLOCKED_OR_UNCONFIRMED",
+      "reason": "LEASE_EXPIRED",
+      "gateBundleHash": "ff536e6ac3a2ec822fb83a2e261d37e29031272f18b288fa9a228517fab28012",
+      "originalReviewerGate": "not-run",
+      "backendRecoveryRequired": false,
+      "providerCalls": 0,
+      "networkAttempts": 0,
+      "receiptDigest": "71324b6751eaa09a878fc0ed7f241ef312c8786ddf6f7024569834113acc56c9"
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "SHARED",
+      "executionId": "execution-shared",
+      "leaseId": "lease-SHARED-execution-shared",
+      "engineTag": "freebuff",
+      "scope": "MOCK_AUTHORITY_ONLY",
+      "identityIsolation": "SHARED",
+      "credentialBinding": "SHARED_REFERENCE",
+      "parentPrincipalId": null,
+      "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6",
+      "result": "BLOCKED_OR_UNCONFIRMED",
+      "reason": "SHARED_IDENTITY_UNENFORCEABLE",
+      "gateBundleHash": "fe3593ad9e6c38755888d40d4680bf76508ce69633cce06aa5205b69447fe2d9",
+      "originalReviewerGate": "not-run",
+      "backendRecoveryRequired": false,
+      "providerCalls": 0,
+      "networkAttempts": 0,
+      "receiptDigest": "f3eaf115b527612edd4dac0e555af258c474d4db902b7d6645103e2b36e3413f"
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "C",
+      "executionId": "execution-child-C",
+      "leaseId": "lease-C-execution-child-C",
+      "engineTag": "freebuff",
+      "scope": "MOCK_AUTHORITY_ONLY",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": "B",
+      "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "grantPolicyDigest": "7921e24776923dcf6a7c75ba225685f57d3f8e948a0c53efdae36930b4d4f8a1",
+      "result": "MOCK_LOCAL_FIXTURE_COMPLETED",
+      "reason": "LOCAL_FIXTURE_COMMITTED",
+      "gateBundleHash": "691ee6466179fa289ed0226c4b4c24bc744edd4ddb70c37948db66e999d3687f",
+      "originalReviewerGate": "not-run",
+      "backendRecoveryRequired": false,
+      "providerCalls": 0,
+      "networkAttempts": 0,
+      "receiptDigest": "4d74998852ab00dd5b79c286f6dee309c7d4341afef2334927ee6b0cb4c55f9a"
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "EFFECT",
+      "executionId": "execution-effect-denied",
+      "leaseId": "lease-EFFECT-execution-effect-denied",
+      "engineTag": "freebuff",
+      "scope": "MOCK_AUTHORITY_ONLY",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6",
+      "result": "BLOCKED_OR_UNCONFIRMED",
+      "reason": "EFFECT_DENIED_INDEPENDENT_OF_PRINCIPAL",
+      "gateBundleHash": "e3c2252daa5ccd9c53e3d9de4be298e75cf907475e5c2f2d175cdb048ee7f71b",
+      "originalReviewerGate": "not-run",
+      "backendRecoveryRequired": true,
+      "providerCalls": 0,
+      "networkAttempts": 0,
+      "receiptDigest": "3427415e9473bbc624bb6ebbca46b4dd6c5749242f88fe32baa902361e5ee7ef"
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "D",
+      "executionId": "execution-cancel-D",
+      "leaseId": "lease-D-execution-cancel-D",
+      "engineTag": "freebuff",
+      "scope": "MOCK_AUTHORITY_ONLY",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6",
+      "result": "BLOCKED_OR_UNCONFIRMED",
+      "reason": "TRANSPORT_CANCELLED",
+      "gateBundleHash": "4b1bcfa4afc9cb97666d9f91547e828ddefd5fbd2b0cc652ed7bacfd041bb947",
+      "originalReviewerGate": "not-run",
+      "backendRecoveryRequired": true,
+      "providerCalls": 0,
+      "networkAttempts": 0,
+      "receiptDigest": "96d89a737cebf9008b9a22386668f8074dcd5581a0e40ab10a1bed72c967d72b"
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "E",
+      "executionId": "execution-continue-E",
+      "leaseId": "lease-E-execution-continue-E",
+      "engineTag": "freebuff",
+      "scope": "MOCK_AUTHORITY_ONLY",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+      "runtimeFingerprint": "c66762f847eb7a930fc02a464f1b15cbe323493ffd302252f88db579da517ded",
+      "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6",
+      "result": "MOCK_LOCAL_FIXTURE_COMPLETED",
+      "reason": "LOCAL_FIXTURE_COMMITTED",
+      "gateBundleHash": "233a418c2b6a3f0c9cc92d1b91fa187f903635fe46c43832512059964e88f281",
+      "originalReviewerGate": "not-run",
+      "backendRecoveryRequired": false,
+      "providerCalls": 0,
+      "networkAttempts": 0,
+      "receiptDigest": "87b44454bb8372116128a298ac175036fa69988bb9263bd3832d5780e271d427"
+    }
+  ],
+  "limits": [
+    "No actual provider identity isolation/revocation established. Real adapters remain SHARED/UNKNOWN.",
+    "Mock authority is a trusted research fixture, not a production credential broker or hostile-worker sandbox.",
+    "Registry mutations are serialized by this deterministic fixture; atomic rename handles ordinary restart only. No adversarial concurrent-update or power-loss guarantee.",
+    "Separate PrincipalReceipt sidecar is not a product principal registry; default Job/evidence writer identity remains engineTag.",
+    "No independent reviewer was run; existing EvidenceStore correctly blocks every candidate. No merge/promotion/production claim.",
+    "Effect ALLOW/DENY is an isolated synthetic fixture, not actual cross-engine #12 hard egress containment.",
+    "Cancellation retains native recovery-required/unknown backend truth; no provider stop claim."
+  ],
+  "nextChange": "At most an attribution-only optional receipt design using exact executionId; retain real provider revocation UNKNOWN until an explicitly isolated provider-native test.",
+  "resultDigest": "c697aa7deee02c40e5f090a494292be9e05ae12b6b13ff632ade148ac3734673"
+}

@@ -1,0 +1,21 @@
+{
+  "source_sha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+  "node": "v22.23.3",
+  "command": [
+    "/workspace/tools/node22/node_modules/node/bin/node",
+    "/workspace/repos/autodev-principal-research/node_modules/typescript/bin/tsc",
+    "-p",
+    "tsconfig.build.json"
+  ],
+  "exit_code": 0,
+  "source_build_script": "tsc -p tsconfig.build.json",
+  "environment_keys": [
+    "PATH"
+  ],
+  "compiled_sha256": {
+    "dist/engines/freebuff.js": "57c137354c5495d0e7c41832601c01fff62916de3151d314d11090d1409fdab9",
+    "dist/preflight.js": "1564b04eb5f5b3fc00bc085392199199d9dcfedf91b600e48f34f3ce63bfc94a",
+    "dist/engines/evidence-chain.js": "4195f21e93c16562dd7bb1b89a467b19eebe2d597f0a2da5f3cfab48c37bbd90",
+    "dist/engines/execution-observation.js": "7f6c9b3746f8078cea0348c757f28d95e87a69b79da6fa79da905ccee1451d5d"
+  }
+}

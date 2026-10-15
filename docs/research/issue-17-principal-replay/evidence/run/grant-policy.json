@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "principal-research/v1",
+  "authority": "TRUSTED_SYNTHETIC_FIXTURE_ONLY",
+  "grants": [
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-A-execution-A-first",
+      "principalId": "A",
+      "executionId": "execution-A-first",
+      "credentialRef": "fixture-ref:A",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-B-execution-B-first",
+      "principalId": "B",
+      "executionId": "execution-B-first",
+      "credentialRef": "fixture-ref:B",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-D-execution-cancel-D",
+      "principalId": "D",
+      "executionId": "execution-cancel-D",
+      "credentialRef": "fixture-ref:D",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-E-execution-continue-E",
+      "principalId": "E",
+      "executionId": "execution-continue-E",
+      "credentialRef": "fixture-ref:E",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-EXPIRED-execution-expired",
+      "principalId": "EXPIRED",
+      "executionId": "execution-expired",
+      "credentialRef": "fixture-ref:EXPIRED",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-SHARED-execution-shared",
+      "principalId": "SHARED",
+      "executionId": "execution-shared",
+      "credentialRef": "fixture-ref:SHARED",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-EFFECT-execution-effect-denied",
+      "principalId": "EFFECT",
+      "executionId": "execution-effect-denied",
+      "credentialRef": "fixture-ref:EFFECT",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "lease-A-execution-A-revoked",
+      "principalId": "A",
+      "executionId": "execution-A-revoked",
+      "credentialRef": "fixture-ref:A",
+      "notBeforeMs": 1791180108274,
+      "expiresAtMs": 1791180229274,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    }
+  ],
+  "parentChildScopeRule": "Child scope must be a subset; changed scope requires a separate explicit fixture policy grant",
+  "approvalClaim": "NO_REAL_CREDENTIAL_OR_PROVIDER_APPROVAL",
+  "grantPolicyDigest": "4d01e122a57685dd0f45ba6e893cd724583933dc1d069a5fe2731d02722f37d6"
+}

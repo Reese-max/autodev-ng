@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "executionId": "execution-expired",
+  "taskId": "research0006",
+  "adapter": "freebuff",
+  "projectPath": "/workspace/issue-work/autodev17-research/frozen-author-shared-control/run-B1qaMl/execution-expired/project",
+  "hostPid": 242797,
+  "hostStartedAt": 1791180109150.3245,
+  "startedAt": 1791180111918,
+  "observedAt": 1791180112266,
+  "sequence": 5,
+  "phase": "terminal",
+  "outputBytes": 652,
+  "unknownSamples": 0,
+  "degraded": false,
+  "cancelRequested": false,
+  "worker": {
+    "pid": 242968,
+    "startedAt": 1791180111925
+  },
+  "lastOutputAt": 1791180112012,
+  "exit": {
+    "code": 0,
+    "reason": "exit"
+  },
+  "outcome": "failed"
+}
