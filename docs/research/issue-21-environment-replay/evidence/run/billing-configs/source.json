@@ -1,0 +1,9 @@
+{
+  "dataDir": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/billing",
+  "timezoneOffsetHours": 0,
+  "engines": {
+    "offline-fixture": {
+      "subscription": false
+    }
+  }
+}

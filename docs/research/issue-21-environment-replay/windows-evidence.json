@@ -1,0 +1,38 @@
+{
+  "schema": "archived-environment-observation-source/v1",
+  "source_kind": "ACTUAL_HOSTED_WINDOWS_ARCHIVE_NOT_CURRENT_HANDOFF_TARGET",
+  "source_job": {
+    "repository": "Reese-max/autodev-ng",
+    "run_id": 37267990741,
+    "job_id": 111628765470,
+    "url": "https://github.com/Reese-max/autodev-ng/actions/runs/37267990741",
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "os": "Microsoft Windows Server 2025",
+  "arch": "x64",
+  "image": "windows-2025-vs2026",
+  "node": "22.23.3",
+  "checkout": {
+    "commit": "4f27f434f4063a19549f1174864feea2c87a8dd8",
+    "tree": "fc1be8a94b38fe50d96ef3c609e3c9af7c68e511"
+  },
+  "log_sha256": "7478eab4dbe2611c03b4af59b430edd7d4b5ffb927c3b2ee93710d005842770d",
+  "observed_at_log_range": [
+    "2026-10-05T05:29:10.6314358Z",
+    "2026-10-05T06:00:09.2339773Z"
+  ],
+  "unknown": [
+    "provider CLI versions/auth",
+    "current target environment",
+    "current credential principal/lease",
+    "LAN/device/browser state",
+    "network/effect enforcement",
+    "current skill/config digests",
+    "durable coordination ledger"
+  ],
+  "scope": "Immutable historical hosted Windows execution evidence only; does not make the Linux simulator Windows or prove native cross-host resume. See raw source log timestamps for exact end.",
+  "os_version": "10.0.26100 Datacenter",
+  "image_version": "20260925.250.1",
+  "arch_evidence": "Actual node22.23.3 setup cache path hostedtoolcache/windows/node/22.23.3/x64, not an inferred current-target fact"
+}

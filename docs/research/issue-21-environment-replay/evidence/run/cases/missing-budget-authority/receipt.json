@@ -1,0 +1,328 @@
+{
+  "schemaVersion": "environment-research/v1",
+  "bundleId": "bundle-env-missing-budget-authority",
+  "bundleDigest": "5606044cbbc94f50c2835f083d0b5f27506b21a011016c546efc9fa403423ed3",
+  "targetObservationDigest": "a5bce40d60314bec3bce58ceed41671fc1b4441a4475ad8e323965743155ec4d",
+  "requirementDigest": "76920e8956e45ae286d8971f277e90b233bdd649ed65537f6c36151413d3596c",
+  "state": "BUDGET_BLOCKED",
+  "checks": [
+    {
+      "name": "os",
+      "ok": true,
+      "expected": "linux",
+      "actual": "linux"
+    },
+    {
+      "name": "actualFact:os",
+      "ok": true,
+      "expected": "linux",
+      "actual": "linux"
+    },
+    {
+      "name": "node",
+      "ok": true,
+      "expected": "v22.23.3",
+      "actual": "v22.23.3"
+    },
+    {
+      "name": "actualFact:node",
+      "ok": true,
+      "expected": "v22.23.3",
+      "actual": "v22.23.3"
+    },
+    {
+      "name": "cli",
+      "ok": true,
+      "expected": "offline-fixture-cli/v1",
+      "actual": "offline-fixture-cli/v1"
+    },
+    {
+      "name": "actualFact:cli",
+      "ok": true,
+      "expected": "offline-fixture-cli/v1",
+      "actual": "offline-fixture-cli/v1"
+    },
+    {
+      "name": "skillDigest",
+      "ok": true,
+      "expected": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+      "actual": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c"
+    },
+    {
+      "name": "actualFact:skillDigest",
+      "ok": true,
+      "expected": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c",
+      "actual": "3e42a411cda2d43afab23810f742168b228b833df7b8651aa7b3b133937a196c"
+    },
+    {
+      "name": "policyDigest",
+      "ok": true,
+      "expected": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+      "actual": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a"
+    },
+    {
+      "name": "actualFact:policyDigest",
+      "ok": true,
+      "expected": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a",
+      "actual": "f044bf0848efa84fd54417a296b2f27856f2cd86bc58a7f64b216cebd6889e6a"
+    },
+    {
+      "name": "networkCapability",
+      "ok": true,
+      "expected": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+      "actual": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY"
+    },
+    {
+      "name": "actualFact:networkCapability",
+      "ok": true,
+      "expected": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY",
+      "actual": "TRUSTED_FIXTURE_NETWORK_SENTINEL_ONLY"
+    },
+    {
+      "name": "storageDurability",
+      "ok": true,
+      "expected": "SAME_PROCESS_WRITE_READ",
+      "actual": "SAME_PROCESS_WRITE_READ"
+    },
+    {
+      "name": "actualFact:storageDurability",
+      "ok": true,
+      "expected": "SAME_PROCESS_WRITE_READ",
+      "actual": "SAME_PROCESS_WRITE_READ"
+    },
+    {
+      "name": "requirementDigest",
+      "ok": true,
+      "expected": "76920e8956e45ae286d8971f277e90b233bdd649ed65537f6c36151413d3596c",
+      "actual": "76920e8956e45ae286d8971f277e90b233bdd649ed65537f6c36151413d3596c"
+    },
+    {
+      "name": "sourceObservationDigest",
+      "ok": true,
+      "expected": "bcf25b6aa150beb2181fb7a26b506c50906863a7c761eb2db96cd7c11a3fa15d",
+      "actual": "bcf25b6aa150beb2181fb7a26b506c50906863a7c761eb2db96cd7c11a3fa15d"
+    },
+    {
+      "name": "sourceEnvironment",
+      "ok": true,
+      "expected": "local-owned-fixture",
+      "actual": "local-owned-fixture"
+    },
+    {
+      "name": "targetEnvironment",
+      "ok": true,
+      "expected": "env-missing-budget-authority",
+      "actual": "env-missing-budget-authority"
+    },
+    {
+      "name": "taskIdentity",
+      "ok": true,
+      "expected": "fixture-task",
+      "actual": "fixture-task"
+    },
+    {
+      "name": "sourceWorktreePath",
+      "ok": true,
+      "expected": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/local-project",
+      "actual": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/local-project"
+    },
+    {
+      "name": "sourceObservationWorktreePath",
+      "ok": true,
+      "expected": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/local-project",
+      "actual": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/local-project"
+    },
+    {
+      "name": "sourceCommitStillCurrent",
+      "ok": true,
+      "expected": "6136d0681ee7a200e4123f9a93d4eb27c7226c76",
+      "actual": "6136d0681ee7a200e4123f9a93d4eb27c7226c76"
+    },
+    {
+      "name": "repoIdentity",
+      "ok": true,
+      "expected": "fixture://owned-project/no-network",
+      "actual": "fixture://owned-project/no-network"
+    },
+    {
+      "name": "commit",
+      "ok": true,
+      "expected": "6136d0681ee7a200e4123f9a93d4eb27c7226c76",
+      "actual": "6136d0681ee7a200e4123f9a93d4eb27c7226c76"
+    },
+    {
+      "name": "dirtyState",
+      "ok": true,
+      "expected": "",
+      "actual": ""
+    },
+    {
+      "name": "dirtyDigest",
+      "ok": true,
+      "expected": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "actual": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "name": "artifacts",
+      "ok": true,
+      "expected": [
+        {
+          "locator": "artifact.txt",
+          "sha256": "6b0e9d8b76fce60f7e2ebf0aed138ddcd44b4bcc2cd69cd179231967815042f0"
+        }
+      ],
+      "actual": [
+        {
+          "locator": "artifact.txt",
+          "sha256": "6b0e9d8b76fce60f7e2ebf0aed138ddcd44b4bcc2cd69cd179231967815042f0"
+        }
+      ]
+    },
+    {
+      "name": "evidence",
+      "ok": true,
+      "expected": [
+        {
+          "locator": "evidence.json",
+          "sha256": "75ec191953c106a2a1e2d3ea97bc92d9797f597cb0550cd6d3633afc84e20cc1"
+        }
+      ],
+      "actual": [
+        {
+          "locator": "evidence.json",
+          "sha256": "75ec191953c106a2a1e2d3ea97bc92d9797f597cb0550cd6d3633afc84e20cc1"
+        }
+      ]
+    },
+    {
+      "name": "checkpointDigest",
+      "ok": true,
+      "expected": "cb43dfaa4a1adb26303e2d0f98129c054bf085aca3e3ddba9376597e9da671e6",
+      "actual": "cb43dfaa4a1adb26303e2d0f98129c054bf085aca3e3ddba9376597e9da671e6"
+    },
+    {
+      "name": "principalReferences",
+      "ok": true,
+      "expected": {
+        "principalId": "fixture-principal",
+        "parentPrincipalId": "fixture-parent",
+        "leaseId": "fixture-lease",
+        "executionId": "fixture-execution",
+        "credentialRef": "fixture-ref:HANDOFF",
+        "identityIsolation": "MOCK_DEDICATED",
+        "scope": "MOCK_AUTHORITY_ONLY"
+      },
+      "actual": {
+        "principalId": "fixture-principal",
+        "parentPrincipalId": "fixture-parent",
+        "leaseId": "fixture-lease",
+        "executionId": "fixture-execution",
+        "credentialRef": "fixture-ref:HANDOFF",
+        "identityIsolation": "MOCK_DEDICATED",
+        "scope": "MOCK_AUTHORITY_ONLY"
+      }
+    },
+    {
+      "name": "requiredPrincipal",
+      "ok": true,
+      "expected": {
+        "principalId": "fixture-principal",
+        "parentPrincipalId": "fixture-parent",
+        "leaseId": "fixture-lease",
+        "executionId": "fixture-execution",
+        "credentialRef": "fixture-ref:HANDOFF",
+        "identityIsolation": "MOCK_DEDICATED",
+        "scope": "MOCK_AUTHORITY_ONLY"
+      },
+      "actual": {
+        "principalId": "fixture-principal",
+        "parentPrincipalId": "fixture-parent",
+        "leaseId": "fixture-lease",
+        "executionId": "fixture-execution",
+        "credentialRef": "fixture-ref:HANDOFF",
+        "identityIsolation": "MOCK_DEDICATED",
+        "scope": "MOCK_AUTHORITY_ONLY"
+      }
+    },
+    {
+      "name": "principalExecutionBinding",
+      "ok": true,
+      "expected": "fixture-execution",
+      "actual": "fixture-execution"
+    },
+    {
+      "name": "principalLineage",
+      "ok": true,
+      "expected": "fixture-parent",
+      "actual": "fixture-parent"
+    },
+    {
+      "name": "credentialReference",
+      "ok": true,
+      "expected": "fixture-ref:HANDOFF",
+      "actual": "fixture-ref:HANDOFF"
+    },
+    {
+      "name": "authClass",
+      "ok": true,
+      "expected": "MOCK_DEDICATED",
+      "actual": "MOCK_DEDICATED"
+    },
+    {
+      "name": "budgetBinding",
+      "ok": true,
+      "expected": {
+        "budgetRef": "fixture-budget:authoritative",
+        "policyHash": "06b3320ca51c66418f954f1d472bc8bdc7015405706351ce87cbccfcf9617e1d",
+        "ledgerRef": "fixture-ledger:source-git-common-dir",
+        "ledgerIdentityDigest": "777b1cc66fbae10686b4c6e90894b25644e35a349919cfd7f1b1886f4cb8d447",
+        "costClass": "LOCAL_SYNTHETIC_ZERO_PROVIDER_COST",
+        "reservationUsd": 0.1,
+        "hardUsd": 1
+      },
+      "actual": {
+        "budgetRef": "fixture-budget:authoritative",
+        "policyHash": "06b3320ca51c66418f954f1d472bc8bdc7015405706351ce87cbccfcf9617e1d",
+        "ledgerRef": "fixture-ledger:source-git-common-dir",
+        "ledgerIdentityDigest": "777b1cc66fbae10686b4c6e90894b25644e35a349919cfd7f1b1886f4cb8d447",
+        "costClass": "LOCAL_SYNTHETIC_ZERO_PROVIDER_COST",
+        "reservationUsd": 0.1,
+        "hardUsd": 1
+      }
+    },
+    {
+      "name": "requiredBudget",
+      "ok": true,
+      "expected": {
+        "budgetRef": "fixture-budget:authoritative",
+        "policyHash": "06b3320ca51c66418f954f1d472bc8bdc7015405706351ce87cbccfcf9617e1d",
+        "ledgerRef": "fixture-ledger:source-git-common-dir",
+        "ledgerIdentityDigest": "777b1cc66fbae10686b4c6e90894b25644e35a349919cfd7f1b1886f4cb8d447",
+        "costClass": "LOCAL_SYNTHETIC_ZERO_PROVIDER_COST",
+        "reservationUsd": 0.1,
+        "hardUsd": 1
+      },
+      "actual": {
+        "budgetRef": "fixture-budget:authoritative",
+        "policyHash": "06b3320ca51c66418f954f1d472bc8bdc7015405706351ce87cbccfcf9617e1d",
+        "ledgerRef": "fixture-ledger:source-git-common-dir",
+        "ledgerIdentityDigest": "777b1cc66fbae10686b4c6e90894b25644e35a349919cfd7f1b1886f4cb8d447",
+        "costClass": "LOCAL_SYNTHETIC_ZERO_PROVIDER_COST",
+        "reservationUsd": 0.1,
+        "hardUsd": 1
+      }
+    }
+  ],
+  "declaredEffectDecision": "DENY",
+  "effectDecision": "DENY",
+  "effectScope": "SYNTHETIC_FAIL_CLOSED_GATE_ONLY",
+  "principalDecision": "ALLOW_MOCK_AUTHORITY_ONLY",
+  "budgetReport": null,
+  "fixtureCommand": [],
+  "fixtureExit": null,
+  "nativeMigration": "UNKNOWN",
+  "reviewGate": "NOT_RUN",
+  "providerCalls": 0,
+  "networkAttempts": 0,
+  "receiptDigest": "757fbfdb22910f002adc13da7e52ef66b056149e0b246024d5dedbc42627cbbf"
+}

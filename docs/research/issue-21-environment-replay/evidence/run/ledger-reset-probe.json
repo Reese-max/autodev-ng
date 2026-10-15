@@ -1,0 +1,20 @@
+{
+  "result": "PASS",
+  "nativeFreshCloneWouldAdmit": true,
+  "sourceLedgerDigest": "777b1cc66fbae10686b4c6e90894b25644e35a349919cfd7f1b1886f4cb8d447",
+  "freshLedgerDigest": "dc5d35cf6b5e050719b2e18a2520780a5e2680d49a1b6c030c21a4cbf04c85fe",
+  "differentLedger": true,
+  "freshSnapshot": {
+    "claims": [
+      {
+        "execution_id": "unsafe-fresh-clone-probe",
+        "task_id": "fresh-probe",
+        "active": 0,
+        "state": "RELEASED",
+        "ownership_hash": "5bb815369dce3ab347cf9cc8c0ecb332c4e267035c420fe1c4b3517d5c9229a7"
+      }
+    ],
+    "queue": []
+  },
+  "scope": "SOURCE_BACKED_NEGATIVE_FINDING; fixture handoff refuses this substituted authority"
+}

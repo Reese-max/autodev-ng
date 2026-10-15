@@ -1,0 +1,1 @@
+{"state":"ENVIRONMENT_MISMATCH","receiptDigest":"b2ed7f22a0bd1397e4c79b0bdec97ed2a4c670f8ee5a755d8c912f113faeab8e","networkAttempts":0,"fakeSecretPresent":false,"environmentKeys":["GIT_CONFIG_GLOBAL","GIT_CONFIG_NOSYSTEM","PATH","RESEARCH_SOURCE"]}

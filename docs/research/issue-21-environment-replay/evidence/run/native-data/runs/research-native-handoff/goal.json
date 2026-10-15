@@ -1,0 +1,4 @@
+{
+  "objective": "create the bounded fixture output",
+  "verifyCommand": "node --test native-check.cjs"
+}

@@ -1,0 +1,35 @@
+{
+  "billing": {
+    "bookedUsd": 0.25,
+    "complete": true,
+    "databases": 1,
+    "errors": []
+  },
+  "snapshot": {
+    "claims": [
+      {
+        "execution_id": "prior-source-reservation",
+        "task_id": "prior-source-task",
+        "active": 1,
+        "state": "RUNNING",
+        "ownership_hash": "807ab428fe314bd354db55f8b3c54161130637da863e7c3ab24ce274aba9155c"
+      },
+      {
+        "execution_id": "admission-actual-portable-forward",
+        "task_id": "admission-actual-portable-forward",
+        "active": 0,
+        "state": "RELEASED",
+        "ownership_hash": "5cd3d09f8fb9b43db2db2d79f193b087f28994d1952891f002afa6d21315f09f"
+      },
+      {
+        "execution_id": "admission-actual-portable-return",
+        "task_id": "admission-actual-portable-return",
+        "active": 0,
+        "state": "RELEASED",
+        "ownership_hash": "d179fbc346d0595b1e404899ac2816f8bebea358d1025843c2bd6dfb97230fc3"
+      }
+    ],
+    "queue": []
+  },
+  "originalReservationStillActive": true
+}

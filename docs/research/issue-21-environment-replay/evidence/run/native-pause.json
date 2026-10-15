@@ -1,0 +1,93 @@
+{
+  "mode": "pause",
+  "node": "v22.23.3",
+  "source": "/workspace/repos/autodev-principal-research",
+  "done": {
+    "runId": "research-native-handoff",
+    "backend": "long-horizon",
+    "phase": "interrupted",
+    "detail": "pause at ordinary round boundary",
+    "rounds": 1,
+    "maxRounds": 4,
+    "verifiedSteps": 0,
+    "rejectedAttempts": 1,
+    "driverAlive": false,
+    "updatedAt": "2026-10-05T06:47:13.460Z"
+  },
+  "state": {
+    "version": 1,
+    "backend": "long-horizon",
+    "runId": "research-native-handoff",
+    "goal": {
+      "objective": "create the bounded fixture output",
+      "verifyCommand": "node --test native-check.cjs"
+    },
+    "cwd": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/native-backend-project",
+    "phase": "interrupted",
+    "phaseDetail": "pause at ordinary round boundary",
+    "rounds": 1,
+    "maxRounds": 4,
+    "verifiedSteps": [],
+    "failures": {
+      "exec:executor 失敗：goal not yet achieved": {
+        "count": 1,
+        "detail": "executor 失敗：goal not yet achieved",
+        "lastAt": "2026-10-05T06:47:13.458Z",
+        "escalated": false
+      }
+    },
+    "consecutive": {
+      "fingerprint": "exec:executor 失敗：goal not yet achieved",
+      "count": 1
+    },
+    "directives": [],
+    "baseHead": "f60064828e7a40f5e8df710c3996b7ebaaac9c48",
+    "lastHead": "f60064828e7a40f5e8df710c3996b7ebaaac9c48",
+    "metrics": {
+      "startedAt": "2026-10-05T06:47:13.442Z",
+      "parkedAt": "2026-10-05T06:47:13.460Z",
+      "activeMs": 18,
+      "blockedMs": 0,
+      "resumes": 0,
+      "recoverySuccesses": 0,
+      "verifiedSteps": 0,
+      "rejectedAttempts": 1,
+      "escalations": 0,
+      "interventions": 1,
+      "falseCompletionClaims": 0,
+      "tokensIn": 0,
+      "tokensOut": 0,
+      "costUsd": 0,
+      "costUnknown": false
+    },
+    "createdAt": "2026-10-05T06:47:13.442Z",
+    "updatedAt": "2026-10-05T06:47:13.460Z"
+  },
+  "calls": [
+    {
+      "round": 1,
+      "cwd": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/native-backend-project",
+      "runId": "research-native-handoff"
+    }
+  ],
+  "sentinelExists": false,
+  "secondConsume": null,
+  "rejectSteer": true,
+  "rejectQueue": true,
+  "attempts": [
+    {
+      "at": "2026-10-05T06:47:13.458Z",
+      "round": 1,
+      "step": "create the bounded fixture output",
+      "outcome": "rejected",
+      "detail": "executor 失敗：goal not yet achieved",
+      "fingerprint": "exec:executor 失敗：goal not yet achieved",
+      "gitSha": "f60064828e7a40f5e8df710c3996b7ebaaac9c48",
+      "executorOk": false,
+      "claim": false,
+      "costUsd": 0
+    }
+  ],
+  "checkpoints": [],
+  "limit": "ordinary same-path pause consumption; no removal-failure/crash-safe exactly-once/STEER delivery guarantee"
+}

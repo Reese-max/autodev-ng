@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "native-checkpoint-copy/v1",
+  "scope": "ACTUAL_SDK_PAUSED_CONTINUATION_INPUTS_RESEARCH_WRAPPER_ONLY",
+  "excludedArtifacts": "coordination SQLite and driver locks; not continuation/checkpoint inputs",
+  "sourceSha": "a2378aa6fea3605f596e3ee264adbb2eb04c9010",
+  "sourceRunDir": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/native-data/runs/research-native-handoff",
+  "targetRunDir": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/native-copied-run",
+  "recordedCwd": "/workspace/issue-work/autodev21-research/author-final/run-gHh7zV/native-backend-project",
+  "phase": "interrupted",
+  "nativeDispatchInvoked": false,
+  "files": [
+    {
+      "locator": "attempts.jsonl",
+      "sha256": "32b14425b5f546930458985edd94370d22e60acf3e3eddc20575db1717039348"
+    },
+    {
+      "locator": "evidence/attempt-0001-rejected.json",
+      "sha256": "f190cdf07c76e84f52d8c70ff2feacf3f05f31164348647d37097d8d2d11c2a0"
+    },
+    {
+      "locator": "goal.json",
+      "sha256": "7dfaee70e98e8cfd5ff0ce851ce322cc6655306bf90ab41f1909de8ec808b4a2"
+    },
+    {
+      "locator": "metrics.json",
+      "sha256": "a4fbd46f77935e139af532ad69c6b839fc4ad23f05baa076221b239eed55b8c1"
+    },
+    {
+      "locator": "state.json",
+      "sha256": "2c9df72a4c7a57f1d4a843971a4e6cbf344aaf359d552a853aea2a0ab3f1e111"
+    }
+  ],
+  "checkpointCount": 0
+}

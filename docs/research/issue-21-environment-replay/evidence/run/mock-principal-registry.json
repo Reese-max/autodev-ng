@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "principal-research/v1",
+  "principals": [
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "fixture-parent",
+      "ownerRef": "fixture-owner:human-boundary-unmodified",
+      "role": "offline-research-worker",
+      "engineTag": "freebuff",
+      "runtimeFingerprint": "bd6715cd8904e718899efd86c36829933b4fd3f940bc7422fb5128388430f076",
+      "lifecycle": "ACTIVE",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": null,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    },
+    {
+      "schemaVersion": "principal-research/v1",
+      "principalId": "fixture-principal",
+      "ownerRef": "fixture-owner:human-boundary-unmodified",
+      "role": "offline-research-worker",
+      "engineTag": "freebuff",
+      "runtimeFingerprint": "bd6715cd8904e718899efd86c36829933b4fd3f940bc7422fb5128388430f076",
+      "lifecycle": "ACTIVE",
+      "identityIsolation": "MOCK_DEDICATED",
+      "credentialBinding": "MOCK_REFERENCE",
+      "parentPrincipalId": "fixture-parent",
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    }
+  ],
+  "leases": [
+    {
+      "schemaVersion": "principal-research/v1",
+      "leaseId": "fixture-lease",
+      "principalId": "fixture-principal",
+      "executionId": "fixture-execution",
+      "credentialRef": "fixture-ref:HANDOFF",
+      "notBeforeMs": 1791182822838,
+      "expiresAtMs": 1791183423838,
+      "capabilities": [
+        "LOCAL_FIXTURE_COMMIT",
+        "READ_METADATA"
+      ]
+    }
+  ],
+  "usedExecutions": []
+}
