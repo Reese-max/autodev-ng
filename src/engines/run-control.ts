@@ -8,11 +8,18 @@ export type RunEvent =
   | { type: 'cancel-requested' }
   | { type: 'exit'; code: number | null; reason: 'exit' | 'wall' | 'idle' | 'cancelled' }
 
+/** Issue #11：宿主→worker 的 in-flight 指示通道。adapter 只在自己認定的安全點呼叫 poll()；
+ *  取到指示即算送達（STEERED）。未接線的 adapter 看不到此 port——不支援即 fail closed。 */
+export interface SteerPort {
+  poll(): string | undefined
+}
+
 export interface RunControl {
   signal?: AbortSignal
   onEvent?: (event: RunEvent) => void
   /** Report silence for supervised workers; local operations retain their own timeout. */
   idleAction?: 'report'
+  steer?: SteerPort
 }
 
 export function observeRun(control: RunControl | undefined, event: RunEvent): void {

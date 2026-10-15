@@ -1,5 +1,6 @@
 // 假 CLI：讀完 stdin 後依 FAKE_MODE 行動。供 proc/engine 病態注入測試。
 import { spawn } from 'node:child_process'
+import { observeLockerStderr } from './locker-stderr.mjs'
 
 const mode = process.env.FAKE_MODE ?? 'ok'
 let input = ''
@@ -19,6 +20,8 @@ process.stdin.on('end', async () => {
   if (mode === 'hang-worktree-lock') {
     const lockFile = process.env.FAKE_LOCK_FILE
     if (!lockFile) throw new Error('FAKE_LOCK_FILE is required')
+    const startedAt = Date.now()
+    process.stderr.write('WORKTREE_LOCK_STARTING\n')
     const lockScript = [
       "$ErrorActionPreference = 'Stop'",
       "$fs = [System.IO.File]::Open($env:FAKE_LOCK_FILE, 'Open', 'ReadWrite', 'Read')",
@@ -31,11 +34,19 @@ process.stdin.on('end', async () => {
       stdio: ['ignore', 'ignore', 'pipe'],
     })
     locker.stderr.setEncoding('utf8')
-    locker.stderr.on('data', chunk => {
-      if (chunk.includes('WORKTREE_LOCK_READY')) {
-        process.stderr.write('WORKTREE_LOCK_READY\n')
+    locker.stderr.on('data', observeLockerStderr(
+      chunk => process.stderr.write(chunk),
+      () => {
+        process.stderr.write(`WORKTREE_LOCK_READY_OBSERVED\nWORKTREE_LOCK_READY_ELAPSED_MS=${Date.now() - startedAt}\n`)
         setInterval(() => {}, 1000)
-      }
+      },
+    ))
+    locker.on('error', error => {
+      process.stderr.write(`WORKTREE_LOCK_START_ERROR=${error.message}\n`)
+      process.exitCode = 1
+    })
+    locker.on('exit', (code, signal) => {
+      process.stderr.write(`WORKTREE_LOCK_EXIT code=${String(code)} signal=${String(signal)}\n`)
     })
     return
   }

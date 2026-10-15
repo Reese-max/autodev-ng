@@ -9,7 +9,7 @@ import { yesterdayLocal } from '../engines/daemon-alerts.js'
 import type { LlmOpts } from '../autopilot/llm.js'
 import type { EventLog } from '../events.js'
 import { isSilenced } from './silence.js'
-import { doPause, doResume, doSilence, doTask, doAsk, doGoal } from './actions.js'
+import { doPause, doResume, doSilence, doTask, doAsk, doGoal, doSteer, doEnqueue, doControls } from './actions.js'
 import { subscriptionTags } from '../scheduler.js'
 import { ProblemsLedger } from '../autopilot/ledger.js'
 import { formatMonitor, githubMonitor, monitorRuntimeLines, readMonitor } from './monitor.js'
@@ -157,7 +157,7 @@ async function cmdProblems(d: BotDeps): Promise<CmdResult> {
  * 回傳結構化 {ok,text}：查詢類（status/cost/backlog/log/lessons）與控制類（actions.ts）
  * 皆據內部實際成敗回 ok（M9.4 fast-follow #3：查詢類 catch 到的內部錯誤現在也回 ok:false，
  * 讓 web 查詢面板故障可紅顯——「空資料但查詢成功」如教訓庫尚空不是錯誤，仍 ok:true）。 */
-export async function handleCommand(name: string, arg: string, d: BotDeps): Promise<CmdResult> {
+export async function handleCommand(name: string, arg: string, d: BotDeps, meta?: { issuer?: string }): Promise<CmdResult> {
   const pass = (r: CmdResult): CmdResult => ({ ok: r.ok, text: truncate(r.text) })
   try {
     switch (name) {
@@ -175,6 +175,9 @@ export async function handleCommand(name: string, arg: string, d: BotDeps): Prom
       case 'task': return pass(await doTask(d, arg))
       case 'ask': return pass(await doAsk(d, arg))
       case 'goal': return pass(await doGoal(d, arg))
+      case 'steer': return pass(await doSteer(d, arg, meta?.issuer))
+      case 'enqueue': return pass(await doEnqueue(d, arg, meta?.issuer))
+      case 'controls': return pass(await doControls(d))
       default: return { ok: false, text: '未知指令' }
     }
   } catch {

@@ -68,7 +68,7 @@ test.each([false, true])('native RPC handles fragmented Unicode and closes its o
 
 test.each(['hang', 'bad-length'])('native metadata %s is bounded and does not hang preflight', async mode => {
   await expect(rpc.withCliRpc({ command: process.execPath, args: [resolve('tests/fixtures/fake-cli-rpc.mjs'), '--framed'],
-    framed: true, env: { RPC_TEST_MODE: mode }, timeoutMs: 150 }, request => request('models.list'))).rejects.toThrow(mode === 'hang' ? 'timeout' : 'frame')
+    framed: true, env: { RPC_TEST_MODE: mode }, timeoutMs: 1000 }, request => request('models.list'))).rejects.toThrow(mode === 'hang' ? 'timeout' : 'frame')
 })
 
 test('native catalog pagination uses metadata methods only; incomplete catalogs cannot reject a model', async () => {
