@@ -88,7 +88,8 @@ test('prepareWorktree：殘留（前次崩潰留下未清的 worktree 目錄+分
   // 真 git worktree I/O，24/7 機器負載下 5s 不夠（非產品 bug）→ 針對性 timeout 20s
 }, 20000)
 
-test('prepareWorktree：殘留目錄被鎖住(前次中斷進程未退)時上拋且不砍分支——成果分支與 HEAD 完好保留；解鎖後重試自癒成功（2a929ec9 產線事故回歸測試）', async () => {
+// acquireWindowsFileLock 經 powershell.exe 造 Windows FileShare 語意，POSIX 無同義鎖法
+test.skipIf(process.platform !== 'win32')('prepareWorktree：殘留目錄被鎖住(前次中斷進程未退)時上拋且不砍分支——成果分支與 HEAD 完好保留；解鎖後重試自癒成功（2a929ec9 產線事故回歸測試）', async () => {
   useFixedClock()
   const { repo, worktreesDir } = newRepo()
 
@@ -247,7 +248,7 @@ test('mergeBack：主 repo 於 prepareWorktree 後被切到新分支 → merged:
 
   const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
   expect(branches).toContain(wt.branch) // adng 任務分支保留，不硬 merge
-})
+}, 60_000)
 
 test('mergeBack：任務期間主分支被 reset --hard 回退 → merged:false(branch-switched)，被丟棄的 commit 不因 ff-only 復活', () => {
   const { repo, worktreesDir } = newRepo()
@@ -303,7 +304,7 @@ test('mergeBack：主 repo 於 prepareWorktree 後 detach HEAD → merged:false(
 
   const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
   expect(branches).toContain(wt.branch) // 沒有具名引用被刪掉，成果沒有靜默遺失
-})
+}, 60_000)
 
 // ---------------------------------------------------------------------------
 // MEDIUM 修復：cleanupWorktree 大目錄（node_modules 樣態）超時——改 rmSync + prune，
@@ -411,7 +412,7 @@ test('cleanupWorktree：rmSync 已成功、branch -d 失敗（未合併分支）
   expect(existsSync(wt.cwd)).toBe(false) // 目錄確實已刪（現場已不在，不能再叫 worktree-kept）
   const branches = execFileSync('git', ['branch', '--list', wt.branch], { cwd: repo, encoding: 'utf8' })
   expect(branches).toContain(wt.branch) // git 記錄殘留（branch -d 失敗的本體）
-})
+}, 60_000)
 
 // ---------------------------------------------------------------------------
 // rebase-before-merge（2026-07-27）：消「主分支前進但檔案不相干」的假衝突

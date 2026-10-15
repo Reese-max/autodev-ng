@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { reapDaemonTree } from '../../src/supervisor/supervise.js'
 
 // 2026-08-03 迴歸防護：taskkill /T /F 對卡死樹「存取被拒」時，舊版讓錯誤外拋
@@ -30,7 +30,7 @@ describe('reapDaemonTree', () => {
     })
   })
 
-  it('taskkill 拋錯且目標存活：後備樹斬把進程殺掉', { timeout: 15_000 }, () => {
+  it('taskkill 拋錯且目標存活：後備樹斬把進程殺掉', { timeout: 15_000 }, async () => {
     const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { windowsHide: true })
     const pid = child.pid!
     const runCommand = (command: string): string => {
@@ -39,14 +39,16 @@ describe('reapDaemonTree', () => {
       return JSON.stringify([{ ProcessId: pid, Name: 'node.exe' }])
     }
     expect(() => reapDaemonTree(pid, runCommand)).not.toThrow()
-    // 驗證真的死了
-    let alive = true
-    try {
-      process.kill(pid, 0)
-    } catch {
-      alive = false
-    }
-    expect(alive).toBe(false)
+    // POSIX：SIGKILL 後子進程先成 zombie，待父行程非同步回收才 ESRCH——有界輪詢
+    await vi.waitFor(() => {
+      let alive = true
+      try {
+        process.kill(pid, 0)
+      } catch {
+        alive = false
+      }
+      expect(alive).toBe(false)
+    }, { timeout: 5_000 })
   })
 
   it('無效 PID 一律拒絕', () => {

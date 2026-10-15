@@ -10,18 +10,21 @@ export async function nudgeNoCommit(
   initial: RunResult,
   fallbackBaseCommit: string,
   getCommitHash: (cwd: string) => string | undefined = defaultCommitHash,
+  dispatch?: { beforeRun: () => Promise<boolean>; onDispatch: () => void },
 ): Promise<RunResult> {
   const baseCommitHash = initial.baseCommitHash ?? fallbackBaseCommit
   if (initial.recoveryRequired || initial.cancelled || job.control?.signal?.aborted || !initial.failureReason?.startsWith('no-commit') || getCommitHash(job.projectPath) !== baseCommitHash) return initial
 
+  if (dispatch && !await dispatch.beforeRun()) return initial
+  if (job.control?.signal?.aborted) return initial
   let nudged: RunResult
   try {
+    dispatch?.onDispatch()
     nudged = await engine.run({ ...job, directive: NO_COMMIT_NUDGE })
   } catch (err) {
     return {
       ...initial,
-      output: joinOutput(initial.output, `[nudge engine error] ${String(err)}`),
-      costUnknown: true,
+      ...combineRuns(initial, { ok: false, output: `[nudge engine error] ${String(err)}`, costUsd: 0, costUnknown: true }),
       actualModel: 'multiple/unknown',
       tokensIn: undefined,
       tokensOut: undefined,
@@ -40,17 +43,29 @@ export async function nudgeNoCommit(
   return { ...combined, ok: true, commitHash, baseCommitHash, failureReason: undefined }
 }
 
-function combineRuns(first: RunResult, second: RunResult): RunResult {
+/** 同 execution 多回合結果合併（nudge 與 Issue #11 queue follow-up 共用）：保留雙方輸出與成本系譜。 */
+export function combineRuns(first: RunResult, second: RunResult): RunResult {
+  const unknownTurnCostsUsd = [...unknownTurnCosts(first), ...unknownTurnCosts(second)]
   return {
     ...second,
     actualModel: first.actualModel === second.actualModel ? first.actualModel : 'multiple/unknown',
     output: joinOutput(first.output, second.output),
     costUsd: first.costUsd + second.costUsd,
     costUnknown: first.costUnknown || second.costUnknown || undefined,
+    unknownTurnCostsUsd: unknownTurnCostsUsd.length ? unknownTurnCostsUsd : undefined,
     tokensIn: add(first.tokensIn, second.tokensIn),
     tokensOut: add(first.tokensOut, second.tokensOut),
     tokensCached: add(first.tokensCached, second.tokensCached),
   }
+}
+
+/** Add each uncertain turn's missing estimate without replacing prior known spend. */
+export function costWithUnknownTurnEstimates(result: RunResult, estimateUsd: number): number {
+  return result.costUsd + unknownTurnCosts(result).reduce((extra, lowerBound) => extra + Math.max(0, estimateUsd - lowerBound), 0)
+}
+
+function unknownTurnCosts(result: RunResult): number[] {
+  return result.unknownTurnCostsUsd ?? (result.costUnknown ? [result.costUsd] : [])
 }
 
 function joinOutput(first: string, second: string): string { return [first, second].filter(Boolean).join('\n') }
