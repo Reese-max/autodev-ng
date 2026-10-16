@@ -64,6 +64,23 @@ export function herdrExpectedPath(dir: string, requestId: string): string {
   return join(dir, `${requestId}.expected.json`)
 }
 
+export function herdrDispatchPath(dir: string, executionId: string): string {
+  return join(dir, 'dispatch', `${createHash('sha256').update(executionId).digest('hex')}.json`)
+}
+
+/** One durable intent per raw execution, independent of task/base/launcher changes.
+ * Never reclaimed automatically: an empty/partial file after a crash also fences dispatch. */
+export function reserveHerdrDispatch(dir: string, expected: HerdrExpectedBinding): boolean {
+  mkdirSync(join(dir, 'dispatch'), { recursive: true })
+  try {
+    writeFileSync(herdrDispatchPath(dir, expected.executionId), `${JSON.stringify(expected)}\n`, { flag: 'wx', mode: 0o600 })
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
+    throw error
+  }
+}
+
 /** 送件前原子保存預期綁定（tmp+rename，沿用 evidence-chain 寫法）。 */
 export function writeHerdrExpected(dir: string, expected: HerdrExpectedBinding): string {
   mkdirSync(dir, { recursive: true })

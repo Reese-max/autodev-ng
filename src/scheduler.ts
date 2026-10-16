@@ -1,6 +1,6 @@
 import { blockTask, pickReadyTask, recentAttemptedEngineTags, subscriptionTags } from './engines/pick-ready-task.js'
 export { pickReadyTask, subscriptionTags, zeroCostTags } from './engines/pick-ready-task.js'
-import { attemptAccounting } from './engines/attempt-accounting.js'
+import { attemptAccounting, runResultAccounting } from './engines/attempt-accounting.js'
 import { alternativeRetryDue, alternativeRetryUsed, startAlternativeRetry, taskAttemptLimit } from './engines/alternative-retry.js'
 import { existsSync, writeFileSync } from 'node:fs'
 import type { BacklogStore } from './backlog.js'
@@ -10,7 +10,7 @@ import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetryReason, retriedBlockedReason, worktreeFailureReason, type InfrastructureRetryReason, type InfraRetryState } from './engines/infra-retry.js'
 import { enqueueMerge, enqueueTeamMerge } from './engines/merge-queue.js'
-import { combineRuns, costWithUnknownTurnEstimates, nudgeNoCommit } from './engines/no-commit-nudge.js'
+import { combineRuns, nudgeNoCommit } from './engines/no-commit-nudge.js'
 import { createControls, additionalTurnHooks, deliverQueuedControls } from './engines/queued-controls.js'
 import { ENGINE_CAPABILITIES, type Adapter } from './engines/capabilities.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
@@ -32,7 +32,7 @@ import { trackedDirtyFiles } from './engines/main-admission.js'
 import { observeLearning } from './learn/outcomes.js'
 import { createExecutionObservation, ExecutionInventoryCapacityError, readExecutions, type ExecutionInventory } from './engines/execution-observation.js'
 import { InventoryLockBusyError } from './engines/inventory-lock.js'
-import type { RunControl } from './engines/run-control.js'
+import { observeRun, type RunControl } from './engines/run-control.js'
 import { assertPendingCandidate, readPendingReview, savePendingReview, closePendingReview, type PendingReview } from './engines/pending-review.js'
 
 /** M7：教訓注入/反思 port（Task 2 makeLessonsPort 的輸出型別）。inject() 供 scheduler
@@ -261,10 +261,17 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   let res: RunResult
   const controlCost = { dispatchedTurns: 1 }
   const job: Job = { task, projectPath: wt.cwd, directive, executionId, writerIdentity: engineTag, control: deps.runControl }
-  const quarantineRun = (reason?: string): CycleResult => {
+  const recordResult = (result: RunResult) => {
+    const accounting = runResultAccounting(result, cfg.engines[engineTag] ?? {}, fixedCost, cfg.failureCostEstimateUsd, controlCost.dispatchedTurns)
+    if (!pending) db.record({ ...accounting.attempt, taskId: task.id, engine: engineTag, durationMs: Date.now() - runStartMs })
+    return accounting
+  }
+  const quarantineRun = (reason?: string, result?: RunResult): CycleResult => {
     recoveryRequired = true
     if (!observation) try { observation = createExecutionObservation({ dataDir: cfg.dataDir, job, adapter: cfg.engines[engineTag]?.adapter ?? engineTag }) } catch { /* Team/backlog fences remain. */ }
     if (teamClaim) try { deps.team?.quarantine(executionId, teamClaim.token) } catch { /* Expired claims also remain quarantined. */ }
+    if (result?.backendRecovery) observeRun(observation?.control, { type: 'backend-recovery', recovery: result.backendRecovery })
+    if (result) recordResult({ ...result, ok: false, failureReason: reason ?? 'backend stop unconfirmed' })
     quiet(() => events.append('execution-unconfirmed', { executionId, taskId: task.id, worktreePath: wt.cwd, reason }))
     return blockTask({ store, events }, task, 'team-state-quarantined', `執行 ${executionId} 的後端停止尚未確認；保留工作區與寫入權：${reason ?? 'unknown'}`)
   }
@@ -299,7 +306,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
       deps.onWorkerStart?.(task.id)
       res = await engine!.run(job)
     } catch (err) {
-      if (observation?.snapshot().worker) return quarantineRun('worker transport failed before a verified terminal result')
+      if (observation?.snapshot().worker) return quarantineRun('worker transport failed before a verified terminal result', { ok: false, output: '', costUsd: 0, costUnknown: true })
       if (isExternalEngineTermination(err)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${String(err)}`) }
       // M5 Task 1：固定成本引擎連拋例外都入帳 costPerRunUsd（進程極可能已實際起跑燒錢）。
       db.record({ taskId: task.id, ok: false, costUsd: fixedCost ?? 0, detail: String(err), engine: engineTag, accounting: attemptAccounting({ ok: false, output: '', costUsd: 0, costUnknown: true }, cfg.engines?.[engineTag] ?? {}), durationMs: Date.now() - runStartMs, failureClass: 'supply' })
@@ -310,10 +317,10 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     }
 
   }
-  if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
+  if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason, res)
   if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`) }
   if (!pending) res = await nudgeNoCommit(engine!, job, res, wt.baseHead, undefined, additionalTurnHooks(deps, engine!, job, () => res, () => observation?.recoveryRequired === true, engineTag, fixedCost, controlCost))
-  if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
+  if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason, res)
   // Issue #11：QUEUE 信封在回合邊界送達——同一 executionId 的有界 follow-up turn。
   // 僅首回合成功時接續；verify/merge critical section 在其後，控制訊息絕不注入該段。
   if (!pending && res.ok) {
@@ -321,20 +328,10 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     catch (err) {
       res = combineRuns(res, { ok: false, output: `[control-turn error] ${String(err)}`, costUsd: 0, costUnknown: true, failureReason: `control-turn：${String(err)}` })
     }
-    if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
-    if (!res.ok && observation?.snapshot().worker && observation.snapshot().phase === 'running') return quarantineRun('queued worker transport failed before a verified terminal result')
+    if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason, res)
+    if (!res.ok && observation?.snapshot().worker && observation.snapshot().phase === 'running') return quarantineRun('queued worker transport failed before a verified terminal result', res)
   }
-  // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默。失敗成本估計（M4 Task 3）：costUnknown===true
-  // （timeout/exit≠0/輸出不可解析）改記 cfg.failureCostEstimateUsd，detail 帶 cost-estimated 標記；
-  // 引擎解析出真值（含 is_error、真值恰好 0）照記真值。M5 Task 1：fixedCost 有設（非真值引擎）
-  // → 成功失敗一律入帳固定估計值，估計語意只留給真值引擎（claude）。
-  const costEstimated = fixedCost === undefined && res.costUnknown === true
-  const recordedCostUsd = fixedCost === undefined ? (costEstimated ? costWithUnknownTurnEstimates(res, cfg.failureCostEstimateUsd) : res.costUsd) : fixedCost * controlCost.dispatchedTurns
-  const baseDetail = res.failureReason ?? res.commitHash ?? ''
-  const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
-  const failureClass = res.failureReason?.startsWith('no-commit') ? 'task' as const : 'supply' as const
-  if (!pending) db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag, accounting: attemptAccounting(res, cfg.engines?.[engineTag] ?? {}, costEstimated), durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached, ...(!res.ok ? { failureClass } : {}) })
-  const quotaUsage = { costUsd: recordedCostUsd, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached }
+  const { recordedCostUsd, failureClass, quotaUsage } = recordResult(res)
   if (!res.ok) engine?.invalidatePreflight?.() // timeout/exit≠0/no-commit：引擎健康存疑，下輪重探（verify 拒收不算）
 
   const validationAccounting = { ...attemptAccounting({ ok: false, output: '', costUsd: 0, costUnknown: true }, {}), stage: 'validation' as const }

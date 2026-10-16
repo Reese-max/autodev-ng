@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { writeJsonAtomic } from '../guardian/incident.js'
 import type { Job } from '../types.js'
 import { InventoryLockBusyError, withInventoryLock } from './inventory-lock.js'
-import { observeRun, type RunControl, type RunEvent } from './run-control.js'
+import { BackendRecoverySchema, observeRun, type RunControl, type RunEvent } from './run-control.js'
 
 export const OBSERVATION_INTERVAL_MS = 60_000
 export const UNKNOWN_SAMPLES_BEFORE_DIAGNOSIS = 5
@@ -26,6 +26,7 @@ const SnapshotSchema = z.object({
   outputBytes: z.number().nonnegative(), unknownSamples: z.number().int().nonnegative(), degraded: z.boolean(),
   cancelRequested: z.boolean(), exit: z.object({ code: z.number().nullable(), reason: z.enum(['exit', 'wall', 'idle', 'cancelled']) }).optional(),
   outcome: z.enum(['completed', 'failed', 'unconfirmed']).optional(),
+  backendRecovery: BackendRecoverySchema.optional(),
 })
 export type ExecutionSnapshot = z.infer<typeof SnapshotSchema>
 export type ExecutionInventory = { records: ExecutionSnapshot[]; errors: string[]; protected: boolean; diagnosisDue: boolean; capacityExceeded: boolean; updateInProgress?: boolean }
@@ -474,6 +475,7 @@ export function createExecutionObservation(args: { dataDir: string; job: Job; ad
     if (event.type === 'output') output(event.stream, event.text)
     if (event.type === 'cancel-requested') { state.cancelRequested = true; state.phase = 'unknown' }
     if (event.type === 'exit') { state.exit = { code: event.code, reason: event.reason }; state.phase = event.reason === 'exit' ? 'validating' : 'unknown' }
+    if (event.type === 'backend-recovery') state.backendRecovery = BackendRecoverySchema.parse(event.recovery)
     if (event.type !== 'output' || structuredSequence !== previousStructuredSequence || Date.now() - lastPersistedAt >= 1000) persist()
     observeRun(parent, event)
   }

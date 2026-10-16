@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { RunControl } from './engines/run-control.js'
+import type { BackendRecovery, RunControl } from './engines/run-control.js'
 import { RoutePolicySchema } from './engines/model-route-policy.js'
 
 export type TaskRisk = 'low' | 'medium' | 'high'
@@ -61,6 +61,7 @@ export interface RunResult {
   cancelled?: boolean
   /** Do not nudge, retry, merge, release ownership or clean up while work may still exist. */
   recoveryRequired?: boolean
+  backendRecovery?: BackendRecovery
   baseCommitHash?: string
   /** M4 Task 3（真花錢前必修）：true 表示 costUsd 是「引擎沒能力回報真值」時的佔位 0
    * （timeout / exit≠0 / 輸出不可解析——CLI 進程極可能已實際呼叫並燒錢，只是沒能力回報
