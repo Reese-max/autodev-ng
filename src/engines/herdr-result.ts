@@ -105,10 +105,14 @@ export function parseHerdrResult(raw: string): HerdrResultCheck {
 /** 讀回結果檔並逐欄位綁定本次 request；reason 只帶欄位名，不回洩檔案內容。
  * 同一 fd 上 fstat＋限量 read：檔案被換／長大也無法繞過大小上限。 */
 export function checkHerdrResultFile(path: string, expected: HerdrExpectedBinding): HerdrResultCheck {
-  return captureHerdrResultFile(path, expected).check
+  try {
+    return captureHerdrResultFile(path, expected, true).check
+  } catch {
+    return bad('invalid', '結果檔無法安全讀取')
+  }
 }
 
-/** Default preserves the existing run/check contract; inspection additionally rejects link paths.
+/** Dispatch and inspection require regular paths, rejecting links before following them.
  * No second read is used to compute result evidence. */
 export function captureHerdrResultFile(path: string, expected: HerdrExpectedBinding, requireRegularPath = false): HerdrResultCapture {
   if (requireRegularPath) {

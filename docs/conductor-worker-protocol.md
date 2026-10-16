@@ -117,7 +117,7 @@ final_report_required: true
   `Job.directive = buildWorkerDirective(...)`（含 `WORKER_GUARDS` + 完整契約 + 上輪回饋），
   `Job.control.signal` 是宿主 timeout controller 的 signal。
   現有 adapter 沒有提供上述可信 `cancelWorker` 接線時，timeout 會保留 quarantine，不能假裝安全重試。
-- Herdr 路徑同介面：Herdr engine adapter 內部已含 `-MaxRounds 1`、禁自行 commit、`AUTOPILOT_WAIT_OK` 等護欄。
+- Herdr 路徑同介面：Herdr engine adapter 內部已含 `-MaxRounds 1`、禁自行 commit 與 v1 結果契約核對；一般 stdout 的 `AUTOPILOT_WAIT_OK` 不算完成回執。
 - 事件接線：可選 `deps.events`（如 `FileEventLog`）記 `conductor-verification`/`conductor-task-finished`。
 - 驗證執行重用 `src/engines/run-verify.ts` 的 `runVerify`（指令探測/exit code/逾時語意一致）。
 
