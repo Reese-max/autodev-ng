@@ -13,6 +13,45 @@
 範例的 `codex-sol` 對應目前版本的 sourceConfig；實際引擎、模型登入與成本政策須依使用環境設定。
 Freebuff 可由本機設定明確選用，見 [Freebuff 使用方式](freebuff.md)；Herdr、mock 及無 wall timeout 的引擎仍不可用於此入口。
 
+### Herdr admission（#35：相依阻擋，未啟用）
+
+一般 Issue 與通報 repair 目前都拒絕 Herdr。runtime 與 `github doctor --live`
+會指出 #33 backend 對帳、#34 backend readiness 及另行授權的 Windows canary 尚未通過，
+不執行 Herdr preflight、Agent 或發布。選擇 `engine`、Issue 文字聲稱已批准、
+launcher 的 running／compatible 或可建立 adapter，都不能解除此封鎖。
+
+#32 的結果契約 v1 已綁定 request／execution／repo／task／base／session，
+但 `inspect-herdr` 的 `correlated-v1-done` 仍明示 `trustedTerminal:false`，
+server／pane occupant 與 deadline／expiry 也仍未驗證。通用 execution quarantine
+會保留不明執行；Issue state reconciliation 不能當作 backend 已停止的證據。
+因此這次只補齊安全拒絕的診斷與離線回歸，沒有新增可啟用的 opt-in 欄位或可信能力宣告。
+
+| #35 驗收 | 此版本狀態 |
+|---|---|
+| 預設、缺少能力證據時拒絕 Herdr | 保留；一般／repair 的 runtime 與 live doctor 均有離線測試 |
+| 可信 config opt-in，限一般已授權 bugfix-only、單機／單 Worker、指定 backend | 未實作；等 #33／#34 的可信契約，不能用 Issue 或自行宣告的 JSON 補證 |
+| 真實 Agent 修改 → 宿主提交 → 原版紅／候選綠 → review → draft PR，精確綁定全程回執 | 未驗證；不啟動 Agent、不 push、不建立 PR |
+| 錯誤回執、權限／worktree／回歸／review／費用失敗時不發布 | 既有檢查保留；Herdr 尚未進入此流程，不能宣稱整體通過 |
+| 斷線、逾時、重啟、重複事件的 backend 對帳與單一 writer／PR | #33 阻擋；現有 quarantine 只保守封鎖，不自動恢復 backend |
+| 一般與 repair 分別列明、離線與 Windows canary 分開 | Herdr 一般入口仍停用；Herdr report repair 明確不支援；canary 未執行 |
+
+解除封鎖前須整合並核對 #32–#34 的相容版本／能力、#13 CI 修復，
+再另行授權 Windows 真實 canary。該證據需綁 exact repo、Issue snapshot、execution
+與 candidate commit，並涵蓋失敗、重啟、重複事件及費用政策；離線測試不能代替。
+
+離線拒絕契約：`npm test -- tests/github-herdr-admission.test.ts`。
+
+本次本機驗證（基線 `57762c1c131930668eaa7e9f3549f817fa933e73`）：
+
+- TDD：實作前新測試 4 failed（exit 1），候選 7 passed（exit 0）。
+- 全套：基線 2763 passed／1 failed；候選 coverage 全套 2770 passed／1 failed，兩者 exit 1。
+  唯一失敗均為 `tests/steering.test.ts:658` 的 10,000 筆控制紀錄案例；候選明確回報 30 秒逾時。未跳過、調高該測試逾時或修正其他 Issue。
+- `npm run build`、`npm run typecheck`（含秘密掃描）與 `npm run quality:crap` 均 exit 0；CRAP 10 個函式、最高 13。
+- 兩處 admission guard 的 scoped mutation：`npm exec -- stryker run --mutate src/github/job.ts:43-44,src/github/operations.ts:23-24 --testFiles tests/github-herdr-admission.test.ts --concurrency 2 --reporters clear-text,json`，exit 0，9 killed／23 compile errors，mutation score 100%（門檻 80%）。
+- 候選 coverage JSON 的 `src/` 彙總：lines 91.39%、statements 86.99%、functions 90.45%、branches 82.53%。專案未設定 coverage ratchet；這些數字不代表全套通過或真實 canary 驗收。
+
+### 入口授權
+
 `sourceConfig`、`dataDir` 與 projects 的路徑相對於 integration 設定檔。
 `enabled=true` 允許接單與執行，`publish=true` 允許推送修復分支與建立草稿 PR。
 
