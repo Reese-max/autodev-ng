@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "executionId": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+  "taskId": "b7efadc5",
+  "adapter": "codex",
+  "projectPath": "/tmp/adng-controls-runtime-FrETPv/native/worktrees/b7efadc5",
+  "hostPid": 91654,
+  "hostStartedAt": 1792162157652.1804,
+  "startedAt": 1792162179058,
+  "observedAt": 1792162257138,
+  "sequence": 44,
+  "phase": "terminal",
+  "outputBytes": 4840,
+  "unknownSamples": 0,
+  "degraded": false,
+  "cancelRequested": false,
+  "inFlightSteer": false,
+  "worker": {
+    "pid": 93282,
+    "startedAt": 1792162234314
+  },
+  "lastOutputAt": 1792162256483,
+  "lastActivityAt": 1792162256483,
+  "lastEvent": "turn.completed",
+  "sessionId": "01a14531-80f5-79e0-9d58-b38e0a0adc54",
+  "lastProgressAt": 1792162251719,
+  "exit": {
+    "code": 0,
+    "reason": "exit"
+  },
+  "outcome": "completed"
+}

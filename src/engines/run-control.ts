@@ -7,11 +7,14 @@ export type RunEvent =
   | { type: 'idle' }
   | { type: 'cancel-requested' }
   | { type: 'exit'; code: number | null; reason: 'exit' | 'wall' | 'idle' | 'cancelled' }
+  | { type: 'steer-ready'; supported: boolean }
 
-/** Issue #11：宿主→worker 的 in-flight 指示通道。adapter 只在自己認定的安全點呼叫 poll()；
- *  取到指示即算送達（STEERED）。未接線的 adapter 看不到此 port——不支援即 fail closed。 */
+/** Issue #11：宿主→worker 的 in-flight 指示通道。測試 adapter 於安全點 poll；
+ * 原生 transport claim 後依 engine acknowledgement 結案。不支援即 fail closed。 */
 export interface SteerPort {
   poll(): string | undefined
+  /** Native transports reserve once, then confirm the exact engine acknowledgement. */
+  claim?(): { id: string; instruction: string; settle(disposition: 'STEERED' | 'NOT_DELIVERED' | 'DELIVERY_UNKNOWN', detail: string): void } | undefined
 }
 
 export interface RunControl {

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFile
 import { join } from 'node:path'
 import type { Task, TaskRisk } from '../types.js'
 import { releaseEvidenceRequired } from './risk-policy.js'
+import { ControlStore } from './steering.js'
 
 export type GateStatus = 'pass' | 'fail' | 'blocked' | 'skip' | 'not-run' | 'not-applicable'
 export interface GateEvidence {
@@ -32,6 +33,7 @@ export interface EvidenceBundle {
   gates: { ci: GateEvidence; reviewer: GateEvidence; release: GateEvidence }
   verdict: 'ready' | 'blocked'
   recordedAt: string
+  controls?: ReturnType<ControlStore['lineage']>
 }
 
 export interface EvidenceReceipt { path: string; bundleHash: string; releaseBlocked?: string }
@@ -65,6 +67,7 @@ export class EvidenceStore {
   }): EvidenceReceipt {
     const release = releaseGate(args.task, args.verification.candidateCommit, args.releaseApprovalFile)
     const gates = { ci: args.verification.ci, reviewer: args.verification.reviewer, release }
+    const controls = new ControlStore(this.dataDir).lineage(args.executionId, args.task.id)
     const bundle: EvidenceBundle = {
       schemaVersion: 1,
       executionId: args.executionId,
@@ -73,6 +76,7 @@ export class EvidenceStore {
       risk: args.risk,
       candidateCommit: args.verification.candidateCommit,
       writer: { identity: args.writerIdentity },
+      ...(controls.length ? { controls } : {}),
       gates,
       verdict: [gates.ci, gates.reviewer, gates.release].some(g => ['fail', 'blocked', 'not-run'].includes(g.status)) ? 'blocked' : 'ready',
       recordedAt: new Date().toISOString(),

@@ -1,0 +1,117 @@
+{
+  "root": "/tmp/adng-controls-runtime-FrETPv",
+  "version": "codex-cli 0.153.4",
+  "checks": {
+    "native": {
+      "executionId": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+      "taskId": "b7efadc5",
+      "result": "STEER_OK\nQUEUE_ONE\nQUEUE_TWO\n",
+      "submitted": [
+        {
+          "ok": true,
+          "envelopeId": "9b3e549b-ccca-4050-9ccf-8485a4785698",
+          "disposition": "PENDING",
+          "detail": null,
+          "text": "已受理 STEER：待引擎於安全點接收（信封 9b3e549b → 執行 8671986a）；以 /controls 追蹤最終狀態"
+        },
+        {
+          "ok": true,
+          "envelopeId": "8723b47d-243c-4683-91fa-e1b835c08f11",
+          "disposition": "QUEUED",
+          "detail": null,
+          "text": "已排隊：將於執行 8671986a 的下一安全回合送出（信封 8723b47d）"
+        },
+        {
+          "ok": true,
+          "envelopeId": "1b1cffae-0ed5-4e78-836c-dbf299de12a5",
+          "disposition": "QUEUED",
+          "detail": null,
+          "text": "已排隊：將於執行 8671986a 的下一安全回合送出（信封 1b1cffae）"
+        }
+      ],
+      "late": {
+        "ok": true,
+        "envelopeId": "b1648b3a-9c53-41f8-b33b-89d2e42817ad",
+        "disposition": "TOO_LATE_QUEUED",
+        "detail": "STEER 抵達時回合已結束，轉入同一 execution 的 FIFO",
+        "text": "目標回合已結束：已改排入執行 8671986a 的下一安全回合（TOO_LATE_QUEUED，信封 b1648b3a）"
+      },
+      "replay": {
+        "ok": false,
+        "envelopeId": "260e749c-42d0-4113-9284-0b8fb10d8f1b",
+        "disposition": "REJECTED_STALE_TARGET",
+        "detail": null,
+        "text": "目標執行不存在、已終結或宿主已不在；已拒絕（fail closed，不投遞至其他執行）"
+      },
+      "commit": "68652069acb29bde95c412950e7c11ecf9e040c9",
+      "controls": [
+        {
+          "envelopeId": "9b3e549b-ccca-4050-9ccf-8485a4785698",
+          "instructionHash": "ce6eac876f14d9323bdf9eb1cb7c51075ce9277a08cf8706c6974f5c4896b98c",
+          "requestedMode": "STEER",
+          "disposition": "STEERED",
+          "requestReceiptHash": "9b95e3ff570adc49bd51b710860383eb4031d0290152623fa912e26ffd6d8235",
+          "deliveryReceiptHash": "d2c13da41100d57a3ea00fdf73f5900c494b471fd85055f2bee50353b6154388"
+        },
+        {
+          "envelopeId": "8723b47d-243c-4683-91fa-e1b835c08f11",
+          "instructionHash": "a416e35a0291861e9e6dcfda3b67e2055442dbba4a3cee05a30acea5751dd752",
+          "requestedMode": "QUEUE",
+          "disposition": "DELIVERED",
+          "requestReceiptHash": "576a7b28ec733bedc56214b8315099b2b47a51af9e282ab4e398088cd12fe957",
+          "deliveryReceiptHash": "557296f081ddfe99e6cf74ed19ce0bb94342b82a53f5c64e3c78c40263759861"
+        },
+        {
+          "envelopeId": "1b1cffae-0ed5-4e78-836c-dbf299de12a5",
+          "instructionHash": "99d0885ee66986821037f47391b23f885a8f5919634cf5785625c2fa533e7190",
+          "requestedMode": "QUEUE",
+          "disposition": "DELIVERED",
+          "requestReceiptHash": "6c4b4dcc0e5f75afe000f1d8014b8407803aa503a06d2b86cc467d22e52660ed",
+          "deliveryReceiptHash": "b2a4a7332d858c0164470488602cf4da439ae3a2d0c6f432510e7f1f3c33ec01"
+        }
+      ],
+      "boundary": {
+        "toolId": "exec-d6d15c50-ccd0-43bf-a1a5-2d26059ef52c",
+        "startedAt": 1792162189461,
+        "completedAt": 1792162201344,
+        "submittedAt": 1792162190109,
+        "claimedAt": 1792162201357,
+        "acknowledgedAt": 1792162201373
+      }
+    },
+    "unsupported": {
+      "ok": false,
+      "envelopeId": "75d4a871-753f-450d-8951-a4579fa4c679",
+      "disposition": "UNSUPPORTED",
+      "detail": null,
+      "text": "引擎 codex 不支援 in-flight steer；請改用 /enqueue 排入下一回合"
+    },
+    "restart": {
+      "boundary": "native process closed; scheduler continuation held",
+      "before": {
+        "executionId": "08759120-35a2-436a-9dfe-0cdeb7cdc9b2",
+        "taskId": "c9a1761e",
+        "ok": true,
+        "transportClosed": true
+      },
+      "after": {
+        "executionId": "74ad036b-ee0c-4455-beb0-40bbde2ce68a",
+        "taskId": "a1fe7c8d",
+        "ok": true,
+        "transportClosed": true
+      },
+      "queued": {
+        "ok": true,
+        "envelopeId": "91f3aeeb-74b3-4fa4-811f-ee34d2c05857",
+        "disposition": "QUEUED",
+        "detail": "目標回合邊界已過；若無後續回合，信封將結案為 STALE",
+        "text": "已排隊：將於執行 08759120 的下一安全回合送出（信封 91f3aeeb）"
+      },
+      "disposition": "STALE",
+      "daemonExit": 0
+    }
+  },
+  "controls": [],
+  "status": "VERIFIED",
+  "credentialsRemoved": true
+}

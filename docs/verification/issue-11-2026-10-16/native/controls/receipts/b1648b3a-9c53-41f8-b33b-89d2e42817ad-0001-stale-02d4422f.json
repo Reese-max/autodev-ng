@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "envelopeId": "b1648b3a-9c53-41f8-b33b-89d2e42817ad",
+  "project": "config",
+  "executionId": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+  "taskId": "b7efadc5",
+  "requestedMode": "STEER",
+  "disposition": "STALE",
+  "issuer": "cli",
+  "channel": "cli",
+  "instructionHash": "ea6aa34fe7ca90a5988b72ae4e80a2d15dfb8939e6233fc73165eb4843c1ede5",
+  "commitId": "4fdd963d-0515-44f3-851c-42913ae1ace6",
+  "authority": "committed matching envelope with no unresolved transaction",
+  "occurredAt": "2026-10-16T14:50:57.133Z",
+  "detail": "execution 已結束；已派工但未確認的信封不得重送",
+  "bundleHash": "9c42a3bf7f93695d8b0ac5618e43b4c11679647ea3546b7bc43045cf27a851d0"
+}

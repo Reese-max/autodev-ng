@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "executionId": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+  "taskId": "b7efadc5",
+  "taskText": "Only edit result.txt and scratch.txt. On the first turn when result.txt is absent, create scratch.txt, wait 12 seconds and remove scratch.txt in ONE shell call; then write ORIGINAL_PLAN to result.txt. An operator may correct that plan. On later turns preserve the existing result and apply queued instructions in their given order.",
+  "risk": "low",
+  "candidateCommit": "68652069acb29bde95c412950e7c11ecf9e040c9",
+  "writer": {
+    "identity": "codex"
+  },
+  "controls": [
+    {
+      "envelopeId": "9b3e549b-ccca-4050-9ccf-8485a4785698",
+      "instructionHash": "ce6eac876f14d9323bdf9eb1cb7c51075ce9277a08cf8706c6974f5c4896b98c",
+      "requestedMode": "STEER",
+      "disposition": "STEERED",
+      "requestReceiptHash": "9b95e3ff570adc49bd51b710860383eb4031d0290152623fa912e26ffd6d8235",
+      "deliveryReceiptHash": "d2c13da41100d57a3ea00fdf73f5900c494b471fd85055f2bee50353b6154388"
+    },
+    {
+      "envelopeId": "8723b47d-243c-4683-91fa-e1b835c08f11",
+      "instructionHash": "a416e35a0291861e9e6dcfda3b67e2055442dbba4a3cee05a30acea5751dd752",
+      "requestedMode": "QUEUE",
+      "disposition": "DELIVERED",
+      "requestReceiptHash": "576a7b28ec733bedc56214b8315099b2b47a51af9e282ab4e398088cd12fe957",
+      "deliveryReceiptHash": "557296f081ddfe99e6cf74ed19ce0bb94342b82a53f5c64e3c78c40263759861"
+    },
+    {
+      "envelopeId": "1b1cffae-0ed5-4e78-836c-dbf299de12a5",
+      "instructionHash": "99d0885ee66986821037f47391b23f885a8f5919634cf5785625c2fa533e7190",
+      "requestedMode": "QUEUE",
+      "disposition": "DELIVERED",
+      "requestReceiptHash": "6c4b4dcc0e5f75afe000f1d8014b8407803aa503a06d2b86cc467d22e52660ed",
+      "deliveryReceiptHash": "b2a4a7332d858c0164470488602cf4da439ae3a2d0c6f432510e7f1f3c33ec01"
+    }
+  ],
+  "gates": {
+    "ci": {
+      "status": "pass",
+      "command": "node verify-runtime.mjs",
+      "executed": true,
+      "exitCode": 0,
+      "detail": "ok 48ms",
+      "steps": [
+        {
+          "step": 1,
+          "command": "node verify-runtime.mjs",
+          "executed": true,
+          "exitCode": 0
+        }
+      ]
+    },
+    "reviewer": {
+      "status": "not-applicable",
+      "detail": "low-risk task has no review evidence requirement"
+    },
+    "release": {
+      "status": "not-applicable",
+      "detail": "task has no release intent"
+    }
+  },
+  "verdict": "ready",
+  "recordedAt": "2026-10-16T14:50:56.736Z",
+  "bundleHash": "95e8425681520703f0a73370132f23644206a678d4f908d8cc056bc5090555fe"
+}

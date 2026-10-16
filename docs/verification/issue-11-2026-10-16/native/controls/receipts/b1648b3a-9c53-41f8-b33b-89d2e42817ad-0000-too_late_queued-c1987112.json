@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "envelopeId": "b1648b3a-9c53-41f8-b33b-89d2e42817ad",
+  "project": "config",
+  "executionId": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+  "taskId": "b7efadc5",
+  "requestedMode": "STEER",
+  "disposition": "TOO_LATE_QUEUED",
+  "issuer": "cli",
+  "channel": "cli",
+  "instructionHash": "ea6aa34fe7ca90a5988b72ae4e80a2d15dfb8939e6233fc73165eb4843c1ede5",
+  "commitId": "db75722d-cd2e-4148-80b5-cdeb712029b9",
+  "authority": "committed matching envelope with no unresolved transaction",
+  "occurredAt": "2026-10-16T14:50:57.070Z",
+  "detail": "STEER 抵達時回合已結束，轉入同一 execution 的 FIFO",
+  "bundleHash": "ea96104c1f47846e33f4c7541b10ff2c3033002f84c459cd709c1ab0516356b2"
+}

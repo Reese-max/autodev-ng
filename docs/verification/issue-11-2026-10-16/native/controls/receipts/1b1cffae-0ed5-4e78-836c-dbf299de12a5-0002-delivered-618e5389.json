@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "envelopeId": "1b1cffae-0ed5-4e78-836c-dbf299de12a5",
+  "project": "config",
+  "executionId": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+  "taskId": "b7efadc5",
+  "requestedMode": "QUEUE",
+  "disposition": "DELIVERED",
+  "issuer": "cli",
+  "channel": "cli",
+  "instructionHash": "99d0885ee66986821037f47391b23f885a8f5919634cf5785625c2fa533e7190",
+  "commitId": "fb190e38-550c-4aa7-bf9c-f94cbb6520a4",
+  "authority": "committed matching envelope with no unresolved transaction",
+  "occurredAt": "2026-10-16T14:50:56.637Z",
+  "detail": "於同一 execution 的 follow-up 回合送出",
+  "bundleHash": "b2a4a7332d858c0164470488602cf4da439ae3a2d0c6f432510e7f1f3c33ec01"
+}

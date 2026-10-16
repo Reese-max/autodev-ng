@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "executionId": "6ae30247-ddb7-4760-8598-339d4b1e0fc3",
+  "taskId": "bbc31fbf",
+  "taskText": "Only create result.txt with UNSUPPORTED_OK. First wait 8 seconds in a shell tool, then write the file.",
+  "risk": "low",
+  "candidateCommit": "7cd6424da75db5a85bb6cbe2d79fb5e2e9eb5f77",
+  "writer": {
+    "identity": "codex"
+  },
+  "gates": {
+    "ci": {
+      "status": "pass",
+      "command": "node verify-runtime.mjs",
+      "executed": true,
+      "exitCode": 0,
+      "detail": "ok 31ms",
+      "steps": [
+        {
+          "step": 1,
+          "command": "node verify-runtime.mjs",
+          "executed": true,
+          "exitCode": 0
+        }
+      ]
+    },
+    "reviewer": {
+      "status": "not-applicable",
+      "detail": "low-risk task has no review evidence requirement"
+    },
+    "release": {
+      "status": "not-applicable",
+      "detail": "task has no release intent"
+    }
+  },
+  "verdict": "ready",
+  "recordedAt": "2026-10-16T14:51:49.195Z",
+  "bundleHash": "074d03e2d92d2fce2036a6d936882d05c03ee6bd765c1cb1780c24d368154150"
+}

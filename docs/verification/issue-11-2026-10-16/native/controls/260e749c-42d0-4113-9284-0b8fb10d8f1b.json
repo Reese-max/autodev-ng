@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "260e749c-42d0-4113-9284-0b8fb10d8f1b",
+  "project": "config",
+  "taskId": "",
+  "executionId": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+  "requestedMode": "STEER",
+  "mode": "STEER",
+  "instruction": "replay after completion",
+  "instructionHash": "f8c0ed59039e71e9c64e7bc20e037b5163021d4d8feb160a57dd2bd1dc199794",
+  "issuer": "cli",
+  "channel": "cli",
+  "seq": 5,
+  "createdAt": 1792162257393,
+  "expiresAt": 1792164057393,
+  "state": "resolved",
+  "disposition": "REJECTED_STALE_TARGET",
+  "resolvedAt": 1792162257397,
+  "commitId": "7e074437-0fba-4fda-917e-9bdee81a2d59"
+}

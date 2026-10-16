@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "75d4a871-753f-450d-8951-a4579fa4c679",
+  "project": "config",
+  "taskId": "bbc31fbf",
+  "executionId": "6ae30247-ddb7-4760-8598-339d4b1e0fc3",
+  "requestedMode": "STEER",
+  "mode": "STEER",
+  "instruction": "must explicitly reject unsupported native steering",
+  "instructionHash": "97746b4e302cfda3bd4f3b6c31a4fcb9f5a352734b95703a0be944dbbe4c24e1",
+  "issuer": "cli",
+  "channel": "cli",
+  "seq": 1,
+  "createdAt": 1792162289928,
+  "expiresAt": 1792164089928,
+  "state": "resolved",
+  "disposition": "UNSUPPORTED",
+  "adapter": "codex",
+  "resolvedAt": 1792162289932,
+  "commitId": "ff3fa657-3449-4a24-9219-6b97e3ad941a"
+}
