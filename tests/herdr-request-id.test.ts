@@ -67,10 +67,10 @@ test('ordinary scheduler UUID retains the existing request format', async () => 
 test('long execution request encoding stays deterministic and filename-safe', async () => {
   const f = fixture(), executionId = runId + '-esc-3'
   for (let i = 0; i < 2; i++) await f.engine.run({ task, projectPath: f.dir, executionId })
-  expect(f.calls[0]!.request).toBe(f.calls[1]!.request)
+  expect(f.calls).toHaveLength(1)
   expect(f.calls[0]!.request).toMatch(/^[A-Za-z0-9._-]+$/)
   expect(f.calls[0]!.request.length).toBeLessThan(100)
-  // This checks ID stability, not read-only recheck / launch deduplication.
+  // The persisted raw execution binding now also prevents duplicate dispatch.
 })
 
 test('filename encoding does not weaken exact raw execution receipt rejection', async () => {

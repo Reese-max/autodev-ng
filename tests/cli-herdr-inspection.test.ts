@@ -72,6 +72,20 @@ test('public CLI failed-v1 exit0 is explicitly correlation only', async () => {
   expect(await inspect(f.config, f.id)).toMatchObject({ exitCode: 0, observation: { status: 'correlated-v1-failed', hostCommitted: false, trustedTerminal: false } })
 })
 
+test('public recovery CLI is read-only, never dispatches and exits2 even with a correlated completion', async () => {
+  const f = fixture(), before = inventory(f.root), stdout: string[] = []
+  const log = vi.spyOn(console, 'log').mockImplementation(value => { stdout.push(String(value)) })
+  const run = vi.spyOn(HerdrEngine.prototype, 'run').mockRejectedValue(new Error('unexpected dispatch'))
+  try {
+    await runCli(['execution', 'reconcile-herdr', '--config', f.config, '--id', f.id, '--request-id', f.requestId], 'cli.js')
+    expect(process.exitCode).toBe(2)
+    expect(JSON.parse(stdout[0]!)).toMatchObject({ trustedTerminal: false, recovery: {
+      state: 'validation-required', nextAction: 'verify-existing-result', backendStopConfirmed: false, redispatchAllowed: false,
+    } })
+    expect(inventory(f.root)).toEqual(before); expect(run).not.toHaveBeenCalled()
+  } finally { log.mockRestore() }
+})
+
 test('public CLI missing or mismatched result exits2 and never rewrites/retries', async () => {
   const f = fixture(); rmSync(f.resultFile)
   let before = inventory(f.root)

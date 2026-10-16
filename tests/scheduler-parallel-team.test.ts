@@ -85,6 +85,8 @@ async function runUncertainStop(afterNudge: boolean): Promise<void> {
     expect(await runOnce(f.deps)).toMatchObject({ kind: 'blocked', reason: 'team-state-quarantined' })
     expect(calls).toBe(afterNudge ? 2 : 1)
     expect(f.db.taskFailCount(task.id)).toBe(0)
+    expect(f.db.accountingForDay(new Date().toISOString().slice(0, 10))).toMatchObject({ attempts: 1 })
+    expect(f.db.accountingForDay(new Date().toISOString().slice(0, 10)).estimatedUsd).toBeGreaterThan(0)
     expect(readFileSync(join(cwd, 'checkpoint.txt'), 'utf8')).toBe('keep me')
     expect(f.team.snapshot().claims).toMatchObject([{ state: 'QUARANTINED' }])
     expect(f.team.claim({ executionId: 'another', task: { ...task, id: 'other-task' }, workerId: 'mock', reservedCostUsd: 0, spentUsd: 0, dailyHardUsd: 0, leaseMs: 1000 })).toMatchObject({ ok: false, reason: 'ownership-conflict' })

@@ -1,4 +1,14 @@
 import type { RunResult } from '../types.js'
+import { z } from 'zod'
+
+export const BackendRecoverySchema = z.object({
+  state: z.enum(['observing', 'waiting-human', 'validation-required', 'unknown']),
+  reason: z.enum(['completion-correlated', 'human-input-observed', 'activity-unverified', 'backend-identity-unverified', 'cancellation-unverified', 'dispatch-identity-unverified', 'partial-result-unverified']),
+  nextAction: z.enum(['observe-same-request', 'human-response-required', 'verify-existing-result', 'manual-recovery', 'preserve-partial-and-review']),
+  requestId: z.string().max(200).optional(),
+  backendStopConfirmed: z.literal(false), redispatchAllowed: z.literal(false),
+})
+export type BackendRecovery = z.infer<typeof BackendRecoverySchema>
 
 /** Worker observations are evidence, never instructions or proof of task completion. */
 export type RunEvent =
@@ -7,6 +17,7 @@ export type RunEvent =
   | { type: 'idle' }
   | { type: 'cancel-requested' }
   | { type: 'exit'; code: number | null; reason: 'exit' | 'wall' | 'idle' | 'cancelled' }
+  | { type: 'backend-recovery'; recovery: BackendRecovery }
 
 /** Issue #11：宿主→worker 的 in-flight 指示通道。adapter 只在自己認定的安全點呼叫 poll()；
  *  取到指示即算送達（STEERED）。未接線的 adapter 看不到此 port——不支援即 fail closed。 */

@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3'
 import type { RunResult } from '../types.js'
+import { costWithUnknownTurnEstimates } from './no-commit-nudge.js'
 
 export interface AccountingSnapshot {
   version: 1
@@ -35,6 +36,20 @@ export function attemptAccounting(result: RunResult, config: { model?: string; s
       modelBasis: model ? 'reported' : 'requested', input: rate[0], output: rate[1], cached: rate[2],
     } : null,
   }
+}
+
+/** Shared by normal completion and quarantine: preserve every dispatched turn's cost.
+ * Unknown provider spend uses the existing per-turn estimate; configured-cost engines
+ * retain their fixed estimate on both success and failure. */
+export function runResultAccounting(result: RunResult, config: Parameters<typeof attemptAccounting>[1], fixedCost: number | undefined, failureEstimateUsd: number, dispatchedTurns: number) {
+  const estimated = fixedCost === undefined && result.costUnknown === true
+  const recordedCostUsd = fixedCost === undefined ? (estimated ? costWithUnknownTurnEstimates(result, failureEstimateUsd) : result.costUsd) : fixedCost * dispatchedTurns
+  const detail = result.failureReason ?? result.commitHash ?? ''
+  const failureClass = result.failureReason?.startsWith('no-commit') ? 'task' as const : 'supply' as const
+  const quotaUsage = { costUsd: recordedCostUsd, tokensIn: result.tokensIn, tokensOut: result.tokensOut, tokensCached: result.tokensCached }
+  return { recordedCostUsd, failureClass, quotaUsage, attempt: { ...quotaUsage, ok: result.ok,
+    detail: estimated ? `${detail} [cost-estimated]` : detail, accounting: attemptAccounting(result, config, estimated),
+    ...(!result.ok ? { failureClass } : {}) } }
 }
 
 export function migrateAccounting(db: Database.Database): void {

@@ -206,7 +206,18 @@ Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.her
 唯讀重查既有工作：`adng execution inspect-herdr --config <path> --id <executionId> [--request-id <requestId>]`。
 此入口只讀取既有 host execution snapshot、唯一匹配的 host expected record 與有界 v1 result；不派工、不清除或重寫回執、不建立 inventory lock、不遷移／封存／取消、不提交或驗收成果。`--request-id` 只是核對 selector，不能指定任意 expected/result 檔案或自稱 repo／base／session 身分。沒有 snapshot 的 bounded 工作會回 `untracked`，多個候選或查核期間 snapshot／expected selection 改變則拒絕採信。`execution get/list` 保留既有 inventory 行為，並非這個嚴格零寫入入口。
 `correlated-v1-done`／`correlated-v1-failed` 的 exit0 **只代表讀到關聯相符的觀察**（包含失敗終態），不是任務成功或交付；其他狀態 exit2。每次輸出都明示 `trustedTerminal:false`、`trustedServerPaneOccupant:"UNVERIFIED"`、`deadlineOrExpiry:"UNVERIFIED"`、`deliveryVerified:false`。result digest 取自 strict checker 實際解析的同一份 bytes，屬單次時間點證據；之後的矛盾回執不會因此得到可信終態保證。舊 `issuedAt` 不被臆測成過期。真實 launcher 版本／server 與 pane occupant／明確 deadline 契約和另外授權的 Windows canary 仍待驗證。
-正常 `Engine.run` 仍是明確 START；既有 eligible no-commit nudge 保留最多一次 CONTINUE。需要重查時用上述 inspection 入口，不把重跑 `run()` 當成狀態查詢。
+
+恢復決策（issue #33）：`adng execution reconcile-herdr --config <path> --id <executionId> [--request-id <requestId>]` 沿用上述唯讀關聯查核，回傳 `recovery.state`、`reason` 與 `nextAction`；仍需人工核對，固定 exit2，不送 prompt、提交、清鎖或更動 PR。每個 execution 派工前以 exclusive create 保存 `dataDir/herdr/dispatch/<sha256(executionId)>.json`；重入、控制端重啟或 HEAD 改變都不能再派同一 execution，也不會刪掉原 expected／result。timeout、非零 exit、取消與 transport 例外維持 `recoveryRequired`；原 attempt／成本寫入既有 RunDb，team claim、worktree、Issue blocked 狀態及原始驗收保留。waiting-human 理由保存於 execution receipt，沿用 Guardian／daemon 的既有通知去重與冷卻。未提供穩定 executionId 的直呼不具跨呼叫身分保證。
+
+| 恢復狀態 | 下一步 | 自動操作邊界 |
+| --- | --- | --- |
+| `observing` | `observe-same-request`：持續讀取同一 execution／request | 靜默與經過時間不觸發停止或重送 |
+| `waiting-human` | `human-response-required`：人工檢查登入、權限或問題 | 不自動回覆、Enter 或同意 |
+| `validation-required` | `verify-existing-result`：核對既有 SHA／驗收及 publication recovery | v1 回執不證明後端停止，不自動重寫／重建 PR |
+| `unknown` | `manual-recovery` 或 `preserve-partial-and-review` | 無可信 server 啟動／occupant／停止證據時維持隔離 |
+
+能力盤點、五組離線故障證據與另行授權的 Windows 實測表見 [Herdr recovery 驗收](docs/verification/herdr-recovery-33.md)。
+Herdr 的 `Engine.run` 首次呼叫才派工；宿主未產生新 commit 也會轉入恢復隔離。後續重查使用上述唯讀入口，不透過 no-commit nudge 重送 prompt。
 
 ### 4. Discord bot（可選）
 

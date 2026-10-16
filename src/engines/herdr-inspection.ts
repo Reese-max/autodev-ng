@@ -1,10 +1,7 @@
 import { createHash } from 'node:crypto'
 import { lstatSync, opendirSync, type Dir } from 'node:fs'
 import { join } from 'node:path'
-import {
-  captureExecutionReadonly, MAX_TRACKED_EXECUTION_FILES,
-  type ReadonlyExecutionCapture,
-} from './execution-observation.js'
+import { captureExecutionReadonly, MAX_TRACKED_EXECUTION_FILES } from './execution-observation.js'
 import {
   captureHerdrExpectedFile, captureHerdrResultFile, herdrResultPath, normalizeRepoPath,
   type HerdrExpectedCapture, type HerdrResultCapture,
@@ -36,7 +33,6 @@ export interface HerdrCompletionObservation {
   evidence?: { snapshotSha256: string; expectedSha256: string; resultSha256?: string; resultBytes?: number }
 }
 
-type Execution = Extract<ReadonlyExecutionCapture, { ok: true }>
 type Expected = Extract<HerdrExpectedCapture, { ok: true }>
 type Selection = { ok: true; filename: string; capture: Expected }
   | { ok: false; status: Status; reason: Reason }
@@ -51,10 +47,9 @@ function executionKey(id: string): string {
   return safeId(id) === id ? id : createHash('sha256').update(id).digest('base64url')
 }
 
-function selectExpected(dataDir: string, execution: Execution): Selection {
-  const root = join(dataDir, 'herdr')
-  const prefix = `adng-${safeId(execution.record.taskId)}-`
-  const suffix = `-${executionKey(execution.record.executionId)}.expected.json`
+/** Also fences pre-inventory executions: locate by raw execution, then check task/repo. */
+export function selectHerdrExpected(root: string, execution: { executionId: string; taskId: string; projectPath: string }): Selection {
+  const suffix = `-${executionKey(execution.executionId)}.expected.json`
   let directory: Dir
   try {
     if (!lstatSync(root).isDirectory()) return { ok: false, status: 'invalid', reason: 'expected-invalid' }
@@ -69,18 +64,16 @@ function selectExpected(dataDir: string, execution: Execution): Selection {
       const entry = directory.readSync()
       if (!entry) break
       if (visited >= MAX_TRACKED_EXECUTION_FILES) return { ok: false, status: 'unavailable', reason: 'store-capacity' }
-      if (!entry.name.startsWith(prefix) || !entry.name.endsWith(suffix)) continue
-      const base = entry.name.slice(prefix.length, -suffix.length)
-      if (!/^[a-fA-F0-9]{8}$/.test(base)) continue
+      if (!entry.name.endsWith(suffix) || !/^adng-.+-[a-fA-F0-9]{8}$/.test(entry.name.slice(0, -suffix.length))) continue
       if (!entry.isFile()) return { ok: false, status: 'invalid', reason: 'expected-invalid' }
       if (selected) return { ok: false, status: 'conflict', reason: 'expected-conflict' }
       const capture = captureHerdrExpectedFile(join(root, entry.name))
       if (!capture.ok) return { ok: false, status: capture.kind, reason: capture.kind === 'missing' ? 'expected-missing' : capture.kind === 'unsupported' ? 'expected-unsupported' : capture.kind === 'invalid' ? 'expected-invalid' : 'expected-unavailable' }
       const expected = capture.expected
-      const requestId = `adng-${safeId(execution.record.taskId)}-${expected.baseCommit.slice(0, 8)}-${executionKey(execution.record.executionId)}`
+      const requestId = `adng-${safeId(execution.taskId)}-${expected.baseCommit.slice(0, 8)}-${executionKey(execution.executionId)}`
       if (entry.name !== `${expected.requestId}.expected.json` || expected.requestId !== requestId
-        || expected.executionId !== execution.record.executionId || expected.taskId !== execution.record.taskId
-        || normalizeRepoPath(expected.repo) !== normalizeRepoPath(execution.record.projectPath))
+        || expected.executionId !== execution.executionId || expected.taskId !== execution.taskId
+        || normalizeRepoPath(expected.repo) !== normalizeRepoPath(execution.projectPath))
         return { ok: false, status: 'mismatch', reason: 'expected-binding-mismatch' }
       selected = { ok: true, filename: entry.name, capture }
     }
@@ -107,7 +100,7 @@ export function inspectHerdrCompletion(dataDir: string, target: { executionId: s
   observation.taskId = execution.record.taskId
   observation.observationPhase = execution.record.phase
   if (execution.record.adapter !== 'herdr') return deny('mismatch', 'adapter-mismatch')
-  const selected = selectExpected(dataDir, execution)
+  const selected = selectHerdrExpected(join(dataDir, 'herdr'), execution.record)
   if (!selected.ok) return deny(selected.status, selected.reason)
   const requestId = selected.capture.expected.requestId
   observation.requestId = requestId
@@ -121,7 +114,7 @@ export function inspectHerdrCompletion(dataDir: string, target: { executionId: s
   const recheckedExecution = captureExecutionReadonly(dataDir, target.executionId)
   if (!recheckedExecution.ok || recheckedExecution.location !== execution.location || recheckedExecution.sha256 !== execution.sha256)
     return deny('changing', 'selection-changed')
-  const recheckedExpected = selectExpected(dataDir, recheckedExecution)
+  const recheckedExpected = selectHerdrExpected(join(dataDir, 'herdr'), recheckedExecution.record)
   if (!recheckedExpected.ok || recheckedExpected.filename !== selected.filename || recheckedExpected.capture.sha256 !== selected.capture.sha256)
     return deny('changing', 'selection-changed')
   if (!result.check.ok) return deny(result.check.kind, result.check.kind === 'missing' ? 'result-missing-or-unsupported' : result.check.kind === 'invalid' ? 'result-invalid' : result.check.kind === 'unsupported' ? 'result-unsupported' : 'result-mismatch')
