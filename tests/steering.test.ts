@@ -669,7 +669,8 @@ test('full control inventory refuses admission before creating the unreadable 10
   expect(readdirSync(join(dir, 'controls')).filter(name => name.endsWith('.json'))).toHaveLength(10000)
   expect(store(dir).list().errors).toEqual([])
   expect(store(dir).peekQueue('exec-1').map(env => env.instruction)).not.toContain('must not be hidden')
-}, 30000)
+  // 實測：10k 檔案 fixture 在防毒掃描下的 Windows 上需 ~200s（寫入 ~13s、每次全量掃描 ~29s ×4）。
+}, 300_000)
 
 test('claimed queue failure resolves uncertainty without replaying the same command', () => {
   const dir = root(); liveExecution(dir)
