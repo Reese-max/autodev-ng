@@ -88,6 +88,15 @@ Windows 可用 `scripts/install-github-issues-task.ps1 -Config <設定檔>` 安�
 watcher 使用 mutex 防止重複，每輪結束後等待 retryMs；登出或關機時不執行。
 watcher 的 `-Mode issues` 也可直接讀取單一 repo 設定，僅輪詢該 repo。
 
+需要程序復原時，改用 `scripts/watch-github-supervisor.ps1 -Config <設定檔>`；
+同樣支援 `-Mode issues|reports|repairs`，不安裝排程或修改設定。
+supervisor 使用系統內建 Windows PowerShell、獨立 mutex 與 kill-on-close Job Object，
+保留 watcher 原有的鎖；非零結束後等候五秒，最多實際重啟三次，正常結束不重啟。
+停用、資料目錄中的 `.adng.stop` 或設定的 stopFile 出現、設定的 owner／repo／dataDir 改變時，停止所屬子程序樹並退出。
+本機狀態只包含 PID、狀態、重啟次數、結束碼與時間；issues 寫入 dataDir/supervisor.json，
+reports 寫入 dataDir/supervisor-reports.json，repairs 寫入 dataDir/repairs/supervisor.json。
+尚無子程序或結束碼時欄位為 null；狀態檔以完整 JSON 原子替換。移除停止旗標後需重新啟動 supervisor。
+
 ## 狀態與停止
 
 帳號狀態在 dataDir/status.json，各 repo 使用獨立雜湊目錄。

@@ -16,6 +16,10 @@ import { join } from 'node:path'
 
 const ROOT = join(__dirname, '..', '..')
 const SUPERVISOR_SCRIPT = join(ROOT, 'scripts', 'watch-github-supervisor.ps1')
+const exitStatus = (error: unknown): number => {
+  if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') return error.status
+  throw error
+}
 
 // Test 1: Script exists and has required structure
 test('supervisor script exists at scripts/watch-github-supervisor.ps1', () => {
@@ -40,7 +44,7 @@ test('supervisor script contains bounded restart logic and required fields', () 
 test('supervisor script uses real Windows PowerShell executable', () => {
   const content = readFileSync(SUPERVISOR_SCRIPT, 'utf8')
   assert.ok(content.includes('powershell.exe') || content.includes('PSHOME'), 'must use real PowerShell executable via PSHOME or powershell.exe')
-  assert.ok(content.includes('Get-Command pwsh') || content.includes('Get-Command powershell.exe'), 'must resolve real executable, not PATH shim')
+  assert.ok(content.includes('[Environment]::SystemDirectory') && content.includes('WindowsPowerShell\\v1.0\\powershell.exe'), 'must resolve the system executable by absolute path, not PATH')
 })
 
 // Test 4: Script preserves watcher mutex and does not bypass boundaries
@@ -55,10 +59,10 @@ test('supervisor script preserves watcher mutex and existing boundaries', () => 
 
 // Test 5: Bounded restart contract simulation (deterministic Node.js simulation)
 describe('bounded restart contract simulation', () => {
-  let tmpDir
-  let stopFile
-  let stateFile
-  let dataDir
+  let tmpDir: string
+  let stopFile: string
+  let stateFile: string
+  let dataDir: string
   
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'adng-gh80-'))
@@ -81,7 +85,7 @@ describe('bounded restart contract simulation', () => {
     // Clear stop file
     if (existsSync(stopFile)) rmSync(stopFile)
     const settings = { enabled: false, dataDir, owner: 'test', repo: 'test-repo' }
-    const shouldRun = (s) => s.enabled === true && !existsSync(stopFile)
+    const shouldRun = (s: { enabled: boolean }) => s.enabled === true && !existsSync(stopFile)
     assert.equal(shouldRun(settings), false, 'enabled=false must prevent child start')
   })
   
@@ -147,7 +151,7 @@ describe('inert child lifecycle with bounded restart', () => {
       try {
         execFileSync(process.execPath, [inertScript], { timeout: 5000 })
       } catch (e) {
-        lastExitCode = e.status ?? 1
+        lastExitCode = exitStatus(e)
       }
       
       assert.equal(lastExitCode, 1, 'inert child must exit with code 1 (unexpected exit)')
@@ -159,7 +163,7 @@ describe('inert child lifecycle with bounded restart', () => {
           execFileSync(process.execPath, [inertScript], { timeout: 5000 })
           lastExitCode = 0
         } catch (e) {
-          lastExitCode = e.status ?? 1
+          lastExitCode = exitStatus(e)
         }
       }
       
@@ -184,7 +188,8 @@ describe('inert child lifecycle with bounded restart', () => {
       // Simulate supervisor loop: start child, wait, count starts
       const startChild = () => {
         childStarts++
-        return execFileSync(process.execPath, [inertScript], { timeout: 5000 }).status
+        execFileSync(process.execPath, [inertScript], { timeout: 5000 })
+        return 0
       }
       
       let lastExit = 1
@@ -193,7 +198,7 @@ describe('inert child lifecycle with bounded restart', () => {
           startChild()
           lastExit = 0
         } catch (e) {
-          lastExit = e.status ?? 1
+          lastExit = exitStatus(e)
         }
       }
       
@@ -241,7 +246,7 @@ test('supervisor state never contains secrets, prompts, or provider output', () 
   const stateFile = join(tmpDir, 'supervisor.json')
   try {
     // Simulate what the supervisor writes - bounded state only
-    const writeState = (data) => writeFileSync(stateFile, JSON.stringify(data))
+    const writeState = (data: Record<string, unknown>) => writeFileSync(stateFile, JSON.stringify(data))
     const readState = () => JSON.parse(readFileSync(stateFile, 'utf8'))
     
     // Normal operation state

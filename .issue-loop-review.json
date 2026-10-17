@@ -1,0 +1,19 @@
+{
+  "pr": 156,
+  "head": "930fb4aa946195b6cf75bf5eac4a7d6472dc422f",
+  "findings": [
+    {"severity":"high","file":"scripts/watch-github-supervisor.ps1","line":65,"issue":"The supervisor holds the watcher's mutex, so every real watcher child immediately exits without doing work."},
+    {"severity":"high","file":"scripts/watch-github-supervisor.ps1","line":75,"issue":"Windows PowerShell 5.1 takes the pwsh branch; PowerShell 7 normally falls back to a PATH shim because env:PSHOME is unset."},
+    {"severity":"high","file":"scripts/watch-github-supervisor.ps1","line":96,"issue":"Start-Process flattens unquoted script/config paths, breaking paths containing spaces."},
+    {"severity":"high","file":"scripts/watch-github-supervisor.ps1","line":100,"issue":"Blocking WaitForExit never observes pause/config changes while a child is running; finally neither owns nor cleans up the child tree on failure or parent termination."},
+    {"severity":"high","file":"scripts/watch-github-supervisor.ps1","line":47,"issue":"Pause checks coerce non-boolean enabled values and ignore configured stopFile and the base dataDir stop flag in repairs mode; changing ownership/dataDir also bypasses the original ownership snapshot."},
+    {"severity":"med","file":"scripts/watch-github-supervisor.ps1","line":89,"issue":"The cap permits only two actual restarts while reporting three, and clean watcher exits (including mutex refusal) are incorrectly retried."},
+    {"severity":"med","file":"scripts/watch-github-supervisor.ps1","line":21,"issue":"Issues/reports supervisors can overwrite the same state file; in-place writes expose truncated JSON and int parameters turn unknown PID/exit code into zero."},
+    {"severity":"high","file":"tests/regressions/github-80.test.ts","line":187,"issue":"The new test file fails strict TypeScript checking (18 diagnostics), including reading status from execFileSync's Buffer result."},
+    {"severity":"med","file":"tests/regressions/github-80.test.ts","line":173,"issue":"Lifecycle tests exercise separate JavaScript simulations, so they pass despite broken real mutex, launch, pause, delay and process-ownership behavior."},
+    {"severity":"low","file":"docs/github-issues.md","line":87,"issue":"Watcher operation documentation omits the new supervisor entry point, bounded recovery policy and local state."},
+    {"severity":"med","file":"scripts/watch-github-supervisor.ps1","line":1,"issue":"needs-human: PR #108 already merged issue #80 via scripts/supervise-github-owner.ps1, which is present on current main; decide whether this second entry point should be retained or the PR retired."}
+  ],
+  "fixed": true,
+  "summary": "Fixed 10 actionable findings covering ownership, native launch, process cleanup, pause gates, bounded restarts, state safety, strict typing, native regression coverage and documentation. The Git Bash replay passed 28 tests plus typecheck/build; full npm test still has five unchanged repair/admission failures reproduced at the reviewed head. needs-human: #108 already merged another implementation of #80 on main; decide whether to retain this second entry point or retire this PR."
+}

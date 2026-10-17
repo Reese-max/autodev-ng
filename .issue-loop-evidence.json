@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "issue": 156,
+  "base_sha": "930fb4aa946195b6cf75bf5eac4a7d6472dc422f",
+  "red_proof": "Before implementation, npm test -- tests/regressions/github-156.test.ts exited 1 with 15 failed tests, and npm run typecheck exited 1 with 18 diagnostics in github-80.test.ts. The final regression was also replayed against an isolated archive of base_sha using node node_modules/vitest/vitest.mjs run tests/regressions/github-156.test.ts -t 'pause gate starts zero children: disabled' (exit 1):\nFAIL tests/regressions/github-156.test.ts > pause gate starts zero children: disabled\n- Expected\n+ Received\n-   \"childPid\": null,\n-   \"lastExitCode\": null,\n+   \"childPid\": 0,\n+   \"lastExitCode\": 0,\nTests 1 failed | 14 skipped (15).",
+  "test_command": "node node_modules/vitest/vitest.mjs run tests/regressions/github-156.test.ts tests/regressions/github-80.test.ts && npm run typecheck && npm run build",
+  "test_exit": 0,
+  "tests_passed": 28,
+  "tests_failed": 0,
+  "summary": "Fixed the distinct supervisor mutex, absolute native Windows PowerShell launch and quoted paths, and reused main's Job Object bootstrap to own and reap the watcher tree. Pause and ownership changes now stop supervision, three retries mean four actual starts, and bounded mode-specific state is atomically replaced with truthful null values. Added 15 native Windows regressions using isolated inert CLIs, repaired the original test file's strict typing, and documented operations; the Git Bash replay passed all 28 regressions, typecheck and build. Scoped coverage passed 39 tests; npm run quality:crap and npm run test:mutation both exited 0 for the existing src/github/quality.ts scope (CRAP maximum 13.00/30; mutation score 100%, 104 killed, 60 compile-rejected, zero survivors).",
+  "not_done": "needs-human: PR #108 already merged issue #80 as scripts/supervise-github-owner.ps1 on current main; the maintainer must decide whether to retain this additional entry point or retire PR #156. Full npm test exited 1 with 2041 passed and five failures in unchanged tests/github-repair.test.ts (Codex quota/admission and review-unavailable); the isolated original-head replay reproduced the same five failures with 12 passed. Full-suite coverage is not certified: the full attempt was stopped and only scoped coverage completed. No push, branch switch, remote PR/issue change, paid fallback or credential/configuration change was performed."
+}
