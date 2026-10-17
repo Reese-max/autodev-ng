@@ -1,0 +1,50 @@
+{
+  "pr": 24,
+  "head": "a49cb2d1ec316f3dcb25cf2d005fd37939e7557e",
+  "findings": [
+    {
+      "severity": "high",
+      "file": "docs/research/issue-21-environment-replay/contract.mjs",
+      "line": 17,
+      "issue": "observe() overwrites and deletes a pre-existing .durability-probe before a dirty target can be refused, violating no-overwrite guarantees."
+    },
+    {
+      "severity": "high",
+      "file": "docs/research/issue-21-environment-replay/contract.mjs",
+      "line": 42,
+      "issue": "Source HEAD is rechecked but source dirty state, artifacts, evidence and checkpoint are not: uncommitted source changes after observation still produce RESUMED_VERIFIED for a stale target."
+    },
+    {
+      "severity": "high",
+      "file": "docs/research/issue-21-environment-replay/contract.mjs",
+      "line": 79,
+      "issue": "TeamState auto-creates missing authority and ledgerIdentityDigest hashes only its pathname. Losing or replacing the original ledger at that pathname drops reservations and bypasses the source hard cap."
+    },
+    {
+      "severity": "med",
+      "file": "docs/research/issue-21-environment-replay/contract.mjs",
+      "line": 23,
+      "issue": "simulatedOverrides can overwrite providerKind and promote UNKNOWN to MANAGED_SANDBOX; only the explicitly simulated hard-fact keys should be accepted."
+    },
+    {
+      "severity": "med",
+      "file": "docs/research/issue-21-environment-replay/contract.mjs",
+      "line": 71,
+      "issue": "HOST_BOUND_CHECKPOINT unconditionally replaces DIVERGED after native copy hash failures, so corrupt goal/metrics/evidence copies can still satisfy the expected wrapper-refusal case."
+    },
+    {
+      "severity": "med",
+      "file": "docs/research/issue-21-environment-replay/observer.mjs",
+      "line": 6,
+      "issue": "Network interception and its attempt counter exist only in the observer process; actual fixture/version/verification children can attempt networking while receipts still claim networkAttempts=0."
+    },
+    {
+      "severity": "med",
+      "file": "docs/research/issue-21-environment-replay/contract.mjs",
+      "line": 73,
+      "issue": "Constructing file URLs with 'file://' + path truncates legal SDK checkout paths containing # and misinterprets percent escapes, breaking the documented replay command."
+    }
+  ],
+  "fixed": true,
+  "summary": "Seven research-instrument defects were reproduced and repaired with regression tests while preserving the frozen author runtime evidence. The Git-Bash regression gate passes all 11 cases, and a fresh pinned-source Linux/Node22 replay passes all 38 cases. Full-product baseline testing has 1,968 passes and 9 unrelated failures in autopilot-completion, CLI configuration, and GitHub repair/quota checks; no production behavior was changed."
+}

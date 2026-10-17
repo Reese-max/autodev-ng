@@ -1,0 +1,15 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "issue": 24,
+  "base_sha": "a49cb2d1ec316f3dcb25cf2d005fd37939e7557e",
+  "red_proof": "Before the storage fix, node --test tests/issue-21-environment-replay.test.mjs exited 1 (0 passed, 1 failed): observation deleted pre-existing data. After adding the remaining regression cases but before their fixes, the same command exited 1 (2 passed, 7 failed): Missing expected exception for UNKNOWN promotion; RESUMED_VERIFIED instead of DIVERGED for source changes; RESUMED_VERIFIED instead of BUDGET_BLOCKED for missing and replaced ledgers; ERR_MODULE_NOT_FOUND for sdk#review%25; HOST_BOUND_CHECKPOINT instead of DIVERGED for corrupt native copies; Missing expected exception for child networking. A follow-up missing-source-artifact case exited 1 with ENOENT before the divergence-receipt fix. Tests use freshly extracted and compiled SDK source a2378aa6fea3605f596e3ee264adbb2eb04c9010, actual local Git/SQLite fixtures and loopback-only network probes; no test was weakened.",
+  "test_command": "node --test tests/issue-21-environment-replay.test.mjs",
+  "test_exit": 0,
+  "tests_passed": 11,
+  "tests_failed": 0,
+  "summary": "Fixed seven research observer/preflight defects with 11 passing regression cases under Git Bash (exit 0). Build/typecheck and all 191 current publication-manifest entries pass; frozen author runtime blobs remain unchanged. A fresh replay using Linux Node v22.23.3 and freshly compiled source a2378aa6fea3605f596e3ee264adbb2eb04c9010 passed all 38 cases (exit 0, resultDigest f36ddc8de2e3f4090c855f686f890137d0bf985652bc060c801c285708d21229); the product baseline has 1968 passes and 9 unrelated failures.",
+  "not_done": [
+    "The full product suite is not green: node node_modules/vitest/vitest.mjs run --reporter=dot exited 1 with 1968 passed and 9 failed across tests/autopilot-completion.test.ts, tests/cli.test.ts and tests/github-repair.test.ts. Failures include undefined read dependencies, free-provider configuration, quota admission refusal and timeout/cleanup. Product src/config/TypeScript tests are unchanged by this review.",
+    "No push, PR update, merge, branch change in this worktree, real provider execution or deployment was performed."
+  ]
+}

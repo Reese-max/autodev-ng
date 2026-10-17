@@ -15,18 +15,18 @@
     },
     {
       "path": "docs/research/issue-21-environment-replay/replay.mjs",
-      "sha256": "9be9250a171f2d47e71516717cf833604552f9bf8bf56d6228f0629c4405aeb6",
-      "bytes": 25044
+      "sha256": "0ac05f5d5a2892ed5e71ad69b118176c1747865a87c87355acb74cb0cab15dcf",
+      "bytes": 25316
     },
     {
       "path": "docs/research/issue-21-environment-replay/contract.mjs",
-      "sha256": "9e6e0a950c88f7c40eb3cadc8381fa4417cbafa0a4351792cf205e53745b1058",
-      "bytes": 9999
+      "sha256": "81eca22db903a460342fa24d69a1a959c33cd57d2b5484dd9b04fd80706ff913",
+      "bytes": 11552
     },
     {
       "path": "docs/research/issue-21-environment-replay/observer.mjs",
-      "sha256": "6ad63328c1264c2b72a35d73a55bdf8bc4f14c97f741026420e6edf7f5e14e24",
-      "bytes": 1205
+      "sha256": "b95602085d6fe91634f9d7baccfbc1c8577ff5ab6c20bddd24e928dbb325d5c5",
+      "bytes": 978
     },
     {
       "path": "docs/research/issue-21-environment-replay/native-control.mjs",
@@ -50,8 +50,8 @@
     },
     {
       "path": "docs/research/issue-21-environment-replay/README.md",
-      "sha256": "3e8d467e4e6171c700d768d0a8a28ca5501b5f20ae08cf368c939c127f9ae7db",
-      "bytes": 9237
+      "sha256": "7513460483f07a26fa512b8f38119aaf6f12c6e862a2a4b4e17d43e6543aed44",
+      "bytes": 10446
     },
     {
       "path": "docs/research/issue-21-environment-replay/source-evidence.json",
@@ -950,13 +950,18 @@
     },
     {
       "path": "docs/research/issue-21-environment-replay/evidence/README.md",
-      "sha256": "5bf02c48da59b999228908a75cac3944ee1d642123fee9ba1299b9f8af6ba3c8",
-      "bytes": 1600
+      "sha256": "44febcd14cbc936a62e571002f4a1b526b6c322fe49db75213b47b83e4e348fd",
+      "bytes": 1861
     },
     {
       "path": "docs/research/issue-21-execution-environment-contract.md",
-      "sha256": "a648fd226c58d7e7799dd26e5a3dd915a15aa06d6d3db94b2aefa2f0bce8756f",
-      "bytes": 3481
+      "sha256": "1dda5beaca30e12b3b69b20f3abe5baae707be6e69aa16cbe0f1348989d8b633",
+      "bytes": 3791
+    },
+    {
+      "path": "docs/research/issue-21-environment-replay/network-guard.mjs",
+      "sha256": "f2bf50de9c9e635245fddf8a4a3e15c5d1afc75439b3c38861408d81a59db7e6",
+      "bytes": 916
     }
   ]
 }

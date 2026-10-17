@@ -6,7 +6,7 @@ import { fileURLToPath,pathToFileURL } from 'node:url'
 import { randomBytes } from 'node:crypto'
 import { spawnSync,execFileSync } from 'node:child_process'
 import { VERSION,Requirement,Observation,Bundle,Receipt,jsonSchemas } from './environment-schemas.mjs'
-import { observe,sha,json,git,safeEnv } from './contract.mjs'
+import { observe,sha,json,git,safeEnv,ledgerIdentity } from './contract.mjs'
 import { digest,save } from './mock-authority.mjs'
 const [source,output]=process.argv.slice(2),here=dirname(fileURLToPath(import.meta.url))
 const sourceSha=git(source,'rev-parse','HEAD'),sourceTree=git(source,'rev-parse','HEAD^{tree}')
@@ -53,7 +53,7 @@ db.record({taskId:'synthetic-prior-booked-cost',ok:true,costUsd:.25,engine:'offl
 const cfg=join(cfgDir,'source.json');put(cfg,{dataDir:billingDir,timezoneOffsetHours:0,engines:{'offline-fixture':{subscription:false}}})
 const prior=new TeamState(project)
 const existing=prior.claim({executionId:'prior-source-reservation',task:{id:'prior-source-task',text:'owned prior task',line:0,status:'open',ownership:{write:['prior-owned.txt'],resources:[]}},workerId:'offline-research',reservedCostUsd:.6,spentUsd:.25,dailyHardUsd:1,leaseMs:600000});assert(existing.ok)
-const budget={budgetRef:'fixture-budget:authoritative',policyHash:sha(readFileSync(cfg)),ledgerRef:'fixture-ledger:source-git-common-dir',ledgerIdentityDigest:sha(prior.path),costClass:'LOCAL_SYNTHETIC_ZERO_PROVIDER_COST',reservationUsd:.1,hardUsd:1}
+const budget={budgetRef:'fixture-budget:authoritative',policyHash:sha(readFileSync(cfg)),ledgerRef:'fixture-ledger:source-git-common-dir',ledgerIdentityDigest:ledgerIdentity(prior.path),costClass:'LOCAL_SYNTHETIC_ZERO_PROVIDER_COST',reservationUsd:.1,hardUsd:1}
 const now=Date.now(),authority=join(root,'mock-principal-registry.json')
 const principal={schemaVersion:'principal-research/v1',principalId:'fixture-principal',ownerRef:'fixture-owner:human-boundary-unmodified',role:'offline-research-worker',engineTag:'freebuff',runtimeFingerprint:sha(sourceSha),lifecycle:'ACTIVE',identityIsolation:'MOCK_DEDICATED',credentialBinding:'MOCK_REFERENCE',parentPrincipalId:'fixture-parent',capabilities:['LOCAL_FIXTURE_COMMIT','READ_METADATA']}
 const parent={...principal,principalId:'fixture-parent',parentPrincipalId:null}
@@ -143,6 +143,8 @@ for(const mode of ['pause','resume']) {
    q.checkpointPath=join(targetRunDir,'state.json');q.nativeCopyManifestPath=manifestPath
    q.bundle.checkpoint={kind:'NATIVE_HOST_BOUND',locator:'state.json',sha256:sha(readFileSync(q.checkpointPath)),cwdBinding:actualState.cwd,copyManifest:{locator:'native-copy-manifest.json',sha256:sha(readFileSync(manifestPath))}}
   },{cwd:targetCwd,sourceObservation:nativeObs})
+   const receipt=cases.at(-1)
+   assert(json(join(root,receipt.receipt)).checks.filter(c=>c.name.startsWith('nativeSourceCopy:')||c.name.startsWith('nativeTargetReadback:')).every(c=>c.ok),'native continuation copy diverged')
   assert.equal(sha(readFileSync(join(targetRunDir,'state.json'))),files.find(f=>f.locator==='state.json').sha256)
  }
 }
@@ -162,7 +164,7 @@ const scan=folder=>{for(const n of readdirSync(folder)){if(n==='.git')continue;c
 scan(root);cases.push({name:'strict-schemas-zero-raw-secrets',result:'PASS',rejectedRawSecretFields:2,secretFixtureScope:'RANDOM_IN_MEMORY_VALUE_NEVER_PERSISTED',ambientCredentialEnvironment:'WHITELIST_ONLY'})
 const finalBilling=globalCostReport(cfg,new Date().toISOString(),[],budget.policyHash);assert(finalBilling.complete);assert.equal(finalBilling.bookedUsd,.25)
 put(join(root,'source-observation.json'),sourceObs);put(join(root,'requirement.json'),requirement);put(join(root,'final-ledger.json'),{billing:finalBilling,snapshot:prior.snapshot(),originalReservationStillActive:prior.snapshot().claims.some(c=>c.execution_id==='prior-source-reservation'&&c.active===1)});prior.close()
-const instruments=['run.py','replay.mjs','contract.mjs','observer.mjs','native-control.mjs','environment-schemas.mjs','mock-authority.mjs','schemas.mjs','README.md','source-evidence.json','windows-evidence.json','windows-log-excerpt.txt']
+const instruments=['run.py','replay.mjs','contract.mjs','observer.mjs','network-guard.mjs','native-control.mjs','environment-schemas.mjs','mock-authority.mjs','schemas.mjs','README.md','source-evidence.json','windows-evidence.json','windows-log-excerpt.txt']
 const partial={schemaVersion:VERSION,disposition:'NARROW',sourceSha,sourceTree,mainComparison:json(join(here,'source-evidence.json')).comparison,build,runRoot:root,caseCount:cases.length,cases,instrumentSha256:Object.fromEntries(instruments.map(f=>[f,sha(readFileSync(join(here,f)))])),frozenWindowsArchive:archived,metrics:{providerCalls:0,networkAttempts:0,actualWindowsRuntimeRuns:0,actualNativeCrossHostResumes:0,humanStepReduction:'NOT_MEASURED',negativeCases:cases.filter(c=>c.negativeBytesUnchanged===true).length},remaining:['STEER_QUEUE_HANDOFF_UNSUPPORTED','NATIVE_CHECKPOINT_CWD_HOST_BOUND','DISTRIBUTED_RESERVATION_AUTHORITY_UNKNOWN','REAL_PROVIDER_UNKNOWN','REAL_AUTH_REVOCATION_UNKNOWN','HOST_NETWORK_CONTAINMENT_UNKNOWN','CURRENT_WINDOWS_TARGET_UNKNOWN','REVIEW_GATE_NOT_RUN']}
 const result={...partial,resultDigest:digest(partial)};put(join(root,'result.json'),result);put(join(output,'latest-result.json'),result);put(join(output,'schemas.json'),schemas)
 process.stdout.write(JSON.stringify({result:'PASS',disposition:result.disposition,caseCount:cases.length,runRoot:root,resultDigest:result.resultDigest})+'\n')

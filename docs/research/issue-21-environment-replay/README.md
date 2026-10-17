@@ -9,7 +9,7 @@ receipts. No provider adapter is production-ready on this evidence.
 
 ## Reproduce
 
-Use a separate checkout of published source
+The complete archived replay requires Linux and Node22. Use a separate checkout of published source
 `a2378aa6fea3605f596e3ee264adbb2eb04c9010`, tree
 `26314c41dbe5f7b40da0f242fd8268ec5f0178f8`, its existing dependencies and Node22.
 Every reviewer must select a new owned output directory:
@@ -17,6 +17,19 @@ Every reviewer must select a new owned output directory:
 ```sh
 python3 run.py SOURCE_CHECKOUT NODE_EXECUTABLE REVIEWER_OUTPUT
 ```
+
+From the repository root, the self-review regression gate is:
+
+```sh
+node --test tests/issue-21-environment-replay.test.mjs
+```
+
+It uses local Git objects to extract and freshly compile the same pinned SDK in
+a disposable directory, with the checkout's installed dependencies. It covers
+probe preservation, source drift/deletion, UNKNOWN simulation, missing/replaced
+ledger authority, native copy corruption, URL-safe source paths and child network
+instrumentation. This gate runs independently of the product's Vitest suite.
+Windows regression results do not establish Windows handoff support.
 
 The launcher builds that exact tracked source afresh and records source/compiled
 SHA256 for fourteen imported SDK modules. It never runs the default engine or
@@ -43,7 +56,9 @@ scenario facts must satisfy a hard requirement. A simulator cannot disguise
 an actual Node/OS mismatch. Storage is `SAME_PROCESS_WRITE_READ`, with separate
 fresh-process artifact/checkpoint reads; neither proves crash/power-loss
 durability. The API network sentinel is trusted-fixture instrumentation, not
-a host firewall, OS containment, or adversarial worker security proof.
+a host firewall, OS containment, or adversarial worker security proof. The sentinel
+is preloaded in fixture children; their observed attempts are recorded and fail
+the replay even when a child catches the denial and exits zero.
 
 Windows evidence is an archived CI observation (run37267990741,
 job111628765470, Windows Server2025, Node22.23.3). Its source checkout is
@@ -73,7 +88,8 @@ pause consumption is not STEER/QUEUE delivery, nor crash-safe exactly-once:
 
 TeamState reservations are tied to Git common-dir. The fresh-clone SDK probe
 actually admits a reservation its source ledger would deny, exposing the reset
-risk. The research gate instead requires the original ledger identity and a
+risk. The research gate instead requires the original ledger's real path and stable
+filesystem device/inode identity, refuses missing files before opening them, and requires a
 complete hash-pinned `globalCostReport`; missing/substituted references and the
 source reservation/hard-cap conflict refuse execution. Booked$0.25 and reserved
 $0.60 are explicitly synthetic accounting inputs, not real provider spend.
@@ -118,3 +134,9 @@ Each negative case asserts the fixture command did not start and source/target
 tracked bytes/head/status plus source claims are unchanged after the intentional
 scenario input is prepared. Metrics cover this bounded fixture only; no human
 step reduction, provider reliability or production migration metric is inferred.
+
+The frozen author archive remains tied to head
+`a49cb2d1ec316f3dcb25cf2d005fd37939e7557e`. Self-review fixes change the runnable
+instrument and its current publication manifest; archived receipts and their
+original instrument hashes remain historical evidence, not hashes of the revised
+instrument.

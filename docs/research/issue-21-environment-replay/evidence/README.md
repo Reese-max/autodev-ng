@@ -8,6 +8,11 @@ archive. Replay into a new owned directory rather than modifying these records.
 
 Frozen result digest: `bc41c7eb79bd1459c5c1f5224611b4735003e16942c9c8a7cebdbdc7d0c59665`.
 
+This archive describes the instrument at reviewed head
+`a49cb2d1ec316f3dcb25cf2d005fd37939e7557e`. Later self-review fixes apply to fresh
+reruns; the frozen result's `instrumentSha256` remains unchanged. Current runnable
+file hashes are in `../manifest.json`.
+
 `native-copied-run` contains the genuine **paused** SDK continuation bytes and
 every `native-copy-manifest.json` file locator. Those files were copied/read back
 before same-path native resume. `native-pause.json` records that earlier state;

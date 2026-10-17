@@ -54,3 +54,8 @@ is required or claimed.
 This existing PR retains research records only. Production adapters, native
 cross-host migration, portable control delivery and distributed authority
 require separate future FEATURE work. Refs #21.
+
+The frozen 38-case archive describes head
+`a49cb2d1ec316f3dcb25cf2d005fd37939e7557e`. Subsequent self-review fixes and their
+standalone regression command are documented in the [replay guide](issue-21-environment-replay/README.md);
+they do not rewrite the archived receipts or add production runtime support.
