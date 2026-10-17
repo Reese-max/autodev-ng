@@ -86,4 +86,43 @@ describe('host trial acceptance contract (issue #38)', () => {
     }
     expect(readFileSync(DEPLOY_DOC, 'utf8')).toContain('host-trial-acceptance')
   })
+
+  test('retains the issue prerequisites before starting a trial or declaring PASS', () => {
+    const prerequisites = docText().match(/試行前置：[^\n]+/)?.[0] ?? ''
+    for (const issue of [13, 32, 33, 34, 35, 36]) expect(prerequisites).toContain(`#${issue}`)
+    expect(prerequisites).toContain('未取得前置證據不得開始試行或判 PASS')
+  })
+
+  test('PASS requires the observed interval to reach the declared observation window', () => {
+    expect(docText()).toContain('Date.parse(observedEnd) - Date.parse(observedStart) >= windowHours * 3_600_000')
+  })
+
+  test('requires effective runtime, scheduled faults and recovery durations', () => {
+    const criteria = recordTemplate().criteria as Record<string, { metrics: { required: string[] } }>
+    for (const field of ['effectiveRuntimeMs', 'scheduledFaults', 'recoveryDurationsMs']) {
+      expect(criteria['trial-72h']!.metrics.required).toContain(field)
+    }
+  })
+
+  test('requires waiting observations for all authorized repos, including repos without deliveries', () => {
+    const criteria = recordTemplate().criteria as Record<string, { metrics: { required: string[] } }>
+    expect(criteria['trial-72h']!.metrics.required).toContain('repoWaits')
+    expect(docText()).toContain('repoWaits` 必須涵蓋所有 `authorizedRepos')
+  })
+
+  test('represents unknown cost as an attempt count rather than an invented dollar amount', () => {
+    expect(docText()).toContain('{ "known": <usd>, "unknown": <成本未知筆數> }')
+    expect(docText()).toContain('unknownCost')
+  })
+
+  test('halts when an old backend cannot be confirmed stopped or isolated', () => {
+    const rule = docText().split('\n').find(line => line.startsWith('- `unconfirmed-backend`：'))
+    expect(rule).toContain('無法確認舊後端已停止或隔離')
+  })
+
+  test('documented heartbeat generation supplies the required host home', () => {
+    const commands = [...docText().matchAll(/`(scripts\/host\.mjs health[^`]*)`/g)]
+    expect(commands.length).toBeGreaterThan(0)
+    for (const [, command] of commands) expect(command).toMatch(/\s--home\s+\S+/)
+  })
 })

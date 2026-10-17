@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "issue": 149,
+  "base_sha": "45a8569b3766dcfb4d390ae2625cc4c852bc0ba8",
+  "red_proof": "At reviewed head 45a8569b3766dcfb4d390ae2625cc4c852bc0ba8, after adding regression tests and before changing docs/host-trial-acceptance.md:\n$ npx vitest run tests/host-trial-contract.test.ts\nexit 1\n ❯ tests/host-trial-contract.test.ts (11 tests | 7 failed) 45ms\n     × retains the issue prerequisites before starting a trial or declaring PASS 7ms\n     × PASS requires the observed interval to reach the declared observation window 12ms\n     × requires effective runtime, scheduled faults and recovery durations 2ms\n     × requires waiting observations for all authorized repos, including repos without deliveries 1ms\n     × represents unknown cost as an attempt count rather than an invented dollar amount 5ms\n     × halts when an old backend cannot be confirmed stopped or isolated 3ms\n     × documented heartbeat generation supplies the required host home 1ms\n      Tests  7 failed | 4 passed (11)",
+  "test_command": "npm run build && npm run typecheck && npm test -- --reporter=dot",
+  "test_exit": 0,
+  "tests_passed": 2054,
+  "tests_failed": 0,
+  "summary": "Corrected all seven review findings in docs/host-trial-acceptance.md and added seven regression tests without changing runtime code. The contract now preserves issue #38 prerequisites, an observed 72-hour window, effective runtime/fault/recovery metrics, waiting evidence for every authorized repo, honest unknown-cost counts, fail-closed old-backend stopping, and host-aware health commands. Regression checks went from 7 failed / 4 passed before the documentation fix to 11 passed; Git Bash build, typecheck, and the complete 207-file / 2,054-test suite passed with exit 0.",
+  "not_done": "needs-human: No separately authorized real-host reboot/reconnect, fault injection, restore/rollback, externally delivered offline alert, or 72-hour trial was performed. Those acceptance criteria remain NOT_RUN; issue #38 is not closed by these local checks. Remote CI was not rerun, and no push or other-branch change was made."
+}

@@ -1,0 +1,50 @@
+{
+  "pr": 149,
+  "head": "45a8569b3766dcfb4d390ae2625cc4c852bc0ba8",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "docs/host-trial-acceptance.md",
+      "line": 3,
+      "issue": "The runbook omits issue #38's mandatory prerequisites: verified #32-#35 Herdr paths, #36 fair scheduling, and restored #13 release CI. Operators can otherwise start a trial or claim PASS without prerequisite receipts."
+    },
+    {
+      "severity": "med",
+      "file": "docs/host-trial-acceptance.md",
+      "line": 67,
+      "issue": "The explicit PASS metrics require only observedEnd > observedStart, without checking that the actual observation interval reaches windowHours (72). A shorter observation can satisfy the documented verdict rules."
+    },
+    {
+      "severity": "med",
+      "file": "docs/host-trial-acceptance.md",
+      "line": 34,
+      "issue": "Required trial metrics omit effective operating time, scheduled fault count, and recovery durations, all explicitly required by issue #38. The existing template and tests permit PASS without this evidence."
+    },
+    {
+      "severity": "med",
+      "file": "docs/host-trial-acceptance.md",
+      "line": 67,
+      "issue": "Longest eligible waiting time is attached only to reposWithDeliverables, a subset of authorizedRepos. An authorized repo with no deliverable can be omitted even though issue #38 requires waiting evidence for every repo."
+    },
+    {
+      "severity": "med",
+      "file": "docs/host-trial-acceptance.md",
+      "line": 67,
+      "issue": "cost.unknown is documented as USD, but existing attempt accounting exposes unknownCost as an attempt count, and Herdr marks costUnknown=true. The contract cannot truthfully represent these receipts without inventing an unknown dollar amount."
+    },
+    {
+      "severity": "med",
+      "file": "docs/host-trial-acceptance.md",
+      "line": 75,
+      "issue": "The unconfirmed-backend hard stop is narrowed to an old backend still accepting work. Issue #38 requires stopping when the old backend cannot be confirmed; uncertain liveness must not require proof of continued intake."
+    },
+    {
+      "severity": "low",
+      "file": "docs/host-trial-acceptance.md",
+      "line": 60,
+      "issue": "The documented health command omits required --home. Running scripts/host.mjs health --out FILE exits 1 with HOST_FAIL and produces no heartbeat receipt."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed six medium-severity and one low-severity defects in the trial contract: missing prerequisites, insufficient observation duration, missing operational metrics, incomplete repo waiting coverage, unknown-cost units, a weakened old-backend hard stop, and health commands without --home. Seven regression tests failed before correction; all 11 contract checks, build, typecheck, and the full 2,054-test suite now pass. needs-human: issue #38's separately authorized real-host acceptance and 72-hour trial remain NOT_RUN; this documentation PR does not complete that validation."
+}

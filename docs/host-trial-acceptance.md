@@ -2,6 +2,8 @@
 
 本文件定義 issue #38「無桌面登入啟動、故障恢復、還原告警與 72 小時單機試跑」的驗收紀錄格式、判定規則與執行手冊。試行本身必須在另行明確授權的 Windows 測試主機上執行：3–5 個隔離測試 repo、1 個 Worker、一條指定 Herdr 主力 backend，每 repo 維持單一執行主機。本文件只釘死紀錄合約——未取得證據的項目一律 `NOT_RUN`，`FAIL`／`UNSUPPORTED` 原樣保留，不得以排程註冊成功、版面恢復或 CI 綠燈冒充驗收通過。
 
+試行前置：#32、#33、#34、#35 的指定 Herdr 路徑與 #36 公平派工須完成相應驗證，並恢復 #13 release CI；在 `boot-reconnect.evidence` 保存各前置的 commit、檢查結果與私有收據參照。未取得前置證據不得開始試行或判 PASS；維持 `INCOMPLETE`。#37 的測試維護研究不是 bugfix-only 試行的必要前置。
+
 ## 驗收紀錄檔
 
 試行期間由操作員在測試主機維護 `data/host-trial.json`（私有證據，不上傳公開 repo）。以本範本初始化後逐項填寫；`hostId`、`releaseSha` 必須與 `scripts/host.mjs` 的 `host.json`／runtime commit 一致，`environment.configSha256` 為 `configs/project.json` 位元組的 SHA-256。
@@ -31,7 +33,7 @@
       "status": "NOT_RUN",
       "evidence": [],
       "metrics": {
-        "required": ["observedStart", "observedEnd", "counts", "unscheduledRescues", "reposWithDeliverables", "cost"],
+        "required": ["observedStart", "observedEnd", "effectiveRuntimeMs", "counts", "scheduledFaults", "unscheduledRescues", "recoveryDurationsMs", "reposWithDeliverables", "repoWaits", "cost"],
         "zero": ["unauthorizedWrites", "duplicateWriters", "costSwitches"]
       }
     }
@@ -55,16 +57,20 @@
 | criterion | 驗收內容 | 既有工具（不重新開發） |
 |---|---|---|
 | `boot-reconnect` | 未登入桌面重開機後由正確帳號載入指定 release 與設定；Herdr 定位／恢復正確工作；完成至少一次真實 Issue → Agent → 宿主驗證／獨立審查 → 草稿 PR | `scripts/install-host-task.ps1`（Password logon，`-WhatIf` 先行）、`scripts/host.mjs doctor --home DIR --live`、`scripts/verify-host-release.mjs` |
-| `fault-injection` | 對 worker／控制端／Herdr server 的已授權中斷：等待端失聯、完成未落地、重複事件／同案競爭、長靜默、waiting-human；零錯單、零重複 writer／PR、零假成功；unknown 安全隔離 | execution／Issue state、team.db、`scripts/host.mjs health`；auth／quota 失敗用隔離 fixture |
+| `fault-injection` | 對 worker／控制端／Herdr server 的已授權中斷：等待端失聯、完成未落地、重複事件／同案競爭、長靜默、waiting-human；零錯單、零重複 writer／PR、零假成功；unknown 安全隔離 | execution／Issue state、team.db、`scripts/host.mjs health --home DIR`；auth／quota 失敗用隔離 fixture |
 | `backup-restore-rollback` | 依停工條件建私有快照、新目錄還原核對 Issue 收據／成果雜湊／attempt／成本；保持 integrations disabled 與暫停；失敗更新回切已驗證 runtime；schema 不相容不得直接降版覆寫 | `scripts/host.mjs handoff|pause|backup|restore|switch|rollback`（backup／restore 實作在 `scripts/host-state.mjs`） |
-| `external-offline-alert` | 被監控主機之外的觀察端收心跳，主機離線時告警真的送達授權通知管道；記錄事件／偵測／送達時間、去重與恢復通知 | `scripts/host.mjs health --out FILE`＋另一台主機的 `scripts/check-host-heartbeat.mjs --file FILE --host HOSTID` |
+| `external-offline-alert` | 被監控主機之外的觀察端收心跳，主機離線時告警真的送達授權通知管道；記錄事件／偵測／送達時間、去重與恢復通知 | `scripts/host.mjs health --home DIR --out FILE`＋另一台主機的 `scripts/check-host-heartbeat.mjs --file FILE --host HOSTID` |
 | `trial-72h` | 完成固定故障演練後的 72 小時觀測窗；須跨多個 repo 產生可驗收成果，不以空轉計時 | 既有 daemon／supervise 收據、attempt 帳務、delivery-health 報告（僅在其實際可用並驗證後引用） |
 
 ## `trial-72h` metrics 合約
 
 PASS 前 `criteria["trial-72h"].metrics` 必須填入實測值並滿足：
 
-- `required` 全部存在：`observedStart`、`observedEnd`（ISO8601，且結束晚於開始）、`counts`（含 `completed`／`blocked`／`waitingHuman`／`unknown` 整數）、`unscheduledRescues`（非預期人工救援次數）、`reposWithDeliverables`（⊆ `authorizedRepos` 且 ≥2，每 repo 附最長符合條件等待）、`cost`（`{ "known": <usd>, "unknown": <usd> }`）。
+- `required` 全部存在且有實測證據；未觀測值不得以 0 或空陣列冒充已觀測。
+- `observedStart`、`observedEnd` 為有效 ISO8601 時間，且 `Date.parse(observedEnd) - Date.parse(observedStart) >= windowHours * 3_600_000`。`windowHours` 在本次試行固定為 72；不足 72 小時維持 `INCOMPLETE`。
+- `effectiveRuntimeMs` 為觀測窗內有效運作毫秒數，須為有限非負數且不大於觀測長度；`counts` 含 `completed`／`blocked`／`waitingHuman`／`unknown` 非負整數；`scheduledFaults`／`unscheduledRescues` 分別為預定故障／非預期人工救援次數，皆為非負整數；`recoveryDurationsMs` 為各故障／救援事件的恢復毫秒數陣列，逐筆附事件與恢復收據。這些數值須保存，不另增設 issue 未要求的運作率、救援或恢復時間門檻。
+- `reposWithDeliverables` 為 `authorizedRepos` 中至少兩個不同 repo；`repoWaits` 必須涵蓋所有 `authorizedRepos`，包括沒有成果的 repo。以 repo 為鍵記錄 `maxEligibleWaitMs`（最長符合條件等待的非負毫秒數）；無符合條件工作時填 `null` 並附原因與觀測證據，不得省略或填 0 冒充無等待。
+- `cost`（`{ "known": <usd>, "unknown": <成本未知筆數> }`）：已知金額為有限非負 USD，附帳務來源；未知成本沿用 attempt accounting 的 `unknownCost` 非負整數筆數，不能臆測未知 USD 或將未知費用填為 $0。估算與訂閱名義金額另附來源，不冒充已知實付。
 - `zero` 全部為 0：`unauthorizedWrites`、`duplicateWriters`、`costSwitches`——任一不為 0 即硬條件失敗。
 
 ## 硬性停止條件
@@ -72,7 +78,7 @@ PASS 前 `criteria["trial-72h"].metrics` 必須填入實測值並滿足：
 `hardFailures` 記錄以下事件，任一發生即停止受影響試行並保留現場；僅在隔離邊界確認安全後其他 repo 才得繼續：
 
 - `duplicate-writer`：重複接單／重複 PR／成果誤認。
-- `unconfirmed-backend`：無法確認的舊後端仍在接工作。
+- `unconfirmed-backend`：無法確認舊後端已停止或隔離，包括失聯而無法排除仍在執行／接單；不以證明仍在接工作為停止前提。
 - `evidence-mismatch`：證據遺失或與收據雜湊錯配。
 - `cost-breach`：超出已授權成本上限。
 - `scope-breach`：超出已授權工作範圍。
