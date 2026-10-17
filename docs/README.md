@@ -66,6 +66,7 @@ AutoDev NG 將使用者授權的 backlog／GOAL 交給引擎，在隔離工作�
 | 範圍 | 證據入口與界線 |
 |---|---|
 | GitHub 自動報告 | [2026-09-07 驗收](verification/github-reports-2026-09-07.md) |
+| exact execution STEER／QUEUE | [2026-10-16 真實 Codex 驗收與限制](verification/issue-11-2026-10-16.md) |
 | GitHub CLI 修復 | [2026-09-07 驗收](verification/github-repair-2026-09-07.md) |
 | CLI 自主開發與安全恢復 | [2026-09-08 驗收](verification/cli-autonomy-2026-09-08.md)；該紀錄仍缺真實 Codex 修復成功證據，最終以 `verify-autonomy.mjs` 對指定提交及 Issue 的檢查為準 |
 | 六份歷史 GOAL 草稿 | [規格索引](goal-queue/README.md)；保留各自缺少的驗收，不因文件整理改列完成 |

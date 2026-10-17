@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "envelopeId": "91f3aeeb-74b3-4fa4-811f-ee34d2c05857",
+  "project": "config",
+  "executionId": "08759120-35a2-436a-9dfe-0cdeb7cdc9b2",
+  "taskId": "c9a1761e",
+  "requestedMode": "QUEUE",
+  "disposition": "STALE",
+  "issuer": "cli",
+  "channel": "cli",
+  "instructionHash": "cba777cfe27a86b10ec8a3cf9877ac8de8ac071876e6b5babe0783e7c19827f7",
+  "commitId": "f5047d53-3ae6-4775-9233-1f23d2f3cbb7",
+  "authority": "committed matching envelope with no unresolved transaction",
+  "occurredAt": "2026-10-16T14:52:23.535Z",
+  "detail": "目標執行已不在可投遞狀態",
+  "bundleHash": "1ff72e67ea0773f1ae716092951abbd863912f18ed71071fa2edb54311ededaa"
+}

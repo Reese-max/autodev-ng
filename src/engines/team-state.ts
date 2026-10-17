@@ -35,6 +35,7 @@ export class TeamState {
       );
       CREATE UNIQUE INDEX IF NOT EXISTS one_active_execution_per_task ON team_claims(task_id) WHERE active=1;
       CREATE TABLE IF NOT EXISTS team_attempts(execution_id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, day TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS team_control_attempts(dispatch_id TEXT PRIMARY KEY, execution_id TEXT NOT NULL, worker_id TEXT NOT NULL, day TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS merge_queue(
         seq INTEGER PRIMARY KEY AUTOINCREMENT, execution_id TEXT NOT NULL UNIQUE, task_id TEXT NOT NULL,
         candidate_head TEXT NOT NULL, branch TEXT NOT NULL, worktree_path TEXT NOT NULL,
@@ -85,7 +86,32 @@ export class TeamState {
   }
 
   attemptsToday(workerId: string, day = new Date().toISOString().slice(0, 10)): number {
-    return (this.db.prepare('SELECT COUNT(*) n FROM team_attempts WHERE worker_id=? AND day=?').get(workerId, day) as { n: number }).n
+    return (this.db.prepare('SELECT (SELECT COUNT(*) FROM team_attempts WHERE worker_id=? AND day=?) + (SELECT COUNT(*) FROM team_control_attempts WHERE worker_id=? AND day=?) n').get(workerId, day, workerId, day) as { n: number }).n
+  }
+
+  /** Extend the exact live ownership lease's budget, with a durable one-use dispatch attempt. */
+  admitAdditionalTurn(args: {
+    executionId: string; token: string; taskId: string; workerId: string; dispatchId: string
+    requiredReservedCostUsd: number; spentUsd: number; dailyHardUsd: number; dailyAttemptCap?: number
+  }): boolean {
+    if (![args.requiredReservedCostUsd, args.spentUsd, args.dailyHardUsd].every(value => Number.isFinite(value) && value >= 0)
+      || !args.dispatchId || args.dailyAttemptCap !== undefined && (!Number.isSafeInteger(args.dailyAttemptCap) || args.dailyAttemptCap <= 0)) return false
+    return this.db.transaction(() => {
+      this.reapExpired(Date.now())
+      const own = this.db.prepare("SELECT reserved_cost_usd FROM team_claims WHERE execution_id=? AND lease_token=? AND task_id=? AND worker_id=? AND active=1 AND state='RUNNING' AND lease_until>=?").get(
+        args.executionId, args.token, args.taskId, args.workerId, Date.now(),
+      ) as { reserved_cost_usd: number } | undefined
+      if (!own || this.db.prepare('SELECT 1 FROM merge_queue WHERE execution_id=?').get(args.executionId)
+        || this.db.prepare('SELECT 1 FROM team_control_attempts WHERE dispatch_id=?').get(args.dispatchId)) return false
+      const day = new Date().toISOString().slice(0, 10)
+      if (args.dailyAttemptCap !== undefined && this.attemptsToday(args.workerId, day) >= args.dailyAttemptCap) return false
+      const reservation = Math.max(own.reserved_cost_usd, args.requiredReservedCostUsd)
+      const others = (this.db.prepare("SELECT COALESCE(SUM(reserved_cost_usd),0) n FROM team_claims WHERE execution_id<>? AND (active=1 OR state='QUARANTINED')").get(args.executionId) as { n: number }).n
+      if (args.dailyHardUsd > 0 && args.spentUsd + others + reservation > args.dailyHardUsd) return false
+      this.db.prepare('INSERT INTO team_control_attempts(dispatch_id,execution_id,worker_id,day) VALUES (?,?,?,?)').run(args.dispatchId, args.executionId, args.workerId, day)
+      this.db.prepare('UPDATE team_claims SET reserved_cost_usd=?,updated_at=? WHERE execution_id=?').run(reservation, new Date().toISOString(), args.executionId)
+      return true
+    }).immediate()
   }
 
   heartbeat(executionId: string, token: string, leaseMs: number): boolean {

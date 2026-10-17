@@ -286,7 +286,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     }
     // Issue #11：把 in-flight 指示通道接進 job.control——只有能力表 inFlightSteer=true
     // 的 adapter 才有 port 可 poll()；未接線的 adapter 從源頭就取不到 STEER 信封。
-    if (ENGINE_CAPABILITIES[cfg.engines[engineTag]?.adapter as Adapter]?.control.inFlightSteer === true)
+    if (observation && ENGINE_CAPABILITIES[cfg.engines[engineTag]?.adapter as Adapter]?.control.inFlightSteer === true)
       job.control = { ...(job.control ?? {}), steer: controls.steerPort(executionId) }
     // Consume the one-time retry receipt and observe learning only after admission.
     if (cfg.alternativeRetry && alternativeRetryDue(cfg, db.taskFailCount(task.id))) {
@@ -317,7 +317,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   // Issue #11：QUEUE 信封在回合邊界送達——同一 executionId 的有界 follow-up turn。
   // 僅首回合成功時接續；verify/merge critical section 在其後，控制訊息絕不注入該段。
   if (!pending && res.ok) {
-    try { res = await deliverQueuedControls(deps, engine!, job, res, controls, () => observation?.recoveryRequired === true, engineTag, fixedCost, controlCost) }
+    try { res = await deliverQueuedControls(deps, engine!, job, res, controls, () => observation?.recoveryRequired === true, engineTag, fixedCost, controlCost, teamClaim?.token) }
     catch (err) {
       res = combineRuns(res, { ok: false, output: `[control-turn error] ${String(err)}`, costUsd: 0, costUnknown: true, failureReason: `control-turn：${String(err)}` })
     }

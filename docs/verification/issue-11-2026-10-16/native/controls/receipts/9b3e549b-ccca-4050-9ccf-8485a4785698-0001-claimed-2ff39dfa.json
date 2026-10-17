@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "envelopeId": "9b3e549b-ccca-4050-9ccf-8485a4785698",
+  "project": "config",
+  "executionId": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+  "taskId": "b7efadc5",
+  "requestedMode": "STEER",
+  "disposition": "CLAIMED",
+  "issuer": "cli",
+  "channel": "cli",
+  "instructionHash": "ce6eac876f14d9323bdf9eb1cb7c51075ce9277a08cf8706c6974f5c4896b98c",
+  "commitId": "ff845de8-2943-4580-9baf-7035990fd178",
+  "authority": "committed matching envelope with no unresolved transaction",
+  "occurredAt": "2026-10-16T14:50:01.357Z",
+  "bundleHash": "91babde7b3b25b65bda6323e1ea40a403f9d47e6a60b3751fefae53ea972ec38"
+}
