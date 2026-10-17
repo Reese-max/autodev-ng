@@ -5,6 +5,12 @@ Research deliverable for `Reese-max/autodev-ng#17`（P1 Research）。
 mapping；不新增 credential broker、不改 secrets、不做 runtime enforcement。
 #13–#16 恢復綠燈前不進 production 實作。
 
+> 歷史設計初稿：下列 schema 與 fixture 提案已由
+> [最終離線研究](issue-17-principal-replay/README.md)取代。
+> 最後採 attribution-only 的 `PrincipalReceipt` sidecar，保留既有
+> `writerIdentity=engineTag` 與獨立審查語意；下列 writer 擴充及
+> `revocable: true` 範例不代表已實作的契約或 provider 撤銷證據。
+
 ## 1. 問題陳述
 
 `Job.executionId` 已是 correlation key，但 `writerIdentity` 只解析到

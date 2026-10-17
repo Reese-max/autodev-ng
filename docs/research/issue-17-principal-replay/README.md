@@ -46,8 +46,20 @@ observation and receipt records are strictly parsed; `schemas.json` is generated
 from those runtime schemas. Raw credential fields, non-reference lease binding,
 false reviewer PASS and invented verified inventory states are rejected.
 
-The fixed sequence currently passes 13 cases with 12 actual adapter invocations.
-Four local candidate commits pass their actual Node check. All 12 original gate
+Self-review corrections validate registry candidates before replacement, check
+the exact principal/execution pair in the emitted Node test, and correct the
+current JSON Schema's `notBeforeMs` minimum to zero. Run their regression checks
+with `npm test -- tests/principal-research.test.ts`. Frozen author evidence,
+including `evidence/run/schemas.json` and recorded instrument hashes, preserves
+the original experiment; it predates these corrections. A full Linux/Node 22
+replay of the corrected instruments has not been recorded here.
+
+Independent lease-only revocation has no fixture state or operation. Whether
+original acceptance #7 requires that additional contract and probe remains
+`needs-human`; principal revocation and lease expiry retain their existing scope.
+
+Frozen author evidence records 13 passing cases with 12 actual adapter invocations.
+Four local candidate commits passed their actual Node check. All 12 original gate
 bundles remain **BLOCKED** because independent review is `not-run`. Original
 `writerIdentity` remains `freebuff` for reviewer-model lookup; the new principal
 identifier exists only in a research sidecar linked to the existing bundle hash.

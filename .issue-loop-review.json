@@ -1,0 +1,38 @@
+{
+  "pr": 25,
+  "head": "9888770f45993b0e09e7454ebf034d97dc043e9e",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "docs/research/issue-17-principal-replay/mock-authority.mjs",
+      "line": 37,
+      "issue": "save() replaces the durable registry before validating it. Repeating an otherwise valid create-child grant persists duplicate identities, then throws DUPLICATE_IDENTITY and leaves every subsequent load broken. Validate the temporary candidate before publishing it."
+    },
+    {
+      "severity": "med",
+      "file": "docs/research/issue-17-principal-replay/replay.mjs",
+      "line": 53,
+      "issue": "The generated local result test checks only truthy principal/execution IDs, and the replay checks only the exact execution ID. A committed result attributed to the wrong principal still passes while its sidecar claims the requested principal. Check the exact pair in the emitted Node test."
+    },
+    {
+      "severity": "med",
+      "file": "docs/research/issue-17-principal-replay/schemas.mjs",
+      "line": 10,
+      "issue": "The notBeforeMs constraint order emits JSON Schema minimum -9007199254740991 although the runtime rejects negative values. Reorder the constraints and regenerate the current schema without rewriting frozen historical evidence."
+    },
+    {
+      "severity": "low",
+      "file": "docs/research/issue-17-agent-principal.md",
+      "line": 44,
+      "issue": "The original design still describes expanding writer identity and a revocable lease without identifying it as superseded or linking the final attribution-only sidecar design. Mark the draft as historical and link the canonical study."
+    },
+    {
+      "severity": "med",
+      "file": "docs/research/issue-17-principal-replay/mock-authority.mjs",
+      "line": 78,
+      "issue": "needs-human: Original acceptance #7 names revoked credential leases, but the fixture models principal revocation and lease expiry only. Decide whether principal-wide invalidation satisfies the bounded research requirement or whether independent lease revocation needs an explicit contract and probe; do not silently introduce new semantics."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed four defects in registry publication, exact result attribution, generated schema constraints, and superseded documentation; six regression checks pass after five failed before the fixes. Build/typecheck pass, while the pre-existing full suite remains red: 1968 passed and 9 failed across three unchanged test files. needs-human: independent lease-revocation acceptance remains ambiguous, and corrected instruments lack a fresh full Linux/Node 22 replay."
+}

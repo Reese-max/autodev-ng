@@ -50,7 +50,7 @@ function start(id,executionId,options={}) {
   const r=load(registryFile),grant=options.leaseId?r.leases.find(l=>l.leaseId===options.leaseId):r.leases.find(l=>l.principalId===id&&l.executionId===executionId)||r.leases.find(l=>l.principalId===id)
   const folder=join(root,options.folder||executionId);mkdirSync(folder)
   const project=join(folder,'project');mkdirSync(project);git(['init','-q'],project)
-  writeFileSync(join(project,'check.cjs'),"require('node:test')('actual local result',()=>{const r=JSON.parse(require('node:fs').readFileSync('result.json','utf8'));require('node:assert/strict').ok(r.executionId&&r.principalId)})\n")
+  writeFileSync(join(project,'check.cjs'),`require('node:test')('actual local result',()=>{const r=JSON.parse(require('node:fs').readFileSync('result.json','utf8'));require('node:assert/strict').deepEqual(r,${JSON.stringify({principalId:id,executionId})})})\n`)
   git(['add','check.cjs'],project);git(['-c','user.name=Research Fixture','-c','user.email=research-fixture@example.invalid','commit','-qm','test: research baseline'],project)
   const task={id:'research'+String(receipts.length).padStart(4,'0'),text:'Offline principal attribution fixture',line:0,status:'open'}
   const job={task,projectPath:project,executionId,writerIdentity:'freebuff'}

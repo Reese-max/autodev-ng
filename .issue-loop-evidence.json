@@ -1,0 +1,16 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "issue": 25,
+  "base_sha": "9888770f45993b0e09e7454ebf034d97dc043e9e",
+  "red_proof": "Before changing the reviewed implementation, Git Bash ran npm test -- tests/principal-research.test.ts --reporter=verbose against admitted head 9888770f45993b0e09e7454ebf034d97dc043e9e plus the new regression file. Exit 1: 5 failed, 1 passed. Duplicate child grant corrupted the durable registry; generated notBeforeMs minimum was -9007199254740991 instead of 0; both wrong-principal and wrong-execution native checks incorrectly exited 0 instead of 1; the historical draft lacked the final-study link. The matching-attribution positive control passed. Captured red log SHA-256: 6e925738cef06d784738edda873d2eb2ab556834029844bd873a61a0d4354de9.",
+  "test_command": "npm run build && npm run typecheck && npm test -- tests/principal-research.test.ts --reporter=verbose",
+  "test_exit": 0,
+  "tests_passed": 6,
+  "tests_failed": 0,
+  "summary": "Validate the registry candidate before publication, bind the emitted Node check to the exact principal/execution pair, align generated timestamp constraints with runtime validation, and direct the historical draft to the final sidecar contract. Six focused regression checks pass; historical result and receipt digests, eight pinned source blobs, and all twelve original BLOCKED gate bundles were independently checked without changing frozen evidence.",
+  "not_done": [
+    "needs-human: Clarify whether acceptance #7 requires independent credential-lease revocation; the current mock models principal revocation and lease expiry only.",
+    "The corrected instruments have not had a fresh full Linux/Node 22 replay. Frozen historical evidence remains unchanged and is not new verification.",
+    "The complete existing suite (npm test -- --reporter=dot), started before implementation edits, exited 1: 1968 passed, 9 failed; 198 passed and 3 failed files (201 total). Failures: tests/autopilot-completion.test.ts (3, missing deps.store), tests/cli.test.ts (1, free-policy configuration), tests/github-repair.test.ts (5, local quota/admission/reviewer availability). The failing tests and their product source/configuration remain unchanged; no tests or policies were weakened. The declared test_command above covers the six new regressions, not a green full suite."
+  ]
+}

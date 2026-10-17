@@ -34,8 +34,8 @@ export function load(file) {
 export function save(file, registry) {
   const temporary = file + '.tmp'
   writeFileSync(temporary, JSON.stringify(registry, null, 2) + '\n', {mode:0o600})
+  load(temporary)
   renameSync(temporary, file)
-  load(file)
 }
 export function evaluate(r, principalId, executionId, leaseId, action, now = Date.now()) {
   const principal = r.principals.find(p=>p.principalId===principalId)
