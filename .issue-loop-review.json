@@ -1,0 +1,32 @@
+{
+  "pr": 157,
+  "head": "82dfef0a634d1be32ebacc1dfecb22c7091c6eab",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "tests/setup-windowshide.ts",
+      "line": 33,
+      "issue": "The shared setup runs per test file, so parallel workers both observe missing dist markers and run overlapping builds. A clean-checkout regression with two workers records two compiler invocations rather than the claimed one-time build. Build once in Vitest globalSetup before workers start."
+    },
+    {
+      "severity": "med",
+      "file": "tests/setup-windowshide.ts",
+      "line": 32,
+      "issue": "Three existing dist files neither establish source freshness nor runtime completeness. With stale markers the runtime tests execute old JavaScript; with just those markers present dist/cli.js is missing and integration tests fail or skip. Rebuild the current source before each test invocation instead of using marker presence as a cache key."
+    },
+    {
+      "severity": "low",
+      "file": "tests/setup-windowshide.ts",
+      "line": 34,
+      "issue": "The new named execSync import bypasses the existing default child_process monkey-patch: builtin ESM named bindings do not follow cp.execSync reassignment. Its missing windowsHide option reintroduces visible shell windows on Windows. Set windowsHide explicitly on the build invocation."
+    },
+    {
+      "severity": "low",
+      "file": "docs/herdr-unattended-acceptance.md",
+      "line": 31,
+      "issue": "needs-human: the overall verdict vocabulary permits only INCOMPLETE and HALTED, leaving no defined verdict when every required gate has passed and no hard failure exists. Choose the intended success verdict and its required evidence before using this as a completed acceptance record; this is a contract decision, so it is not changed automatically."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed three runtime-build setup defects by building current sources once in Vitest globalSetup before workers start, with explicit Windows console hiding and visible compiler diagnostics. Four regression tests failed before the fix; build, typecheck and the full suite now pass (231 files, 2,463 tests, no skips). needs-human: the acceptance document still needs a decision on the overall success verdict and its evidence requirements; no host acceptance or activation is claimed."
+}
