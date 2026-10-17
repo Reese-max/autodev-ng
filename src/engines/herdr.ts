@@ -78,6 +78,7 @@ export class HerdrEngine implements Engine {
     const admission = unknownAdmission('herdr', this.model)
     admission.backend = this.backendBase()
     let result: PreflightResult
+    let hold: number | undefined
     if (!existsSync(this.command)) {
       result = { ok: false, detail: `找不到 Herdr launcher：${this.command}` }
     } else {
@@ -87,11 +88,13 @@ export class HerdrEngine implements Engine {
       } else {
         const { r, status } = probe
         applyBackendStatus(admission, status, { ...this.backendBase(), model: this.model })
-        const hold = quotaHoldUntil(admission)
         const serverOk = r.exitCode === 0 && !r.timedOut && status.running === true && status.compatible === true
         if (!serverOk) {
           result = { ok: false, detail: `Herdr 未就緒或不相容（exit=${r.exitCode} protocol=${String(status.protocol ?? '?')}）` }
+        } else if (admission.backend?.provider?.toLowerCase() !== this.provider.toLowerCase()) {
+          result = { ok: false, detail: `backend provider mismatch: requested ${this.provider}, reported ${admission.backend?.provider ?? '?'}；設定問題` }
         } else {
+          hold = admission.auth?.state === 'missing' ? undefined : quotaHoldUntil(admission)
           // 設了 model 但 backend 無法證實＝設定期望未被驗證，不得放行（unknown 不冒充可用）。
           const unverified = this.model !== undefined && admission.model.state === 'unknown'
             ? { ok: false as const, detail: `model unverified: requested ${this.model}；backend status 無可靠模型欄位` }
@@ -105,8 +108,13 @@ export class HerdrEngine implements Engine {
         }
       }
     }
-    result = { ...result, admission, detail: `${result.detail}; auth=${admission.auth?.state ?? 'unknown'}; model=${admission.model.state}; quota=${admission.quota.state}` }
-    const hold = quotaHoldUntil(admission)
+    // 先以原始觀測完成判定，再遮蔽輸出；不得讓遮蔽文字改變 provider 或 enum 判斷。
+    for (const section of [admission.backend, admission.auth, admission.quota, admission.model]) {
+      if (!section) continue
+      for (const [key, value] of Object.entries(section))
+        if (key !== 'state' && typeof value === 'string') Reflect.set(section, key, redactCli(value))
+    }
+    result = { ...result, admission, detail: redactCli(`${result.detail}; auth=${admission.auth?.state ?? 'unknown'}; model=${admission.model.state}; quota=${admission.quota.state}`) }
     if (hold !== undefined) this.cache.setUntil(key, result, hold)
     else this.cache.set(key, result)
     return result
@@ -117,13 +125,13 @@ export class HerdrEngine implements Engine {
     const args = ['--session', this.sessionName, 'status', 'server', '--json']
     let last = ''
     for (let i = 0; i <= this.statusRetries; i++) {
-      if (i > 0) await new Promise(res => setTimeout(res, this.statusRetryDelayMs * 2 ** (i - 1)))
+      if (i > 0) await new Promise(res => setTimeout(res, Math.min(5_000, this.statusRetryDelayMs * 2 ** (i - 1))))
       try {
         const r = await this.runner({
           command: 'herdr.exe', args, cwd: process.cwd(), stdinText: '', timeoutMs: this.pingTimeoutMs,
         })
         const status = parseHerdrStatus(r.stdout)
-        if (status) return { r, status }
+        if (status && !r.timedOut) return { r, status }
         last = cliDiagnostic(r, undefined, args).slice(0, 400) || `exit=${r.exitCode} timedOut=${r.timedOut}`
       } catch (err) {
         last = redactCli(String(err), { ...process.env }, args).slice(0, 400)
@@ -182,8 +190,8 @@ export class HerdrEngine implements Engine {
     return { source: `herdr.exe --session ${this.sessionName} status server --json`, provider: this.provider, launcherSha256: launcherDigest(this.command) }
   }
 
-  /** 快取綁定精確 runtime：session／provider／model＋launcher 檔案內容雜湊（變動即新 key→重探）。 */
-  private cacheKey(): string { return cliPreflightKey(this.command, [this.sessionName, this.provider, this.model ?? '', launcherDigest(this.command)]) }
+  /** 快取綁定 session／provider／model、launcher 內容與已知登入設定；runtime 版本只在重探時觀測。 */
+  private cacheKey(): string { return cliPreflightKey(this.command, [this.sessionName, this.provider, this.model ?? '', launcherDigest(this.command), 'herdr-readiness-v2'], undefined, this.provider.toLowerCase()) }
 }
 
 function safeId(value: string): string {

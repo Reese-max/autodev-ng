@@ -46,11 +46,10 @@ function authState(raw: unknown): 'available' | 'missing' | 'unknown' {
 }
 
 function parseReset(v: unknown): string | undefined {
-  if (finite(v) && v > 0) return new Date(v < 8.64e12 ? v * 1000 : v).toISOString()
-  const s = str(v)
-  if (!s) return undefined
-  const t = Date.parse(s)
-  return Number.isFinite(t) ? new Date(t).toISOString() : undefined
+  // ponytail: numeric epochs use a 1e12 seconds/ms cutoff; prefer explicit units if the backend adds them.
+  const t = finite(v) && v > 0 ? (v < 1e12 ? v * 1000 : v) : Date.parse(str(v) ?? '')
+  const date = new Date(t)
+  return Number.isFinite(date.getTime()) ? date.toISOString() : undefined
 }
 
 /** 額度：明確 exhausted／remaining=0 才算耗盡；有窗口或明確可用才 available；其他 unknown（不猜剩餘與重設）。 */
@@ -77,8 +76,10 @@ function modelState(status: Record<string, unknown>, backend: Record<string, unk
     : undefined
   const reported = str(status.model) ?? str(backend.model) ?? str(status.reportedModel) ?? str(backend.reportedModel)
   const base = { ...(requested ? { requested } : {}), ...(reported ? { reported } : {}) }
-  if (requested && reported === requested)
-    return { ...base, state: 'listed', detail: 'backend reported active model matches requested' }
+  if (requested && reported)
+    return { ...base, state: reported === requested ? 'listed' : 'unavailable',
+      detail: reported === requested ? 'backend reported active model matches requested'
+        : `backend reported model ${reported}；與 requested 不符（設定問題）` }
   if (list && list.length > 0)
     return { ...base, state: requested ? (list.includes(requested) ? 'listed' : 'unavailable') : 'unknown',
       detail: `backend models list: ${list.length} models${requested && !list.includes(requested) ? '；requested 不在清單（設定問題）' : ''}` }

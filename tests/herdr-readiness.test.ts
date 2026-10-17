@@ -7,11 +7,13 @@ import { applyBackendStatus, launcherDigest, parseHerdrStatus, quotaHoldUntil } 
 import { unknownAdmission } from '../src/engines/cli-admission.js'
 import { makeEngineRegistry } from '../src/engines/registry.js'
 import { runProcess } from '../src/engines/proc.js'
+import * as processRunner from '../src/engines/proc.js'
+import { cliPreflightKey } from '../src/engines/cli-diagnostics.js'
 import { PreflightCache } from '../src/preflight.js'
 import { ConfigSchema } from '../src/types.js'
 
 const roots: string[] = []
-afterEach(() => { vi.useRealTimers(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.useRealTimers(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
 const fixtures = resolve('tests/fixtures/herdr')
 const fx = (name: string) => readFileSync(join(fixtures, name), 'utf8')
@@ -284,4 +286,138 @@ test('quotaHoldUntil：非 exhausted 或 reset 已過→undefined；未來 reset
   expect(hold).toBeGreaterThan(Date.now())
   a.quota.resetsAt = new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString()
   expect(quotaHoldUntil(a)!).toBeLessThanOrEqual(Date.now() + 24 * 60 * 60_000 + 1000) // 可靠 reset 也有 24h 上限
+})
+
+test('self-review: registry model pin rejects a different active model even when both are listed', async () => {
+  const { dir, launcher } = fixture()
+  vi.stubEnv('HERDR_MODEL_TEST', 'wanted-model')
+  vi.spyOn(processRunner, 'runProcess').mockResolvedValue(proc(JSON.stringify({ running: true, compatible: true,
+    backend: { provider: 'Codex', model: 'actual-model', models: ['wanted-model', 'actual-model'] } })))
+  const cfg = ConfigSchema.parse({ projectPath: dir, backlogFile: join(dir, 'BACKLOG.md'), dataDir: dir,
+    defaultEngine: 'herdr', engines: { herdr: { adapter: 'herdr', command: launcher, model: '{env:HERDR_MODEL_TEST}', costPerRunUsd: 0 } } })
+  const r = await makeEngineRegistry(cfg).resolve('herdr').preflight()
+  expect(r.admission?.model).toMatchObject({ requested: 'wanted-model', reported: 'actual-model' })
+  expect(r.ok).toBe(false)
+  expect(r.admission?.model.state).toBe('unavailable')
+})
+
+test.each(['status-ok.json', 'status-quota-exhausted.json'])('self-review: readiness from a different provider is rejected without a quota hold (%s)', async file => {
+  vi.useFakeTimers()
+  const { launcher, cacheFile } = fixture()
+  let calls = 0
+  const engine = new HerdrEngine({ command: launcher, provider: 'Pi', cache: new PreflightCache(cacheFile, 60_000, 50),
+    runProcess: async () => { calls++; return proc(fx(file)) } })
+  const r = await engine.preflight()
+  expect(r.ok).toBe(false)
+  expect(r.detail).toMatch(/provider.*設定問題/)
+  await vi.advanceTimersByTimeAsync(80)
+  await engine.preflight()
+  expect(calls).toBe(2)
+})
+
+test.each(['auth.json', 'config.toml'])('self-review: Codex %s changes invalidate cached readiness', async file => {
+  const { dir, launcher, cacheFile } = fixture()
+  vi.stubEnv('CODEX_HOME', dir)
+  let calls = 0
+  const engine = new HerdrEngine({ command: launcher, cache: new PreflightCache(cacheFile),
+    runProcess: async () => { calls++; return proc(fx('status-ok.json')) } })
+  await engine.preflight()
+  await engine.preflight()
+  expect(calls).toBe(1)
+  writeFileSync(join(dir, file), 'synthetic changed auth/config identity')
+  await engine.preflight()
+  expect(calls).toBe(2)
+})
+
+test('self-review: cached readiness from the previous validator is not reused', async () => {
+  const { launcher, cacheFile } = fixture()
+  const cache = new PreflightCache(cacheFile)
+  cache.set(cliPreflightKey(launcher, ['herdr-autopilot', 'Codex', '', launcherDigest(launcher)]), { ok: true, detail: 'legacy proof' })
+  const runner = vi.fn(async () => proc(fx('status-server-down.json')))
+  const engine = new HerdrEngine({ command: launcher, cache, runProcess: runner })
+  expect((await engine.preflight()).ok).toBe(false)
+  expect(runner).toHaveBeenCalledTimes(1)
+})
+
+test.each(['seconds', 'milliseconds'])('self-review: numeric quota reset in %s expires at the actual reset', async unit => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-10-17T00:00:00Z'))
+  const { launcher, cacheFile } = fixture()
+  const resetMs = Date.now() + 60_000
+  let calls = 0
+  const engine = new HerdrEngine({ command: launcher, cache: new PreflightCache(cacheFile),
+    runProcess: async () => { calls++; return proc(JSON.stringify({ running: true, compatible: true,
+      backend: { quota: { state: 'exhausted', resetsAt: unit === 'seconds' ? resetMs / 1000 : resetMs } } })) } })
+  expect((await engine.preflight()).admission?.quota.resetsAt).toBe(new Date(resetMs).toISOString())
+  await vi.advanceTimersByTimeAsync(60_001)
+  await engine.preflight()
+  expect(calls).toBe(2)
+})
+
+test('self-review: an out-of-range reset falls back to bounded cooldown without throwing', async () => {
+  const { launcher, cacheFile } = fixture()
+  const engine = new HerdrEngine({ command: launcher, cache: new PreflightCache(cacheFile),
+    runProcess: async () => proc(JSON.stringify({ running: true, compatible: true, backend: { quota: { state: 'exhausted', resetsAt: 1e20 } } })) })
+  const r = await engine.preflight()
+  expect(r.ok).toBe(false)
+  expect(r.admission?.quota.resetsAt).toBeUndefined()
+  expect(r.detail).toContain('bounded cooldown')
+})
+
+test('self-review: a timed-out status with complete JSON is retried', async () => {
+  const { launcher, cacheFile } = fixture()
+  let calls = 0
+  const engine = new HerdrEngine({ command: launcher, cache: new PreflightCache(cacheFile), statusRetryDelayMs: 0,
+    runProcess: async () => proc(fx('status-ok.json'), 0, ++calls === 1) })
+  expect((await engine.preflight()).ok).toBe(true)
+  expect(calls).toBe(2)
+})
+
+test('self-review: every exponential backoff is bounded to five seconds', async () => {
+  vi.useFakeTimers()
+  const { launcher, cacheFile } = fixture()
+  const sleep = vi.spyOn(globalThis, 'setTimeout')
+  const engine = new HerdrEngine({ command: launcher, cache: new PreflightCache(cacheFile), statusRetries: 4, statusRetryDelayMs: 5_000,
+    runProcess: async () => proc('invalid JSON', 1) })
+  const result = engine.preflight()
+  await vi.runAllTimersAsync()
+  expect((await result).ok).toBe(false)
+  expect(sleep.mock.calls.map(call => call[1])).toEqual([5_000, 5_000, 5_000, 5_000])
+})
+
+test('self-review: structured backend strings and protocol cannot leak credentials into readiness or cache', async () => {
+  const { launcher, cacheFile } = fixture()
+  const secret = 'synthetic-readiness-private-value'
+  vi.stubEnv('HERDR_TEST_TOKEN', secret)
+  const engine = new HerdrEngine({ command: launcher, cache: new PreflightCache(cacheFile),
+    runProcess: async () => proc(JSON.stringify({ running: true, compatible: true, protocol: secret, version: secret,
+      backend: { provider: 'Codex', model: secret, cliVersion: secret } })) })
+  const r = await engine.preflight()
+  expect(JSON.stringify(r)).not.toContain(secret)
+  expect(readFileSync(cacheFile, 'utf8')).not.toContain(secret)
+})
+
+test.each(['missing', 'exhausted', 'unavailable'])('self-review: credential masking preserves the %s admission decision', async state => {
+  const { launcher, cacheFile } = fixture()
+  vi.stubEnv('HERDR_TEST_TOKEN', state)
+  const engine = new HerdrEngine({ command: launcher, cache: new PreflightCache(cacheFile), model: 'wanted-model',
+    runProcess: async () => proc(JSON.stringify({ running: true, compatible: true, backend: {
+      model: state === 'unavailable' ? 'other-model' : 'wanted-model',
+      auth: { state: state === 'missing' ? 'missing' : 'available' },
+      quota: { state: state === 'exhausted' ? 'exhausted' : 'available' },
+    } })) })
+  const r = await engine.preflight()
+  expect(r.ok).toBe(false)
+  const observed = state === 'missing' ? r.admission?.auth : state === 'exhausted' ? r.admission?.quota : r.admission?.model
+  expect(observed?.state).toBe(state)
+})
+
+test('self-review: credential masking cannot change a matching provider decision', async () => {
+  const { launcher, cacheFile } = fixture()
+  vi.stubEnv('HERDR_TEST_TOKEN', 'Codex')
+  const engine = new HerdrEngine({ command: launcher, cache: new PreflightCache(cacheFile),
+    runProcess: async () => proc(fx('status-ok.json')) })
+  const r = await engine.preflight()
+  expect(r.ok).toBe(true)
+  expect(r.admission?.backend?.provider).toBe('[REDACTED]')
 })

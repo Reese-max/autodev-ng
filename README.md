@@ -184,9 +184,11 @@ Guardian 不啟動 subagent，也不另設專案任務總時間／成本上限�
 pwsh -NoProfile -File scripts/herdr-fleet-console.ps1
 ```
 
-Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.herdr.command` 必須指向 `Start-Herdr-Autopilot.ps1`，並設定 `costPerRunUsd`。可選的 `engines.herdr.provider` 為 `Codex` 或 `Pi`，未設仍走 Codex；`engines.herdr.model` 設定時會與 status 回報的 backend 模型／清單比對，不符即視為設定問題拒絕派工。Pi 必須先有可用模型／provider。AutoDev 仍擁有 worktree、提交與最終驗收。
+Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.herdr.command` 必須指向 `Start-Herdr-Autopilot.ps1`，並設定 `costPerRunUsd`。可選的 `engines.herdr.provider` 為 `Codex` 或 `Pi`，未設仍走 Codex；回報的 backend provider 必須符合設定。`engines.herdr.model` 設定時會與 status 回報的 backend 模型／清單比對，已回報的 active model 不符時，即使清單包含指定模型仍拒絕派工。Pi 必須先有可用模型／provider。AutoDev 仍擁有 worktree、提交與最終驗收。
 
-Preflight 對 server／登入／模型／額度分開驗證（issue #34）：唯讀 `status server --json` 回報的 `backend.auth`／`backend.model(s)`／`backend.quota` 欄位存在時才採信，缺欄位一律 `unknown`——unknown 不冒充可用；`auth=missing`、`model=unavailable`、`quota=exhausted` 會分別擋下並附不同處置（等人工登入／設定問題／依 resetsAt 或 30 分有界冷卻再查）。設了 `engines.herdr.model` 而 backend 無法證實該模型時也視為設定問題拒絕派工。探針僅在 transient（逾時／無法解析／spawn 失敗）時退避重試，最多 5 次、單次退避上限 5 秒。快取 key 綁定 launcher 檔案雜湊＋session＋provider＋model，版本或設定變動、run 失敗即重探。費用維持 `costUnknown`：入帳走 `costPerRunUsd`／`failureCostEstimateUsd`，永不記成已證實零成本；`tierMode: free-only` 下 herdr 無已驗證免費路徑，resolve 即拒絕。
+Preflight 對 server／登入／模型／額度分開驗證（issue #34）：唯讀 `status server --json` 回報的 `backend.auth`／`backend.model(s)`／`backend.quota` 欄位存在時才採信，缺欄位一律 `unknown`——unknown 不冒充可用；`auth=missing`、`model=unavailable`、`quota=exhausted` 會分別擋下並附不同處置（等人工登入／設定問題／依 resetsAt 或 30 分有界冷卻再查）。設了 `engines.herdr.model` 而 backend 無法證實該模型時也視為設定問題拒絕派工。探針僅在 transient（逾時／無法解析／spawn 失敗）時退避重試，最多 5 次、單次退避上限 5 秒。快取 key 綁定 launcher 檔案雜湊＋session＋provider＋model，launcher 內容或已綁定設定變動、run 失敗即重探。費用維持 `costUnknown`：入帳走 `costPerRunUsd`／`failureCostEstimateUsd`，永不記成已證實零成本；`tierMode: free-only` 下 herdr 無已驗證免費路徑，resolve 即拒絕。
+
+Codex 快取另綁定 `auth.json`／`config.toml` 的檔案身分、時間與大小；更新驗證邏輯後不沿用舊格式觀測，進入 recovery quarantine 的失敗也會使快取失效。數值 reset 接受 Unix 秒或目前的毫秒 epoch，無效日期走一般有界冷卻；不同 provider 或失敗的 server 回答不延長 quota 持有時間。結構化觀測及診斷文字沿用 CLI 憑證遮蔽。Herdr／底層 CLI 版本僅在重探時觀測，同一路徑更新執行檔尚無已驗證的即時失效契約；這些 fixture 測試也尚未驗證真實 Windows backend 的 status 欄位契約與 canary，仍需另外授權的驗收回執。
 
 ### 4. Discord bot（可選）
 

@@ -1,0 +1,18 @@
+{
+  "pr": 54,
+  "head": "a5bff82a90ddc6d20e7025e2cd4b9181595eea6f",
+  "findings": [
+    {"severity":"high","file":"src/engines/herdr-readiness.ts","line":82,"issue":"The catalog can override a reported active-model mismatch, although run() cannot select the requested model. Reject the mismatch before consulting the catalog."},
+    {"severity":"high","file":"src/engines/herdr.ts","line":89,"issue":"Readiness accepts auth/model/quota evidence from a reported backend provider different from the provider passed to the launcher."},
+    {"severity":"high","file":"src/engines/herdr.ts","line":186,"issue":"The preflight key omits the provider argument to cliPreflightKey, so Codex auth.json/config.toml changes do not invalidate cached readiness."},
+    {"severity":"med","file":"src/engines/herdr-readiness.ts","line":49,"issue":"Numeric millisecond resets are multiplied by 1000, extending a short quota hold to 24 hours; out-of-range finite timestamps throw RangeError instead of falling back to bounded cooldown."},
+    {"severity":"med","file":"src/engines/herdr.ts","line":126,"issue":"A timed-out status process with valid JSON bypasses transient retries and is cached as an ordinary server failure."},
+    {"severity":"med","file":"src/engines/herdr.ts","line":120,"issue":"Only the backoff base is capped: legal options produce waits of 5, 10, 20 and 40 seconds despite the documented five-second per-wait limit."},
+    {"severity":"high","file":"src/engines/herdr-readiness.ts","line":99,"issue":"Structured provider/model/version strings bypass CLI redaction and can persist echoed credentials in admission/cache; the protocol detail has the same leak."},
+    {"severity":"med","file":"src/scheduler.ts","line":254,"issue":"Herdr failures with recoveryRequired return through quarantine before invalidatePreflight, preserving stale successful readiness after an actual backend failure."},
+    {"severity":"med","file":"tests/herdr-readiness.test.ts","line":27,"issue":"needs-human: Synthetic status fixtures do not satisfy issue #34 AC5. The actual Windows backend status contract and minimal canary still require separate authorization and a version/model/result receipt."},
+    {"severity":"med","file":"src/engines/herdr.ts","line":186,"issue":"needs-human: AC2 runtime-version invalidation remains incomplete. A same-path Herdr or underlying CLI replacement does not change the cache key; the actual launcher/runtime identity contract is unverified. Narrow documentation claims until that contract is established; do not invent launcher flags or silently change the probe/cache contract."}
+  ],
+  "fixed": true,
+  "summary": "Fixed eight readiness defects and added 17 regressions with red-to-green evidence. needs-human: native Windows status/launcher contracts, same-path runtime-upgrade invalidation, and the separately authorized canary remain unverified. The full two-round gate exits 1 with 9/10 failures: nine cases reproduce on the reviewed original head; the additional unmodified RPC timing case passes in isolation on that head."
+}

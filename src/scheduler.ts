@@ -227,6 +227,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   let res: RunResult
   const job: Job = { task, projectPath: wt.cwd, directive, executionId, writerIdentity: engineTag, control: deps.runControl }
   const quarantineRun = (reason?: string): CycleResult => {
+    engine?.invalidatePreflight?.() // 停止未確認也不能沿用先前的 backend 就緒證據。
     recoveryRequired = true
     if (!observation) try { observation = createExecutionObservation({ dataDir: cfg.dataDir, job, adapter: cfg.engines[engineTag]?.adapter ?? engineTag }) } catch { /* Team/backlog fences remain. */ }
     if (teamClaim) try { deps.team?.quarantine(executionId, teamClaim.token) } catch { /* Expired claims also remain quarantined. */ }

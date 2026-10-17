@@ -270,6 +270,20 @@ test('run 失敗 → engine.invalidatePreflight 被呼叫（下輪重探，07-18
   expect(e.invalidations).toBe(1)
 })
 
+test('self-review: a backend failure invalidates readiness before quarantine returns', async () => {
+  class SpyEngine extends MockEngine {
+    invalidations = 0
+    invalidatePreflight(): void { this.invalidations++ }
+    async run(): Promise<RunResult> {
+      return { ok: false, output: '', costUsd: 0, costUnknown: true, recoveryRequired: true, failureReason: 'timeout' }
+    }
+  }
+  const e = new SpyEngine()
+  const d = deps(e)
+  expect(await runOnce(d)).toMatchObject({ kind: 'blocked', reason: 'team-state-quarantined' })
+  expect(e.invalidations).toBe(1)
+})
+
 test('任務驗收 max-attempts blocked 註記帶最後失敗原因（人工分流不用翻 events.jsonl）', async () => {
   const e = new MockEngine([{ ok: true }, { ok: true }])
   const d = deps(e)
