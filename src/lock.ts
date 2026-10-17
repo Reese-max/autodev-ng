@@ -18,24 +18,22 @@ function isPidAlive(pid: number): boolean {
 }
 
 /** Windows 會重用 PID；若目前程序的啟動時間晚於鎖建立時間，它不可能是原持鎖者。 */
+export function processStartedAt(pid: number): number | undefined {
+  if (pid === process.pid) return Date.now() - process.uptime() * 1000
+  try {
+    const raw = execFileSync(process.platform === 'win32' ? 'powershell.exe' : 'ps', process.platform === 'win32'
+      ? ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`]
+      : ['-p', String(pid), '-o', 'lstart='], { encoding: 'utf8', timeout: 5_000, windowsHide: true, env: { ...process.env, LC_ALL: 'C' } })
+    const started = Date.parse(raw.trim())
+    return Number.isFinite(started) ? started : undefined
+  } catch { return undefined }
+}
+
 function isReusedWindowsPid(pid: number, lockStartedAt: string): boolean {
   if (process.platform !== 'win32') return false
-  const lockStartedAtMs = Date.parse(lockStartedAt)
-  if (!Number.isFinite(lockStartedAtMs)) return false
-
-  try {
-    const raw = execFileSync('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
-    ], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
-    const processStartedAtMs = Date.parse(raw.trim())
-    return Number.isFinite(processStartedAtMs) && processStartedAtMs > lockStartedAtMs + 5_000
-  } catch {
-    // ponytail: Windows-only identity check; fail-safe as alive if the probe is unavailable.
-    return false
-  }
+  const lockStartedAtMs = Date.parse(lockStartedAt), started = processStartedAt(pid)
+  // Lock recovery remains conservative when identity cannot be established.
+  return Number.isFinite(lockStartedAtMs) && started !== undefined && started > lockStartedAtMs + 5_000
 }
 
 /** 讀 dir/pid.json 判定鎖主人是否存活。缺失/損壞/pid 非正整數一律回 'unknown'（fallback 舊 mtime 邏輯），

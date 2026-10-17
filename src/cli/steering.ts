@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { loadMonitorConfig } from '../bot/monitor.js'
+import { EventLog } from '../events.js'
 import { ControlStore, formatControlLine, type ControlDisposition, type ControlState } from '../engines/steering.js'
 
 /** Issue #11：CLI 控制面。steer/enqueue 寫 control_envelopes（run.db）；
@@ -16,7 +17,7 @@ export async function steeringCli(command: string, args: string[]): Promise<void
   if (!values.config || (command !== 'controls' && (!values.execution || !values.text)))
     throw new Error('用法：adng steer|enqueue --config <path> --execution <id> [--task <id>] [--engine <tag>] --text <指示>；adng controls --config <path> [--json]')
   const cfg = loadMonitorConfig(values.config)
-  const store = new ControlStore(join(cfg.dataDir, 'run.db'))
+  const store = new ControlStore(join(cfg.dataDir, 'run.db'), { events: new EventLog(cfg.dataDir) })
   try {
     if (command === 'controls') {
       store.sweepExpired()

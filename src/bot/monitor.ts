@@ -98,7 +98,7 @@ export function monitorRuntimeLines(m: ReturnType<typeof readMonitor>): string[]
   const hb = m.heartbeat
   return [
     `監控：${m.health}｜${m.checkedAt}`,
-    hb ? `heartbeat：${hb.ts}｜state=${hb.state}｜${Math.floor(hb.ageMs / 1000)} 秒前${hb.stale ? '（心跳過期，請檢查）' : ''}${hb.currentTask ? `｜任務=${hb.currentTask}` : ''}${hb.currentExecutionId ? `｜taskId=${hb.currentTaskId}｜exec=${hb.currentExecutionId.slice(0, 8)}` : ''}` : '尚無 heartbeat 紀錄或資料無效',
+    hb ? `heartbeat：${hb.ts}｜state=${hb.state}｜${Math.floor(hb.ageMs / 1000)} 秒前${hb.stale ? '（心跳過期，請檢查）' : ''}${hb.currentTask ? `｜任務=${hb.currentTask}` : ''}${hb.currentExecutionId ? `｜taskId=${hb.currentTaskId}｜exec=${hb.currentExecutionId}` : ''}` : '尚無 heartbeat 紀錄或資料無效',
     ...(m.controlsPending ? [`控制訊息：${m.controlsPending} 筆待送達`] : []),
     `daemon 進程：${m.process.state === 'present' ? 'PID 存在（未核對程序身分）' : m.process.state === 'absent' ? '未偵測到' : '未知'}`,
     ...(m.executions.protected ? [`執行觀測：${m.executions.records.filter(r => r.phase !== 'terminal').length} 項待收斂｜${m.executions.diagnosisDue ? '需要診斷，保留寫入權' : '持續觀測'} `] : []),

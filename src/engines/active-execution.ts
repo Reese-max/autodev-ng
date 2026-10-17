@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node
 import { join } from 'node:path'
 import { z } from 'zod'
 import { writeJsonAtomic } from '../guardian/incident.js'
+import { processStartedAt } from '../lock.js'
 
 /** Issue #11：control plane 的 target registry——每個 execution 一份檔案，
  * 讓 /steer、/enqueue 能把 operator 指令綁定到「當下真的在跑的 exact execution」。
@@ -10,12 +11,13 @@ import { writeJsonAtomic } from '../guardian/incident.js'
 const RecordSchema = z.object({
   version: z.literal(1),
   executionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+  projectPath: z.string().min(1),
   taskId: z.string().max(200),
   engineTag: z.string().max(100),
   adapter: z.string().max(100),
-  /** engine-run＝turn 進行中（可 in-flight steer）；host-verify＝turn 已結束、host 在
-   * 驗收/合併（steer 只能轉 TOO_LATE_QUEUED）；terminal＝execution 已結束。 */
-  phase: z.enum(['engine-run', 'host-verify', 'terminal']),
+  /** engine-run 可 steer；queue-boundary 可轉 TOO_LATE_QUEUED；
+   * host-verify/terminal 不再接收新的 follow-up。 */
+  phase: z.enum(['engine-run', 'queue-boundary', 'host-verify', 'terminal']),
   hostPid: z.number().int().positive(),
   hostStartedAt: z.number().finite(),
   startedAt: z.number().finite(),
@@ -23,6 +25,7 @@ const RecordSchema = z.object({
   orphaned: z.boolean().optional(),
 })
 export type ActiveExecution = z.infer<typeof RecordSchema>
+const inFlight = new Set<string>()
 
 function dir(dataDir: string): string { return join(dataDir, 'active') }
 
@@ -34,9 +37,11 @@ export function activeExecutionFile(dataDir: string, executionId: string): strin
 export function writeActiveExecution(dataDir: string, rec: Omit<ActiveExecution, 'version' | 'updatedAt'>): void {
   mkdirSync(dir(dataDir), { recursive: true })
   writeJsonAtomic(activeExecutionFile(dataDir, rec.executionId), { ...rec, version: 1, updatedAt: Date.now() })
+  if (rec.hostPid === process.pid && rec.phase !== 'terminal') inFlight.add(activeExecutionFile(dataDir, rec.executionId))
 }
 
 export function updateActiveExecutionPhase(dataDir: string, executionId: string, phase: ActiveExecution['phase']): void {
+  if (phase === 'terminal') inFlight.delete(activeExecutionFile(dataDir, executionId))
   const rec = readActiveExecution(dataDir, executionId)
   if (!rec || rec.phase === 'terminal') return
   writeJsonAtomic(activeExecutionFile(dataDir, executionId), { ...rec, phase, updatedAt: Date.now() })
@@ -51,13 +56,13 @@ export function readActiveExecution(dataDir: string, executionId: string): Activ
   } catch { return undefined }
 }
 
-/** 無界成長治理：讀取側順便清掉 >24h 的 terminal 紀錄（每執行一小檔，正常量極少）。 */
+/** 忽略 >24h 的 terminal 歷史；歷史數量不可讓仍在執行的目標消失。
+ * ponytail: linear history scan; add pruning when a retention policy is defined. */
 export function listActiveExecutions(dataDir: string, now = Date.now()): ActiveExecution[] {
   const folder = dir(dataDir)
   const out: ActiveExecution[] = []
   let files: string[] = []
   try { files = readdirSync(folder).filter(f => f.endsWith('.json')) } catch { return out }
-  if (files.length > 10_000) return out
   for (const f of files) {
     try {
       const rec = RecordSchema.parse(JSON.parse(readFileSync(join(folder, f), 'utf8')))
@@ -68,11 +73,16 @@ export function listActiveExecutions(dataDir: string, now = Date.now()): ActiveE
   return out
 }
 
-/** 活性判定（intake／target 檢查用）：record 非 terminal + hostPid 仍活著即算 live。
- * 同進程呼叫（測試／in-process embedded）看到 own-pid 的 non-terminal 紀錄也算 live——
- * 那正是進行中的 execution 自己。 */
+/** 身分未知時拒絕新投遞，但不可因此終結紀錄或清除已排隊指示。 */
+export function executionLiveness(rec: ActiveExecution | undefined): 'live' | 'dead' | 'unknown' {
+  if (!rec || rec.phase === 'terminal' || !pidAlive(rec.hostPid)) return 'dead'
+  const started = processStartedAt(rec.hostPid)
+  if (started === undefined) return 'unknown'
+  return Math.abs(started - rec.hostStartedAt) <= 5_000 ? 'live' : 'dead'
+}
+
 export function isExecutionLive(rec: ActiveExecution | undefined): boolean {
-  return !!rec && rec.phase !== 'terminal' && pidAlive(rec.hostPid)
+  return executionLiveness(rec) === 'live'
 }
 
 /** daemon 啟動/cycle 起點呼叫：此頂點本進程不可能有 live execution（runOnce 起點、
@@ -83,7 +93,8 @@ export function markOrphanedExecutions(dataDir: string): string[] {
   const orphaned: string[] = []
   for (const rec of listActiveExecutions(dataDir)) {
     if (rec.phase === 'terminal') continue
-    if (rec.hostPid !== process.pid && pidAlive(rec.hostPid)) continue
+    const liveness = executionLiveness(rec)
+    if (liveness === 'unknown' || (liveness === 'live' && (inFlight.has(activeExecutionFile(dataDir, rec.executionId)) || rec.hostPid !== process.pid))) continue
     orphaned.push(rec.executionId)
     try { writeJsonAtomic(activeExecutionFile(dataDir, rec.executionId), { ...rec, phase: 'terminal', orphaned: true, updatedAt: Date.now() }) } catch { /* fail-open */ }
   }

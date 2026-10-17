@@ -85,6 +85,23 @@ export class TeamState {
     return (this.db.prepare('SELECT COUNT(*) n FROM team_attempts WHERE worker_id=? AND day=?').get(workerId, day) as { n: number }).n
   }
 
+  /** Additional operator turns retain ownership but acquire their own budget/attempt authority. */
+  admitControlTurn(args: { executionId: string; token: string; spentUsd: number; reservedCostUsd: number; dailyHardUsd: number; dailyAttemptCap?: number }): boolean {
+    return this.db.transaction(() => {
+      this.reapExpired(Date.now())
+      const own = this.db.prepare("SELECT worker_id FROM team_claims WHERE execution_id=? AND lease_token=? AND active=1 AND state='RUNNING'")
+        .get(args.executionId, args.token) as { worker_id: string } | undefined
+      if (!own) return false
+      const day = new Date().toISOString().slice(0, 10)
+      if (args.dailyAttemptCap !== undefined && this.attemptsToday(own.worker_id, day) >= args.dailyAttemptCap) return false
+      const others = (this.db.prepare("SELECT COALESCE(SUM(reserved_cost_usd),0) n FROM team_claims WHERE execution_id<>? AND (active=1 OR state='QUARANTINED')").get(args.executionId) as { n: number }).n
+      if (args.dailyHardUsd > 0 && args.spentUsd + others + args.reservedCostUsd > args.dailyHardUsd) return false
+      this.db.prepare('UPDATE team_claims SET reserved_cost_usd=? WHERE execution_id=?').run(args.reservedCostUsd, args.executionId)
+      this.db.prepare('INSERT INTO team_attempts(execution_id,worker_id,day) VALUES (?,?,?)').run(`${args.executionId}:control:${randomUUID()}`, own.worker_id, day)
+      return true
+    }).immediate()
+  }
+
   heartbeat(executionId: string, token: string, leaseMs: number): boolean {
     return this.db.prepare("UPDATE team_claims SET lease_until=?,updated_at=? WHERE execution_id=? AND lease_token=? AND active=1").run(
       Date.now() + leaseMs, new Date().toISOString(), executionId, token,

@@ -7,7 +7,7 @@ import type { EventLog } from '../events.js'
 import type { SteerMailbox } from './run-control.js'
 import { ENGINE_CAPABILITIES } from './capabilities.js'
 import { defaultCommitHash } from './commit-hash.js'
-import { activeExecutionFile, isExecutionLive, readActiveExecution } from './active-execution.js'
+import { activeExecutionFile, executionLiveness, readActiveExecution } from './active-execution.js'
 import { writeJsonAtomic } from '../guardian/incident.js'
 
 /** Issue #11：human follow-up 是 target-bound command envelope，不是自由漂移的聊天文字。
@@ -21,7 +21,7 @@ export const FOLLOW_UP_BATCH_CAP = 8
 const SAFE_ID = /^[A-Za-z0-9_-]{1,100}$/
 
 export type ControlMode = 'steer' | 'queue'
-export type ControlState = 'pending' | 'delivered' | 'closed'
+export type ControlState = 'pending' | 'delivering' | 'delivered' | 'closed'
 export type ControlDisposition =
   | 'QUEUED' | 'STEER_REQUESTED' | 'STEERED' | 'TOO_LATE_QUEUED'
   | 'UNSUPPORTED' | 'REJECTED_STALE_TARGET' | 'REJECTED_REPLAY' | 'REJECTED_INVALID'
@@ -174,7 +174,7 @@ export class ControlStore {
     const now = args.now ?? Date.now()
     const e: ControlEnvelope = {
       id: randomUUID(), project: args.project, taskId, executionId: args.executionId, mode: args.mode,
-      instruction: norm(args.text).slice(0, CONTROL_INSTRUCTION_MAX + 100), issuer: args.issuer, channel: args.channel,
+      instruction: [...norm(args.text)].slice(0, CONTROL_INSTRUCTION_MAX + 100).join(''), issuer: args.issuer, channel: args.channel,
       ...(args.expectedEngineTag ? { expectedEngineTag: args.expectedEngineTag } : {}),
       createdAt: now, expiresAt: now + CONTROL_TTL_MS,
       contentHash: '', state: 'closed', disposition, resolvedAt: now, detail,
@@ -192,12 +192,12 @@ export class ControlStore {
     const now = args.now ?? Date.now()
     const e: ControlEnvelope = {
       id: randomUUID(), project: args.project, taskId, executionId: args.executionId, mode: args.mode,
-      instruction: norm(args.text).slice(0, CONTROL_INSTRUCTION_MAX), issuer: args.issuer, channel: args.channel,
+      instruction: [...norm(args.text)].slice(0, CONTROL_INSTRUCTION_MAX).join(''), issuer: args.issuer, channel: args.channel,
       createdAt: now, expiresAt: now + CONTROL_TTL_MS, contentHash: '', state: 'closed',
       disposition: 'REJECTED_REPLAY', resolvedAt: now, detail: '相同指示對同一 execution 已存在（dedupe）',
     }
     e.contentHash = contentHash(e)
-    this.emit('control-request', { envelopeId: e.id, mode: e.mode, disposition: e.disposition, taskId: e.taskId, executionId: e.executionId, issuer: e.issuer })
+    this.insert(e, `replay:${e.id}`)
     return { ok: false, envelope: e, reply: replyFor(e) }
   }
 
@@ -210,12 +210,17 @@ export class ControlStore {
 
     // 目標必須是「此刻活著的 exact execution」——模糊匹配一律拒絕，絕不落到別的 task。
     const rec = readActiveExecution(args.dataDir, args.executionId)
-    if (!rec || !isExecutionLive(rec)) {
-      if (rec && rec.phase !== 'terminal') {
+    const liveness = executionLiveness(rec)
+    if (!rec || liveness !== 'live') {
+      if (rec && liveness === 'dead' && rec.phase !== 'terminal') {
         try { this.markRecordTerminal(args.dataDir, rec.executionId) } catch { /* fail-open */ }
       }
-      return this.rejected(args, 'REJECTED_STALE_TARGET', 'target execution 不存在、已結束或宿主已停止')
+      return this.rejected(args, 'REJECTED_STALE_TARGET', liveness === 'unknown'
+        ? '無法核對 target 宿主身分；保留原紀錄與佇列'
+        : 'target execution 不存在、已結束或宿主已停止')
     }
+    if (rec.projectPath !== args.project || rec.phase === 'host-verify')
+      return this.rejected(args, 'REJECTED_STALE_TARGET', 'project 不符或已進入驗收，不再接受 follow-up', rec.taskId)
     if (args.taskId && args.taskId !== rec.taskId)
       return this.rejected(args, 'REJECTED_STALE_TARGET', `taskId 不符：execution 屬於 ${rec.taskId}`, rec.taskId)
     if (args.expectedEngineTag && args.expectedEngineTag !== rec.engineTag)
@@ -223,7 +228,7 @@ export class ControlStore {
 
     const base: Omit<ControlEnvelope, 'contentHash'> = {
       id: randomUUID(), project: args.project, taskId: rec.taskId, executionId: args.executionId,
-      mode: args.mode, instruction: norm(args.text).slice(0, CONTROL_INSTRUCTION_MAX), issuer: args.issuer, channel: args.channel,
+      mode: args.mode, instruction: norm(args.text), issuer: args.issuer, channel: args.channel,
       ...(args.expectedEngineTag ? { expectedEngineTag: args.expectedEngineTag } : {}),
       createdAt: now, expiresAt: now + CONTROL_TTL_MS,
       state: 'pending', disposition: 'QUEUED', phaseBefore: rec.phase, detail: '',
@@ -264,38 +269,44 @@ export class ControlStore {
     return rows.map(toEnvelope)
   }
 
+  /** Claim before dispatch: concurrent drains and expiry sweeps cannot take an in-flight batch. */
+  claimQueue(executionId: string, now = Date.now()): ControlEnvelope[] {
+    return this.db.transaction(() => {
+      const rows = this.db.prepare("SELECT * FROM control_envelopes WHERE execution_id=? AND state='pending' AND expires_at>? ORDER BY created_at, rowid LIMIT ?")
+        .all(executionId, now, FOLLOW_UP_BATCH_CAP) as Row[]
+      for (const row of rows) this.db.prepare("UPDATE control_envelopes SET state='delivering', disposition=? WHERE id=? AND state='pending'")
+        .run(row.disposition === 'STEER_REQUESTED' ? 'TOO_LATE_QUEUED' : row.disposition, row.id)
+      return rows.map(toEnvelope)
+    }).immediate()
+  }
+
   /** in-flight steer 取件點：adapter 在自己 turn 的 safe boundary 呼叫（engine 端 ack＝take）。
    * 過期的 pending steer 不取件——由 sweep 轉 STALE，不讓引擎吞過期指令。 */
   takeSteer(executionId: string, now = Date.now()): ControlEnvelope | undefined {
-    const row = this.db.prepare("SELECT * FROM control_envelopes WHERE execution_id=? AND state='pending' AND disposition='STEER_REQUESTED' AND expires_at>? ORDER BY created_at, rowid LIMIT 1").get(executionId, now) as Row | undefined
+    const row = this.db.prepare(`UPDATE control_envelopes SET state='delivered', disposition='STEERED', delivered_at=?, resolved_at=?, detail=?
+      WHERE id=(SELECT id FROM control_envelopes WHERE execution_id=? AND state='pending' AND disposition='STEER_REQUESTED' AND expires_at>? ORDER BY created_at, rowid LIMIT 1)
+      AND state='pending' RETURNING *`).get(now, now, 'in-flight steer 於引擎 safe boundary 接收', executionId, now) as Row | undefined
     if (!row) return undefined
-    this.db.prepare("UPDATE control_envelopes SET state='delivered', disposition='STEERED', delivered_at=?, resolved_at=?, detail=? WHERE id=? AND state='pending'")
-      .run(now, now, 'in-flight steer 於引擎 safe boundary 接收', row.id)
-    const e = { ...toEnvelope(row), state: 'delivered' as const, disposition: 'STEERED' as const, deliveredAt: now }
+    const e = toEnvelope(row)
     this.emit('control-delivered', { envelopeId: e.id, executionId, disposition: 'STEERED', via: 'in-flight' })
     return e
   }
 
   markDelivered(ids: string[], detail: string, now = Date.now()): void {
-    const stmt = this.db.prepare("UPDATE control_envelopes SET state='delivered', delivered_at=?, resolved_at=?, detail=? WHERE id=? AND state='pending'")
-    const tx = this.db.transaction((list: string[]) => { for (const id of list) stmt.run(now, now, detail, id) })
-    tx(ids)
-    for (const id of ids) this.emit('control-delivered', { envelopeId: id, disposition: 'delivered', via: 'follow-up-turn' })
+    const stmt = this.db.prepare("UPDATE control_envelopes SET state='delivered', delivered_at=?, resolved_at=?, detail=? WHERE id=? AND state='delivering'")
+    const tx = this.db.transaction((list: string[]) => list.filter(id => stmt.run(now, now, detail, id).changes === 1))
+    for (const id of tx(ids)) this.emit('control-delivered', { envelopeId: id, disposition: 'delivered', via: 'follow-up-turn' })
   }
 
   markClosed(id: string, disposition: ControlDisposition, detail: string, now = Date.now()): void {
-    this.db.prepare("UPDATE control_envelopes SET state='closed', disposition=?, resolved_at=?, detail=? WHERE id=? AND state='pending'")
+    const changed = this.db.prepare("UPDATE control_envelopes SET state='closed', disposition=?, resolved_at=?, detail=? WHERE id=? AND state IN ('pending','delivering')")
       .run(disposition, now, detail, id)
-    this.emit('control-closed', { envelopeId: id, disposition, detail })
-  }
-
-  convertToTooLateQueued(id: string): void {
-    this.db.prepare("UPDATE control_envelopes SET disposition='TOO_LATE_QUEUED', detail='turn 在注入前結束，改排下個 safe boundary' WHERE id=? AND state='pending' AND disposition='STEER_REQUESTED'").run(id)
+    if (changed.changes) this.emit('control-closed', { envelopeId: id, disposition, detail })
   }
 
   /** 指定 execution 的 pending 全數 STALE（execution 終結時呼叫）。 */
   sweepExecution(executionId: string, reason: string, now = Date.now()): string[] {
-    const pending = this.pendingFor(executionId)
+    const pending = this.db.prepare("SELECT id FROM control_envelopes WHERE execution_id=? AND state IN ('pending','delivering')").all(executionId) as { id: string }[]
     for (const e of pending) this.markClosed(e.id, 'STALE', reason, now)
     return pending.map(e => e.id)
   }
@@ -309,11 +320,11 @@ export class ControlStore {
   /** pending 但 target execution 已無 live 紀錄 → STALE（永不改投別的 execution）。
    * 孤兒紀錄（宿主 pid 已死）順便標 terminal，不讓殘影誤導下一次 target 檢查。 */
   sweepDeadTargets(dataDir: string, now = Date.now()): string[] {
-    const rows = this.db.prepare("SELECT DISTINCT execution_id FROM control_envelopes WHERE state='pending'").all() as { execution_id: string }[]
+    const rows = this.db.prepare("SELECT DISTINCT execution_id FROM control_envelopes WHERE state IN ('pending','delivering')").all() as { execution_id: string }[]
     const swept: string[] = []
     for (const { execution_id } of rows) {
       const rec = readActiveExecution(dataDir, execution_id)
-      if (isExecutionLive(rec)) continue
+      if (executionLiveness(rec) !== 'dead') continue
       if (rec && rec.phase !== 'terminal') this.markRecordTerminal(dataDir, execution_id)
       swept.push(...this.sweepExecution(execution_id, 'target execution 已結束或 daemon 已重啟', now))
     }
@@ -384,8 +395,9 @@ export function makeSteerMailbox(store: ControlStore, executionId: string): Stee
 export function formatControlLine(e: ControlEnvelope): string {
   const stateLabel = e.state === 'delivered' ? '已送達'
     : e.state === 'closed' ? '已結束'
+    : e.state === 'delivering' ? '投遞中'
     : e.disposition === 'STEER_REQUESTED' ? '待注入' : '已排隊'
-  return `${e.id.slice(0, 8)}｜${e.mode}｜${stateLabel}｜${e.disposition}｜exec ${e.executionId.slice(0, 8)}｜task ${e.taskId || '-'}｜${e.instruction.slice(0, 40)}｜${e.issuer}`
+  return `${e.id.slice(0, 8)}｜${e.mode}｜${stateLabel}｜${e.disposition}｜exec ${e.executionId}｜task ${e.taskId || '-'}｜${e.instruction.slice(0, 40)}｜${e.issuer}`
 }
 
 const FOLLOW_UP_HEADER = '[operator follow-up — 本 execution 的已授權操作者指示；仍受原驗收條件約束]'
@@ -397,30 +409,39 @@ export async function deliverControlQueue(
   engine: Engine,
   job: Job,
   initial: RunResult,
-  opts: { store: ControlStore; events?: EventLog; paused?: () => boolean; getCommitHash?: (cwd: string) => string | undefined },
+  opts: { store: ControlStore; events?: EventLog; paused?: () => boolean; admit?: () => boolean; unconfirmed?: () => boolean; getCommitHash?: (cwd: string) => string | undefined },
 ): Promise<RunResult> {
   const { store } = opts
   const getCommitHash = opts.getCommitHash ?? defaultCommitHash
   const executionId = job.executionId ?? ''
   let res = initial
   const baseCommitHash = initial.baseCommitHash
+  let directive = job.directive ?? job.task.text
   let turns = 0
   while (turns < FOLLOW_UP_TURN_CAP) {
-    if (opts.paused?.() || job.control?.signal?.aborted) break
+    if (res.recoveryRequired || res.cancelled || opts.paused?.() || job.control?.signal?.aborted) break
     const pendings = store.pendingFor(executionId)
     const now = Date.now()
     for (const e of pendings.filter(e => e.expiresAt <= now)) store.markClosed(e.id, 'STALE', 'envelope 在送達前過期', now)
-    const deliverable = pendings.filter(e => e.expiresAt > now).slice(0, FOLLOW_UP_BATCH_CAP)
+    if (!pendings.some(e => e.expiresAt > now)) break
+    try { if (!(await engine.preflight()).ok) break } catch { break }
+    if (opts.paused?.() || job.control?.signal?.aborted) break
+    const deliverable = store.claimQueue(executionId)
     if (!deliverable.length) break
+    if (opts.admit && !opts.admit()) {
+      for (const e of deliverable) store.markClosed(e.id, 'NOT_DELIVERED', 'follow-up admission 拒絕，保留成本與派工限制')
+      break
+    }
     turns++
-    for (const e of deliverable) if (e.disposition === 'STEER_REQUESTED') store.convertToTooLateQueued(e.id)
-    const directive = `${job.directive ?? job.task.text}\n\n${FOLLOW_UP_HEADER}\n${deliverable.map(e => `- ${e.instruction}`).join('\n')}`
+    directive = `${directive}\n\n${FOLLOW_UP_HEADER}\n${deliverable.map(e => `- ${e.instruction}`).join('\n')}`
     let follow: RunResult
     try {
       follow = await engine.run({ ...job, directive })
     } catch (err) {
       for (const e of deliverable) store.markClosed(e.id, 'NOT_DELIVERED', `follow-up turn 引擎故障：${String(err).slice(0, 200)}`)
       try { opts.events?.append('control-delivery-error', { executionId, error: String(err) }) } catch { /* fail-open */ }
+      res = { ...res, costUnknown: true, actualModel: 'multiple/unknown', tokensIn: undefined, tokensOut: undefined, tokensCached: undefined }
+      if (opts.unconfirmed?.()) res = { ...res, ok: false, recoveryRequired: true, failureReason: 'follow-up transport lost before verified exit' }
       break
     }
     store.markDelivered(deliverable.map(e => e.id), `follow-up turn ${turns} 送達`)
@@ -445,7 +466,7 @@ function combineRuns(first: RunResult, second: RunResult): RunResult {
   return {
     ...second,
     commitHash: second.commitHash ?? first.commitHash,
-    baseCommitHash: second.baseCommitHash ?? first.baseCommitHash,
+    baseCommitHash: first.baseCommitHash ?? second.baseCommitHash,
     actualModel: first.actualModel === second.actualModel ? first.actualModel : 'multiple/unknown',
     output: joinOutput(first.output, second.output),
     costUsd: first.costUsd + second.costUsd,
@@ -458,4 +479,4 @@ function combineRuns(first: RunResult, second: RunResult): RunResult {
 }
 
 function joinOutput(first: string, second: string): string { return [first, second].filter(Boolean).join('\n') }
-function add(a?: number, b?: number): number | undefined { return a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0) }
+function add(a?: number, b?: number): number | undefined { return a === undefined || b === undefined ? undefined : a + b }

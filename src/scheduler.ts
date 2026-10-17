@@ -11,7 +11,7 @@ import { noteSerialConcurrency } from './engines/concurrency-notice.js'
 import { writeHeartbeat } from './engines/heartbeat-write.js'
 import { cleanupRetryWorktree, isExternalEngineTermination, isInfrastructureRetryReason, retriedBlockedReason, worktreeFailureReason, type InfrastructureRetryReason, type InfraRetryState } from './engines/infra-retry.js'
 import { enqueueMerge, enqueueTeamMerge } from './engines/merge-queue.js'
-import { nudgeNoCommit } from './engines/no-commit-nudge.js'
+import { runControlTurns } from './engines/control-turns.js'
 import type { TaskTerminalNotice } from './engines/notify.js'
 import { freeOnlyListExhausted } from './engines/free-only-retry.js'
 import { sequentialReadyTasks, tryFreeOnlySplit } from './engines/free-only-split.js'
@@ -33,7 +33,7 @@ import { createExecutionObservation, readExecutions } from './engines/execution-
 import type { RunControl } from './engines/run-control.js'
 import { assertPendingCandidate, readPendingReview, savePendingReview, closePendingReview, type PendingReview } from './engines/pending-review.js'
 import { markOrphanedExecutions, updateActiveExecutionPhase, writeActiveExecution } from './engines/active-execution.js'
-import { ControlStore, deliverControlQueue, makeSteerMailbox } from './engines/steering.js'
+import { ControlStore, makeSteerMailbox } from './engines/steering.js'
 
 /** M7：教訓注入/反思 port（Task 2 makeLessonsPort 的輸出型別）。inject() 供 scheduler
  * 附進 job.directive；reflect() 留給 Task 4/5 接線（本 task 只注入 inject）。 */
@@ -202,7 +202,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   try { controls = new ControlStore(join(cfg.dataDir, 'run.db'), { events }) } catch { /* fail-open */ }
   try {
     writeActiveExecution(cfg.dataDir, {
-      executionId, taskId: task.id, engineTag, adapter: cfg.engines[engineTag]?.adapter ?? engineTag,
+      executionId, projectPath: cfg.projectPath, taskId: task.id, engineTag, adapter: cfg.engines[engineTag]?.adapter ?? engineTag,
       phase: pending ? 'host-verify' : 'engine-run',
       hostPid: process.pid, hostStartedAt: Date.now() - process.uptime() * 1000, startedAt: Date.now(),
     })
@@ -281,30 +281,21 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   }
   if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
   if (!res.ok && isExternalEngineTermination(`${res.failureReason ?? ''}\n${res.output}`)) { releaseClaim(); return retryInfrastructure(deps, task, retry, 'infra:engine-external-termination', `infra:engine-external-termination：${res.failureReason ?? res.output}`) }
-  if (!pending) res = await nudgeNoCommit(engine!, job, res, wt.baseHead)
-  if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
-  // Issue #11：QUEUE 語意——當前 turn 結束後第一個 safe boundary，以同一 executionId
-  // 續跑有界 follow-up turn 送達操作者指示。在 verify/merge/ownership critical section
-  // 之前完成；控制面故障不反殺本 attempt 結果（fail-open）。
-  if (!pending && controls) {
-    try {
-      res = await deliverControlQueue(engine!, job, res, { store: controls, events, paused: () => existsSync(cfg.stopFile) })
-    } catch (err) {
-      quiet(() => events.append('control-delivery-error', { task: task.text, error: String(err) }))
-    }
-  }
-  if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
+  const turns = pending ? undefined : await runControlTurns(engine!, job, res, { deps, engineTag, baseCommit: wt.baseHead, store: controls,
+    claimToken: teamClaim?.token })
+  res = turns?.result ?? res
   quiet(() => updateActiveExecutionPhase(cfg.dataDir, executionId, 'host-verify'))
   // 引擎結果記帳：db 壞了是基礎設施故障，不該靜默。失敗成本估計（M4 Task 3）：costUnknown===true
   // （timeout/exit≠0/輸出不可解析）改記 cfg.failureCostEstimateUsd，detail 帶 cost-estimated 標記；
   // 引擎解析出真值（含 is_error、真值恰好 0）照記真值。M5 Task 1：fixedCost 有設（非真值引擎）
   // → 成功失敗一律入帳固定估計值，估計語意只留給真值引擎（claude）。
-  const costEstimated = fixedCost === undefined && !res.ok && res.costUnknown === true
-  const recordedCostUsd = fixedCost ?? (costEstimated ? cfg.failureCostEstimateUsd : res.costUsd)
+  const costEstimated = turns?.costEstimated ?? (fixedCost === undefined && !res.ok && res.costUnknown === true)
+  const recordedCostUsd = turns?.costUsd ?? fixedCost ?? (costEstimated ? cfg.failureCostEstimateUsd : res.costUsd)
   const baseDetail = res.failureReason ?? res.commitHash ?? ''
   const recordedDetail = costEstimated ? `${baseDetail} [cost-estimated]` : baseDetail
   const failureClass = res.failureReason?.startsWith('no-commit') ? 'task' as const : 'supply' as const
   if (!pending) db.record({ taskId: task.id, ok: res.ok, costUsd: recordedCostUsd, detail: recordedDetail, engine: engineTag, accounting: attemptAccounting(res, cfg.engines?.[engineTag] ?? {}, costEstimated), durationMs: Date.now() - runStartMs, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached, ...(!res.ok ? { failureClass } : {}) })
+  if (res.recoveryRequired || res.cancelled || observation?.recoveryRequired) return quarantineRun(res.failureReason)
   const quotaUsage = { costUsd: recordedCostUsd, tokensIn: res.tokensIn, tokensOut: res.tokensOut, tokensCached: res.tokensCached }
   if (!res.ok) engine?.invalidatePreflight?.() // timeout/exit≠0/no-commit：引擎健康存疑，下輪重探（verify 拒收不算）
 

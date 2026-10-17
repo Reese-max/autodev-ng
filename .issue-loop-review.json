@@ -1,0 +1,28 @@
+{
+  "pr": 50,
+  "head": "e0966c9c7baf6b6dcbcd1ac6c8c5fd379f71be56",
+  "findings": [
+    {"severity":"high","file":"src/engines/steering.ts","line":448,"issue":"A follow-up replaces the original baseCommitHash with its own start commit, excluding initial changes from ownership, artifact and verification checks."},
+    {"severity":"high","file":"src/engines/steering.ts","line":420,"issue":"Queued invocations bypass fresh preflight, project/global budget checks, team reservations and daily attempt admission."},
+    {"severity":"med","file":"src/scheduler.ts","line":304,"issue":"Configured costPerRunUsd is charged only once even when queued turns invoke the engine multiple times."},
+    {"severity":"high","file":"src/scheduler.ts","line":303,"issue":"An unknown-cost failed follow-up replaces the entire attempt's known spending with one failure estimate; thrown follow-ups omit their charge altogether."},
+    {"severity":"high","file":"src/engines/steering.ts","line":421,"issue":"A follow-up that reports a worker spawn and then throws is swallowed as prior success, allowing merge and writer release without verified termination."},
+    {"severity":"high","file":"src/engines/steering.ts","line":272,"issue":"STEER uses non-atomic select/update, while QUEUE remains pending throughout async dispatch: concurrent consumers can deliver twice and expiry sweeps can overwrite a dispatched instruction with STALE."},
+    {"severity":"high","file":"src/engines/steering.ts","line":212,"issue":"Active records omit project identity, allowing a project-authorized request to target another project sharing the same dataDir."},
+    {"severity":"med","file":"src/engines/active-execution.ts","line":84,"issue":"A nested infrastructure retry marks every same-process execution orphaned, including live concurrent sibling tasks."},
+    {"severity":"med","file":"src/engines/steering.ts","line":224,"issue":"Requests in host-verify receive QUEUED/TOO_LATE_QUEUED even though the last delivery boundary has already passed."},
+    {"severity":"med","file":"src/engines/steering.ts","line":417,"issue":"Each additional prompt starts from the original directive, discarding earlier operator instructions on stateless adapters."},
+    {"severity":"med","file":"src/scheduler.ts","line":284,"issue":"The automatic no-commit nudge starts before an already queued operator instruction reaches the first safe follow-up turn."},
+    {"severity":"med","file":"src/engines/steering.ts","line":191,"issue":"REJECTED_REPLAY returns a new envelope ID without persisting its receipt, so controls listing cannot retrieve every request."},
+    {"severity":"med","file":"src/cli/steering.ts","line":19,"issue":"CLI ControlStore is constructed without EventLog, omitting control-request audit events including rejected requests."},
+    {"severity":"med","file":"src/bot/monitor.ts","line":101,"issue":"Discord status/monitor displays only eight execution ID characters although intake requires the complete exact ID."},
+    {"severity":"med","file":"src/engines/steering.ts","line":461,"issue":"Unknown usage in one turn is treated as zero; thrown follow-ups retain earlier complete-usage claims, overstating accounting coverage."},
+    {"severity":"low","file":"src/engines/active-execution.ts","line":59,"issue":"History is never pruned but an inventory over 10,000 files returns empty, permanently hiding live executions and preventing orphan discovery."},
+    {"severity":"med","file":"src/engines/active-execution.ts","line":75,"issue":"PID existence alone treats an old execution as live when that PID is reused; hostStartedAt is recorded but never verified."},
+    {"severity":"low","file":"src/engines/steering.ts","line":226,"issue":"Validation accepts 400 Unicode code points but storage slices 400 UTF-16 code units, silently truncating valid operator instructions and potentially splitting a surrogate pair."},
+    {"severity":"med","file":"src/engines/steering.ts","line":426,"issue":"needs-human: Every non-throwing engine result is labeled delivered, including pre-dispatch refusals such as freebuff-session-busy. Correct positive acknowledgement requires an explicit adapter result contract; it cannot safely be inferred from ok/failureReason."},
+    {"severity":"high","file":"src/engines/capabilities.ts","line":15,"issue":"needs-human: Only mock implements in-flight STEER. Issue #11 requires genuine long-running native-engine, Discord, restart and destructive-boundary runtime evidence before VERIFIED; mock tests and CLI smoke do not satisfy this acceptance gate."}
+  ],
+  "fixed": true,
+  "summary": "Fixed 18 actionable findings with 30 red-to-green regressions; final typecheck, build and 17 related suites (192 tests) pass. A broader run before the final host-base fallback guard had 2018 passed and 9 failed; all 9 failures reproduced on the unmodified admitted head. needs-human: native STEER/runtime acceptance and an explicit adapter delivery-acknowledgement contract remain unresolved; issue #11 is not VERIFIED."
+}

@@ -246,6 +246,16 @@ Discord 對應：`/steer project:<p> execution:<id> text:<指示>`、`/enqueue �
 - daemon 重啟後 pending envelope 只認原 `executionId`：目標已死即轉 `STALE`，
   絕不投給下一個 task/execution；既有 stop/pause/cost/verification/issue-lock 閘不被繞過
   （stopFile 出現時 follow-up turn 不會啟動，指示在 verify 之前送達且仍受原驗收條件約束）。
+- 追加回合先重查 preflight、專案／全域預算及 TeamState 的成本保留與每日額度；每次引擎
+  呼叫分別計費。未接 TeamState 的嵌入式呼叫若設定每日次數上限，拒絕追加並回 `NOT_DELIVERED`。
+- `pending → delivering → delivered/closed` 原子認領防止重複投遞；已開始的投遞不因 TTL
+  掃描被改成過期。`queue-boundary` 可接受同 execution 的下一輪，進入 `host-verify` 即拒絕新指示。
+- 目標包含 project 與宿主程序啟動時間；無法核對程序身分時拒絕投遞。Discord 顯示完整
+  execution ID，暫時無法查詢身分時保留原紀錄與佇列。所有追加仍以最初 base commit 驗收，
+  較早指示會保留於後續 prompt。
+
+原生長時間 STEER／QUEUE、Discord 實際投遞與重啟安全尚待 runtime 驗收；目前 `delivered`
+表示 `engine.run()` 已回傳，個別 adapter 的送達 acknowledgement 契約仍需補齊，不能據此宣稱 VERIFIED。
 
 ## 鐵律摘要
 
