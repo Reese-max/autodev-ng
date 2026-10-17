@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "issue": 19,
+  "base_sha": "804f3db27b9b4947d8727b2652413e48b4fda0a1",
+  "red_proof": "$ npm test -- tests/github-repair-followup-diagnostic.test.ts tests/github-repair.test.ts --reporter=dot\nBefore implementation: exit 1; Test Files 2 failed (2); Tests 17 failed | 25 passed (42).\nFAIL Issue 16 diagnostic classifies the producer reason Repair revision baseline does not preserve the previously verified fix\nAssertionError: expected 'unknown' to be 'repair.revision-baseline'\nFAIL Issue 16 diagnostic classifies the producer reason verify-fail: FAIL quality comparison in a regression test\nAssertionError: expected 'verification.quality' to be 'verification.kernel'\nFAIL Issue 16 artifact and log omit private text from {\"api_key\":\"fixture json credential\"}\nAssertionError: expected serialized artifact not to contain 'fixture json credential' (excerpted assertion)\nFAIL a rejected follow-up preserves the actual failed candidate and revision in its diagnostic artifact\n- candidate: 2273ed0be7d5d6620fa7d50164a177a54eed896f\n+ candidate: 310420c46fa50d27e804a1b0d0b5e008b992bd59 (the prior published commit)\nAdditional path regressions before their fix:\n$ npm test -- tests/github-repair-followup-diagnostic.test.ts -t \"private text from cannot open\" --reporter=dot\nexit 1; Tests 2 failed | 2 passed | 19 skipped (23): unquoted Windows and POSIX paths containing spaces exposed their private suffixes.",
+  "test_command": "npm run typecheck && npm run build && npm test -- --reporter=dot && node --test --test-reporter=tap tests/regressions/*.test.cjs",
+  "test_exit": 0,
+  "tests_passed": 2713,
+  "tests_failed": 0,
+  "summary": "The diagnostic now associates the failed attempt with its actual worker commit, classifies real producer prefixes before incidental output, and redacts environment/auth credentials and private absolute paths before artifact/log emission. Red-to-green tests cover these defects and the real synthetic follow-up failure path; typecheck, build, all 2,698 Vitest tests and 15 retained regression tests passed on Windows/Node 26. No product repair, verifier, publication or recovery behavior was changed.",
+  "not_done": "needs-human: Issue #16's historical Windows/Node 22 failure has not been reproduced twice or assigned a root cause; the controlled acceptance failure only validates diagnostic capture. The required two consecutive recent green full two-round hosted CI runs remain pending. No push, remote PR update, issue closure or other branch modification was performed."
+}

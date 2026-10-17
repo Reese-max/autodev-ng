@@ -19,7 +19,9 @@ When the named synthetic follow-up test does not return `4: published`, it now c
 - first published commit, candidate checkout commit when present, revision round, and outer run number;
 - runtime platform and Node major version.
 
-Known verifier reasons are given a stable gate label. Generic `failed` values remain `unknown`; the test does not infer an inner cause when the source did not preserve one. The JSON contains no Issue body, fingerprint, PR data, database contents, raw process output, or local path. Machine paths and token-shaped strings are redacted from diagnostic details.
+The failed candidate commit comes from the most recent successful worker attempt for the same task preceding the first failed attempt. A rejected candidate has not been merged into the main checkout, so that checkout's HEAD is not used as the candidate. Missing or invalid commit evidence remains `null`.
+
+Known producer prefixes are given a stable gate label before inspecting nested acceptance/quality exceptions; incidental words in process output cannot override the outer verifier/reviewer gate. Generic `failed` values remain `unknown`; the test does not infer an inner cause when the source did not preserve one. The JSON contains no Issue body, fingerprint, PR data, database contents, raw process output, or local path. Diagnostic details reuse CLI environment/auth redaction, cover quoted credential values and absolute paths containing spaces, and are bounded to 800 characters. Unquoted paths conservatively consume the rest of their clause rather than exposing a private suffix.
 
 The artifact uses a unique filename under `RUNNER_TEMP` in CI, so a second suite round cannot overwrite the first failure. The workflow uploads matching JSON files even when a test step fails, with 30-day retention. Local runs use the OS temporary directory. No diagnostic file is produced by a passing follow-up.
 
@@ -30,5 +32,7 @@ The test remains end-to-end over its synthetic local repository and fake GitHub 
 ## Verification and remaining acceptance
 
 The previous local audit ran the named test twice on the exact failure source commit using Linux/Node 24; both runs passed, so they did not reproduce the historical Windows/Node 22 failure. On this diagnostic branch, the named test and its synthetic artifact-reader/writer tests pass on Linux/Node 24. Exact-head hosted CI is still pending. If Windows/Node 22 passes without producing a failure artifact, the historical inner gate remains unknown; keep Issue #16 open pending a controlled reproduction or further captured evidence.
+
+Self-review adds a controlled acceptance failure through the same synthetic follow-up fixture and checks the persisted artifact's actual worker commit, gate and revision state. Focused tests also cover producer-prefix classification, credential/path redaction in both artifacts and logs, and distinct files for repeated writes. The controlled negative case alone uses a fixture-owned diagnostic directory; unexpected failures of the original named test still retain artifacts in the CI-configured or OS temporary directory. These checks run locally on Windows/Node 26 and do not reproduce or explain the historical Windows/Node 22 failure.
 
 Issue #16 also requires two consecutive current/recent green full two-round CI runs before closure. This PR update is diagnostic evidence only and does not satisfy that closure condition.

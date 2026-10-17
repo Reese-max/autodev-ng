@@ -1,0 +1,26 @@
+{
+  "pr": 19,
+  "head": "804f3db27b9b4947d8727b2652413e48b4fda0a1",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "tests/github-repair.test.ts",
+      "line": 214,
+      "issue": "The failure branch reads candidateCommit from the main checkout, but rejected candidates remain in the scheduler worktree and have not been merged. Verification failures therefore report the previous published/base commit instead of the failed candidate. Capture the worker attempt's commit before fixture cleanup and verify the actual failure-artifact path."
+    },
+    {
+      "severity": "med",
+      "file": "tests/helpers/github-repair-followup-diagnostic.ts",
+      "line": 70,
+      "issue": "Gate classification misses actual producer messages (Repair revision baseline, verify-fail, verify-blocked, review-reject and review-blocked), while arbitrary quality/regression words in embedded output can override the real gate. Classify producer prefixes before free-form detail."
+    },
+    {
+      "severity": "high",
+      "file": "tests/helpers/github-repair-followup-diagnostic.ts",
+      "line": 45,
+      "issue": "The artifact/log redactor misses quoted JSON credentials, Bearer/Basic authorization and environment credential values. Path patterns also leave private suffixes from Windows paths containing spaces and unlisted POSIX roots. These values can be copied from verifier output into uploaded artifacts and CI logs. Reuse the existing CLI credential redactor and cover private paths before emitting diagnostics."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed three diagnostic defects: wrong failed candidate commit, incorrect gate attribution, and incomplete sensitive-data redaction. Red-to-green regression tests, typecheck, build, all 2,698 Vitest tests and 15 retained regression tests pass locally on Windows/Node 26. needs-human: Issue #16 still requires historical Windows/Node 22 reproduction, root-cause classification and the documented hosted CI closure evidence."
+}
