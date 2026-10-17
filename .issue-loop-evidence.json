@@ -1,0 +1,16 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "issue": 129,
+  "base_sha": "906f887cef6af86a9335f2eb3640f5d4e88e95e6",
+  "red_proof": "Before correcting the documentation, Git Bash command node --test tests/regressions/pr-129-ci-round-evidence.test.cjs exited 1: the issue #13 per-round evidence regression failed with ERR_ASSERTION (actual [] versus expected round 1: 4 failed files / 6 failed tests, round 2: 3 failed files / 5 failed tests). After the documentation fix, the unchanged test exited 0 with 1 passed and 0 failed. Expected totals were read back from original Windows CI job 102846569277, log lines 192-193 and 303-304.",
+  "test_command": "npm run build && npm run typecheck && node --test --test-reporter=tap tests/regressions/*.test.cjs",
+  "test_exit": 0,
+  "tests_passed": 14,
+  "tests_failed": 0,
+  "summary": "Corrected the incident record to distinguish round 1 (4 failed files / 6 failed tests) from round 2 (3 / 5), with a retained red/green regression. The declared Git Bash command passed build, typecheck/secret scan and all 14 retained tests; the full no-dist Vitest run passed 2,007 tests across 204 files (11 build-dependent skips), followed by all 34 tests across the five built-runtime files passing with zero skips, including all 11 previously skipped cases.",
+  "not_done": [
+    "needs-human: decide whether POSIX engine timeout must terminate descendants or whether that guarantee is Windows-only; the existing POSIX root-only termination and the PR's hang-tree skip were left unchanged.",
+    "needs-human: provide the post-remediation fixed-50-persona rerun required by issue #13, especially H01-H05/I04/I05/J03/J05; the issue is not fully accepted.",
+    "The local correction commit was not pushed and has no new remote CI receipt. Existing successful Windows CI for reviewed head 906f887 (run 36989291325) and consecutive main CI runs 35809176164/36218491349 were verified; the two-round flaky gate was not rerun locally."
+  ]
+}

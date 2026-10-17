@@ -1,0 +1,26 @@
+{
+  "pr": 129,
+  "head": "906f887cef6af86a9335f2eb3640f5d4e88e95e6",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "docs/flaky-ci-regression-2026-09-10.md",
+      "line": 15,
+      "issue": "The exact incident summary reports 3 failed files and 5 failed tests without distinguishing rounds. Original CI job 102846569277 records 4 failed files / 6 failed tests in round 1 and 3 / 5 in round 2, violating issue #13's exact per-round evidence requirement."
+    },
+    {
+      "severity": "med",
+      "file": "tests/proc.test.ts",
+      "line": 181,
+      "issue": "needs-human: The new POSIX hang-tree skip hides a real surviving grandchild: fake-cli.mjs spawns an independent child, whereas the POSIX killTree branch only kills the root PID. Maintainers must decide whether portable engine timeout tree termination is required or explicitly Windows-only; no production behavior or assertion is changed by this review."
+    },
+    {
+      "severity": "med",
+      "file": "docs/flaky-ci-regression-2026-09-10.md",
+      "line": 43,
+      "issue": "needs-human: Issue #13 requires a post-remediation rerun of the fixed 50 personas, especially H01-H05/I04/I05/J03/J05. The PR supplies Vitest/typecheck/build evidence but no such rerun receipt; the existing project Round 3 report predates remediation. The issue cannot yet be considered fully accepted."
+    }
+  ],
+  "fixed": true,
+  "summary": "Corrected the per-round CI incident totals with a retained regression proven red then green; local build, typecheck, full-suite and retained checks passed. Existing PR-head and default-branch Windows CI receipts were verified. Two items remain needs-human: the POSIX process-tree timeout support contract and the missing post-remediation fixed-50-persona receipt, so issue #13 is not fully accepted."
+}

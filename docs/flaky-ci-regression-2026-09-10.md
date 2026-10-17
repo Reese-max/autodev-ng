@@ -12,7 +12,14 @@
 | 34456050572 | `8143ec4` | failure |
 | 34469734636 | `8103b212` | failure（審計當前） |
 
-Run `34469734636` 的 job `102846569277` 確實完成 checkout、Node setup、`npm ci`、typecheck 與回歸命令，不是 runner admission 或 Actions budget 失敗。精確保留的結果是 201 個 test files 中 3 個失敗、1,977 個 tests 中 5 個失敗；兩輪的診斷均包含固定 completion/config/repair clusters 與一個第二輪才通過的 watcher case。其固定根因已由後續變更對齊目前的 `Deps`、free-policy fixture 與 repair gate detail 契約。
+Run `34469734636` 的 job `102846569277` 確實完成 checkout、Node setup、`npm ci`、typecheck 與回歸命令，不是 runner admission 或 Actions budget 失敗。[原始 Windows job](https://github.com/Reese-max/autodev-ng/actions/runs/34469734636/job/102846569277) 的兩輪統計如下；3 個失敗檔案／5 個失敗測試只屬於第二輪：
+
+| round | test files | tests | exit | timedOut |
+|---|---|---|---|---|
+| 1/2 | 4 failed / 197 passed (201) | 6 failed / 1,971 passed (1,977) | 1 | false |
+| 2/2 | 3 failed / 198 passed (201) | 5 failed / 1,972 passed (1,977) | 1 | false |
+
+兩輪均包含固定 completion/config/repair clusters；watcher case 僅第一輪失敗，第二輪通過。其固定根因已由後續變更對齊目前的 `Deps`、free-policy fixture 與 repair gate detail 契約。
 
 ## 精確失敗證據
 
