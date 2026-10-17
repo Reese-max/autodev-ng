@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "issue": 113,
+  "base_sha": "cb7eee9977fc73f02f65bba365cf81564f9154cd",
+  "red_proof": "Against the reviewed document (cb7eee9977fc73f02f65bba365cf81564f9154cd), `node node_modules/vitest/vitest.mjs run tests/host-trial-contract.test.ts` exited 1: `Tests 4 failed | 4 passed (8)`. Failures: required metrics missing effectiveOperatingMs/scheduledFaults/recoveryDurationsMs/maxEligibleWaitMsByRepo; `expected undefined to be 72`; documented heartbeat returned `HOST_FAIL` / `expected 1 to be +0`; Herdr doctor checks unexpectedly included `worker-cli`. The same four added checks pass after the documentation fixes.",
+  "test_command": "npm run typecheck && npm run build && node node_modules/vitest/vitest.mjs run tests/host-trial-contract.test.ts && node --test tests/regressions/*.test.cjs",
+  "test_exit": 0,
+  "tests_passed": 21,
+  "tests_failed": 0,
+  "summary": "Fixed the four review findings: require a full 72-hour observation window, record the missing operating/fault/recovery and all-repo waiting metrics, supply --home when emitting external heartbeats, and avoid the Codex-only --live probe in the Herdr trial command. Four new checks failed against the reviewed document and now pass; all 8 contract tests and 13 retained Node regressions pass, with typecheck/build and the secret scan green.",
+  "not_done": "The full-suite gate is not green: its first round exited 1 with 2020 passed and 5 failed, all in unchanged tests/github-repair.test.ts. Those fixtures mock runProcess but still use native metadata RPC, which reads this host's exhausted Codex included quota; comparison against the admitted head confirmed no changes to that file or its admission/RPC code. The automatic second round was stopped after this dependency was identified. No credential, account, quota or paid-fallback setting was changed. The separately authorized Windows real-host boot, fault injection, backup/restore/rollback, external alert delivery and 72-hour trial remain NOT_RUN; issue #38 stays open. No push, merge, deployment, task registration or live backend work was performed."
+}

@@ -31,7 +31,8 @@
       "status": "NOT_RUN",
       "evidence": [],
       "metrics": {
-        "required": ["observedStart", "observedEnd", "counts", "unscheduledRescues", "reposWithDeliverables", "cost"],
+        "minimumElapsedHours": 72,
+        "required": ["observedStart", "observedEnd", "effectiveOperatingMs", "counts", "scheduledFaults", "unscheduledRescues", "recoveryDurationsMs", "maxEligibleWaitMsByRepo", "reposWithDeliverables", "cost"],
         "zero": ["unauthorizedWrites", "duplicateWriters", "costSwitches"]
       }
     }
@@ -54,17 +55,18 @@
 
 | criterion | 驗收內容 | 既有工具（不重新開發） |
 |---|---|---|
-| `boot-reconnect` | 未登入桌面重開機後由正確帳號載入指定 release 與設定；Herdr 定位／恢復正確工作；完成至少一次真實 Issue → Agent → 宿主驗證／獨立審查 → 草稿 PR | `scripts/install-host-task.ps1`（Password logon，`-WhatIf` 先行）、`scripts/host.mjs doctor --home DIR --live`、`scripts/verify-host-release.mjs` |
+| `boot-reconnect` | 未登入桌面重開機後由正確帳號載入指定 release 與設定；Herdr 定位／恢復正確工作；完成至少一次真實 Issue → Agent → 宿主驗證／獨立審查 → 草稿 PR | `scripts/install-host-task.ps1`（Password logon，`-WhatIf` 先行）、`scripts/host.mjs doctor --home DIR`、`scripts/verify-host-release.mjs`；`doctor --live` 的 worker-cli 探測目前只接受 Codex adapter，Herdr 版本／登入與真實任務須另存證據 |
 | `fault-injection` | 對 worker／控制端／Herdr server 的已授權中斷：等待端失聯、完成未落地、重複事件／同案競爭、長靜默、waiting-human；零錯單、零重複 writer／PR、零假成功；unknown 安全隔離 | execution／Issue state、team.db、`scripts/host.mjs health`；auth／quota 失敗用隔離 fixture |
 | `backup-restore-rollback` | 依停工條件建私有快照、新目錄還原核對 Issue 收據／成果雜湊／attempt／成本；保持 integrations disabled 與暫停；失敗更新回切已驗證 runtime；schema 不相容不得直接降版覆寫 | `scripts/host.mjs handoff|pause|backup|restore|switch|rollback`（backup／restore 實作在 `scripts/host-state.mjs`） |
-| `external-offline-alert` | 被監控主機之外的觀察端收心跳，主機離線時告警真的送達授權通知管道；記錄事件／偵測／送達時間、去重與恢復通知 | `scripts/host.mjs health --out FILE`＋另一台主機的 `scripts/check-host-heartbeat.mjs --file FILE --host HOSTID` |
+| `external-offline-alert` | 被監控主機之外的觀察端收心跳，主機離線時告警真的送達授權通知管道；記錄事件／偵測／送達時間、去重與恢復通知 | `scripts/host.mjs health --home DIR --out FILE`＋另一台主機的 `scripts/check-host-heartbeat.mjs --file FILE --host HOSTID` |
 | `trial-72h` | 完成固定故障演練後的 72 小時觀測窗；須跨多個 repo 產生可驗收成果，不以空轉計時 | 既有 daemon／supervise 收據、attempt 帳務、delivery-health 報告（僅在其實際可用並驗證後引用） |
 
 ## `trial-72h` metrics 合約
 
 PASS 前 `criteria["trial-72h"].metrics` 必須填入實測值並滿足：
 
-- `required` 全部存在：`observedStart`、`observedEnd`（ISO8601，且結束晚於開始）、`counts`（含 `completed`／`blocked`／`waitingHuman`／`unknown` 整數）、`unscheduledRescues`（非預期人工救援次數）、`reposWithDeliverables`（⊆ `authorizedRepos` 且 ≥2，每 repo 附最長符合條件等待）、`cost`（`{ "known": <usd>, "unknown": <usd> }`）。
+- `minimumElapsedHours` 固定為 72，與 `windowHours` 一致；`observedStart`、`observedEnd` 必須是有效 ISO8601，且 `Date.parse(observedEnd) - Date.parse(observedStart) >= minimumElapsedHours * 3_600_000`。不足觀測窗不得 PASS。
+- `required` 全部存在：`observedStart`、`observedEnd`、`effectiveOperatingMs`（有效運作毫秒數，介於 0 與實際觀測窗之間）、`counts`（含 `completed`／`blocked`／`waitingHuman`／`unknown` 非負整數）、`scheduledFaults`（預定故障演練次數，非負整數）、`unscheduledRescues`（非預期人工救援次數，非負整數）、`recoveryDurationsMs`（每次故障／救援的事件 ref 與非負恢復毫秒數）、`maxEligibleWaitMsByRepo`（每個 `authorizedRepos` 成員的最長符合條件等待毫秒數，含未產生成果的 repo）、`reposWithDeliverables`（不重複的 repo 清單，⊆ `authorizedRepos` 且 ≥2）、`cost`（`{ "known": <usd>, "unknown": <usd> }`）。缺漏或未觀測值不得以 0 補齊，維持 `INCOMPLETE`；真正觀測到零事件時可記 0／空恢復清單。
 - `zero` 全部為 0：`unauthorizedWrites`、`duplicateWriters`、`costSwitches`——任一不為 0 即硬條件失敗。
 
 ## 硬性停止條件

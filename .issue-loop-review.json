@@ -1,0 +1,32 @@
+{
+  "pr": 113,
+  "head": "cb7eee9977fc73f02f65bba365cf81564f9154cd",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "docs/host-trial-acceptance.md",
+      "line": 67,
+      "issue": "The PASS contract only requires observedEnd after observedStart, allowing a trial shorter than the required 72-hour observation window."
+    },
+    {
+      "severity": "med",
+      "file": "docs/host-trial-acceptance.md",
+      "line": 34,
+      "issue": "Required metrics omit effective operating time, scheduled fault count and recovery duration; waiting measurements cover only repos with deliverables instead of every authorized repo required by issue #38."
+    },
+    {
+      "severity": "med",
+      "file": "docs/host-trial-acceptance.md",
+      "line": 60,
+      "issue": "The documented health receipt command omits mandatory --home and exits 1 without writing the external heartbeat receipt."
+    },
+    {
+      "severity": "med",
+      "file": "docs/host-trial-acceptance.md",
+      "line": 57,
+      "issue": "The Herdr trial runbook prescribes doctor --live, whose worker-cli probe only accepts the Codex adapter and therefore always fails for the prescribed Herdr adapter."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed four trial-contract/runbook defects: the missing 72-hour minimum, incomplete required metrics and all-repo wait evidence, missing heartbeat --home, and the Codex-only live probe prescribed for Herdr. Four new regression checks failed before the fixes; all 8 contract tests and 13 retained regressions now pass with typecheck/build green. Full-suite round 1 still has 5 failures in unchanged account-dependent repair fixtures (2020 passed); round 2 was stopped, and real-host issue #38 acceptance remains NOT_RUN."
+}
