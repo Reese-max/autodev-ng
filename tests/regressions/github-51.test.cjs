@@ -271,28 +271,33 @@ test('caller abort and total deadline never issue another request', async () => 
   assert.equal(b2.hits.length, 0, 'no request may be issued after the total deadline')
 })
 
-test('attempt timeout over real HTTP falls back once; timed-out cost stays unknown', async () => {
-  const a = await makeEndpoint(async (req, res) => { await sleep(250); send(res, 200, okBody('a-late', 'A-LATE')) })
-  const b = await makeEndpoint((req, res) => send(res, 200, okBody('b-actual', 'B-OK')))
-  const dataDir = tmpDataDir()
-  const out = await callAgent({
-    url: a.url, model: 'alias', apiKey: 'k', dataDir,
-    route: {
-      enabled: true, routeId: 'gh51-timeout', policyVersion: '1', perAttemptTimeoutMs: 60,
-      candidates: [
-        { id: 'a', url: a.url, model: 'm-a', apiKey: 'k-a', credentialRef: 'ca' },
-        { id: 'b', url: b.url, model: 'm-b', apiKey: 'k-b', credentialRef: 'cb' },
-      ],
-    },
-  }, 'p')
-  assert.equal(out.text, 'B-OK', 'a per-attempt timeout is a bounded fallback class')
-  assert.equal(a.hits.length, 1)
-  assert.equal(b.hits.length, 1)
-  const lines = readFileSync(path.join(dataDir, 'route-calls.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))
-  const failed = lines.find(l => l.phase === 'attempt-failed' && l.candidateId === 'a')
-  assert.equal(failed.failureClass, 'attempt-timeout')
-  assert.equal(failed.cost, 'unknown', 'a timed-out attempt may still bill upstream — cost is retained as unknown, never zeroed')
-})
+for (const phase of ['headers', 'body']) {
+  test(`attempt timeout over real HTTP falls back once (${phase}); timed-out cost stays unknown`, async () => {
+    const a = await makeEndpoint((req, res) => {
+      if (phase === 'body') { res.writeHead(200, { 'content-type': 'application/json' }); res.flushHeaders() }
+      // Deliberately never finish: the client owns the bounded timeout.
+    })
+    const b = await makeEndpoint((req, res) => send(res, 200, okBody('b-actual', 'B-OK')))
+    const dataDir = tmpDataDir()
+    const out = await callAgent({
+      url: a.url, model: 'alias', apiKey: 'k', dataDir,
+      route: {
+        enabled: true, routeId: 'gh51-timeout', policyVersion: '1', perAttemptTimeoutMs: 1_000,
+        candidates: [
+          { id: 'a', url: a.url, model: 'm-a', apiKey: 'k-a', credentialRef: 'ca' },
+          { id: 'b', url: b.url, model: 'm-b', apiKey: 'k-b', credentialRef: 'cb' },
+        ],
+      },
+    }, 'p')
+    assert.equal(out.text, 'B-OK', 'a per-attempt timeout is a bounded fallback class')
+    assert.equal(a.hits.length, 1)
+    assert.equal(b.hits.length, 1)
+    const lines = readFileSync(path.join(dataDir, 'route-calls.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))
+    const failed = lines.find(l => l.phase === 'attempt-failed' && l.candidateId === 'a')
+    assert.equal(failed.failureClass, 'attempt-timeout')
+    assert.equal(failed.cost, 'unknown', 'a timed-out attempt may still bill upstream — cost is retained as unknown, never zeroed')
+  })
+}
 
 test('redirect is never followed: credentials do not leak across candidate boundaries', async () => {
   const b = await makeEndpoint((req, res) => send(res, 200, okBody('b-actual', 'B-OK')))

@@ -40,8 +40,8 @@ round 1 共 6 個失敗（4 檔），round 2 共 5 個（watcher 案例間歇）
 - `cli.test.ts` M5 走 registry 建構，`opencode` free-policy 守門收緊 → 同批 fixture 對齊。
 - `github-repair.test.ts` follow-up 狀態機調整 → `feaa287`、`cb7159c` 對齊並降噪。
 
-驗證：base `99eba24` 的 CI run `36218491349`（2026-09-26）及之後 main 連續綠；
-本地 `npx vitest run` 對四個失敗檔全綠。
+原 PR 驗證紀錄：base `99eba24` 的 CI run `36218491349`（2026-09-26）及之後 main 連續綠；
+當時本地 `npx vitest run` 對四個失敗檔全綠。
 
 **B. 診斷解析器丟失合併錯誤的 assertion（已定位，後續修正）**
 
@@ -58,7 +58,8 @@ bootstrap 順序）。
 
 套件本身設計為 Windows-first（CI 僅 `windows-latest`），但在 Linux/其他
 驗證主機上 `npm test` 出現 23 項固定失敗——守門無法在非 Windows 機器上
-被執行或驗證，屬 gate-operability 缺口。本 PR 只動 `tests/` 與文件：
+被執行或驗證，屬 gate-operability 缺口。原 PR 以 `tests/` 與文件修正此缺口；
+自我審查另修正路由的 body 逾時與隔離競態，見 [路由文件](model-route-policy.md)。
 
 | 失敗群組 | 性質 | 處理 |
 |---|---|---|
@@ -67,13 +68,16 @@ bootstrap 順序）。
 | `tests/proc.test.ts` `hang-tree`、supervisor-health 5 項 | `taskkill`/樹枚舉屬 `reapDaemonTree`/`killTree` 的 win32 分支，POSIX 後備為 SIGKILL（語意不同，非缺陷） | `test.skipIf(!win32)`／情境列過濾——Windows CI 全數照跑 |
 | `tests/worktree.test.ts`、`tests/scheduler.test.ts` 檔鎖 | 以 `powershell.exe` 造 Windows FileShare 語意，POSIX 無同義鎖法 | `test.skipIf(!win32)` |
 | `tests/verify.test.ts` exit 9009 | POSIX exit status 僅 8 bits，`process.exit(9009)` 觀測為 41 | 9009 僅 win32 驗；127 兩平台保留 |
-| host-deployment/autonomy-gate/github-delivery/learn-store/learning-outcomes 共 11 項 | 依賴 `dist/` 建置產物（gitignored）或 `scripts/*.mjs→dist` 鏈；乾淨 checkout 必敗 | `tests/helpers/runtime-build.ts` `RUNTIME_BUILT` 門檻；CI 先 build 故照跑 |
+| host-deployment/autonomy-gate/github-delivery/learn-store/learning-outcomes 共 11 項 | 依賴 `dist/` 建置產物（gitignored）或 `scripts/*.mjs→dist` 鏈；乾淨 checkout 缺少建置 | `tests/helpers/runtime-build.ts` 由 Vitest globalSetup 每次先建置目前原始碼；建置失敗即阻擋，不以略過測試取代驗收 |
 
-所有被略過的測試僅在非 Windows 或無建置產物的環境略過，`windows-latest` CI
-（先 `npm run build` 再兩輪全量）逐一執行，斷言內容零刪減。
+平台專屬測試僅在非 Windows 環境略過；依賴建置產物的 11 項在乾淨 checkout
+也會執行。`windows-latest` CI 仍先建置再跑兩輪全量，斷言內容零刪減。
 
 ## 殘留觀察項
 
+- PR #116 自我審查在 Windows 重現 `github-repair.test.ts` 讀取本機 Codex 額度而失敗。
+  該檔現沿用既有 `nativeAdmission` 測試替身，並斷言不呼叫帳號 metadata RPC；
+  生產額度守門維持原狀。
 - watcher 案例的 `spawnSync` 10s 上限在高負載 Windows runner 上仍是間歇風險
   （round 1 失敗、round 2 通過）；目前不調整，若再現才提高上限或改為明確的
   spawn-error 區分。
@@ -83,8 +87,8 @@ bootstrap 順序）。
 - 精確失敗證據：上表取自 CI job log（spec／assertion／round／timedOut／fixture 俱全）。
 - 重現：固定失敗已由上游修復、本地四檔全綠；間歇 watcher 案例保留為觀察項。
 - 未弱化守門：`typecheck`、雙輪 Vitest、`tests/regressions/*.test.cjs` 全部維持阻擋；
-  平台／建置門檻僅略過在該環境本無法成立的測試，Windows CI 斷言零刪減。
-- 套件可驗證性：修復後 Linux 主機 `npm test` 全綠（1996 通過／19 略過／0 失敗），
-  守門首次可在非 Windows 驗證主機乾淨 replay。
-- 連續綠 CI：base 起 main 已多輪連綠（含 `36218491349`）；本 PR 的 Windows CI
-  亦走同一守門。
+  僅保留平台門檻，建置相依測試先編譯再執行，Windows CI 斷言零刪減。
+- 原 PR 的 Linux 驗證紀錄為 1996 通過／19 略過／0 失敗；該數字包含當時的建置略過，
+  不能作為本次修正後的驗收結果。自我審查使用 Windows，未重跑 Linux。
+- 原 PR 記錄 base 起 main 多輪連綠（含 `36218491349`）；本次自我審查只做本機驗證，
+  未推送或觸發遠端 CI。

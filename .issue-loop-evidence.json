@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "issue": 116,
+  "base_sha": "87f67f04bfce269d7835bc05c65fac055b5b7362",
+  "red_proof": "Before implementation, `npx vitest run tests/runtime-build.test.ts tests/model-route-policy.test.ts --reporter=dot` exited 1: 4 failed, 19 passed. The new readiness assertion received false; concurrent quarantine regressions received CLOSED after HTTP 200 and OPEN after HTTP 503; the expanded slow-fallback HALF_OPEN regression received 2 probes instead of 1. After compiling the original source, `node --test --test-name-pattern='attempt timeout over real HTTP' tests/regressions/github-51.test.cjs` exited 1: the headers case passed but the new body-stall case returned '' instead of 'B-OK'. Before isolating nativeAdmission, `npx vitest run tests/github-repair.test.ts -t 'CLI review failure' --reporter=dot` exited 1: the new no-account-RPC assertion observed withCliRpc called once. Two original repair failures were also reproduced from an archive of the unchanged reviewed head.",
+  "test_command": "npm run typecheck && npm run build && npm test -- --reporter=dot && node --test tests/regressions/*.test.cjs",
+  "test_exit": 0,
+  "tests_passed": 2042,
+  "tests_failed": 0,
+  "summary": "Self-review of PR #116 against issue #51 fixed response-body timeout classification and persistent quarantine races, made build-dependent acceptance execute on clean checkouts, removed a cooldown timing assumption, and isolated repair CLI fixtures from operator account metadata. All five fixes have pre-fix failing regression evidence. Windows Node v26.7.0/npm 12.0.2; the fresh-dist focused acceptance run passed before final verification. Final Git Bash verification exited 0: typecheck (including secret scan), production build, 205 Vitest files/2025 tests with no skips, and 17 Node regression tests with no skips.",
+  "not_done": "needs-human: issue #51 logical-call hard-cap acceptance remains incomplete; maxCostUsd checks successful responses but has no approved pre-dispatch worst-case pricing/reservation contract, and an unknown-cost timeout can cause another paid attempt. Actual 9Router compatibility remains UNVERIFIED. Linux/macOS and remote CI were not run. No push, PR update, merge, deployment, or real model inference was performed."
+}

@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'vitest'
+import { describe, test, expect, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -89,6 +89,10 @@ describe('breaker state', () => {
       expect(readBreaker(dir, 'k').kind).toBe('invalid')
       quarantineRouteCandidate(dir, 'q', 'identity-violation:x')
       expect(readBreaker(dir, 'q')).toEqual({ kind: 'quarantined', reason: 'identity-violation:x' })
+      writeFileSync(join(dir, 'route-breakers', 'q.quarantine.json'), JSON.stringify({ state: 'OPEN', retryAt: 0 }))
+      expect(readBreaker(dir, 'q')).toEqual({ kind: 'invalid' })
+      writeFileSync(join(dir, 'route-breakers', 'legacy.json'), JSON.stringify({ state: 'QUARANTINED', reason: 'legacy' }))
+      expect(readBreaker(dir, 'legacy')).toEqual({ kind: 'quarantined', reason: 'legacy' })
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 })
@@ -169,6 +173,31 @@ describe('callRoutedAgent', () => {
       expect(over.error).toMatch(/exceeds policy cap/i)
       expect(readBreaker(dir, breakerKey({ url: 'http://u9/v1', model: 'm9', apiKey: 'k9', credentialRef: 'cr9' })).kind).toBe('quarantined')
     } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  test.each([200, 503])('in-flight HTTP %i cannot erase a concurrent quarantine', async status => {
+    const dir = dataDir()
+    const route = policy({}, [{}])
+    const key = breakerKey(route.candidates[0]!)
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    let calls = 0
+    const fetchFn = (async () => {
+      calls++
+      await gate
+      return status === 200 ? await okFetch('m0')('http://u0') : new Response('{}', { status })
+    }) as typeof fetch
+    try {
+      const pending = callRoutedAgent({ route, dataDir: dir, model: 'a', fetchFn }, 'p')
+      expect(calls).toBe(1)
+      quarantineRouteCandidate(dir, key, 'identity-violation:writer')
+      release()
+      await pending
+      expect(readBreaker(dir, key)).toEqual({ kind: 'quarantined', reason: 'identity-violation:writer' })
+      const next = await callRoutedAgent({ route, dataDir: dir, model: 'a', fetchFn }, 'p')
+      expect(next.error).toContain('quarantined')
+      expect(calls).toBe(1)
+    } finally { release(); rmSync(dir, { recursive: true, force: true }) }
   })
 
   test('caller abort dispatches nothing; deadline stops before next request', async () => {
@@ -273,16 +302,19 @@ describe('callRoutedAgent', () => {
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
-  test('HALF_OPEN probe failure re-opens the breaker; a racing caller never amplifies attempts', async () => {
+  test('HALF_OPEN probe failure stays open across a slow fallback', async () => {
     const dir = dataDir()
+    const now = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now)
     try {
       const route = policy({ cooldownMs: 150 }, [{}, {}])
       const first = await callRoutedAgent({ route, dataDir: dir, model: 'a', fetchFn: statusFetch(429) }, 'p')
       expect(first.error).toBeTruthy()
-      await new Promise(r => setTimeout(r, 190)) // let the bounded cooldown expire
+      clock.mockReturnValue(now + 190) // Expire the initial cooldown, then hold policy time fixed.
       let hits = 0
       const still503 = (async (url: unknown) => {
         if (String(url).includes('u0')) hits++
+        else await new Promise(r => setTimeout(r, 200)) // B may take longer than A's cooldown.
         return String(url).includes('u0')
           ? new Response('{}', { status: 503 })
           : new Response(JSON.stringify({ model: 'm1', choices: [{ message: { content: 'b' } }] }), { status: 200 })
@@ -296,7 +328,7 @@ describe('callRoutedAgent', () => {
       const again = await callRoutedAgent({ route, dataDir: dir, model: 'a', fetchFn: still503 }, 'p')
       expect(again.text).toBe('b')
       expect(hits).toBe(1)
-    } finally { rmSync(dir, { recursive: true, force: true }) }
+    } finally { clock.mockRestore(); rmSync(dir, { recursive: true, force: true }) }
   })
 
   test('redirect refusal is transport-bounded and never forwards the credential', async () => {

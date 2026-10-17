@@ -49,7 +49,7 @@
 - `CLOSED`（無檔案）：正常嘗試。
 - `OPEN`：暫時性失敗後冷卻至 `retryAt`；尊重有效 `Retry-After`，缺漏或非法值採 `cooldownMs` 有界冷卻。冷卻中的候選直接略過，不消耗 attempt。
 - `HALF_OPEN`：冷卻到期後只允許一個有 `probeLeaseMs` 期限的探測 lease（mkdir 原子互斥）；搶不到的並行 caller 走下一個候選，不放大嘗試次數。探測成功回 `CLOSED`，暫時性失敗回 `OPEN`。
-- `QUARANTINED`：模型身分命中排除名單或成本超頂時持久隔離；計時器與成功競態都不得解除，只能人工檢查 receipt 後刪除狀態檔。
+- `QUARANTINED`：模型身分命中排除名單或成本超頂時，寫入獨立的 `<key>.quarantine.json`，避免進行中的成功或暫時失敗覆寫隔離。舊版 `<key>.json` 隔離紀錄仍可讀取；人工檢查 receipt 並確認沒有進行中的呼叫後，須一併移除該候選的隔離檔與原狀態檔才能重設。
 
 ## Reviewer 獨立性
 
@@ -65,7 +65,7 @@
 
 ## 驗收 ↔ 測試證據對應
 
-Issue #51 的驗收條件由兩層測試覆蓋：`tests/model-route-policy.test.ts`（純政策單元）與 `tests/regressions/github-51.test.cjs`（本機真 HTTP fixture，含跨 process 重啟與並行，CI 以 `node --test` 執行）。
+Issue #51 已驗證項目的證據來自兩層測試：`tests/model-route-policy.test.ts`（純政策單元）與 `tests/regressions/github-51.test.cjs`（本機真 HTTP fixture，含跨 process 重啟與並行，CI 以 `node --test` 執行）；尚未完成的成本硬上限列於表後。
 
 | 驗收行為 | 證據 |
 |---|---|
@@ -73,13 +73,15 @@ Issue #51 的驗收條件由兩層測試覆蓋：`tests/model-route-policy.test.
 | 429+Retry-After → 備援，各候選最多一次、receipt 可追溯 | cjs `transient 429 … falls back once`；unit `falls back only on transient classes` |
 | 冷卻跨重啟保留；HALF_OPEN 單一探測 lease | cjs `cooldown persists … real process restart`、`single retry owner: one HALF_OPEN probe lease`；unit `single probe lease` |
 | 全不可用時有界停止、明示 retryAt | cjs `all candidates unavailable: bounded stop` |
-| 401/403／身分／成本違規不備援；QUARANTINED 不自解 | cjs `permanent failure classes … never trigger fallback`（401）、`reviewer role … quarantine survives`；unit `transient set is exactly…`（401/403→auth）、`requireActualModel blocks`、`cost hard cap` |
+| 401/403／身分／成本違規不備援；QUARANTINED 不自解 | cjs `permanent failure classes … never trigger fallback`（401）、`reviewer role … quarantine survives`；unit `transient set is exactly…`（401/403→auth）、`requireActualModel blocks`、`cost hard cap`、`in-flight HTTP … cannot erase a concurrent quarantine`（成功與 503） |
 | attempt-timeout 可備援；abort／總期限不再發請求；逾時成本保留 unknown | cjs `attempt timeout over real HTTP falls back once`、`caller abort and total deadline`；unit `attempt-timeout falls back` |
 | free-only 指向 localhost／gateway 於送出前拒絕 | cjs `free-only still rejects non-OpenRouter endpoints`；`tests/free-only-policy.test.ts` |
 | gateway 別名／writer 身分 → reviewer BLOCKED | cjs `reviewer role: gateway alias or writer-model identity yields BLOCKED` |
 | 秘密引用不可用於 dispatch 前阻擋；金鑰不交叉、redirect 不洩認證 | unit `unresolved credential reference`；cjs `redirect is never followed`；unit `redirect refusal` |
 | 單一 retry owner；gateway 隱藏 attempts 記 UNKNOWN | cjs `gateway candidate is a single retry owner`；unit `gateway candidate is the single retry owner` |
 | receipt 無秘密洩漏、可分辨 phase | cjs `receipts attribute attempts without leaking secrets` |
+
+尚未完成的驗收：`maxCostUsd` 目前僅檢查各次成功回應所回報的成本，未提供 dispatch 前的最壞成本估算或 logical call 預算保留；逾時後保留 `unknown` 收據不代表已符合總成本硬上限。此項為 **needs-human**，須先確認價格與預算保留契約，不能由本表的 timeout 或 cost 測試宣稱通過。
 
 ## 9Router 相容性狀態：**UNVERIFIED**
 

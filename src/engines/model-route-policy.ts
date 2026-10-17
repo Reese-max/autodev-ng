@@ -116,11 +116,13 @@ function writeAtomic(file: string, content: string): void {
 }
 
 export function readBreaker(dataDir: string, key: string): BreakerSnapshot {
-  const file = breakerFile(dataDir, key)
+  const quarantine = breakerFile(dataDir, `${key}.quarantine`)
+  const file = existsSync(quarantine) ? quarantine : breakerFile(dataDir, key)
   if (!existsSync(file)) return { kind: 'closed' }
   let state: { state?: unknown; retryAt?: unknown; reason?: unknown }
   try { state = JSON.parse(readFileSync(file, 'utf8')) } catch { return { kind: 'invalid' } }
   if (state.state === 'QUARANTINED') return { kind: 'quarantined', reason: typeof state.reason === 'string' ? state.reason : 'quarantined' }
+  if (file === quarantine) return { kind: 'invalid' }
   if (state.state === 'OPEN') {
     if (typeof state.retryAt !== 'number' || !Number.isFinite(state.retryAt)) return { kind: 'invalid' }
     return { kind: 'open', retryAt: state.retryAt }
@@ -140,7 +142,8 @@ function clearBreaker(dataDir: string, key: string): void {
 /** 成本／身分違規隔離：計時器與成功競態都不得自行解除，只能人工檢查收據後刪除。 */
 export function quarantineRouteCandidate(dataDir: string, key: string, reason: string): void {
   mkdirSync(breakerDir(dataDir), { recursive: true })
-  writeAtomic(breakerFile(dataDir, key), JSON.stringify({ state: 'QUARANTINED', reason, at: new Date().toISOString() }))
+  // Separate durable state: in-flight OPEN/CLOSED writes cannot overwrite or delete quarantine.
+  writeAtomic(breakerFile(dataDir, `${key}.quarantine`), JSON.stringify({ state: 'QUARANTINED', reason, at: new Date().toISOString() }))
 }
 
 interface ProbeLease { release(): void }
@@ -227,7 +230,11 @@ async function attemptOnce(candidate: RouteCandidate, prompt: string, o: {
     }
   }
   let data: { model?: unknown; choices?: Array<{ message?: { content?: unknown } }>; usage?: { total_tokens?: unknown; cost?: unknown } }
-  try { data = await res.json() } catch { return { ok: false, cls: 'invalid-response', error: 'unparseable response body' } }
+  try { data = await res.json() } catch {
+    if (o.signal?.aborted) return { ok: false, cls: 'cancelled', error: 'caller cancelled' }
+    if (timeoutSignal.aborted) return { ok: false, cls: 'attempt-timeout', error: `timeout after ${o.timeoutMs}ms` }
+    return { ok: false, cls: 'invalid-response', error: 'unparseable response body' }
+  }
   const text = data.choices?.[0]?.message?.content
   if (typeof text !== 'string' || !text.trim()) return { ok: false, cls: 'invalid-response', error: 'empty model response' }
   const totalTokens = Number.isSafeInteger(data.usage?.total_tokens) && (data.usage!.total_tokens as number) >= 0 ? data.usage!.total_tokens as number : 0

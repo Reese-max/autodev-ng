@@ -1,0 +1,44 @@
+{
+  "pr": 116,
+  "head": "87f67f04bfce269d7835bc05c65fac055b5b7362",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "tests/helpers/runtime-build.ts",
+      "line": 8,
+      "issue": "A clean checkout silently skips 11 build-dependent acceptance tests, including backup/restore and HTTP console authorization, while npm test succeeds. Prepare the current runtime before test collection and fail the suite if compilation fails."
+    },
+    {
+      "severity": "med",
+      "file": "tests/regressions/github-51.test.cjs",
+      "line": 275,
+      "issue": "The new timeout fixture only stalls before response headers. A timeout while reading a response body is incorrectly classified as invalid-response in attemptOnce, so the allowed fallback never runs. The 60ms real-HTTP budget also risks timing out a healthy fallback on a busy host."
+    },
+    {
+      "severity": "high",
+      "file": "docs/model-route-policy.md",
+      "line": 76,
+      "issue": "The acceptance table claims quarantine survives success races, but its referenced test is sequential. An already-dispatched successful call deletes a concurrent quarantine via clearBreaker, and a transient failure overwrites it via openBreaker, allowing future dispatch to an isolated candidate."
+    },
+    {
+      "severity": "med",
+      "file": "tests/model-route-policy.test.ts",
+      "line": 279,
+      "issue": "The HALF_OPEN failure test assumes its final call happens inside a 150ms cooldown. If the fallback response or scheduling takes longer, correct code legally probes A again and fails the assertion. Advance only the policy clock to establish cooldown boundaries deterministically."
+    },
+    {
+      "severity": "high",
+      "file": "tests/model-route-policy.test.ts",
+      "line": 220,
+      "issue": "needs-human: Timeout cost coverage only asserts an unknown receipt without maxCostUsd. The existing route checks costs per successful response, does not reserve a worst-case logical-call budget before dispatch, and can fall back after an unknown-cost timeout. Closing the issue's hard-cap acceptance requires an approved pricing/reservation contract; this review will not invent new budget configuration or provider guarantees."
+    },
+    {
+      "severity": "med",
+      "file": "tests/github-repair.test.ts",
+      "line": 111,
+      "issue": "Repair fixtures mock model execution but leave nativeAdmission live, so npm test reads the operator account through a real Codex app-server and changes its outcome with local quota. The original reviewed head reproduces the failures. Isolate account admission using the existing test-double pattern and assert that repair fixtures never invoke metadata RPC; retain the production quota gate and every original assertion."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed five actionable defects: skipped clean-checkout acceptance, response-body timeout fallback, quarantine overwrite races, cooldown timing, and repair-fixture account leakage; each has red-to-green regression evidence. needs-human: issue #51 logical-call hard-cap acceptance remains incomplete until pre-dispatch pricing and reservation semantics are approved. On Windows, typecheck/build, all 2025 Vitest tests and 17 Node regression tests passed with exit 0; details are in .issue-loop-evidence.json."
+}

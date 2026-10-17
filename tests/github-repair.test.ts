@@ -12,6 +12,7 @@ import { publishIssue, runGithub } from '../src/github/runner.js'
 import { branchFor, fingerprint, readState, saveState, type IssueState } from '../src/github/state.js'
 import { observeProject, reportFingerprint } from '../src/autopilot/report-research.js'
 import * as proc from '../src/engines/proc.js'
+import * as rpc from '../src/engines/cli-rpc.js'
 import { githubCli } from '../src/github/cli.js'
 import * as github from '../src/github/client.js'
 import * as runner from '../src/github/runner.js'
@@ -19,6 +20,11 @@ import { delivery, recoverIssue, repairDoctor, repairMetrics } from '../src/gith
 import * as incident from '../src/guardian/incident.js'
 import { FreebuffEngine } from '../src/engines/freebuff.js'
 import { PreflightCache } from '../src/preflight.js'
+
+vi.mock('../src/engines/cli-admission.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/engines/cli-admission.js')>()
+  return { ...actual, nativeAdmission: vi.fn(async (provider: string, opts: { model?: string }) => actual.unknownAdmission(provider, opts.model)) }
+})
 
 const dirs: string[] = []
 afterEach(() => { vi.restoreAllMocks(); process.exitCode = undefined; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
@@ -295,8 +301,10 @@ test('CLI sandbox failure blocks the repair before preparation or repeated worke
 
 test('CLI review failure cannot approve and CLI repair requires explicit local policy', async () => {
   const f = await setup()
+  const metadata = vi.spyOn(rpc, 'withCliRpc').mockRejectedValue(new Error('repair fixtures must not read operator account metadata'))
   vi.spyOn(proc, 'runProcess').mockResolvedValue({ stdout: '', stderr: 'unavailable', timedOut: false, exitCode: 1, durationMs: 1 })
   await expect(reviewRepair({ dataDir: f.dir, model: 'unused', effort: 'low', timeoutMs: 1000 }, { diff: 'some diff', taskText: 'Fix addition' })).rejects.toThrow('no fallback approval')
+  expect(metadata).not.toHaveBeenCalled()
   delete f.cfg.repair; writeFileSync(f.configPath, JSON.stringify(f.cfg))
   await expect(githubCli(['repair', '--config', f.configPath])).rejects.toThrow('local report/probe policy')
   await expect(githubCli(['repair', '--config', f.configPath, '--force'])).rejects.toThrow('Usage')
