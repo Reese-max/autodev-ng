@@ -692,13 +692,16 @@ test.each(['degraded', 'cancelRequested', 'unknown'] as const)('submission rejec
   expect(store(dir).peekQueue('exec-1')).toEqual([])
 })
 
-test('full control inventory refuses admission before creating the unreadable 10001st record', () => {
+test('full control inventory refuses admission before creating the unreadable 10001st record', async () => {
   const dir = root(); liveExecution(dir)
   const accepted = submit(dir), template = JSON.parse(readFileSync(join(dir, 'controls', `${accepted.envelope.id}.json`), 'utf8'))
   template.state = 'resolved'; template.disposition = 'STALE'; template.resolvedAt = Date.now()
-  for (let i = 1; i < 10000; i++) {
-    const id = `inventory-${i}`
-    writeFileSync(join(dir, 'controls', `${id}.json`), JSON.stringify({ ...template, id, seq: i + 1 }))
+  const { writeFile } = await import('node:fs/promises')
+  for (let base = 1; base < 10000; base += 500) {
+    await Promise.all(Array.from({ length: Math.min(500, 10000 - base) }, (_, k) => {
+      const i = base + k, id = `inventory-${i}`
+      return writeFile(join(dir, 'controls', `${id}.json`), JSON.stringify({ ...template, id, seq: i + 1 }))
+    }))
   }
   const reply = submit(dir, { instruction: 'must not be hidden' })
   expect(reply.ok).toBe(false)

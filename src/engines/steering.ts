@@ -66,6 +66,12 @@ export interface ControlRequest {
 export interface ControlReply { ok: boolean; text: string; envelope: ControlEnvelope }
 export interface ControlList { pending: ControlEnvelope[]; resolved: ControlEnvelope[]; errors: string[] }
 
+/** Inventory passes repeat per submit/transition; unchanged records (same path,
+ *  mtime, size) reuse the raw text instead of paying the per-open read again.
+ *  Parsing always re-runs so callers never share a mutable envelope object. */
+const recordTextCache = new Map<string, { mtimeMs: number; size: number; text: string }>()
+const RECORD_TEXT_CACHE_LIMIT = 50_000
+
 type EventSink = { append(type: string, data?: Record<string, unknown>): void }
 
 /** 託管主機存活性：EPERM＝活著但非我方可碰（仍視為活）；其餘錯誤（ESRCH/EINVAL）＝不在。 */
@@ -173,9 +179,11 @@ export class ControlStore {
     const envelopes: ControlEnvelope[] = [], errors: string[] = []
     const dir = this.controlsDir()
     if (!existsSync(dir)) return { envelopes, errors }
+    let pendingTx = new Set<string>()
     if (existsSync(this.transactionsDir())) {
       try {
-        for (const file of readdirSync(this.transactionsDir()).filter(f => f.endsWith('.json')).slice(0, 10_001))
+        pendingTx = new Set(readdirSync(this.transactionsDir()).filter(f => f.endsWith('.json')))
+        for (const file of [...pendingTx].slice(0, 10_001))
           errors.push(`uncommitted control transaction: ${file.slice(0, 110)}`)
       } catch { errors.push('control transaction inventory unavailable') }
     }
@@ -185,10 +193,19 @@ export class ControlStore {
     if (files.length > 10_000) return { envelopes, errors: ['control inventory exceeds 10000 records'] }
     for (const file of files) {
       try {
-        if (existsSync(this.transactionFile(file.slice(0, -5)))) continue
-        const info = lstatSync(join(dir, file))
+        if (pendingTx.has(file)) continue
+        const path = join(dir, file)
+        const info = lstatSync(path)
         if (!info.isFile() || info.size > 16_384) throw new Error('oversized or non-regular record')
-        const env = EnvelopeSchema.parse(JSON.parse(readFileSync(join(dir, file), 'utf8')))
+        const hit = recordTextCache.get(path)
+        const text = hit && hit.mtimeMs === info.mtimeMs && hit.size === info.size
+          ? hit.text
+          : readFileSync(path, 'utf8')
+        if (!hit || hit.mtimeMs !== info.mtimeMs || hit.size !== info.size) {
+          if (recordTextCache.size >= RECORD_TEXT_CACHE_LIMIT) recordTextCache.clear()
+          recordTextCache.set(path, { mtimeMs: info.mtimeMs, size: info.size, text })
+        }
+        const env = EnvelopeSchema.parse(JSON.parse(text))
         if (file !== `${env.id}.json`) throw new Error('identity mismatch')
         if (env.disposition !== 'REJECTED_INVALID' && createHash('sha256').update(env.instruction).digest('hex') !== env.instructionHash) throw new Error('instruction hash mismatch')
         envelopes.push(env)
@@ -233,8 +250,10 @@ export class ControlStore {
       createdAt: now, expiresAt: now + CONTROL_TTL_MS,
       state: 'resolved', disposition: 'REJECTED_INVALID',
     }
+    if (this.envelopeCount() >= 10_000)
+      return this.reply(env, 'REJECTED_INVALID', false, '控制指令被拒：控制紀錄已滿或尚有未完成交易；請先檢查 /controls，不會接受不可投遞的信封', undefined, false)
     const inventory = this.readAll()
-    if (inventory.errors.length || this.envelopeCount() >= 10_000)
+    if (inventory.errors.length)
       return this.reply(env, 'REJECTED_INVALID', false, '控制指令被拒：控制紀錄已滿或尚有未完成交易；請先檢查 /controls，不會接受不可投遞的信封', undefined, false)
     if (!SAFE_ID.test(args.executionId))
       return this.reply(env, 'REJECTED_INVALID', false, `控制指令被拒：executionId 格式不合法`)
