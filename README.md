@@ -230,6 +230,7 @@ node web/server.mjs --config <path>
 - **kernel 帳**：每次改動前後跑 `wc -l src/*.ts | tail -1` 核對 ≤2250；implementer 自報行數不可信，一律由審查者/主控獨立 `wc` 核實。
 - **Graphify 範圍**：`.graphifyignore` 只排除 repo 內的 recovery／integration 快照，避免本機 AST 導覽重複掃描；它不會隱藏 Git 變更或刪除保全成果。
 - **測試**：`npm test`（即 `vitest run`）。本機（768 進程負載環境）並行跑測試會有假逾時，`vitest.config.ts` 已固定 `maxWorkers: 1` + `testTimeout: 20000`，serial 模式才可信。
+- **測試 fixture 不得硬塞 partial `Deps`**：`Deps` 的 `store`／`db`／`engines`／`events` 是必填依賴，測試要用真實實作（`BacklogStore`、`RunDb`、`EventLog`、engine stub），不可用 `as unknown as Deps` 略過型別——`runGoalWithDeps` 會在決定是否跑 discovery 前讀 `deps.store.read()`，省略依賴只會讓測試在 fixture 階段就以 `TypeError` 收尾，測不到「未驗證不得等於 achieved」的完成安全分支（#15）。`npm run typecheck` 涵蓋 `tests/`，未加 cast 的省略會在編譯期被擋下；`as unknown as` 會繞過編譯期，所以真正的防線是 fixture 不得使用該 cast。
 - **build**：`npm run build`（`tsc -p tsconfig.build.json`，只含 `src/`）；`npm run typecheck` 走含 `tests/` 的原始 `tsconfig.json`。
 - **換行**：依 `.gitattributes`，一般文字使用 LF，Windows `.bat`／`.cmd`／`.ps1` 使用 CRLF；改共用設定前先建立不覆寫既有檔案的 `.bak-YYYYMMDD` 備份。
 - **commit**：conventional commit（`feat:`/`fix:`/`docs:` 等）；目標專案的額外提交規則見 config 的 `extraDirective`。
