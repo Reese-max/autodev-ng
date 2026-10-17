@@ -1,0 +1,20 @@
+{
+  "pr": 111,
+  "head": "06e50801b6fc32bde3f187257628922d946307d9",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "tests/helpers/runtime-build.ts",
+      "line": 8,
+      "issue": "A clean checkout has no dist/cli.js, so npm test and quality:gate silently skip 11 existing runtime assertions on every platform, including Windows. This omits backup integrity, credential rejection, HTTP authorization and concurrent-writer checks while reporting success. Build the runtime before running tests and retain unconditional assertions."
+    },
+    {
+      "severity": "med",
+      "file": "tests/github-repair.test.ts",
+      "line": 26,
+      "issue": "The repair fixture mocks inference via runProcess but leaves nativeAdmission's RPC boundary live. On a logged-in host with exhausted quota, five existing full-suite assertions fail before the fake CLI runs; results therefore depend on the host account rather than fixture state. Isolate native metadata using the existing unknownAdmission fixture pattern and verify no live account RPC occurs."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed two medium findings with regressions proven red before each fix: clean-checkout test runs now build and retain all 11 runtime assertions, and repair fixtures no longer consult live account metadata. Typecheck, the 78-test focused set, both full regression rounds, and all 13 retained CJS regressions pass locally. New-commit Node 22 CI, Linux and fixed 50-persona acceptance remain unverified."
+}

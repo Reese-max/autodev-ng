@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "issue": 111,
+  "base_sha": "06e50801b6fc32bde3f187257628922d946307d9",
+  "red_proof": "Before fix 1, Git Bash command `npm test -- tests/npm-test-build.test.ts --reporter=verbose` exited 1: the isolated npm test reported Cannot find module '../dist/cli.js' imported from tests/built.test.ts; expected exit 0, received 1. A separate clean-checkout run of the six affected files reported 1 failed, 23 passed and 11 skipped. Before fix 2, Git Bash command `npm test -- tests/github-repair.test.ts -t \"repair fixtures never query native host accounts\" --reporter=verbose` exited 1: expected withCliRpc not to be called, but it was called once for codex/model fixture-writer (1 failed, 17 filtered out). The first full-suite attempt also reproduced five existing repair assertions failing because live native quota preflight bypassed the inference mock; the interrupted second round of that attempt is not counted as verification.",
+  "test_command": "npm test -- tests/npm-test-build.test.ts tests/autonomy-gate.test.ts tests/learn-store.test.ts tests/learning-outcomes.test.ts tests/host-deployment.test.ts tests/github-delivery.test.ts tests/github-repair.test.ts tests/cli-admission.test.ts --reporter=verbose",
+  "test_exit": 0,
+  "tests_passed": 78,
+  "tests_failed": 0,
+  "summary": "Added npm pretest using the existing build command, removed all eleven artifact-based skip guards and their helper, and isolated repair fixtures with the existing unknownAdmission pattern. Both new regression tests failed before their respective fixes; the declared Git Bash test command now passes all 78 tests across eight files with zero failures or skips, including the native admission policy checks. npm run typecheck passed (including the secret scan), npm run test:flaky-regression passed both full rounds (724039ms and 729645ms), and node --test --test-reporter=tap tests/regressions/*.test.cjs passed all 13 tests; each command exited 0 on Windows/Node v26.7.0/npm 12.0.2. Production code and all existing assertions remain unchanged.",
+  "not_done": "No push, branch switch, CI dispatch or deployment was performed. New-commit GitHub Actions on Node 22, Linux verification and the fixed 50-persona acceptance rerun remain unverified; these local results do not establish full issue #13 closure."
+}

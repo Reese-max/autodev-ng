@@ -58,7 +58,7 @@ bootstrap 順序）。
 
 套件本身設計為 Windows-first（CI 僅 `windows-latest`），但在 Linux/其他
 驗證主機上 `npm test` 出現 23 項固定失敗——守門無法在非 Windows 機器上
-被執行或驗證，屬 gate-operability 缺口。本 PR 只動 `tests/` 與文件：
+被執行或驗證，屬 gate-operability 缺口。本 PR 修改 `tests/`、測試入口與文件：
 
 | 失敗群組 | 性質 | 處理 |
 |---|---|---|
@@ -67,10 +67,19 @@ bootstrap 順序）。
 | `tests/proc.test.ts` `hang-tree`、supervisor-health 5 項 | `taskkill`/樹枚舉屬 `reapDaemonTree`/`killTree` 的 win32 分支，POSIX 後備為 SIGKILL（語意不同，非缺陷） | `test.skipIf(!win32)`／情境列過濾——Windows CI 全數照跑 |
 | `tests/worktree.test.ts`、`tests/scheduler.test.ts` 檔鎖 | 以 `powershell.exe` 造 Windows FileShare 語意，POSIX 無同義鎖法 | `test.skipIf(!win32)` |
 | `tests/verify.test.ts` exit 9009 | POSIX exit status 僅 8 bits，`process.exit(9009)` 觀測為 41 | 9009 僅 win32 驗；127 兩平台保留 |
-| host-deployment/autonomy-gate/github-delivery/learn-store/learning-outcomes 共 11 項 | 依賴 `dist/` 建置產物（gitignored）或 `scripts/*.mjs→dist` 鏈；乾淨 checkout 必敗 | `tests/helpers/runtime-build.ts` `RUNTIME_BUILT` 門檻；CI 先 build 故照跑 |
+| host-deployment/autonomy-gate/github-delivery/learn-store/learning-outcomes 共 11 項 | 依賴 `dist/` 建置產物（gitignored）或 `scripts/*.mjs→dist` 鏈；乾淨 checkout 必須先建置 | `npm test` 的 `pretest` 先執行既有 `npm run build`，11 項斷言在所有平台均保留，不因缺少建置產物略過 |
 
-所有被略過的測試僅在非 Windows 或無建置產物的環境略過，`windows-latest` CI
-（先 `npm run build` 再兩輪全量）逐一執行，斷言內容零刪減。
+平台專屬測試僅在非 Windows 略過；依賴建置產物的測試一律執行。
+`npm test` 與 `windows-latest` CI 均先建置，CI 再逐一執行兩輪全量，斷言內容零刪減。
+`tests/npm-test-build.test.ts` 在沒有 `dist/` 的隔離專案執行真正的 `npm test`，
+確認建置後的 runtime 測試成功執行、略過數為零。
+
+**D. 修復 fixture 仍讀取主機帳號狀態（自審修復）**
+
+Windows 全量驗證另重現 `tests/github-repair.test.ts` 的 5 項失敗：fixture 雖模擬
+CLI 推論，`nativeAdmission` 仍透過 RPC 讀取主機真實額度，額度耗盡即提前阻擋。
+沿用既有的 `unknownAdmission` 模擬方式隔離這個邊界，並新增禁止呼叫真實帳號
+RPC 的迴歸測試；原有修復與額度守門斷言均保留。
 
 ## 殘留觀察項
 
@@ -83,8 +92,22 @@ bootstrap 順序）。
 - 精確失敗證據：上表取自 CI job log（spec／assertion／round／timedOut／fixture 俱全）。
 - 重現：固定失敗已由上游修復、本地四檔全綠；間歇 watcher 案例保留為觀察項。
 - 未弱化守門：`typecheck`、雙輪 Vitest、`tests/regressions/*.test.cjs` 全部維持阻擋；
-  平台／建置門檻僅略過在該環境本無法成立的測試，Windows CI 斷言零刪減。
-- 套件可驗證性：修復後 Linux 主機 `npm test` 全綠（1996 通過／19 略過／0 失敗），
-  守門首次可在非 Windows 驗證主機乾淨 replay。
+  僅略過平台專屬測試；建置失敗仍阻擋，不以略過代替 runtime 驗收。
+- 套件可驗證性：原 PR 的 Linux 結果（1996 通過／19 略過／0 失敗）為移除建置略過前的歷史證據，
+  不代表本次自審修正後的測試結果。
 - 連續綠 CI：base 起 main 已多輪連綠（含 `36218491349`）；本 PR 的 Windows CI
   亦走同一守門。
+
+## 自審修正後的本機驗證（2026-10-17）
+
+環境為 Windows、Node `v26.7.0`、npm `12.0.2`，命令透過 Git Bash 執行：
+
+- `npm run typecheck`：結束碼 0，包含憑證掃描。
+- `.issue-loop-evidence.json` 所列定向命令：8 檔、78 項通過，0 失敗、0 略過；
+  包含新增的建置／帳號隔離回歸與既有額度守門測試。
+- `npm run test:flaky-regression`：結束碼 0，兩輪全量均成功；
+  `round=1/2 ok durationMs=724039`、`round=2/2 ok durationMs=729645`。
+- `node --test --test-reporter=tap tests/regressions/*.test.cjs`：結束碼 0，13 項通過。
+
+新增 commit 的 Node 22 GitHub Actions、Linux 與固定 50 人設驗收尚未執行；
+本機結果不代表 issue #13 的全部驗收已完成。

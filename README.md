@@ -229,7 +229,7 @@ node web/server.mjs --config <path>
 - **開發紀錄**：規格與計畫在 `docs/specs/`、`docs/plans/`；現況與驗收從 [文件入口](docs/README.md) 查閱。歷史 SDD 工作階段的 `.superpowers/sdd/progress.md` 不納入版控，缺檔時以原始碼、Git 紀錄與可重跑驗收為準。
 - **kernel 帳**：每次改動前後跑 `wc -l src/*.ts | tail -1` 核對 ≤2250；implementer 自報行數不可信，一律由審查者/主控獨立 `wc` 核實。
 - **Graphify 範圍**：`.graphifyignore` 只排除 repo 內的 recovery／integration 快照，避免本機 AST 導覽重複掃描；它不會隱藏 Git 變更或刪除保全成果。
-- **測試**：`npm test`（即 `vitest run`）。本機（768 進程負載環境）並行跑測試會有假逾時，`vitest.config.ts` 已固定 `maxWorkers: 1` + `testTimeout: 20000`，serial 模式才可信。
+- **測試**：`npm test`（先 `npm run build` 再 `vitest run`，確保依賴 `dist/` 的驗收照常執行）。本機（768 進程負載環境）並行跑測試會有假逾時，`vitest.config.ts` 已固定 `maxWorkers: 1` + `testTimeout: 20000`，serial 模式才可信。
 - **build**：`npm run build`（`tsc -p tsconfig.build.json`，只含 `src/`）；`npm run typecheck` 走含 `tests/` 的原始 `tsconfig.json`。
 - **換行**：依 `.gitattributes`，一般文字使用 LF，Windows `.bat`／`.cmd`／`.ps1` 使用 CRLF；改共用設定前先建立不覆寫既有檔案的 `.bak-YYYYMMDD` 備份。
 - **commit**：conventional commit（`feat:`/`fix:`/`docs:` 等）；目標專案的額外提交規則見 config 的 `extraDirective`。

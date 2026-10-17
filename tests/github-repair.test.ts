@@ -19,11 +19,14 @@ import { delivery, recoverIssue, repairDoctor, repairMetrics } from '../src/gith
 import * as incident from '../src/guardian/incident.js'
 import { FreebuffEngine } from '../src/engines/freebuff.js'
 import { PreflightCache } from '../src/preflight.js'
+import * as admission from '../src/engines/cli-admission.js'
+import * as cliRpc from '../src/engines/cli-rpc.js'
 
 const dirs: string[] = []
 afterEach(() => { vi.restoreAllMocks(); process.exitCode = undefined; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
 async function setup() {
+  vi.spyOn(admission, 'nativeAdmission').mockImplementation(async (provider, opts) => admission.unknownAdmission(provider, opts.model))
   const dir = mkdtempSync(join(tmpdir(), 'adng-repair-')); dirs.push(dir)
   const cwd = join(dir, 'issue-4', 'repo'); mkdirSync(cwd, { recursive: true })
   git(cwd, ['init', '-b', branchFor(4)])
@@ -59,6 +62,16 @@ async function setup() {
     createPr: vi.fn(async () => { throw new Error('unexpected publication') }) }
   return { dir, cwd, cfg, state, issue, reports, ledger, finding, client, configPath }
 }
+
+test('repair fixtures never query native host accounts', async () => {
+  const f = await setup()
+  const metadata = vi.spyOn(cliRpc, 'withCliRpc').mockRejectedValue(new Error('live account metadata forbidden'))
+  vi.spyOn(proc, 'runProcess').mockImplementation(async opts => ({
+    stdout: opts.args.includes('exec') ? '{"type":"item.completed","item":{"type":"agent_message","text":"PONG"}}\n{"type":"turn.completed"}\n' : 'true',
+    stderr: '', exitCode: 0, timedOut: false, durationMs: 1 }))
+  expect((await repairDoctor(f.cfg, true)).ready).toBe(true)
+  expect(metadata).not.toHaveBeenCalled()
+})
 
 test('only an unchanged published local defect and operator probe can opt into repair', async () => {
   const f = await setup()

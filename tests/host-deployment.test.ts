@@ -10,7 +10,6 @@ import { initHost, loadHost, doctor, health, assertIdleData, writeJson, inside, 
 import { backupState, restoreState } from '../scripts/host-state.mjs'
 // @ts-expect-error operator scripts intentionally expose plain JavaScript
 import { checkHeartbeat } from '../scripts/check-host-heartbeat.mjs'
-import { RUNTIME_BUILT } from './helpers/runtime-build.js'
 // @ts-expect-error operator scripts intentionally expose plain JavaScript
 import { publishSnapshot } from '../scripts/memory-snapshot.mjs'
 
@@ -23,7 +22,7 @@ function fixture() {
   const home = join(root, 'host home'); initHost(home, project)
   return { root, home, project, git, config: join(home, 'configs/project.json') }
 }
-test.skipIf(!RUNTIME_BUILT)('new host is paused, does not modify the project, and refuses overwrite', async () => {
+test('new host is paused, does not modify the project, and refuses overwrite', async () => {
   const f = fixture()
   expect(f.git('status', '--porcelain').toString()).toBe('')
   expect(fs.existsSync(join(f.home, 'configs/.adng.stop'))).toBe(true)
@@ -37,7 +36,7 @@ test.skipIf(!RUNTIME_BUILT)('new host is paused, does not modify the project, an
   const pid = join(f.home, 'data/pid.json'); writeJson(pid, { pid: process.pid })
   expect(() => assertIdleData(join(f.home, 'data'))).toThrow('alive')
 }, 60_000)
-test.skipIf(!RUNTIME_BUILT)('backup/restore preserves SQLite and issue evidence, rejects corruption and remains paused', async () => {
+test('backup/restore preserves SQLite and issue evidence, rejects corruption and remains paused', async () => {
   const f = fixture(), data = join(f.home, 'data/project')
   fs.mkdirSync(data)
   const db = new Database(join(data, 'run.db')); db.exec("CREATE TABLE proof (runs INTEGER); INSERT INTO proof VALUES (7)"); db.close()
@@ -83,7 +82,7 @@ test('failed backup push cannot advance success stamp; successful retry advances
   expect(fs.readFileSync(stamp, 'utf8')).toBe('today')
 })
 
-test.skipIf(!RUNTIME_BUILT)('runtime switch requires a matching release gate and idle services, retaining a rollback target', () => {
+test('runtime switch requires a matching release gate and idle services, retaining a rollback target', () => {
   const f = fixture(), next = join(f.root, 'next')
   fs.mkdirSync(next); fs.mkdirSync(join(next, 'dist'))
   fs.writeFileSync(join(next, 'dist/cli.js'), 'console.log("adng fixture")')
@@ -102,7 +101,7 @@ test.skipIf(!RUNTIME_BUILT)('runtime switch requires a matching release gate and
   expect(loadHost(f.home).previous.runtime).toBe(original)
 })
 
-test.skipIf(!RUNTIME_BUILT)('backup rejects inline credentials and missing pause without creating a snapshot', async () => {
+test('backup rejects inline credentials and missing pause without creating a snapshot', async () => {
   const f = fixture(), cfg = JSON.parse(fs.readFileSync(f.config, 'utf8')), out = join(f.root, 'backup')
   writeJson(f.config, { ...cfg, judgeApiKey: 'fixture-credential' })
   await expect(backupState(f.config, out)).rejects.toThrow('secret references')
@@ -111,7 +110,7 @@ test.skipIf(!RUNTIME_BUILT)('backup rejects inline credentials and missing pause
   await expect(backupState(f.config, out)).rejects.toThrow('Pause')
 })
 
-test.skipIf(!RUNTIME_BUILT)('state inventory access errors abort backup instead of treating the directory as missing', async () => {
+test('state inventory access errors abort backup instead of treating the directory as missing', async () => {
   const f = fixture(), data = join(f.home, 'data/project'), out = join(f.root, 'backup')
   const original = fs.lstatSync
   const spy = vi.spyOn(fs, 'lstatSync').mockImplementation(((file: fs.PathLike, ...args: unknown[]) => {
@@ -122,7 +121,7 @@ test.skipIf(!RUNTIME_BUILT)('state inventory access errors abort backup instead 
   finally { spy.mockRestore() }
 })
 
-test.skipIf(!RUNTIME_BUILT)('project handoff pauses only matching sources, keeps existing reasons and reports active/dirty state', async () => {
+test('project handoff pauses only matching sources, keeps existing reasons and reports active/dirty state', async () => {
   const f = fixture(), cfg = JSON.parse(fs.readFileSync(f.config, 'utf8')), base = join(f.home, 'configs')
   try {
     fs.unlinkSync(join(base, '.adng.stop'))
@@ -148,7 +147,7 @@ test.skipIf(!RUNTIME_BUILT)('project handoff pauses only matching sources, keeps
   } finally { fs.rmSync(f.root, { recursive: true, force: true }) }
 })
 
-test.skipIf(!RUNTIME_BUILT)('restore supports long Windows tracked paths with only repository-local Git configuration', async () => {
+test('restore supports long Windows tracked paths with only repository-local Git configuration', async () => {
   const f = fixture()
   try {
     const backup = join(f.root, 'snapshot'), destination = join(f.root, 'restored'), name = `${'long-'.repeat(32)}file.txt`
