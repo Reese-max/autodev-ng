@@ -13,6 +13,30 @@ import { publishIssue, runGithub } from '../src/github/runner.js'
 import { acceptDelivery, recoverIssue } from '../src/github/operations.js'
 import * as github from '../src/github/client.js'
 
+test('ordinary GitHub issue admission errors identify the source config', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'adng-gh-config-error-'))
+  try {
+    const cfg = GithubConfigSchema.parse({ repo: 'owner/project', authors: ['owner'], sourceConfig: join(root, 'source.json'),
+      dataDir: root, engine: 'oc-bad', enabled: true, label: null })
+    const issue: Issue = { number: 7, title: 'Synthetic task', body: 'No model calls', state: 'open', user: { login: 'owner' }, labels: [] }
+    const cwd = join(root, 'issue-7', 'repo'); mkdirSync(cwd, { recursive: true })
+    git(cwd, ['init', '-b', branchFor(7)])
+    git(cwd, ['config', 'user.name', 'Test']); git(cwd, ['config', 'user.email', 'test@example.invalid'])
+    git(cwd, ['remote', 'add', 'origin', 'https://github.com/owner/project.git'])
+    writeFileSync(join(cwd, 'README.md'), 'synthetic fixture\n')
+    git(cwd, ['add', '.']); git(cwd, ['commit', '-m', 'synthetic fixture'])
+    const state: IssueState = { repo: cfg.repo, base: cfg.base, issue, fingerprint: fingerprint(issue), status: 'queued',
+      runs: 0, nextRunAt: 0, baseSha: git(cwd, ['rev-parse', 'HEAD']) }
+    writeFileSync(cfg.sourceConfig, JSON.stringify({ projectPath: cwd, backlogFile: 'unused', dataDir: 'unused', tierMode: 'free-only',
+      engines: { 'oc-bad': { adapter: 'opencode', model: 'opencode/invalid:free' } }, defaultEngine: 'oc-bad',
+      verifyCommand: 'exit 1', reviewEngine: 'fixture-reviewer' }))
+    expect(await executeIssue(cfg, state)).toMatchObject({ done: false, detail: 'engine-not-allowed' })
+    const reason = JSON.parse(readFileSync(join(root, 'issue-7', 'BACKLOG.md'), 'utf8').match(/reason=(.*) -->/)![1]!)
+    expect(reason).toContain(cfg.sourceConfig)
+    expect(reason).toContain('oc-bad')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('三次真實驗收紅燈後，runner 接續一次替代方案並通過原始紅綠回歸', async () => {
   const root = mkdtempSync(join(tmpdir(), 'adng-gh-alternative-'))
   try {

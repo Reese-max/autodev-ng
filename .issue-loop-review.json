@@ -1,0 +1,26 @@
+{
+  "pr": 18,
+  "head": "8187c0c3d25a74a487db339d47211b546054c09d",
+  "findings": [
+    {
+      "severity": "high",
+      "file": "src/engines/registry.ts",
+      "line": 159,
+      "issue": "The new error interpolates unredacted model values and constructor errors. A model accidentally containing a configured API credential is copied into scheduler backlog/event diagnostics; the new secret-safety test supplies no secret and has no exclusion assertion."
+    },
+    {
+      "severity": "med",
+      "file": "tests/cli.test.ts",
+      "line": 534,
+      "issue": "Config filenames are added only inside the fleet test. Production registry errors and the scheduler's earlier assertFreeWorker rejection still omit the source config path, so operators cannot identify the failing configuration as required by issue #14."
+    },
+    {
+      "severity": "high",
+      "file": "configs/note-filler.json",
+      "line": 137,
+      "issue": "needs-human: Removing tierMode opts this active config out of all free-only admission/pricing checks, including background judge/reviewer calls. Whether to approve this cost-policy change, migrate the fleet, or retire the config requires owner judgment; an expired pilot claim alone does not establish that this head meets the issue's no-paid/unknown-route-by-omission acceptance criterion."
+    }
+  ],
+  "fixed": false,
+  "summary": "Fixed unredacted engine diagnostics and missing production config-path context with six red-to-green regressions. needs-human: removing note-filler's free-only protection changes cost policy and is left unchanged, so the review remains unresolved. Typecheck/build and 79 focused/retained tests pass, but both full rounds retain eight failures also reproduced on the reviewed head; PR #18 CI and host-runtime acceptance remain outstanding."
+}

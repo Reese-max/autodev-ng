@@ -135,7 +135,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   }
   if (pending && pending.retryAt > Date.now()) return 'deferred'
   const picked = pending && pendingTask ? { task: pendingTask, engine: undefined, engineTag: pending.engineTag, fixedCost: 0 }
-    : await pickReadyTask({ cfg, store, db, events, engines, notify, team: deps.team }, candidates)
+    : await pickReadyTask({ cfg, cfgPath: deps.cfgPath, store, db, events, engines, notify, team: deps.team }, candidates)
   if (typeof picked === 'string' || 'kind' in picked) {
     if (picked === 'preflight-failed') writeHeartbeat(events, cfg, { state: 'preflight-failed', todayCostUsd: spent })
     return picked

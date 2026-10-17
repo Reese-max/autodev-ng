@@ -20,8 +20,10 @@ import { runGoalSession } from '../src/autopilot/orchestrator.js'
 import { reviewRetryDelay } from '../src/engines/pending-review.js'
 import { BacklogStore } from '../src/backlog.js'
 import { EventLog } from '../src/events.js'
+import { assemble } from '../src/cli/assemble.js'
+import { pickReadyTask } from '../src/engines/pick-ready-task.js'
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs() })
 const model = 'test/planner:free', reviewer = 'test/reviewer:free'
 const options = () => ({ tierMode: 'free-only' as const, dataDir: mkdtempSync(join(tmpdir(), 'adng-free-model-')), url: FREE_MODEL_URL, model, apiKey: 'test-credential', timeoutMs: 3000 })
 function catalog(pricing: unknown = { prompt: '0', completion: '0' }) {
@@ -210,6 +212,48 @@ test('engine resolve failure names tag/adapter/model without secret material', (
     expect.unreachable('resolve should have thrown')
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    expect(msg).toContain('oc-bad'); expect(msg).toContain('opencode'); expect(msg).toContain('opencode/zen-free-thing'); expect(msg).toContain('free-policy')
+    expect(msg).toContain('oc-bad'); expect(msg).toContain('adapter=opencode'); expect(msg).toContain('model=opencode/zen-free-thing'); expect(msg).toContain('free-policy')
   }
+})
+
+test.each(['config', 'environment'])('engine errors redact credentials from %s', source => {
+  const opts = options(), secret = 'synthetic-registry-credential'
+  vi.stubEnv('OPENROUTER_API_KEY', source === 'environment' ? secret : 'other-synthetic-credential')
+  const cfg = ConfigSchema.parse({ projectPath: '.', backlogFile: 'BACKLOG.md', dataDir: opts.dataDir, tierMode: 'free-only',
+    defaultEngine: 'oc-bad', engines: { 'oc-bad': { adapter: 'opencode', model: `opencode/${secret}`,
+      env: { OPENROUTER_API_KEY: source === 'config' ? secret : '{env:OPENROUTER_API_KEY}' } } } })
+  expect(() => makeEngineRegistry(cfg).resolve('oc-bad')).toThrow('model=opencode/[REDACTED]')
+  expect(() => makeEngineRegistry(cfg).resolve('oc-bad')).not.toThrow(secret)
+})
+
+test.each(['registry', 'default', 'rotation'])('config diagnostics name the source file at the %s boundary', async boundary => {
+  const opts = options(), configPath = join(opts.dataDir, 'invalid-config.json'), backlogFile = join(opts.dataDir, 'BACKLOG.md')
+  writeFileSync(backlogFile, '- [ ] synthetic task\n')
+  writeFileSync(configPath, JSON.stringify({ projectPath: opts.dataDir, backlogFile, dataDir: opts.dataDir, tierMode: 'free-only',
+    defaultEngine: 'oc-bad', ...(boundary === 'rotation' ? { engineRotation: ['oc-bad', 'oc-other'] } : {}),
+    engines: { 'oc-bad': { adapter: 'opencode', model: 'opencode/invalid:free' }, 'oc-other': { adapter: 'opencode', model: 'other/invalid:free' } } }))
+  const { deps } = assemble(configPath), spawn = vi.spyOn(proc, 'runProcess')
+  try {
+    if (boundary === 'registry') {
+      expect(() => deps.engines.resolve('oc-bad')).toThrow(configPath)
+    } else {
+      const result = await pickReadyTask(deps, deps.store.read())
+      if (boundary === 'default') {
+        expect(result).toMatchObject({ kind: 'blocked', reason: 'engine-not-allowed' })
+        const reason = JSON.parse(readFileSync(backlogFile, 'utf8').match(/reason=(.*) -->/)![1]!)
+        expect(reason).toContain(configPath)
+        expect(reason).toContain('oc-bad')
+      } else {
+        expect(result).toBe('preflight-failed')
+        const events = readFileSync(join(opts.dataDir, 'events.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line))
+        expect(events.length).toBeGreaterThan(0)
+        for (const event of events) {
+          expect(event.type).toBe('engine-resolve-failed')
+          expect(['oc-bad', 'oc-other']).toContain(event.engine)
+          expect(event.detail).toContain(configPath)
+        }
+      }
+    }
+    expect(spawn).not.toHaveBeenCalled()
+  } finally { deps.db.close(); deps.team?.close() }
 })

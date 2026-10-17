@@ -92,7 +92,7 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
   }
   prepareCheckout(cfg, state)
   const runtime = runtimeConfig(cfg, state)
-  const worker = cfg.repair && !resumingReview ? makeEngineRegistry(runtime).resolve(cfg.engine) : undefined
+  const worker = cfg.repair && !resumingReview ? makeEngineRegistry(runtime, cfg.sourceConfig).resolve(cfg.engine) : undefined
   if (worker) {
     const preflight = await worker.preflight()
     if (!preflight.ok) throw new Error(`Repair CLI preflight failed: ${preflight.detail}; repair CLI login/sandbox before retry`)
@@ -102,7 +102,7 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     writeFileSync(runtime.backlogFile, '')
     new BacklogStore(runtime.backlogFile).append(issueTask(state), { goalId: `github-${state.issue.number}`, round: 1 })
   }
-  const app = assemble(runtime)
+  const app = assemble(runtime, cfg.sourceConfig)
   if (worker) app.deps.engines = { resolve: () => worker }
   if (cfg.repair) {
     const verifier = new KernelVerifier({ cfg: runtime, reviewRun: args => reviewRepair({ ...reviewLlmFromConfig(runtime), onModel: args.onModel, dataDir: runtime.dataDir,

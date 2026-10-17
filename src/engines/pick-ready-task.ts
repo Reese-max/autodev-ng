@@ -29,7 +29,7 @@ export function blockTask(
 
 /** 戰績隔離→輪替候選→preflight；全壞→preflight-failed；白名單外/單候選 resolve 拋→blocked。 */
 export async function pickReadyTask(
-  { cfg, store, db, events, engines, notify, team }: Pick<Deps, 'cfg' | 'store' | 'db' | 'events' | 'engines' | 'notify' | 'team'>,
+  { cfg, cfgPath, store, db, events, engines, notify, team }: Pick<Deps, 'cfg' | 'cfgPath' | 'store' | 'db' | 'events' | 'engines' | 'notify' | 'team'>,
   openTasks: Task[]
 ): Promise<{ task: Task; engine: Engine; engineTag: string; fixedCost: number | undefined } | CycleResult> {
   const routingKey = JSON.stringify([cfg.dataDir, cfg.engineRotation, cfg.timezoneOffsetHours])
@@ -66,8 +66,9 @@ export async function pickReadyTask(
         if (cfg.tierMode === 'free-only') assertFreeWorker(engineCfg)
         engine = engines.resolve(engineTag)
       } catch (err) {
-        if (tags.length === 1) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：引擎 ${engineTag} 無法建立（${String(err)}）`)
-        quiet(() => events.appendOnce('engine-resolve-failed', { engine: engineTag, detail: String(err) })) // 輪替候選壞一個不堵任務，後退下一檔
+        const message = String(err), detail = cfgPath && !message.includes(cfgPath) ? `${cfgPath}: ${message}` : message
+        if (tags.length === 1) return blockTask({ store, events }, cand, 'engine-not-allowed', `engine-not-allowed：引擎 ${engineTag} 無法建立（${detail}）`)
+        quiet(() => events.appendOnce('engine-resolve-failed', { engine: engineTag, detail })) // 輪替候選壞一個不堵任務，後退下一檔
         continue
       }
       const pf = await engine.preflight()

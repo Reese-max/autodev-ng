@@ -13,6 +13,7 @@ import { DevinEngine } from './devin.js'
 import { HerdrEngine } from './herdr.js'
 import { FreebuffEngine } from './freebuff.js'
 import { assertExecutionMode } from './capabilities.js'
+import { redactCli } from './cli-diagnostics.js'
 import type { Config, Engine, EngineConfig, EngineResolver } from '../types.js'
 
 /** M5 Task 1：`{env:VAR}` 展開（assemble 層）——config 只寫變數引用，真值從進程環境取，
@@ -33,7 +34,7 @@ function expandEnvMap(env: Record<string, string> | undefined): Record<string, s
 /** M5 Task 1：引擎 registry——per-task 按需建（lazy：沒被任務 tag 到的引擎不建、
  * 其 {env:VAR} 缺失也不影響其他引擎）、建後 cache。未實作的 adapter resolve 時拋錯，
  * scheduler 歸 blocked(engine-not-allowed)。導出供測試。 */
-export function makeEngineRegistry(cfg: Config): EngineResolver {
+export function makeEngineRegistry(cfg: Config, configPath?: string): EngineResolver {
   const cache = new Map<string, Engine>()
   const build = (tag: string, ec: EngineConfig): Engine => {
     if (cfg.tierMode === 'free-only' && !['opencode', 'mock'].includes(ec.adapter)) throw new Error('free-policy: this CLI has no verified free route; no preflight/model request sent')
@@ -156,7 +157,8 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return engine
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err)
-        throw new Error(`engine "${tag}" (adapter=${ec.adapter}, model=${ec.model ?? 'default'}): ${detail}`)
+        const message = `${configPath ? `${configPath}: ` : ''}engine "${tag}" (adapter=${ec.adapter}, model=${ec.model ?? 'default'}): ${detail}`
+        throw new Error(redactCli(redactCli(message), ec.env))
       }
     }
   }
