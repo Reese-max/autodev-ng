@@ -1,0 +1,50 @@
+{
+  "pr": 29,
+  "head": "4ef54be37e15e9c55c88006321033e7670c765b3",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "docs/research/issue-28-browser-capability-lease.md",
+      "line": 14,
+      "issue": "needs-human: Issue #28 requires versioned BrowserCapabilityObservation, BrowserCapabilityRequest, BrowserCapabilityLease and BrowserLeaseReceipt contracts. Only unversioned lease/takeover/ReturnReceipt examples exist; task/environment identity, requested versus granted scope, purpose, effect references and verification results are missing. Completing or renaming these public research contracts requires an API decision."
+    },
+    {
+      "severity": "high",
+      "file": "docs/research/issue-28-browser-capability-lease.md",
+      "line": 30,
+      "issue": "needs-human: ACTIVE conflates connectivity with control and cannot represent CONNECTED_READONLY or UNKNOWN/UNSUPPORTED capability. Takeover is described as terminal without fencing queued/in-flight actions or defining fresh observation and old DOM-reference invalidation before resumption. expiresAt alone does not define per-action revocation/TTL checks or restart/execution replay rejection. The state machine and whether resumption renews or replaces a lease need agreement."
+    },
+    {
+      "severity": "high",
+      "file": "docs/research/issue-28-browser-capability-lease.md",
+      "line": 28,
+      "issue": "needs-human: The click/fill action grant has no independent #12 ExternalEffectSpec decision boundary or required pre-effect handoff for login/OTP/CAPTCHA/payment/send/delete/publish. It also lacks ACTION_ATTEMPTED/EFFECT_CONFIRMED/EFFECT_UNKNOWN and canonical confirmation before retry after an ambiguous submit. Agree the effect-policy/receipt integration before expanding this contract; a browser lease must not imply mutation or retry authorization."
+    },
+    {
+      "severity": "high",
+      "file": "docs/research/issue-28-browser-capability-lease.md",
+      "line": 46,
+      "issue": "needs-human: ReturnReceipt permits only successful RETURNED/EXPIRED/REVOKED dispositions with ambientAuthorityDropped=true, so a disconnected bridge or missing evidence cannot be represented honestly. Issue #28 requires UNKNOWN when release cannot be verified and runtime evidence before a successful release claim. Adding UNKNOWN and a verification result changes the proposed receipt API."
+    },
+    {
+      "severity": "med",
+      "file": "docs/research/issue-28-browser-capability-lease.md",
+      "line": 25,
+      "issue": "needs-human: originAllowlist contains a hostname (github.com), not an origin, without scheme/port/subdomain matching rules. The adjacent comment permits URL information without excluding secret query/body data, and the secret prohibition does not cover logs or artifacts referenced by evidenceRefs. Agree canonical origin matching and metadata-only evidence rules; untrusted page/trace content must not widen origin/action/credential scope."
+    },
+    {
+      "severity": "med",
+      "file": "docs/research/issue-28-browser-capability-lease.md",
+      "line": 61,
+      "issue": "needs-human: The five fixture names are prose only; no synthetic browser fixture artifacts, executable browser-behavior assertions, read-only inventory or evidence mapping were delivered. In particular there is no sibling-tab/profile denial, read-only control rejection, stale/revoked replay, takeover freshness, protected-action/effect denial, injection or ambiguous-submit verification. These research acceptance gates remain open and require the agreed contracts; the added static document check cannot establish browser enforcement."
+    },
+    {
+      "severity": "low",
+      "file": "docs/research/issue-28-browser-capability-lease.md",
+      "line": 57,
+      "issue": "FIXED: The mandatory lease-end evidence rule omitted REVOKED even though it is a terminal ReturnReceipt disposition. The rule now requires RETURNED/EXPIRED/REVOKED evidence, with a regression check comparing every receipt disposition to the documented evidence requirement; no API was changed."
+    }
+  ],
+  "fixed": false,
+  "summary": "Fixed the REVOKED lease-end evidence omission with a regression that fails before the fix and passes afterward (1/1); build/typecheck exit 0. Six needs-human contract/acceptance findings remain, so fixed=false and Issue #28 is incomplete. Full npm test exits 1 (2763 pass, one unchanged steering capacity test times out at 30000ms), and the isolated case also exits 1 at its original limit; browser enforcement remains unverified."
+}

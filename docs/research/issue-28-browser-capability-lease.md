@@ -54,7 +54,7 @@ cookie 匯出。
 - human takeover ≠ agent credential transfer；接管是終止 lease 的事件，
   不是把權力移給別的 principal。
 - 使用者取消 takeover 是 **rejection**，不是讓 agent 換條路重試。
-- lease 結束必須有 `RETURNED/EXPIRED` 證據——daemon/extension/profile
+- lease 結束必須有 `RETURNED/EXPIRED/REVOKED` 證據——daemon/extension/profile
   還開著不代表 agent 還有權。
 - 跳出 lease 範圍的 redirect/新 tab → `OUT_OF_SCOPE`，需另行批准。
 
