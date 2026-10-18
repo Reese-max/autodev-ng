@@ -23,7 +23,7 @@ cookie 匯出。
   "surface": {
     "kind": "existing-tab | new-tab | window",
     "opaqueTabId": "tab_...",           // 不透明 id，不存 URL 以外資訊
-    "originAllowlist": ["github.com"]
+    "originAllowlist": ["https://github.com"]
   },
   "actionClasses": ["navigate","read-dom","click","fill-form-field"],
   "expiresAt": "...",
