@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "issue": 155,
+  "base_sha": "24ebf8f5debf85be1fb12c93accb93017ca150d8",
+  "red_proof": "Before production fixes: npx vitest run tests/herdr.test.ts -t 'self-review:' --reporter=dot, exit 1, Tests 16 failed | 1 passed | 17 skipped (34). Excerpts: \"AssertionError: expected 'transient-network' to be 'auth-missing'\"; \"expected 'transient-network' to be 'quota-exhausted'\"; \"expected 'transient-network' to be 'model-unavailable'\"; \"expected 'transient-network' to be 'config'\"; spendControlReached=false: \"expected 'quota-exhausted' to be 'model-unavailable'\"; listed readiness: \"expected undefined to be 'unknown'\"; Codex auth/config cache: \"expected true to be false\"; provenance: \"expected 'Herdr compatible protocol=20; server=...' to match /launcherHash=sha256:[0-9a-f]+/\". Additional failing cases exposed generic deadline retry advice, mislabeled timed-out quota, raw fixture secret/cookie, and invalid protocol text. Post-review compatibility regression: npx vitest run tests/herdr.test.ts -t 'self-review: quota wording' --reporter=dot exited 1 (1 failed, 34 skipped), expected quota-exhausted but received unknown; restored the original bounded quota wording matcher.",
+  "test_command": "npm run typecheck && npm run build && npm test -- --reporter=dot",
+  "not_done": "needs-human: establish the launcher requested-model selection API; integrate retry/cooldown and attempt accounting only after backend stop/recovery is verified; observe Herdr/underlying CLI runtime identities and Pi auth-profile identity; resolve whether allowedFallbacks should authorize the primary provider; decide whether the three issue #13 commits belong in this PR. Windows real-backend canary was not run (requires separate authorization). No push, branch switches, other-branch changes, PR comments, merge or deployment.",
+  "test_exit": 0,
+  "tests_passed": 2048,
+  "tests_failed": 0,
+  "summary": "Fixed six review defects in failure classification, boolean quota parsing, verified-model readiness, Codex cache invalidation, cached observation provenance and diagnostic redaction/validation. Added 18 regression/control cases after recording RED failures, preserving quota wording compatibility and the recovery/unknown-cost safety fences. Git Bash typecheck, build and all 2,048 tests across 204 files passed; five needs-human acceptance/scope gaps remain and the real-backend canary was not run."
+}

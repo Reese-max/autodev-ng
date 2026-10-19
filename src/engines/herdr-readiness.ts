@@ -84,8 +84,8 @@ export function launcherFingerprint(command: string): string {
 }
 
 /**
- * 快取鍵綁定精確 runtime／launcher／設定：command 指紋、provider、
- * requested model、session、auth 模式。任一改變即換鍵＝舊觀測自動失效。
+ * launcher／provider／requested model／session 的觀測身分。
+ * 實際引擎的環境與授權檔身分另由 cliPreflightKey 綁定。
  */
 export function herdrReadinessKey(input: {
   command: string; launcherHash: string; provider: HerdrProvider; requestedModel?: string; sessionName: string
@@ -119,7 +119,7 @@ export function observeHerdrBackend(input: {
   else if (input.login === 'missing') failureClass = 'auth-missing'
   else if (input.model === 'unavailable') failureClass = 'model-unavailable'
   else if (input.quota === 'exhausted') failureClass = 'quota-exhausted'
-  else if (input.login === 'unknown' || input.model === 'unknown' || input.quota === 'unknown') failureClass = 'unknown'
+  else if (input.login === 'unknown' || input.model !== 'verified' || input.quota === 'unknown') failureClass = 'unknown'
   const ready = failureClass === undefined
   const backend = ready ? 'backend=ready' : 'backend=unverified'
   const detail = [
@@ -145,8 +145,8 @@ export function observeHerdrBackend(input: {
 export function summarizeHerdrReadiness(obs: HerdrReadinessObservation): string {
   return `${obs.detail}; provider=${obs.provider}`
     + `${obs.requestedModel ? ` requested=${obs.requestedModel}` : ''}`
-    + `${obs.reportedModel ? ` reported=${obs.reportedModel}` : ''}`
-    + ` observedAt=${obs.observedAt} source=${obs.source}`
+    + ` reported=${obs.reportedModel ?? 'unknown'}`
+    + ` launcherHash=${obs.launcherHash} observedAt=${obs.observedAt} source=${obs.source}`
 }
 
 /** 表格化 fixture：server、登入、模型、額度分欄呈現，不再以 server ok 冒充全路徑。 */
@@ -159,10 +159,10 @@ export function herdrReadinessTable(rows: HerdrReadinessObservation[]): string {
   return lines.join('\n')
 }
 
-const QUOTA_RE = /quota\s*exhausted|out\s*of\s*quota|insufficient[\s\S]{0,20}quota|spend[\s\S]{0,20}control[\s\S]{0,20}reached|credits?_required|billing[\s\S]{0,20}exhausted|quota[\s\S]{0,20}exceeded/i
+const QUOTA_RE = /quota\s*exhausted|out\s*of\s*quota|insufficient[\s\S]{0,20}quota|spend[\s_-]+control[\s_-]+reached|"spendControlReached"\s*:\s*true\b|credits?_required|billing[\s\S]{0,20}exhausted|quota[\s\S]{0,20}exceeded/i
 const AUTH_RE = /log[\s-]?in\s*(required|needed|expired|failed)|not\s+(logged|authenticated)|unauthorized|\b401\b|auth(?:entication|orization)?\s*(required|failed|expired|missing|invalid)/i
 const MODEL_RE = /model[\s\S]{0,40}(not\s+supported|unsupported|unavailable|not\s+found)|unknown\s+model|unsupported\s+model|model\s+is\s+not\s+available/i
-const TRANSIENT_RE = /timed?\s?out|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket\s+hang\s+up|network\s+(unreachable|error|failure)|temporarily\s+unavailable|transient/i
+const TRANSIENT_RE = /\b(ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN)\b|socket\s+hang\s+up|network\s+(unreachable|error|failure)/i
 const CONFIG_RE = /unknown\s+provider|invalid\s+provider|launcher[\s\S]{0,20}(missing|not\s+found|invalid|unreadable)/i
 const SERVER_RE = /未就緒|not\s+running|connection\s+refused|herdr[\s\S]{0,20}not\s+(ready|running|compatible)/i
 
@@ -178,12 +178,6 @@ export function classifyHerdrFailure(input: {
   exitCode?: number | null; timedOut?: boolean; aborted?: boolean; stdout?: string; stderr?: string; detail?: string
 }): { failureClass: HerdrFailureClass; advice: HerdrRetryAdvice } {
   if (input.aborted) return { failureClass: 'unknown', advice: { ...noFallback('cancelled: no retry, no fallback'), } }
-  if (input.timedOut || TRANSIENT_RE.test(`${input.stdout ?? ''}\n${input.stderr ?? ''}\n${input.detail ?? ''}`)) {
-    return {
-      failureClass: 'transient-network',
-      advice: { retryable: true, maxRetries: HERDR_TRANSIENT_MAX_RETRIES, cooldownMs: 0, waitForHuman: false, fallbackAllowed: false, reason: 'transient network: bounded retry only' },
-    }
-  }
   const text = `${input.stdout ?? ''}\n${input.stderr ?? ''}\n${input.detail ?? ''}`
   if (QUOTA_RE.test(text)) {
     return {
@@ -208,6 +202,12 @@ export function classifyHerdrFailure(input: {
   }
   if (CONFIG_RE.test(text)) {
     return { failureClass: 'config', advice: { ...noFallback('launcher/provider misconfigured: fix configuration, no retry'), } }
+  }
+  if (TRANSIENT_RE.test(text)) {
+    return {
+      failureClass: 'transient-network',
+      advice: { retryable: true, maxRetries: HERDR_TRANSIENT_MAX_RETRIES, cooldownMs: 0, waitForHuman: false, fallbackAllowed: false, reason: 'transient network: bounded retry only' },
+    }
   }
   return { failureClass: 'unknown', advice: { ...noFallback('unclassified: keep unknown; do not infer availability or cost'), } }
 }

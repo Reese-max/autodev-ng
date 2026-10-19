@@ -10,6 +10,8 @@ import {
   assertHerdrCostPolicy,
   classifyHerdrFailure,
   launcherFingerprint,
+  observeHerdrBackend,
+  summarizeHerdrReadiness,
 } from './herdr-readiness.js'
 import { runProcess } from './proc.js'
 import { cancelledRun } from './run-control.js'
@@ -71,7 +73,8 @@ export class HerdrEngine implements Engine {
   }
 
   async preflight(): Promise<PreflightResult> {
-    const key = this.cacheKey()
+    const launcherHash = launcherFingerprint(this.command)
+    const key = this.cacheKey(launcherHash)
     const admission = unknownAdmission('herdr', this.requestedModel)
     const cached = this.cache.get(key)
     if (cached) return this.gateVerifiedFree({ ...cached, admission })
@@ -84,14 +87,20 @@ export class HerdrEngine implements Engine {
           command: 'herdr.exe', args: ['--session', this.sessionName, 'status', 'server', '--json'],
           cwd: process.cwd(), stdinText: '', timeoutMs: this.pingTimeoutMs,
         })
-        const status = JSON.parse(r.stdout) as { running?: boolean; compatible?: boolean; protocol?: number }
+        const status = JSON.parse(r.stdout) as { running?: boolean; compatible?: boolean; protocol?: unknown }
+        const protocol = typeof status.protocol === 'number' && Number.isSafeInteger(status.protocol) && status.protocol >= 0 ? status.protocol : '?'
         result = r.exitCode === 0 && !r.timedOut && status.running === true && status.compatible === true
-          ? { ok: true, detail: `Herdr compatible protocol=${status.protocol ?? '?'}` }
-          : { ok: false, detail: `Herdr 未就緒或不相容（exit=${r.exitCode} protocol=${status.protocol ?? '?'}）` }
+          ? { ok: true, detail: `Herdr compatible protocol=${protocol}` }
+          : { ok: false, detail: `Herdr 未就緒或不相容（exit=${r.exitCode} protocol=${protocol}）` }
       } catch (err) {
         result = { ok: false, detail: redactCli(String(err), { ...process.env }, [this.sessionName, this.provider]).slice(0, 700) }
       }
     }
+    const observation = observeHerdrBackend({
+      server: result.ok ? 'ok' : 'unavailable', login: 'unknown', model: 'unknown', quota: 'unknown',
+      provider: this.provider, requestedModel: this.requestedModel, launcherHash, source: 'launcher-health-only',
+    })
+    result = { ...result, detail: `${result.detail}; ${summarizeHerdrReadiness(observation)}; herdrVersion=unknown backendCliVersion=unknown (launcher health only)` }
     this.cache.set(key, result)
     return this.gateVerifiedFree({ ...result, admission })
   }
@@ -101,15 +110,11 @@ export class HerdrEngine implements Engine {
    * 無可靠原生唯讀接口一律 unknown，絕不冒充全路徑已驗證。verified-free 設定擋 unknown。
    */
   private gateVerifiedFree(result: PreflightResult): PreflightResult {
-    const suffix = result.ok
-      ? '; server=ok login=unknown model=unknown quota=unknown backend=unverified (server ok only; auth/model/quota unknown — not full-path verified); quota=unknown; model=unknown (launcher health only)'
-      : '; backend=unverified (launcher health only; re-probe); quota=unknown; model=unknown (launcher health only)'
-    const marked: PreflightResult = { ...result, detail: result.detail + suffix }
-    if (marked.ok && this.requireVerifiedFree) {
-      return { ...marked, ok: false,
-        detail: marked.detail + '; herdr cost-unknown: verified-free required; unknown cost path blocked (unknown ≠ confirmed-zero)' }
+    if (result.ok && this.requireVerifiedFree) {
+      return { ...result, ok: false,
+        detail: result.detail + '; herdr cost-unknown: verified-free required; unknown cost path blocked (unknown ≠ confirmed-zero)' }
     }
-    return marked
+    return result
   }
 
   invalidatePreflight(): void {
@@ -147,14 +152,14 @@ export class HerdrEngine implements Engine {
         '-Wait', '-WaitTimeoutMs', String(this.timeoutMs),
       ],
     })
-    const output = tail(`${r.stdout}\n${r.stderr}`.trim())
+    const output = tail(redactCli(`${r.stdout}\n${r.stderr}`.trim()))
     if (r.aborted || job.control?.signal?.aborted) return cancelledRun(output)
-    // Issue #34：登入／額度／網路／模型各走各的處置；相關執行失敗即失效 preflight 快取。
-    // 登入失效等人工（不自動提交同意／登出／重寫憑證）；暫時網路故障才有限重試；
-    // 額度耗盡走有界冷卻；模型不支援是設定問題；任何分支都不自動切付費。
+    // Issue #34：保留不同故障的處置建議，並失效 preflight 快取。
+    // recovery 確認前仍隔離，不在這裡重試、冷卻後重派或切換付費路徑。
     if (r.timedOut) {
+      const classified = classifyHerdrFailure(r)
       this.invalidatePreflight()
-      return { ...failure('herdr-transient-network：timeout（有限重試≤2；不自動切付費）', output), recoveryRequired: true }
+      return { ...failure(`herdr-${classified.failureClass}：timeout（${classified.advice.reason}）`, output), recoveryRequired: true }
     }
     if (r.exitCode !== 0) {
       const classified = classifyHerdrFailure({ exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr })
@@ -182,10 +187,12 @@ export class HerdrEngine implements Engine {
     return { ok: true, output, costUsd: 0, costUnknown: true, baseCommitHash: before, commitHash: after }
   }
 
-  private cacheKey(): string {
-    // 綁定精確 runtime／launcher／設定：版本、provider、requested model、auth 模式任一改變即換鍵。
+  private cacheKey(launcherHash = launcherFingerprint(this.command)): string {
+    // 綁定 launcher、provider、requested model、session 及已知授權／設定上下文。
+    // Herdr／底層 CLI runtime 與 Pi 授權檔身分仍未觀測。
     return cliPreflightKey(this.command,
-      [this.sessionName, this.provider, this.requestedModel ?? '', launcherFingerprint(this.command)])
+      ['herdr-readiness-v1', this.sessionName, this.provider, this.requestedModel ?? '', launcherHash],
+      undefined, this.provider === 'Codex' ? 'codex' : '')
   }
 }
 

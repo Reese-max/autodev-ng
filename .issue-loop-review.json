@@ -1,0 +1,74 @@
+{
+  "pr": 155,
+  "head": "24ebf8f5debf85be1fb12c93accb93017ca150d8",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "src/engines/herdr-readiness.ts",
+      "line": 181,
+      "issue": "fixed: Network text takes precedence over explicit auth/quota/model/config failures; a wall timeout without network evidence is also marked retryable. This loses wait-human/config/cooldown dispositions."
+    },
+    {
+      "severity": "med",
+      "file": "src/engines/herdr-readiness.ts",
+      "line": 162,
+      "issue": "fixed: The quota regex treats the JSON field spendControlReached as exhaustion even when its value is false, masking an unrelated model failure."
+    },
+    {
+      "severity": "med",
+      "file": "src/engines/herdr-readiness.ts",
+      "line": 122,
+      "issue": "fixed: A merely listed model with available login/quota is labeled backend=ready and full backend verified, without execution verification."
+    },
+    {
+      "severity": "med",
+      "file": "src/engines/herdr.ts",
+      "line": 187,
+      "issue": "fixed: cliPreflightKey is called without its provider argument, so Codex auth.json/config.toml changes do not invalidate the Herdr cache."
+    },
+    {
+      "severity": "med",
+      "file": "src/engines/herdr.ts",
+      "line": 95,
+      "issue": "fixed: Production preflight caches only server health text; the new observation helpers are unused, so launcher hash, provider, requested/reported model, observation time and source are absent from the cached receipt."
+    },
+    {
+      "severity": "high",
+      "file": "src/engines/herdr.ts",
+      "line": 150,
+      "issue": "fixed: The surrounding adapter returns raw launcher stdout/stderr as RunResult.output, allowing credentials/cookies into downstream records despite AC5. Preflight also interpolates an unvalidated protocol value. Redact output before truncation and validate protocol before logging."
+    },
+    {
+      "severity": "high",
+      "file": "src/engines/herdr.ts",
+      "line": 138,
+      "issue": "needs-human: configured requestedModel affects admission/cache only and is never passed to the launcher. The launcher model-selection contract must be established before forwarding a new parameter or rejecting configuration."
+    },
+    {
+      "severity": "med",
+      "file": "src/engines/herdr.ts",
+      "line": 162,
+      "issue": "needs-human: retry/cooldown advice is only embedded in text; every failed run remains recoveryRequired and scheduler.ts quarantines it before retries/cooldown or normal attempt accounting. A verified-stop/recovery contract is required; do not remove the safety fence."
+    },
+    {
+      "severity": "med",
+      "file": "src/engines/herdr.ts",
+      "line": 185,
+      "issue": "needs-human: Herdr and underlying CLI versions/hashes and Pi authorization-profile identity are not observed or bound to the cache. Launcher fingerprint alone does not satisfy the exact runtime identity acceptance criterion."
+    },
+    {
+      "severity": "med",
+      "file": "src/engines/herdr.ts",
+      "line": 125,
+      "issue": "needs-human: allowedFallbacks is used to authorize the configured primary provider, so an empty fallback list blocks the primary. Existing new tests explicitly require this behavior, while the issue describes a fallback allowlist; resolve this policy contract before changing it."
+    },
+    {
+      "severity": "low",
+      "file": "docs/flaky-ci-regression-2026-09-10.md",
+      "line": 1,
+      "issue": "needs-human: the PR includes three issue #13 commits changing regression fixtures and test-skip boundaries, beyond the stated issue #34 readiness scope. Decide whether to retain or separate that history; do not silently revert testing changes during this review."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed six review defects covering failure classification, boolean quota signals, verified readiness, Codex cache invalidation, observation provenance and safe diagnostics, with 18 regression/control cases. Git Bash typecheck, build and all 2,048 tests in 204 files passed. Five needs-human gaps remain for requested-model enforcement, recovery-safe retry/cooldown, runtime/Pi identity, primary-versus-fallback policy and issue #13 scope; the real-backend canary was not run."
+}

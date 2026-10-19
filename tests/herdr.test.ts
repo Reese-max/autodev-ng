@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, vi } from 'vitest'
@@ -138,7 +138,7 @@ test('issue #34：登入／額度／網路／模型錯誤處置不同且重試�
   expect(auth.advice.retryable).toBe(false)
   expect(auth.advice.waitForHuman).toBe(true)
   expect(auth.advice.fallbackAllowed).toBe(false)
-  const net = classify({ timedOut: true, exitCode: 0 })
+  const net = classify({ timedOut: true, stderr: 'ETIMEDOUT', exitCode: 0 })
   expect(net.failureClass).toBe('transient-network')
   expect(net.advice.retryable).toBe(true)
   expect(net.advice.maxRetries).toBeLessThanOrEqual(2)
@@ -280,11 +280,14 @@ test('issue #34：requireVerifiedFree 經 config 直達引擎，unknown 路徑�
     projectPath: dir, backlogFile: join(dir, 'BACKLOG.md'), dataDir: dir,
     defaultEngine: 'herdr', engines: { herdr: { adapter: 'herdr', command: launcher, provider: 'Codex', costPerRunUsd: 0, requireVerifiedFree: true, model: 'm主力' } },
   })
+  const nativeRunner = vi.spyOn(await import('../src/engines/proc.js'), 'runProcess')
+    .mockResolvedValue(proc('{"running":true,"compatible":true,"protocol":20}'))
   const engine = makeEngineRegistry(cfg).resolve('herdr')
   expect(engine).toBeInstanceOf(HerdrEngine)
 
   // model 直達：admission 記下 requested（spawn 成敗不影響，admission 必附）。
   const preflight = await engine.preflight()
+  nativeRunner.mockRestore()
   expect(preflight.admission?.model?.requested).toBe('m主力')
   expect(preflight.admission?.quota?.state).toBe('unknown')
 
@@ -320,4 +323,114 @@ test('issue #34：requireVerifiedFree／allowedFallbacks 只支援 herdr adapter
   expect(ConfigSchema.safeParse(base({ herdr: { ...herdr, allowedFallbacks: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] } })).success).toBe(false)
   expect(ConfigSchema.safeParse({ projectPath: '/p', backlogFile: '/p/BACKLOG.md', dataDir: '/p', defaultEngine: 'codex',
     engines: { codex: { adapter: 'codex', costPerRunUsd: 0, requireVerifiedFree: true } } }).success).toBe(false)
+})
+
+test.each([
+  ['authentication failed; network error', false, 'auth-missing'],
+  ['quota exhausted; request timed out', false, 'quota-exhausted'],
+  ['model is not supported; transient network error', false, 'model-unavailable'],
+  ['unknown provider; network error', false, 'config'],
+  ['login required', true, 'auth-missing'],
+  ['quota exhausted', true, 'quota-exhausted'],
+] as const)('self-review: explicit backend failure wins over transport text (%s)', async (stderr, timedOut, failureClass) => {
+  const { classifyHerdrFailure } = await import('../src/engines/herdr-readiness.js')
+  const result = classifyHerdrFailure({ stderr, timedOut, exitCode: 1 })
+  expect(result.failureClass).toBe(failureClass)
+  expect(result.advice.retryable).toBe(false)
+})
+
+test('self-review: an execution deadline alone does not prove a transient network failure', async () => {
+  const { classifyHerdrFailure } = await import('../src/engines/herdr-readiness.js')
+  expect(classifyHerdrFailure({ timedOut: true }).advice.retryable).toBe(false)
+})
+
+test.each([false, true])('self-review: spendControlReached honors its boolean value (%s)', async spendControlReached => {
+  const { classifyHerdrFailure } = await import('../src/engines/herdr-readiness.js')
+  const result = classifyHerdrFailure({ stderr: JSON.stringify({ spendControlReached, error: 'model is not supported' }), exitCode: 1 })
+  expect(result.failureClass).toBe(spendControlReached ? 'quota-exhausted' : 'model-unavailable')
+})
+
+test('self-review: quota wording retains the existing exhausted disposition', async () => {
+  const { classifyHerdrFailure } = await import('../src/engines/herdr-readiness.js')
+  expect(classifyHerdrFailure({ stderr: 'quota has been exceeded' }).failureClass).toBe('quota-exhausted')
+})
+
+test('self-review: a listed model is not an execution-verified backend', async () => {
+  const { observeHerdrBackend, summarizeHerdrReadiness } = await import('../src/engines/herdr-readiness.js')
+  const observation = observeHerdrBackend({ server: 'ok', login: 'available', model: 'listed', quota: 'available', provider: 'Codex', source: 'server-status' })
+  expect(observation.failureClass).toBe('unknown')
+  expect(summarizeHerdrReadiness(observation)).toContain('backend=unverified')
+})
+
+test.each(['auth.json', 'config.toml'])('self-review: Codex %s changes invalidate the actual engine cache', async file => {
+  const { dir, launcher, cache } = fixture()
+  vi.stubEnv('CODEX_HOME', dir)
+  try {
+    const path = join(dir, file)
+    writeFileSync(path, '{}')
+    utimesSync(path, new Date(1_000), new Date(1_000))
+    let probes = 0
+    const engine = new HerdrEngine({ command: launcher, cache, provider: 'Codex', runProcess: async () => {
+      probes++
+      return proc(JSON.stringify({ running: true, compatible: probes === 1, protocol: 20 }))
+    } })
+    expect((await engine.preflight()).ok).toBe(true)
+    expect((await engine.preflight()).ok).toBe(true)
+    writeFileSync(path, '{"changed":true}')
+    expect((await engine.preflight()).ok).toBe(false)
+    expect(probes).toBe(2)
+  } finally { vi.unstubAllEnvs() }
+})
+
+test('self-review: actual cached preflight retains observation provenance and still enforces policy', async () => {
+  const { dir, launcher, cache } = fixture()
+  let probes = 0
+  const runner: typeof runProcess = async () => {
+    probes++
+    return proc(JSON.stringify({ running: true, compatible: probes === 1, protocol: 20 }))
+  }
+  const opts = { command: launcher, cache, provider: 'Pi' as const, model: 'm-primary', runProcess: runner }
+  const engine = new HerdrEngine(opts)
+  const first = await engine.preflight()
+  expect(first.detail).toMatch(/launcherHash=sha256:[0-9a-f]+/)
+  expect(first.detail).toContain('provider=Pi requested=m-primary reported=unknown')
+  expect(first.detail).toMatch(/observedAt=\d{4}-\d{2}-\d{2}T/)
+  expect(first.detail).toContain('source=launcher-health-only')
+  expect(first.detail).toContain('herdrVersion=unknown backendCliVersion=unknown')
+  expect(readFileSync(join(dir, 'preflight.json'), 'utf8')).toContain(first.detail)
+  expect((await engine.preflight()).detail).toBe(first.detail)
+  expect(await new HerdrEngine({ ...opts, requireVerifiedFree: true }).preflight()).toMatchObject({ ok: false, detail: expect.stringContaining('verified-free') })
+  expect(probes).toBe(1)
+  writeFileSync(launcher, '# changed launcher')
+  expect((await engine.preflight()).ok).toBe(false)
+  expect(probes).toBe(2)
+})
+
+test('self-review: timed-out launcher preserves an explicit quota failure and its safety fence', async () => {
+  const { dir, launcher, cache } = fixture()
+  const commitChanges = vi.fn(() => 'bbb')
+  const engine = new HerdrEngine({ command: launcher, cache, runProcess: async () => ({ ...proc('quota exhausted', 1), timedOut: true }), getCommitHash: () => 'aaa', commitChanges })
+  const result = await engine.run({ task, projectPath: dir })
+  expect(result).toMatchObject({ ok: false, recoveryRequired: true, costUnknown: true, failureReason: expect.stringContaining('herdr-quota-exhausted') })
+  expect(commitChanges).not.toHaveBeenCalled()
+})
+
+test.each([0, 1])('self-review: launcher output is redacted before recording on exit %s', async exitCode => {
+  const { dir, launcher, cache } = fixture()
+  const secret = 'herdr-review-fixture-secret'
+  vi.stubEnv('HERDR_REVIEW_TOKEN', secret)
+  try {
+    const engine = new HerdrEngine({ command: launcher, cache, runProcess: async () => ({ ...proc(`AUTOPILOT_WAIT_OK ${secret}`, exitCode), stderr: 'cookie=fixture-cookie' }), getCommitHash: () => 'aaa', commitChanges: () => 'bbb' })
+    const result = await engine.run({ task, projectPath: dir })
+    expect(result.ok).toBe(exitCode === 0)
+    expect(result.output).not.toContain(secret)
+    expect(result.output).not.toContain('fixture-cookie')
+    expect(result.output).toContain('[REDACTED]')
+  } finally { vi.unstubAllEnvs() }
+})
+
+test('self-review: server protocol is validated before inclusion in a receipt', async () => {
+  const { launcher, cache } = fixture()
+  const engine = new HerdrEngine({ command: launcher, cache, runProcess: async () => proc(JSON.stringify({ running: true, compatible: true, protocol: 'Bearer fixture-protocol-token' })) })
+  expect((await engine.preflight()).detail).not.toContain('fixture-protocol-token')
 })

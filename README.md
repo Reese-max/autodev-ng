@@ -184,9 +184,13 @@ Guardian 不啟動 subagent，也不另設專案任務總時間／成本上限�
 pwsh -NoProfile -File scripts/herdr-fleet-console.ps1
 ```
 
-Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.herdr.command` 必須指向 `Start-Herdr-Autopilot.ps1`，並設定 `costPerRunUsd`。可選的 `engines.herdr.provider` 為 `Codex` 或 `Pi`，未設仍走 Codex；Pi 必須先有可用模型／provider。`engines.herdr.model` 為使用者指定的主力路徑模型（requested；reported 只信執行回報）。AutoDev 仍擁有 worktree、提交與最終驗收。
+Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.herdr.command` 必須指向 `Start-Herdr-Autopilot.ps1`，並設定 `costPerRunUsd`。可選的 `engines.herdr.provider` 為 `Codex` 或 `Pi`，未設仍走 Codex；Pi 必須先有可用模型／provider。`engines.herdr.model` 目前只記入 requested 中繼資料與快取身分，尚未接上 launcher 選模介面，不能據此宣稱實際執行該模型。AutoDev 仍擁有 worktree、提交與最終驗收。
 
-Herdr backend readiness（Issue #34）：preflight 的 server ok 只證明 launcher／server 健康，登入／模型／額度無可靠原生唯讀接口一律記 `unknown`（`backend=unverified`），絕不冒充全路徑已驗證。觀測記錄 provider、requested／reported model、launcher 指紋、觀測時間與來源，不含憑證值。快取鍵綁定 launcher 內容指紋＋provider＋requested 模型＋session＋相關環境上下文（雜湊化，只記身分不記值），任一改變即換鍵失效；有效期沿既有 preflight 快取 TTL，相關執行失敗亦顯式失效。失敗分類處置：登入失效等人工（不自動提交同意、不登出、不重寫憑證）、暫時網路故障有限重試（≤2 次）、額度耗盡走有界冷卻（可靠 reset 資訊或 30 分鐘）、模型不支援為設定問題；任何分支都不自動切付費，備援須事前列入允許清單。費用未知恆為 `costUnknown`（≠ confirmed-zero），要求 verified-free 的設定擋下 unknown 路徑。Windows 主力 backend 最小真實 canary：**未執行**（需另行授權；執行時留存 Herdr／launcher／底層 CLI 版本或雜湊、provider、requested／reported model 與結果）。
+Herdr backend readiness（Issue #34）：preflight 的 server ok 只證明 launcher／server 健康；登入／模型／額度保持 `unknown`（`backend=unverified`），模型僅 `listed` 也不算已驗證。preflight detail 與快取保存 provider、requested／reported model、launcher 指紋、原觀測時間及來源；未觀測的 reported model、Herdr／底層 CLI 版本明示 `unknown`。CLI 輸出先沿用既有遮罩，再截斷後記錄。
+
+快取綁定 launcher 內容指紋、provider、requested 模型、session、相關環境雜湊，以及 Codex 授權／設定檔中繼資料；沿用既有 TTL，相關執行失敗亦顯式失效。Herdr／底層 CLI runtime 指紋與 Pi 授權檔身分仍待建立契約。分類器區分登入、額度、模型及明確網路錯誤，提供人工介入、冷卻或有界重試建議；**建議尚未接上排程，執行失敗仍要求 recovery 並隔離任務**，不能宣稱已有自動退避／冷卻。單純工作逾時不證明網路故障。
+
+費用未知恆為 `costUnknown`（≠ confirmed-zero），要求 verified-free 的設定擋下 unknown 路徑；不自動切付費。`allowedFallbacks` 目前也會檢查主力 provider 是否在名單內，這與備援名單的語意仍待人工釐清。Windows 主力 backend 最小真實 canary：**未執行**（需另行授權）；模型選擇、recovery 後重試與 runtime 身分的驗收尚未完成。
 
 ### 4. Discord bot（可選）
 
