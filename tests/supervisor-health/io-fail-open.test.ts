@@ -8,15 +8,17 @@
  */
 import { beforeEach, expect, test, vi } from 'vitest'
 
-const { readFileSync, statSync, lstatSync, realpathSync } = vi.hoisted(() => ({
+const { readFileSync, statSync, lstatSync, realpathSync, opendirSync } = vi.hoisted(() => ({
   readFileSync: vi.fn(),
   statSync: vi.fn(),
+  opendirSync: vi.fn(() => ({ readSync: () => null, closeSync: vi.fn() })),
   lstatSync: vi.fn(),
   realpathSync: vi.fn(() => {
     const error = new Error('ENOENT') as NodeJS.ErrnoException
     error.code = 'ENOENT'
     throw error
   }),
+
 }))
 
 vi.mock('node:fs', () => ({
@@ -25,6 +27,7 @@ vi.mock('node:fs', () => ({
   mkdirSync: vi.fn(),
   rmSync: vi.fn(),
   openSync: vi.fn(),
+  opendirSync,
   readFileSync,
   readdirSync: vi.fn(),
   lstatSync,

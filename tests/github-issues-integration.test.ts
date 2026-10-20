@@ -46,12 +46,16 @@ test('三次真實驗收紅燈後，runner 接續一次替代方案並通過原�
     } })))
     const client: GithubClient = { list: async () => [issue], issue: async () => issue, findPr: async () => undefined,
       findLinkedPr: async () => undefined, createPr: async () => { throw new Error('publication forbidden') } }
-    const execute: typeof executeIssue = (c, s) => executeIssue(c, s, runtime => {
-      const app = assembleConfig(runtime)
-      app.deps.engines = { resolve: () => engine }
-      app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
-      return app
-    })
+    const execute: typeof executeIssue = async (c, s) => {
+      const result = await executeIssue(c, s, runtime => {
+        const app = assembleConfig(runtime)
+        app.deps.engines = { resolve: () => engine }
+        app.deps.verifier = new KernelVerifier({ cfg: runtime, reviewRun: async () => 'REVIEW: PASS' })
+        return app
+      })
+      expect(result.verificationAttempted).toBe(true)
+      return result
+    }
     for (let i = 1; i <= 3; i++) {
       expect(await runGithub(cfg, { client, execute })).toBe('8: queued')
       const state = readState(cfg, 8)!

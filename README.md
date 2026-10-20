@@ -20,11 +20,13 @@
 | `src/*.ts` | kernel：backlog、排程、daemon、SQLite 成本帳、事件、鎖與 worktree；頂層總量 ≤2250 行 |
 | `src/cli/` | CLI 分派、設定解析、相依組裝與各子指令；`src/cli.ts` 保留入口與相容匯出 |
 | `src/engines/` | 引擎 adapter／路由、驗證、ownership、團隊協調、merge queue、證據鏈與通知 |
+| `src/conductor/` | Conductor/Worker 協議：Task Envelope、任務分解、驗證閘、retry/escalate、`.autodev` checkpoint 與 task ledger（見 `docs/conductor-worker-protocol.md`） |
 | `src/autopilot/` | GOAL 解析、規劃、執行、評估、問題帳本與持續迴圈 |
 | `src/learn/` | 教訓儲存、失敗反思與派工提示注入 |
 | `src/bot/`、`web/` | Discord 與本機 Web 控制台；共用查詢／控制 handler |
 | `src/supervisor/`、`src/guardian/` | daemon 健康探測、保活，以及事故診斷與修復 |
 | `src/github/` | GitHub Issue 同步、執行與受設定控制的修復分支／草稿 PR 發布 |
+| `src/backends/` | 可插拔長時程執行後端（`ExecutionBackend`）；首個 adapter `long-horizon`（Manager→Executor→Auditor，見 [docs/long-horizon.md](docs/long-horizon.md)） |
 | `configs/`、`scripts/` | 各專案設定、Windows 啟動／排程腳本與檢查工具 |
 | `tests/`、`docs/` | 回歸測試、規格、維運說明與歷史驗收紀錄 |
 
@@ -180,6 +182,11 @@ node dist/cli.js notify-test --config <path>   # Discord 告警通道送達自�
 node dist/cli.js supervise --configs-dir configs                         # 相容模式：保活後 inline Guardian
 node dist/cli.js supervise --configs-dir configs --guardian off          # 只跑 supervisor（建議獨立排程）
 node dist/cli.js supervise --configs-dir configs --guardian only         # 獨立 Guardian 排程；仍先做一次安全探測
+
+# 長時程執行後端（issue #55，Manager→Executor→Auditor→checkpoint→resume）
+node dist/cli.js run start --config <path> --goal "<bounded goal>"        # 或 --goal-file / --github-config+--issue
+node dist/cli.js run resume|status|interrupt|approve|evidence --config <path> --id <runId>
+node dist/cli.js run metrics --config <path>                              # 跨 run 彙總，供 A/B 比較
 ```
 
 Guardian 不啟動 subagent，也不另設專案任務總時間／成本上限；Codex 完全無輸出進度 30 分鐘才由 idle watchdog 精準終止。相同事故以 supervisor 狀態與位元組事件游標去重，`failed`／`needs_attention`／卡死會送 Discord 告警；LLM 使用隔離 `CODEX_HOME` 與 `workspace-only` 權限，只能修改工作區檔案，Git 提交、重啟與驗收由宿主執行。每次決策、token、耗時與獨立驗收證據寫入各專案 `<dataDir>/guardian-runs.jsonl`，跨專案租約與輸出 schema 位於 `data/guardian/`。
@@ -193,6 +200,13 @@ pwsh -NoProfile -File scripts/herdr-fleet-console.ps1
 ```
 
 Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.herdr.command` 必須指向 `Start-Herdr-Autopilot.ps1`，並設定 `costPerRunUsd`。可選的 `engines.herdr.provider` 為 `Codex` 或 `Pi`，未設仍走 Codex；Pi 必須先有可用模型／provider。AutoDev 仍擁有 worktree、提交與最終驗收。
+
+完成回執採結果契約 v1（issue #32）：派工時帶 `-RequestId`（綁定 task＋base commit＋`executionId`）、`-ExecutionId` 與 `-ResultFile <path>`；launcher 必須在終態把 `{"schemaVersion":1,"requestId","executionId","repo","taskId","baseCommit","server","session","pane","status":"done"|"failed"}` 寫入該檔。宿主送件前先把預期綁定存到 `dataDir/herdr/<requestId>.expected.json`，回讀時逐欄位核對——缺檔、壞 JSON、欄位不符或 schemaVersion≠1 一律拒收（`herdr-unsupported`/`herdr-result-invalid`/`herdr-result-mismatch`），不做宿主提交。stdout 只作人讀日誌，marker 字串不再是成功證據（長輸出截斷也不影響終態判定）。不支援 `-ResultFile` 的舊 launcher 會得到明確 unsupported，需更新 launcher。
+
+唯讀重查既有工作：`adng execution inspect-herdr --config <path> --id <executionId> [--request-id <requestId>]`。
+此入口只讀取既有 host execution snapshot、唯一匹配的 host expected record 與有界 v1 result；不派工、不清除或重寫回執、不建立 inventory lock、不遷移／封存／取消、不提交或驗收成果。`--request-id` 只是核對 selector，不能指定任意 expected/result 檔案或自稱 repo／base／session 身分。沒有 snapshot 的 bounded 工作會回 `untracked`，多個候選或查核期間 snapshot／expected selection 改變則拒絕採信。`execution get/list` 保留既有 inventory 行為，並非這個嚴格零寫入入口。
+`correlated-v1-done`／`correlated-v1-failed` 的 exit0 **只代表讀到關聯相符的觀察**（包含失敗終態），不是任務成功或交付；其他狀態 exit2。每次輸出都明示 `trustedTerminal:false`、`trustedServerPaneOccupant:"UNVERIFIED"`、`deadlineOrExpiry:"UNVERIFIED"`、`deliveryVerified:false`。result digest 取自 strict checker 實際解析的同一份 bytes，屬單次時間點證據；之後的矛盾回執不會因此得到可信終態保證。舊 `issuedAt` 不被臆測成過期。真實 launcher 版本／server 與 pane occupant／明確 deadline 契約和另外授權的 Windows canary 仍待驗證。
+正常 `Engine.run` 仍是明確 START；既有 eligible no-commit nudge 保留最多一次 CONTINUE。需要重查時用上述 inspection 入口，不把重跑 `run()` 當成狀態查詢。
 
 ### 4. Discord bot（可選）
 
@@ -222,8 +236,19 @@ node web/server.mjs --config <path>
 | 加任務 | 直接編輯 backlog 檔 | `/task <文字>` | POST `/api/task` |
 | 靜音告警 | — | `/silence <分鐘>` | POST `/api/silence` |
 | 問 LLM | — | `/ask <問題>` | — |
+| 執行控制 | `adng execution steer\|enqueue\|controls` | `/steer <id> <指示>` `/enqueue <id> <指示>` `/controls` | — |
 | GOAL 自主迴圈 | `node dist/autopilot/run.js --config <path>`（前景） | `/goal set\|run\|status\|stop` | Goal 面板 + set/run/stop 按鈕 |
 | 告警自檢 | `notify-test` | — | — |
+
+### 執行控制（Issue #11）
+
+`/steer` 與 `/enqueue` 針對**正在跑的 exact execution**（`/status`、`/controls` 或 `adng execution list` 會列出 `taskId/executionId`）送 target-bound 控制信封，不是自由漂移的聊天文字：
+
+- **STEER**＝送到執行中的回合：只有能力表 `inFlightSteer=true` 的 adapter 能於安全點接收（目前僅 mock；真實 adapter 一律回 `UNSUPPORTED`，不假裝成功）。回合已結束但執行仍活著且支援 queue 時，明確轉為 `TOO_LATE_QUEUED`（收據記錄，非 silent fallback）。
+- **QUEUE**＝不打斷當前回合，排入同一 execution 的下一個安全回合邊界（`executionMode=observed/supervised` 才有快照可綁定目標）；派工前先記 `CLAIMED`，回合完成後記 `DELIVERED`。派工中的信封不因 TTL 過期變成未送達；`DELIVERY_UNKNOWN` 表示已派工但欠缺確認，應先核對執行結果與收據，勿直接重送。
+- 每個信封有 TTL、單行/長度/`<!-- -->`/`adng:` 註記注入防線、重放拒絕；目標不存在/已終結/宿主死亡→`REJECTED_STALE_TARGET` 或 sweep 結案 `STALE`/`NOT_DELIVERED`——daemon 重啟後舊 execution 的信封**絕不**投給新 execution。
+- 每次狀態轉移（受理/預留/送達/結案）在 `dataDir/controls/receipts/` 寫一份 sha256 收據。只有 matching `commitId` 的信封已落地、且無未完成交易時，收據才代表已提交狀態；I/O 失敗留下的交易會阻止投遞，重啟不會自動執行曾回報失敗的指示。`adng execution controls` 或 `/controls` 可查狀態及交易錯誤；請保留故障紀錄供人工核對。
+- `/status` 與 `/monitor` 顯示完整 execution ID，請將它原樣貼入控制指令。已 degraded、正在取消或未知狀態的目標會立即拒收；控制紀錄已滿或有未完成交易時亦拒收。
 
 ## 鐵律摘要
 

@@ -13,6 +13,7 @@ import { DevinEngine } from './devin.js'
 import { HerdrEngine } from './herdr.js'
 import { FreebuffEngine } from './freebuff.js'
 import { assertExecutionMode } from './capabilities.js'
+import { verifyCommandText } from '../verify.js'
 import type { Config, Engine, EngineConfig, EngineResolver } from '../types.js'
 
 /** M5 Task 1：`{env:VAR}` 展開（assemble 層）——config 只寫變數引用，真值從進程環境取，
@@ -116,8 +117,8 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
         return new HerdrEngine({
           id: tag === 'herdr' ? 'herdr' : `herdr:${tag}`,
           cache: new PreflightCache(join(cfg.dataDir, `preflight-cache-${tag}.json`)),
-          command: ec.command, verifyCommand: cfg.verifyCommand,
-          provider: ec.provider,
+          command: ec.command, verifyCommand: verifyCommandText(cfg.verifyCommand),
+          provider: ec.provider, dataDir: cfg.dataDir,
           timeoutMs: ec.timeoutMs, pingTimeoutMs: ec.pingTimeoutMs,
         })
       case 'freebuff':
@@ -148,9 +149,16 @@ export function makeEngineRegistry(cfg: Config): EngineResolver {
       if (hit) return hit
       const ec = cfg.engines[tag]
       if (!ec) throw new Error(`engine tag 不在 engines 白名單: ${tag}`)
-      const engine = build(tag, ec)
-      cache.set(tag, engine)
-      return engine
+      try {
+        const engine = build(tag, ec)
+        cache.set(tag, engine)
+        return engine
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err)
+        // Only echo the fixed admission error; arbitrary constructor errors can include config/env values.
+        if (!detail.startsWith('free-policy:')) throw err
+        throw new Error(`engine "${tag}" (adapter=${ec.adapter}, model=${ec.model ?? 'default'}): ${detail}`)
+      }
     }
   }
 }

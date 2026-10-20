@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { runInNewContext } from 'node:vm'
 
 const DOC = resolve('docs/host-trial-acceptance.md')
 const DEPLOY_DOC = resolve('docs/host-deployment.md')
@@ -95,6 +96,21 @@ describe('host trial acceptance contract (issue #38)', () => {
 
   test('PASS requires the observed interval to reach the declared observation window', () => {
     expect(docText()).toContain('Date.parse(observedEnd) - Date.parse(observedStart) >= windowHours * 3_600_000')
+    const rule = docText().match(/`(Date\.parse\(observedEnd\)[^`]+)`/)![1]!
+    const windowHours = recordTemplate().windowHours
+    const observedStart = '2026-10-01T00:00:00.000Z'
+    for (const [observedEnd, expected] of [
+      ['2026-10-03T23:59:59.999Z', false],
+      ['2026-10-04T00:00:00.000Z', true],
+      ['2026-10-04T00:00:00.001Z', true],
+      ['2026-10-04T08:00:00.000+08:00', true],
+      [observedStart, false],
+      ['2026-09-30T00:00:00.000Z', false],
+      ['invalid', false],
+    ] as const) {
+      expect(runInNewContext(rule, { observedStart, observedEnd, windowHours }), observedEnd).toBe(expected)
+    }
+    expect(runInNewContext(rule, { observedStart: 'invalid', observedEnd: observedStart, windowHours })).toBe(false)
   })
 
   test('requires effective runtime, scheduled faults and recovery durations', () => {
