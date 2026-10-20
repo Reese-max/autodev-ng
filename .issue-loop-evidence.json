@@ -1,14 +1,14 @@
 {
   "repo": "Reese-max/autodev-ng",
   "issue": 157,
-  "base_sha": "82dfef0a634d1be32ebacc1dfecb22c7091c6eab",
-  "red_proof": "Before implementation at reviewed head 82dfef0a634d1be32ebacc1dfecb22c7091c6eab, `npm test -- tests/runtime-build-setup.test.ts --reporter=verbose` exited 1: Tests 3 failed (3). Clean checkout: expected [ 'build', 'build' ] to deeply equal [ 'build' ]. Stale checkout: expected 'stale' to be 'current' (the nested runtime tests failed). Partial checkout: ENOENT opening dist/cli.js despite all three markers existing. Then `npm test -- tests/runtime-build-setup.test.ts --reporter=verbose -t \"explicitly hides\"` exited 1: runtime build explicitly hides its Windows shell failed with AssertionError, actual undefined, expected true for calls[0].windowsHide (1 failed, 3 skipped by the name filter).",
-  "test_command": "npm run build && npm run typecheck && npm test -- --reporter=dot --reporter=json --outputFile=reports/pr-157-self-review-tests.json",
+  "base_sha": "96f82064e05340c7d96c5b84f678de00b3eed079",
+  "red_proof": "Before the documentation fix at reviewed head 96f82064e05340c7d96c5b84f678de00b3eed079, npm test -- tests/herdr-unattended-acceptance-contract.test.ts --reporter=verbose exited 1: 5 failed, 4 passed. The five new A1-A5 regressions failed because the corresponding rows lacked release SHA, same-task writer protection, bounded per-repository dispatch, separately authorized real/72-hour execution, and boot/recovery evidence respectively. The same five regressions pass after restoring the issue requirements.",
+  "test_command": "npm test -- tests/herdr-unattended-acceptance-contract.test.ts tests/runtime-build-setup.test.ts --reporter=verbose",
   "test_exit": 0,
-  "tests_passed": 2463,
+  "tests_passed": 13,
   "tests_failed": 0,
-  "summary": "Reviewed PR #157 against issue #31 and surrounding setup/runtime consumers. Moved runtime compilation from per-file marker checks to a single awaited Vitest globalSetup, rebuilding current sources before any workers start and explicitly hiding the Windows shell while retaining build diagnostics. Four regressions prove parallel build uniqueness, stale/partial artifact recovery and Windows console hiding; the full suite passes all 2,463 tests across 231 files with zero skips, and build/typecheck both exit 0.",
-  "not_done": "needs-human: docs/herdr-unattended-acceptance.md now pins the PASS overall verdict (A1-A5 all PASS with empty hardFailures) per review, but real execution evidence for any criterion is still absent. CI/Node 22, real Herdr execution and the 72-hour host acceptance were not run. No push, branch switch, merge, deployment, activation or external comment was performed.",
+  "summary": "Fixed the acceptance-contract omission by restoring issue #31's five original gates while retaining opt-in, worktree/budget, host verification, independent review and draft-PR evidence. Five new regressions were red before the fix; the Git-Bash-runnable scoped command passes 13/13 tests. npm run build and npm run typecheck both exit 0. The separate full-suite run exits 1 with 2,776 passed and one steering capacity timeout across 250 files (no skips).",
+  "not_done": "needs-human: tests/steering.test.ts:658 exceeds its unchanged explicit 30,000 ms timeout; the isolated command npm test -- tests/steering.test.ts -t \"full control inventory refuses admission\" --reporter=verbose also exits 1 (161,927 ms, one failed and 48 skipped by the name filter). No full-suite green result is claimed and neither the test timeout nor its assertions were changed. CI/Node 22, real Herdr execution, the separately authorized 72-hour pilot and host recovery acceptance remain unverified. No push, branch switch, merge, deployment, activation or external comment was performed; the driver owns publication.",
   "previous": [
     {
       "issue": 80,

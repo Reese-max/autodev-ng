@@ -73,6 +73,19 @@ describe('herdr unattended acceptance contract (issue #31)', () => {
     expect(passClause, 'PASS clause must require hardFailures to be empty').toContain('為空')
   })
 
+  test.each([
+    ['A1', ['release SHA', '阻擋式 CI', '精確版本', '模型', '任務證據', 'mock']],
+    ['A2', ['同一任務', '兩個', '寫入', '斷線', '逾時', '重啟', '不盲目重送', '隔離', '預算']],
+    ['A3', ['每個符合條件的 repo', '服務界限', '派工', 'blocked', 'waiting-human', '理由', '恢復條件']],
+    ['A4', ['另外授權', '單機', '3–5 個測試 repo', '1 個 Worker', '真實流程', '72 小時', '人工介入', '恢復', '重複執行', '假成功', '最長等待', '成本已知／未知']],
+    ['A5', ['開機', '外部離線告警', '備份還原', '回滾', '實證', '候選通過', '草稿 PR', '人工合併', '部署', '不新增排程', '不自動合併／部署', '不搬移秘密', '跨機接手']],
+  ])('%s preserves the corresponding acceptance gate from issue #31', (criterion, requirements) => {
+    const row = docText().split('\n').find(line => line.startsWith(`| ${criterion} |`))
+    for (const requirement of requirements) {
+      expect(row, `${criterion} must require ${requirement} before overall PASS`).toContain(requirement)
+    }
+  })
+
   test('embedded record template parses and ships every sub-issue NOT_RUN with verdict INCOMPLETE', () => {
     const record = recordTemplate()
     expect(record.version).toBe(1)

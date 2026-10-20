@@ -1,32 +1,20 @@
 {
   "pr": 157,
-  "head": "82dfef0a634d1be32ebacc1dfecb22c7091c6eab",
+  "head": "96f82064e05340c7d96c5b84f678de00b3eed079",
   "findings": [
     {
       "severity": "med",
-      "file": "tests/setup-windowshide.ts",
-      "line": 33,
-      "issue": "The shared setup runs per test file, so parallel workers both observe missing dist markers and run overlapping builds. A clean-checkout regression with two workers records two compiler invocations rather than the claimed one-time build. Build once in Vitest globalSetup before workers start."
+      "file": "docs/herdr-unattended-acceptance.md",
+      "line": 32,
+      "issue": "A1-A5 replace issue #31's five overall acceptance gates with narrower pipeline steps. The documented PASS rule can therefore accept a run without the required blocking release CI, real Herdr version/model evidence, bounded fair dispatch, separately authorized 72-hour single-host pilot and operational recovery evidence. Preserve the issue's five gates in the acceptance table and pin each in the contract regression."
     },
     {
       "severity": "med",
-      "file": "tests/setup-windowshide.ts",
-      "line": 32,
-      "issue": "Three existing dist files neither establish source freshness nor runtime completeness. With stale markers the runtime tests execute old JavaScript; with just those markers present dist/cli.js is missing and integration tests fail or skip. Rebuild the current source before each test invocation instead of using marker presence as a cache key."
-    },
-    {
-      "severity": "low",
-      "file": "tests/setup-windowshide.ts",
-      "line": 34,
-      "issue": "The new named execSync import bypasses the existing default child_process monkey-patch: builtin ESM named bindings do not follow cp.execSync reassignment. Its missing windowsHide option reintroduces visible shell windows on Windows. Set windowsHide explicitly on the build invocation."
-    },
-    {
-      "severity": "low",
-      "file": "docs/herdr-unattended-acceptance.md",
-      "line": 31,
-      "issue": "needs-human: the overall verdict vocabulary permits only INCOMPLETE and HALTED, leaving no defined verdict when every required gate has passed and no hard failure exists. Choose the intended success verdict and its required evidence before using this as a completed acceptance record; this is a contract decision, so it is not changed automatically."
+      "file": "tests/steering.test.ts",
+      "line": 658,
+      "issue": "needs-human: the unchanged 10,001st-control admission test exceeds its explicit 30,000 ms timeout both in the full suite and in isolation (161,927 ms isolated). The product source, this test and Vitest configuration were not modified by this review. Resolve the host/test runtime budget or a separate capacity-performance fix before claiming a green full suite; no assertions or timeouts were weakened."
     }
   ],
   "fixed": true,
-  "summary": "Fixed three runtime-build setup defects by building current sources once in Vitest globalSetup before workers start, with explicit Windows console hiding and visible compiler diagnostics. Four regression tests failed before the fix; build, typecheck and the full suite now pass (231 files, 2,463 tests, no skips). needs-human: the acceptance document still needs a decision on the overall success verdict and its evidence requirements; no host acceptance or activation is claimed."
+  "summary": "Restored issue #31's five acceptance gates and added five regressions that failed before the documentation fix; all 13 scoped documentation/runtime tests pass. Build and typecheck pass, but the full suite has 2,776 passes and one unchanged steering capacity timeout, reproduced in isolation (161,927 ms against 30,000 ms). needs-human: resolve that capacity validation failure before treating the full suite as green; real Herdr and 72-hour host acceptance remain unverified."
 }
