@@ -1,50 +1,44 @@
 {
   "pr": 29,
-  "head": "650d4e0a0285b2ee282570236c960ead59e9f401",
+  "head": "eade7916899b99103e2d60f161c6c7729cf9a3f8",
   "findings": [
     {
       "severity": "med",
-      "file": "docs/research/issue-28-browser-capability-lease.md",
-      "line": 14,
-      "issue": "needs-human: Issue #28 requires versioned BrowserCapabilityObservation, BrowserCapabilityRequest, BrowserCapabilityLease and BrowserLeaseReceipt schemas. Only unversioned lease/takeover/ReturnReceipt examples exist; task/environment identity, requested versus granted scope, purpose, shared-auth classification, effect references and verification results are missing. Agree the public contract names, versions and fields before implementing them."
+      "file": "tests/regressions/github-29.test.cjs",
+      "line": 22,
+      "issue": "FIXED: The offline reference policy allowed granted clicks despite DENY/ASK/UNKNOWN/UNENFORCED and protected effects with ALLOW. The shared evaluator now denies unverifiable effects, honors DENY/ASK, requires an ALLOW decision reference and hands protected actions to the human; the regression failed before the fix."
     },
     {
-      "severity": "high",
-      "file": "docs/research/issue-28-browser-capability-lease.md",
-      "line": 30,
-      "issue": "needs-human: ACTIVE cannot distinguish CONNECTED_READONLY from CONTROL_ACTIVE or represent UNKNOWN/UNSUPPORTED capability. The lifecycle does not define per-action TTL/revocation and execution-bound replay checks, queued/in-flight action fencing, or fresh observation and old DOM-reference invalidation after takeover. TAKEN_OVER terminates a lease without a corresponding mandatory return-evidence path. Agree these states and whether continuation replaces or renews the lease."
+      "severity": "med",
+      "file": "tests/regressions/github-29.test.cjs",
+      "line": 16,
+      "issue": "FIXED: Action identity, TTL/deadline, generation and sequence were ignored and each implicit context reset replay state. The evaluator now requires explicit retained context, validates actual envelope bindings and expiry, and consumes sequence only on dispatch; regressions cover mismatches, expiration, restart, replay and omitted context."
     },
     {
-      "severity": "high",
-      "file": "docs/research/issue-28-browser-capability-lease.md",
-      "line": 28,
-      "issue": "needs-human: click/fill grants have no independent #12 ExternalEffectSpec decision boundary or mandatory pre-effect handoff for login/OTP/CAPTCHA/payment/send/delete/publish. ACTION_ATTEMPTED/EFFECT_CONFIRMED/EFFECT_UNKNOWN and canonical confirmation before retrying an ambiguous submit are absent. Agree effect-policy and receipt integration; a browser lease cannot imply effect or duplicate-submit authorization."
+      "severity": "med",
+      "file": "tests/regressions/github-29.test.cjs",
+      "line": 18,
+      "issue": "FIXED: Window/unknown surfaces, UNKNOWN/UNSUPPORTED capability, missing/noncanonical origins and empty action values could return ALLOW. The common guards now require a supported tab surface, explicit capability, matching canonical origin and nonempty action; negative vectors failed before these guards were fixed."
     },
     {
-      "severity": "high",
-      "file": "docs/research/issue-28-browser-capability-lease.md",
-      "line": 46,
-      "issue": "needs-human: ReturnReceipt permits only RETURNED/EXPIRED/REVOKED with ambientAuthorityDropped=true, so a disconnected bridge or missing runtime evidence cannot be represented honestly. Issue #28 requires UNKNOWN when release cannot be verified. Adding UNKNOWN and a verification result changes the proposed receipt API."
+      "severity": "med",
+      "file": "tests/regressions/github-29.test.cjs",
+      "line": 11,
+      "issue": "FIXED: Receipt disposition was echoed without state, verification, ambient-drop or evidence checks. Confirmed release now requires matching verified synthetic metadata records for the lease/disposition; missing, mismatched or arbitrary artifact evidence yields UNKNOWN. This remains an offline model, not proof of runtime detach or privacy."
     },
     {
       "severity": "med",
       "file": "docs/research/issue-28-browser-capability-lease.md",
-      "line": 25,
-      "issue": "needs-human: Correcting the hostname example does not define scheme/port/subdomain matching or metadata-only evidence rules. The adjacent comment allows URL information without excluding sensitive query/body data, and the secret prohibition does not cover logs or artifacts referenced by evidenceRefs. Agree scope matching and evidence handling, including rejection of page/trace instructions that widen origin/action/credential scope."
+      "line": 35,
+      "issue": "needs-human: The canonical v1 contracts are JSON examples rather than complete schemas. Required/optional fields and action/sharedAuth classifications are not defined, fresh-observation age and trusted clock are unspecified, and the receipt omits the proposed principal and requested/granted scope linkage. Agree the public contract and freshness semantics before adding validators or changing these APIs."
     },
     {
       "severity": "med",
       "file": "docs/research/issue-28-browser-capability-lease.md",
-      "line": 61,
-      "issue": "needs-human: Five fixture names are prose only; no executable synthetic browser/profile fixtures, read-only inventory or evidence mapping were delivered. Required sibling-tab/profile denial, read-only control rejection, stale/revoked replay, takeover freshness, protected-effect denial, injection and ambiguous-submit behavior remain untested. These research artifacts depend on the unresolved contracts; static document regressions cannot establish browser enforcement."
-    },
-    {
-      "severity": "med",
-      "file": "docs/research/issue-28-browser-capability-lease.md",
-      "line": 26,
-      "issue": "FIXED: originAllowlist contained github.com, a hostname that cannot be parsed as an absolute origin. The example now uses https://github.com. A regression checks that the example contains nonempty canonical origins without credentials/path/query/fragment; it fails with ERR_ASSERTION on the reviewed document and passes after this one-line correction, without choosing new scope-matching behavior."
+      "line": 137,
+      "issue": "needs-human: The current offline decision table is not the synthetic browser/profile adapter required by Issue #28's runtime acceptance. It cannot demonstrate actual sibling-profile inaccessibility, dispatch fencing, DOM-reference invalidation after takeover, hostile page/secret rejection or environment-bound bridge truth. Agree whether this PR is a partial contract deliverable or needs a separate isolated synthetic adapter; do not label it FEATURE-complete or BROWSER_LEASE_VERIFIED."
     }
   ],
   "fixed": false,
-  "summary": "Corrected the hostname-only originAllowlist example with a red-to-green regression (exit 1 before, exit 0 after; 2/2 pass). Build/typecheck, retained Node regressions (31/31) and the full Vitest suite (248 files, 2764 tests) all exit 0. Six needs-human contract/acceptance findings remain, so fixed=false; browser enforcement and remote CI remain unverified."
+  "summary": "Fixed four offline reference-policy defects with red-to-green regressions; the declared Git-Bash-compatible command passes 8/8. Build/typecheck, retained Node regressions (37/37) and the full Vitest suite (248 files, 2764 tests, no failures/skips) all exit 0. Two needs-human findings remain for public schema/freshness decisions and synthetic browser runtime acceptance, so fixed=false."
 }

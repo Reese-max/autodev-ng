@@ -134,7 +134,9 @@ Human takeover is not credential transfer. User cancellation is `REJECTED`, neve
 node --test tests/regressions/github-29.test.cjs
 ```
 
-The Node tests execute the small reference decision table against every fixture and check evidence mapping. This is contract regression coverage, not proof that a production browser adapter enforces the policy.
+The Node tests execute the small reference decision table against every fixture. A deterministic clock and lease/action envelopes check identity, generation, deadline and one-use sequence consumption. Effects require an independent `ALLOW` plus a decision reference; `ASK` or protected actions hand off, while `DENY` and unverified decisions cannot dispatch. Release claims must resolve to matching verified records in the synthetic metadata evidence map. This is contract regression coverage, not proof that a production browser adapter enforces the policy.
+
+Issue #28's isolated synthetic browser/profile runtime acceptance remains pending: this table does not exercise a browser adapter, in-flight fencing, DOM invalidation or hostile page/secret handling. Public schema validation, shared-auth classifications and fresh-observation age also need an agreed contract before implementation. This PR remains a partial research deliverable.
 
 | Fixture | Required result | Evidence mapping |
 |---|---|---|
@@ -142,12 +144,12 @@ The Node tests execute the small reference decision table against every fixture 
 | `sibling-tab-denied`, `profile-denied` | deny outside selected tab/profile | inventory observation + `OUT_OF_SCOPE` |
 | `readonly-control-denied` | deny click while read-only | observation connection + action decision |
 | `stale-replay-denied`, `revoked-action-denied` | deny stale generation/replay or revoked lease | lease generation/sequence + rejection |
-| `takeover-freshness` | fence actions; invalidate DOM; require new observation | takeover + receipt + next observation id |
+| `takeover-freshness` | reject an explicitly stale observation after takeover | stale-observation flag + action rejection; DOM runtime acceptance pending |
 | `protected-effect-handoff` | hand off before protected action | #12 decision reference + `ACTION_ATTEMPTED` boundary |
 | `page-injection-cannot-widen` | reject page-originated scope widening | sanitized rejection metadata |
 | `ambiguous-submit-no-retry` | `EFFECT_UNKNOWN`; no second dispatch absent canonical absence proof | effect event + confirmation lookup result |
 | `redirect-out-of-scope` | deny changed origin pending separate approval | observed origin + `OUT_OF_SCOPE` |
-| `lease-expiry-receipt`, `bridge-loss-unknown`, `no-secret-evidence` | emit truthful receipt; unknown if unverifiable; no secret-bearing evidence | release verification + metadata-only evidence refs |
+| `lease-expiry-receipt`, `lease-revocation-receipt`, `bridge-loss-unknown`, `no-secret-evidence` | require verified return/expiry/revocation metadata; unknown if unverifiable | matching synthetic release record + metadata-only evidence refs; live detach/privacy acceptance pending |
 
 ## 5. Phase 1 scope
 
