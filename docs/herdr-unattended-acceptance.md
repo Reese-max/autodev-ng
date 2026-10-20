@@ -25,10 +25,22 @@
 | #48 | 驗收命令多步語意一致 | 無 |
 | #49 | 未啟動 writer 的預算／前置阻擋不扣 lifetime 次數 | #36、#43 |
 
+## 總體驗收條件（#31 五項）
+
+| 編號 | 條件 | 最小證據 |
+|---|---|---|
+| A1 | 只有帶明確授權記號的 Issue 被 AutoDev 認領，且同一時間只有一個 writer | 認領回執與互斥鎖紀錄 |
+| A2 | 認領後在受控 worktree 內隔離執行，預算與設定邊界生效 | 執行紀錄含隔離路徑與預算快照 |
+| A3 | Herdr 實際執行到結束，留下對得上執行身分與結束碼的結構化完成回執 | 完成回執（execution id、結束碼） |
+| A4 | 宿主環境跑過驗收指令，且由非實作者完成獨立審查 | 驗收指令輸出與審查結論 |
+| A5 | 產出草稿 PR，不自行合併、發布或部署 | 草稿 PR 連結與其未合併狀態 |
+
+任一項無法以現場證據判 `PASS` 時只能記 `NOT_RUN`、`FAIL`、`BLOCKED` 或 `WAITING_HUMAN`，不得留白或推定通過。
+
 ## 狀態語彙與硬停條件
 
 - 狀態：`NOT_RUN`、`PASS`、`FAIL`、`BLOCKED`、`WAITING_HUMAN`。
-- 總體判定：`INCOMPLETE`（任一關鍵項未 PASS）或 `HALTED`（觸發硬停）。
+- 總體判定：`PASS`（五項總體驗收條件 A1、A2、A3、A4、A5 全數為 `PASS` 且 `hardFailures` 為空）、`INCOMPLETE`（未觸發硬停但任一總體條件未達 `PASS`）、`HALTED`（觸發硬停）。
 - 硬停種類：`duplicate-writer`、`unconfirmed-backend`、`stale-lock-fence`、`budget-leak`、`revoked-publish`、`veto-bypass`、`uncheckpointed-candidate`、`parser-fanout-abort`、`capacity-masquerade`。
 
 ## 證據來源（皆須保留現場）
@@ -50,6 +62,13 @@
     "herdr": "",
     "configSha256": "",
     "singleHost": false
+  },
+  "acceptance": {
+    "A1": { "status": "NOT_RUN", "evidence": [] },
+    "A2": { "status": "NOT_RUN", "evidence": [] },
+    "A3": { "status": "NOT_RUN", "evidence": [] },
+    "A4": { "status": "NOT_RUN", "evidence": [] },
+    "A5": { "status": "NOT_RUN", "evidence": [] }
   },
   "subIssues": {
     "#32": { "status": "NOT_RUN", "evidence": [] },

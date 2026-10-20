@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { assembleConfig } from '../src/cli/assemble.js'
 import { BacklogStore } from '../src/backlog.js'
@@ -10,21 +10,34 @@ import { MockEngine } from '../src/engines/mock.js'
 import { KernelVerifier } from '../src/engines/kernel-verifier.js'
 import { TeamState } from '../src/engines/team-state.js'
 import { savePendingReview } from '../src/engines/pending-review.js'
+import { executionFile, executionHistoryFile, readExecution } from '../src/engines/execution-observation.js'
 import { prepareWorktree } from '../src/worktree.js'
 import { GithubConfigSchema, type Issue } from '../src/github/config.js'
 import type { GithubClient } from '../src/github/client.js'
-import { executeIssue, git, issueTask, runtimeConfig } from '../src/github/job.js'
-import { runGithub, runGithubOutcome } from '../src/github/runner.js'
-import { recoverIssue, type repairDoctor } from '../src/github/operations.js'
+import { executeIssue, issueTask, runtimeConfig } from '../src/github/job.js'
+import { runGithub as productRunGithub, runGithubOutcome as productRunGithubOutcome } from '../src/github/runner.js'
+import { recoverIssue as productRecoverIssue, type repairDoctor } from '../src/github/operations.js'
 import { branchFor, fingerprint, readState, runDir, saveState, type IssueState } from '../src/github/state.js'
 import * as stateModule from '../src/github/state.js'
 import type { Engine, RunResult } from '../src/types.js'
+import { FixtureExecutionScope } from './helpers/fixture-execution-scope.js'
 
 const roots: string[] = []
+const executions = new FixtureExecutionScope()
+const FIXTURE_IO_MS = 5_000
+const runGithub: typeof productRunGithub = (...args) => executions.track(productRunGithub(...args))
+const runGithubOutcome: typeof productRunGithubOutcome = (...args) => executions.track(productRunGithubOutcome(...args))
+const recoverIssue: typeof productRecoverIssue = (...args) => executions.track(productRecoverIssue(...args))
+const git = (cwd: string, args: string[]) => execFileSync('git', ['-c', `safe.directory=${cwd.replace(/\\/g, '/')}`, ...args], {
+  cwd, timeout: FIXTURE_IO_MS, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+  env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+}).trim()
 beforeEach(() => {
+  executions.ensureIdle()
   vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('Provider dispatch forbidden in local accounting fixture') }))
 })
-afterEach(() => {
+afterEach(async () => {
+  await executions.drain(FIXTURE_IO_MS)
   vi.restoreAllMocks(); vi.unstubAllGlobals()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
@@ -53,6 +66,7 @@ function fixture(opts: { dailyHardUsd?: number; spent?: number; runs?: number; m
     runs: opts.runs ?? 0, nextRunAt: 0, baseSha }
   saveState(cfg, state)
   writeFileSync(cfg.sourceConfig, JSON.stringify({ projectPath: cwd, backlogFile: 'unused', dataDir: join(root, 'source-data'),
+    gitTimeoutMs: FIXTURE_IO_MS, worktreeAddTimeoutMs: FIXTURE_IO_MS, verifyTimeoutMs: FIXTURE_IO_MS,
     dailyHardUsd: opts.dailyHardUsd ?? 0, engines: { writer: { adapter: 'opencode', model: 'fixture' } },
     defaultEngine: 'writer', reviewEngine: 'fixture-reviewer', supplyRetryCooldownMs: 60_000 }))
   const runtime = runtimeConfig(cfg, state)
@@ -233,7 +247,10 @@ test('a prior unresolved reservation survives refunding only the proven unstarte
   expect(readState(f.cfg, 7)).toMatchObject({ runs: 1, status: 'blocked' })
   expect(f.result()).toMatchObject({ startState: 'not-started', attempted: false, priorExecutionUnknown: true, recoveryRequired: true })
   expect(engine.calls).toHaveLength(0)
-  expect(readFileSync(file, 'utf8')).toBe(original)
+  expect(readFileSync(executionFile(runDir(f.cfg, f.state), 'previous-fixture'), 'utf8')).toBe(original)
+  expect(readExecution(runDir(f.cfg, f.state), 'previous-fixture')).toEqual(JSON.parse(original))
+  expect(existsSync(file)).toBe(false)
+  expect(existsSync(executionHistoryFile(runDir(f.cfg, f.state), 'previous-fixture'))).toBe(false)
   expect(await runGithub(f.cfg, { client: f.client, execute })).toBe('idle')
   expect(execute).toHaveBeenCalledTimes(1)
 })
@@ -327,7 +344,10 @@ test('explicit recovery refuses an unresolved execution without changing counter
   const doctor = offlineDoctor()
   await expect(recoverIssue(file, 7, 'Do not discard the protected synthetic execution', false, { client: f.client, doctor })).rejects.toThrow('stop remains unconfirmed')
   expect(readState(f.cfg, 7)).toEqual(before); expect(doctor).not.toHaveBeenCalled()
-  expect(readFileSync(receipt, 'utf8')).toBe(originalReceipt)
+  expect(readFileSync(executionFile(runDir(f.cfg, f.state), 'previous-fixture'), 'utf8')).toBe(originalReceipt)
+  expect(readExecution(runDir(f.cfg, f.state), 'previous-fixture')).toEqual(JSON.parse(originalReceipt))
+  expect(existsSync(receipt)).toBe(false)
+  expect(existsSync(executionHistoryFile(runDir(f.cfg, f.state), 'previous-fixture'))).toBe(false)
 })
 
 test('atomic state persistence failure retains the on-disk reservation across restart without a second refund', async () => {

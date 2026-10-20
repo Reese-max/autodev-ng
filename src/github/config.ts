@@ -40,7 +40,11 @@ export const GithubConfigSchema = z.object({
 export type GithubConfig = z.infer<typeof GithubConfigSchema>
 export const githubStopFile = (cfg: GithubConfig): string => cfg.stopFile ?? join(cfg.dataDir, '.adng.stop')
 export function loadGithubConfig(path: string): GithubConfig {
-  const cfg = GithubConfigSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+  return parseGithubConfig(path, readFileSync(path, 'utf8'))
+}
+/** Bind normalized configuration semantics to one captured byte snapshot. */
+export function parseGithubConfig(path: string, text: string): GithubConfig {
+  const cfg = GithubConfigSchema.parse(JSON.parse(text))
   return { ...cfg, sourceConfig: resolve(dirname(path), cfg.sourceConfig), dataDir: resolve(dirname(path), cfg.dataDir),
     billingScope: cfg.billingScope ? resolve(dirname(path), cfg.billingScope) : undefined,
     stopFile: cfg.stopFile ? resolve(dirname(path), cfg.stopFile) : undefined,

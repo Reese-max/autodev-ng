@@ -110,3 +110,31 @@ test('a dangling run.db link is incomplete evidence, not an empty Issue', () => 
   symlinkSync(linked, join(scope, 'issue-9', 'run.db'), 'junction'); rmSync(linked, { recursive: true })
   expect(globalCostReport(f.source, now, [{ dir: scope, offset: 8, subscriptions: [] }]).complete).toBe(false)
 })
+
+// A timestamp must establish its UTC day before the SQL day-window filter.
+// These are owned ledger-corruption fixtures, never provider or live billing data.
+test.each([
+  '', 'not-a-date', '2026-02-30T02:00:00.000Z',
+  '2026-09-28T12:00:00-12:00', '2026/09/29 02:00:00',
+  '2026-09-29T02:00:00.0001Z',
+])('unusable timestamp %j makes accounting incomplete before day filtering', ts => {
+  const f = fixture()
+  const db = new Database(join(f.root, 'source-data', 'run.db'))
+  try { db.prepare('UPDATE attempts SET ts = ?').run(ts) } finally { db.close() }
+  expect(globalCostReport(f.source, now).complete).toBe(false)
+  expect(() => globalBilledToday(f.source, now)).toThrow('incomplete')
+})
+
+test.each(['2026-09-29T02:00:00Z', '2026-09-29T02:00:00.000Z'])('valid UTC timestamp %s retains recorded spend', ts => {
+  const f = fixture()
+  const db = new Database(join(f.root, 'source-data', 'run.db'))
+  try { db.prepare('UPDATE attempts SET ts = ?').run(ts) } finally { db.close() }
+  expect(globalCostReport(f.source, now)).toMatchObject({ complete: true, bookedUsd: 20, databases: 2 })
+})
+
+test('valid timestamp outside the current day retains the existing exclusion', () => {
+  const f = fixture()
+  const db = new Database(join(f.root, 'source-data', 'run.db'))
+  try { db.prepare('UPDATE attempts SET ts = ?').run('2026-09-27T02:00:00.000Z') } finally { db.close() }
+  expect(globalCostReport(f.source, now)).toMatchObject({ complete: true, bookedUsd: 0, databases: 2 })
+})

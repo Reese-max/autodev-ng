@@ -6,8 +6,9 @@ const DOC = resolve('docs/herdr-unattended-acceptance.md')
 const README_DOC = resolve('docs/README.md')
 
 const SUB_ISSUES = [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49] as const
+const ACCEPTANCE = ['A1', 'A2', 'A3', 'A4', 'A5'] as const
 const STATUSES = ['NOT_RUN', 'PASS', 'FAIL', 'BLOCKED', 'WAITING_HUMAN'] as const
-const VERDICTS = ['INCOMPLETE', 'HALTED'] as const
+const VERDICTS = ['PASS', 'INCOMPLETE', 'HALTED'] as const
 const HALT_KINDS = [
   'duplicate-writer',
   'unconfirmed-backend',
@@ -37,15 +38,39 @@ function recordTemplate(): Record<string, unknown> {
   return JSON.parse(match[1])
 }
 
+function verdictRule(): string {
+  const line = docText()
+    .split('\n')
+    .find((l) => l.includes('總體判定'))
+  if (!line) throw new Error('doc must define a 總體判定 (overall verdict) rule')
+  return line
+}
+
 describe('herdr unattended acceptance contract (issue #31)', () => {
-  test('doc enumerates every sub-issue, status vocabulary and halt kinds', () => {
+  test('doc enumerates every sub-issue, acceptance criterion, status vocabulary and halt kinds', () => {
     const doc = docText()
     for (const issue of SUB_ISSUES) {
       expect(doc, `missing sub-issue #${issue}`).toContain(`#${issue}`)
     }
+    for (const criterion of ACCEPTANCE) {
+      expect(doc, `missing acceptance criterion ${criterion}`).toContain(criterion)
+    }
     for (const token of [...STATUSES, ...VERDICTS, ...HALT_KINDS]) {
       expect(doc, `missing contract token ${token}`).toContain(token)
     }
+  })
+
+  test('overall verdict rule pins PASS to all five acceptance criteria and empty hardFailures', () => {
+    const clause = verdictRule().match(/`PASS`（([^）]*)）/)
+    expect(clause, 'verdict rule must define a `PASS`（…）clause').not.toBeNull()
+    const passClause = clause![1]
+    for (const criterion of ACCEPTANCE) {
+      expect(passClause, `PASS clause must require ${criterion}`).toContain(criterion)
+    }
+    expect(passClause, 'PASS clause must require all criteria, not any').toContain('全數')
+    expect(passClause, 'PASS clause must require `PASS` on the criteria').toContain('`PASS`')
+    expect(passClause, 'PASS clause must require empty hardFailures').toContain('`hardFailures`')
+    expect(passClause, 'PASS clause must require hardFailures to be empty').toContain('為空')
   })
 
   test('embedded record template parses and ships every sub-issue NOT_RUN with verdict INCOMPLETE', () => {
@@ -56,6 +81,12 @@ describe('herdr unattended acceptance contract (issue #31)', () => {
     const environment = record.environment as Record<string, unknown>
     for (const field of ['node', 'workerCli', 'herdr', 'configSha256', 'singleHost']) {
       expect(environment, `environment.${field} missing`).toHaveProperty(field)
+    }
+    const acceptance = record.acceptance as Record<string, { status: string; evidence: unknown[] }>
+    expect(Object.keys(acceptance).sort()).toEqual([...ACCEPTANCE].sort())
+    for (const criterion of ACCEPTANCE) {
+      expect(acceptance[criterion]?.status).toBe('NOT_RUN')
+      expect(Array.isArray(acceptance[criterion]?.evidence)).toBe(true)
     }
     const subIssues = record.subIssues as Record<string, { status: string; evidence: unknown[] }>
     expect(Object.keys(subIssues).sort()).toEqual(SUB_ISSUES.map((n) => `#${n}`).sort())

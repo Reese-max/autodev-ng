@@ -1,0 +1,82 @@
+name: GitHub watcher quality
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/github-supervisor-quality.yml
+      - scripts/supervise-github-owner.ps1
+      - scripts/watch-github-owner.ps1
+      - tests/regressions/github-80.test.cjs
+      - tests/supervise-github-owner.test.ts
+      - package.json
+      - package-lock.json
+      - stryker.config.mjs
+      - vitest.config.ts
+      - scripts/crap-report.mjs
+      - src/github/quality.ts
+      - tests/github-quality.test.ts
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/github-supervisor-quality.yml
+      - scripts/supervise-github-owner.ps1
+      - scripts/watch-github-owner.ps1
+      - tests/regressions/github-80.test.cjs
+      - tests/supervise-github-owner.test.ts
+      - package.json
+      - package-lock.json
+      - stryker.config.mjs
+      - vitest.config.ts
+      - scripts/crap-report.mjs
+      - src/github/quality.ts
+      - tests/github-quality.test.ts
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    # The supervisor regression uses Windows Job Objects and inert local CLI fixtures.
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Record tested commit and tree
+        run: |
+          git rev-parse HEAD | Tee-Object -FilePath supervisor-checkout.txt
+          git rev-parse 'HEAD^{tree}' | Tee-Object -FilePath supervisor-tree.txt
+      - name: Native Windows supervisor canary with zero skipped cases
+        run: |
+          node --test --test-reporter=tap tests/regressions/github-80.test.cjs | Tee-Object -FilePath github-supervisor-native.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Select-String -Path github-supervisor-native.tap -Pattern '^# skipped 0$' -Quiet)) {
+            throw 'Native Windows supervisor canary did not prove zero skipped cases'
+          }
+      - name: Full unit tests including the supervisor process matrix
+        run: npm test
+      - name: Full coverage gate
+        run: npm run test:coverage
+      - name: CRAP quality gate
+        run: npm run quality:crap
+      - name: Mutation quality gate
+        run: npm run test:mutation
+      - name: Retain exact native canary and checkout receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-supervisor-native-${{ github.run_id }}
+          path: |
+            github-supervisor-native.tap
+            supervisor-checkout.txt
+            supervisor-tree.txt
+          if-no-files-found: error

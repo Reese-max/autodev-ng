@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { BacklogStore } from '../backlog.js'
 import { assembleConfig, expandConfigPaths } from '../cli/assemble.js'
+import { withOwnedResources } from '../cli/owned-resources.js'
 import { finalizeRunOnceHeartbeat, runOnce } from '../scheduler.js'
 import { ConfigSchema } from '../types.js'
 import type { ExtraBillingScope } from '../globalcost.js'
@@ -110,6 +111,7 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
     new BacklogStore(runtime.backlogFile).append(issueTask(state), { goalId: `github-${state.issue.number}`, round: 1 })
   }
   const app = assemble(runtime, resolve(cfg.sourceConfig)) // #40：全域查帳 scope＝sourceConfig 同層的艦隊 configs
+  return withOwnedResources(app, async () => {
   app.deps.billingSourceHash = createHash('sha256').update(sourceBytes).digest('hex')
   const billingScopeResolver = (cfg as GithubConfig & { billingScopeResolver?: () => ExtraBillingScope[] }).billingScopeResolver
   if (billingScopeResolver) app.deps.billingScopes = billingScopeResolver
@@ -145,11 +147,12 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
   // No notifications or perpetual discovery: one imported Issue, one bounded scheduler cycle.
   app.deps.notify = undefined
   app.deps.taskTerminalNotify = undefined
-  try {
     if (cfg.repair) {
       const source = JSON.parse(readFileSync(cfg.sourceConfig, 'utf8')) as { projectPath: string }
       const shared = new TeamState(resolve(dirname(cfg.sourceConfig), source.projectPath))
-      app.deps.team?.close(); app.deps.team = shared
+      const previous = app.deps.team
+      app.deps.team = shared
+      previous?.close()
     }
     const tasks = app.deps.store.read()
     if (tasks.length !== 1 || tasks[0]!.text !== issueTask(state)) throw new Error('Issue backlog contract changed')
@@ -180,7 +183,7 @@ export async function executeIssue(cfg: GithubConfig, state: IssueState, assembl
       ...(terminalBlocked ? { terminalBlocked: true } : {}), ...(controlReason ? { controlReason } : {}),
       ...(result === 'deferred' && issueReviewPending(cfg, state) ? { reviewPending: true, retryAt: Date.now() + reviewRetryDelay(runtime) } : {}),
       ...(recoveryRequired ? { recoveryRequired: true } : {}), ...(commit ? { commit } : {}), ...(alternativeRetryPending ? { alternativeRetryPending: true } : {}) }
-  } finally { app.deps.db.close(); app.deps.team?.close() }
+  })
 }
 export function detectVerification(cwd: string): string[] {
   // ponytail: support explicit npm test contracts first; other stacks require a reviewed repository config.

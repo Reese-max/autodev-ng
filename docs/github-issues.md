@@ -113,6 +113,18 @@ Windows 可用 `scripts/install-github-issues-task.ps1 -Config <設定檔>` 安�
 watcher 使用 mutex 防止重複，每輪結束後等待 retryMs；登出或關機時不執行。
 watcher 的 `-Mode issues` 也可直接讀取單一 repo 設定，僅輪詢該 repo。
 
+需要 watcher 意外退出後自動恢復時，改以
+`scripts/supervise-github-owner.ps1 -Config <設定檔> -Mode issues` 啟動；同樣支援 `reports`、`repairs`。
+同一設定與模式只能有一個 supervisor；原 watcher 的 mutex 與所有執行／發布閘門保持生效。
+非零退出會先清除該次 watcher 的 Windows Job Object 內所有子程序，再等待 `-RestartDelayMs`
+（預設 5000，允許 1000–60000 毫秒）後重啟。正常退出（包含 watcher mutex 已被占用）不重啟。
+啟動前、執行中及等待重啟時都檢查 `enabled`、dataDir 的 `.adng.stop` 與設定的 `stopFile`
+（相對設定檔解析）；repairs 另檢查 `dataDir/repairs/.adng.stop`。
+暫停時清除所屬程序樹並退出；移除旗標後需明確重新啟動。設定損毀或所有權／dataDir 變更也不會重啟。
+本機狀態固定覆寫 `dataDir/supervisor-<mode>.json`（repairs 在其子目錄），只記錄
+`supervisorPid`、`childPid`、`status`、`restartCount`、`lastExitCode`、`timestamp`。
+此指令不安裝排程或修改 Startup；需已建置的 `dist/cli.js`。
+
 ## 狀態與停止
 
 帳號狀態在 dataDir/status.json，各 repo 使用獨立雜湊目錄。
