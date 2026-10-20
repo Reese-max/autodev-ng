@@ -1,0 +1,236 @@
+{
+  "schema": "BrowserCapabilityLeaseFixtureSet",
+  "schemaVersion": 1,
+  "inventory": {
+    "mode": "readonly-synthetic",
+    "network": false,
+    "realBrowser": false,
+    "realProfile": false,
+    "realCredentials": false,
+    "fields": [
+      "opaqueTabId",
+      "origin",
+      "capability",
+      "connection",
+      "sharedAuth",
+      "observedAt"
+    ],
+    "tabs": [
+      {
+        "opaqueTabId": "tab_1",
+        "origin": "https://example.test",
+        "capability": "SUPPORTED",
+        "connection": "CONTROL_ACTIVE",
+        "sharedAuth": "USER_SESSION",
+        "observedAt": "2026-10-21T00:00:00Z"
+      },
+      {
+        "opaqueTabId": "tab_2",
+        "origin": "https://example.test",
+        "capability": "SUPPORTED",
+        "connection": "CONNECTED_READONLY",
+        "sharedAuth": "USER_SESSION",
+        "observedAt": "2026-10-21T00:00:00Z"
+      }
+    ]
+  },
+  "fixtures": [
+    {
+      "id": "scoped-tab-lease",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "expected": "ALLOW"
+    },
+    {
+      "id": "sibling-tab-denied",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_2",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "expected": "OUT_OF_SCOPE"
+    },
+    {
+      "id": "profile-denied",
+      "state": "CONTROL_ACTIVE",
+      "surface": "profile",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "expected": "OUT_OF_SCOPE"
+    },
+    {
+      "id": "readonly-control-denied",
+      "state": "CONNECTED_READONLY",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "click",
+      "allowedActions": [
+        "click"
+      ],
+      "expected": "DENY_READONLY"
+    },
+    {
+      "id": "stale-replay-denied",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "executionMatches": false,
+      "expected": "DENY_STALE"
+    },
+    {
+      "id": "revoked-action-denied",
+      "state": "REVOKED",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "expected": "DENY_INACTIVE"
+    },
+    {
+      "id": "takeover-freshness",
+      "state": "TAKEN_OVER",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "domFresh": false,
+      "expected": "DENY_FRESH_OBSERVATION"
+    },
+    {
+      "id": "protected-effect-handoff",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "click",
+      "allowedActions": [
+        "click"
+      ],
+      "protectedEffect": true,
+      "effectDecision": "human-required",
+      "expected": "HANDOFF"
+    },
+    {
+      "id": "page-injection-cannot-widen",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "navigate",
+      "allowedActions": [
+        "navigate"
+      ],
+      "pageRequestedOrigin": "https://evil.test",
+      "expected": "DENY_SCOPE_WIDENING"
+    },
+    {
+      "id": "ambiguous-submit-no-retry",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "click",
+      "allowedActions": [
+        "click"
+      ],
+      "duplicateSubmit": true,
+      "canonicalAbsenceConfirmed": false,
+      "expected": "EFFECT_UNKNOWN"
+    },
+    {
+      "id": "redirect-out-of-scope",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://other.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "expected": "OUT_OF_SCOPE"
+    },
+    {
+      "id": "lease-expiry-receipt",
+      "state": "EXPIRED",
+      "receiptDisposition": "EXPIRED",
+      "verification": "VERIFIED",
+      "expected": "RECEIPT_EXPIRED"
+    },
+    {
+      "id": "bridge-loss-unknown",
+      "state": "UNKNOWN",
+      "receiptDisposition": "UNKNOWN",
+      "verification": "UNVERIFIED",
+      "expected": "RECEIPT_UNKNOWN"
+    },
+    {
+      "id": "no-secret-evidence",
+      "state": "RETURNED",
+      "receiptDisposition": "RETURNED",
+      "verification": "VERIFIED",
+      "evidenceRefs": [
+        "meta:release/bcl_1"
+      ],
+      "expected": "RECEIPT_RETURNED"
+    }
+  ]
+}
