@@ -22,6 +22,7 @@ import { alternativeRetryDue, alternativeRetryUsed } from '../engines/alternativ
 import { assertExecutionMode } from '../engines/capabilities.js'
 import { hasPendingReview, reviewRetryDelay } from '../engines/pending-review.js'
 
+export const HERDR_GITHUB_ADMISSION_BLOCKED = 'Herdr GitHub intake disabled (#35): backend reconciliation (#33), backend readiness (#34), and authorized Windows canary evidence remain unverified; report repairs remain unsupported'
 export const git = (cwd: string, args: string[]): string => command('git', ['-c', `safe.directory=${cwd.replace(/\\/g, '/')}`, ...args], cwd)
 export const checkoutDir = (cfg: GithubConfig, state: IssueState): string => join(runDir(cfg, state), 'repo')
 export function issueTask(state: IssueState): string {
@@ -39,7 +40,8 @@ export function runtimeConfig(cfg: GithubConfig, state: IssueState, sourceBytes?
   if (cfg.verifyCommand) source.verifyCommand = cfg.verifyCommand
   else if (cfg.template) source.verifyCommand = detectVerification(checkoutDir(cfg, state))
   const engine = source.engines[cfg.engine]
-  if (!engine || ['herdr', 'mock'].includes(engine.adapter)) throw new Error('GitHub runner requires an explicitly selected regular engine')
+  if (engine?.adapter === 'herdr') throw new Error(HERDR_GITHUB_ADMISSION_BLOCKED)
+  if (!engine || engine.adapter === 'mock') throw new Error('GitHub runner requires an explicitly selected regular engine')
   assertExecutionMode(engine)
   if (engine.timeoutMs === 0 && engine.executionMode !== 'supervised') throw new Error('GitHub runner requires a bounded engine wall timeout or accepted supervised execution')
   if (cfg.repair && !['codex', 'freebuff', ...(source.tierMode === 'free-only' ? ['opencode'] : [])].includes(engine.adapter)) throw new Error('Automatic report repairs require Codex CLI, Freebuff or a verified free-only OpenCode route')
