@@ -1,0 +1,20 @@
+{
+  "pr": 167,
+  "head": "837abaaf75c42dc44cc6e95bfe652a8b328fed3d",
+  "findings": [
+    {
+      "severity": "high",
+      "file": "src/engines/queued-controls.ts",
+      "line": 94,
+      "issue": "The newly admitted formal-team QUEUE path combines results using the last turn's baseCommitHash. A first turn can modify files outside its ownership scope and a second turn can modify only allowed files, causing ownership and verification checks to exclude the first turn while merging both commits. Preserve the initial execution base when combining runs."
+    },
+    {
+      "severity": "med",
+      "file": "src/engines/evidence-chain.ts",
+      "line": 70,
+      "issue": "Control lineage is looked up only by the current executionId, but deferred free-only review creates a new execution ID and PendingReview does not retain the original control execution. After reviewer recovery, including after rebase, the final ready bundle and merge receipt omit previously delivered control request/delivery hashes. Persist and propagate the original control execution separately from the new team admission."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed high-severity ownership bypass caused by QUEUE narrowing the commit range and medium-severity loss of control receipts when deferred or rebased review starts a new execution. Four regressions failed before fixes and now pass, including fail-closed handling for legacy pending records without source execution. Build, typecheck and 174 focused tests pass; the full suite had one Windows EPERM temporary-directory cleanup failure (2797 passed), and that unchanged runtime test passed on rerun."
+}

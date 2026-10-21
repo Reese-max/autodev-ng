@@ -6,10 +6,12 @@ import { z } from 'zod'
 import type { Config, RunResult, Task } from '../types.js'
 import { assertWorktreeCheckout, type WorktreeHandle } from '../worktree.js'
 import type { VerificationEvidence } from './evidence-chain.js'
+import { ControlStore } from './steering.js'
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const sha = z.string().regex(/^[a-f0-9]{40,64}$/)
 const PendingSchema = z.object({ version: z.literal(1), phase: z.enum(['review', 'closed']), taskHash: z.string(), configHash: z.string(),
+  controlExecutionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
   engineTag: z.string(), writerModel: z.string().optional(), candidateHead: sha, retryAt: z.number().finite().nonnegative(), updatedAt: z.string(),
   wt: z.object({ cwd: z.string(), branch: z.string(), baseBranch: z.string(), baseHead: sha }),
   result: z.object({ ok: z.literal(true), output: z.string(), costUsd: z.number().nonnegative(), commitHash: sha, baseCommitHash: sha,
@@ -65,6 +67,12 @@ export function readPendingReview(cfg: Config, task: Task): PendingReview | unde
   if (!existsSync(file)) return undefined
   const pending = PendingSchema.parse(JSON.parse(readFileSync(file, 'utf8')))
   if (pending.phase === 'closed') return undefined
+  if (!pending.controlExecutionId) {
+    const controls = new ControlStore(cfg.dataDir).list()
+    if (controls.errors.length || [...controls.pending, ...controls.resolved].some(control => control.taskId === task.id
+      && ['CLAIMED', 'STEERED', 'DELIVERED', 'DELIVERY_UNKNOWN'].includes(control.disposition)))
+      throw new Error('Pending candidate lacks original control execution; preserve for manual lineage recovery')
+  }
   if (pending.taskHash !== hash(task) || pending.configHash !== contextHash(cfg)) throw new Error('Pending review context changed; candidate preserved')
   if (pending.writerModel !== cfg.engines[pending.engineTag]?.model) throw new Error('Pending writer model changed; original candidate preserved')
   assertPendingCandidate(cfg, task, pending)
@@ -83,9 +91,9 @@ export function assertPendingCandidate(cfg: Config, task: Task, pending: Pending
   git(pending.wt.cwd, 'merge-base', '--is-ancestor', pending.result.baseCommitHash, pending.candidateHead)
 }
 export function savePendingReview(cfg: Config, task: Task, wt: WorktreeHandle, result: RunResult, engineTag: string,
-  reason: string, retryAt = Date.now(), verification?: VerificationEvidence): PendingReview {
+  reason: string, retryAt = Date.now(), verification?: VerificationEvidence, controlExecutionId?: string): PendingReview {
   const pending = PendingSchema.parse({ version: 1, phase: 'review', taskHash: hash(task), configHash: contextHash(cfg), engineTag,
-    writerModel: cfg.engines[engineTag]?.model,
+    writerModel: cfg.engines[engineTag]?.model, controlExecutionId,
     candidateHead: result.commitHash, retryAt, updatedAt: new Date().toISOString(), wt, result, reason,
     verification: verification?.candidateCommit === result.commitHash ? verification : undefined })
   assertPendingCandidate(cfg, task, pending)

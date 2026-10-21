@@ -285,6 +285,29 @@ test.each([1, 2])('formal team QUEUE reserves an additional dispatch without byp
   expect(new ControlStore(d.cfg.dataDir).list().resolved[0]?.disposition).toBe(cap === 2 ? 'DELIVERED' : 'NOT_DELIVERED')
 })
 
+test('formal team QUEUE cannot hide ownership drift from the initial turn', async () => {
+  const dir = root(); initGitRepo(dir)
+  const commit = (cwd: string, file: string) => {
+    const git = (...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+    const base = git('rev-parse', 'HEAD')
+    writeFileSync(join(cwd, file), 'changed\n'); git('add', file); git('commit', '-m', `change ${file}`)
+    return base
+  }
+  const engine = new MockEngine([{ ok: true, beforeResult: job => {
+    const reply = new ControlStore(join(dir, 'data')).submit({ project: 'proj', executionId: job.executionId!, mode: 'QUEUE',
+      instruction: 'update allowed.txt', issuer: 'operator', channel: 'cli' })
+    expect(reply.envelope.disposition).toBe('QUEUED')
+    return commit(job.projectPath, 'forbidden.txt')
+  } }, { ok: true, beforeResult: job => commit(job.projectPath, 'allowed.txt') }])
+  const d = e2eDeps(dir, engine)
+  writeFileSync(d.cfg.backlogFile, '- [ ] update allowed.txt <!-- adng:ownership {"write":["allowed.txt"],"resources":[],"risk":"low"} -->\n')
+  d.team = new TeamState(dir); teams.push(d.team)
+  Object.assign(d.cfg.engines.mock!, { dailyAttemptCap: 2, costPerRunUsd: 1 })
+  expect(await runOnce(d)).toMatchObject({ kind: 'blocked', reason: 'ownership-drift' })
+  expect(engine.calls).toHaveLength(2)
+  expect(existsSync(join(dir, 'forbidden.txt'))).toBe(false)
+})
+
 test('e2e：執行中收到 QUEUE → 同 execution 的下一回合帶入指示，信封 DELIVERED、receipt 可追溯', async () => {
   const dir = root()
   initGitRepo(dir)

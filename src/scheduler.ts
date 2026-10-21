@@ -184,7 +184,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     return blockTask({ store, events }, task, 'execution-inventory-capacity', '活動執行容量已滿；保留所有回執，僅封存已確認終結的紀錄後再派工')
   if (currentExecutions.errors.length || currentExecutions.records.some(record => record.taskId === task.id || record.phase === 'unknown'))
     return blockTask({ store, events }, task, 'team-state-quarantined', '既有執行尚未確認結束；保留工作區，需先核對後端狀態')
-  const executionId = newExecutionId()
+  const executionId = newExecutionId(), controlExecutionId = pending?.controlExecutionId ?? executionId
   const mainDirty = trackedDirtyFiles(cfg.projectPath, cfg.gitTimeoutMs)
   if (mainDirty?.length) {
     const detail = `主工作目錄有 ${mainDirty.length} 個 tracked dirty 檔，admission 在 Engine 執行前拒絕；檔案：${mainDirty.slice(0, 5).join('、')}`
@@ -340,7 +340,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   const validationAccounting = { ...attemptAccounting({ ok: false, output: '', costUsd: 0, costUnknown: true }, {}), stage: 'validation' as const }
   const deferReview = (reason: string, retryAt?: number, verification?: VerifierCheck['evidence'], rebased = false): CycleResult => {
     const result = { ...res, commitHash: defaultCommitHash(wt.cwd), ...(rebased ? { baseCommitHash: defaultCommitHash(cfg.projectPath) } : {}) }
-    try { savePendingReview(cfg, task, wt, result, engineTag, reason, retryAt ?? Date.now() + cfg.supplyRetryCooldownMs, verification) }
+    try { savePendingReview(cfg, task, wt, result, engineTag, reason, retryAt ?? Date.now() + cfg.supplyRetryCooldownMs, verification, controlExecutionId) }
     catch (err) { return blockTask({ store, events }, task, 'team-state-quarantined', `Pending review could not be preserved: ${String(err)}`) }
     reviewWaiting = true
     quiet(() => events.append('review-deferred', { taskId: task.id, candidateCommit: result.commitHash, reason, retryAt: retryAt ?? Date.now() + cfg.supplyRetryCooldownMs, workerCalls: 0 }))
@@ -375,8 +375,8 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
   }
 
   if (res.ok && (verifier || deps.evidence || cfg.tierMode === 'free-only')) {
-    if (cfg.tierMode === 'free-only') try { savePendingReview(cfg, task, wt, res, engineTag, 'verification started') } catch (err) { return blockTask({ store, events }, task, 'team-state-quarantined', String(err)) }
-    const vc = await runCandidateGate({ cfg, task, cwd: wt.cwd, result: res, verifier, evidence: deps.evidence, executionId, writerIdentity: engineTag })
+    if (cfg.tierMode === 'free-only') try { savePendingReview(cfg, task, wt, res, engineTag, 'verification started', Date.now(), undefined, controlExecutionId) } catch (err) { return blockTask({ store, events }, task, 'team-state-quarantined', String(err)) }
+    const vc = await runCandidateGate({ cfg, task, cwd: wt.cwd, result: res, verifier, evidence: deps.evidence, executionId, controlExecutionId, writerIdentity: engineTag })
     for (const a of vc.alerts) quiet(() => events.append('verify-alert', { task: task.text, detail: a }))
     const receipt = vc.receipt
     if (receipt) quiet(() => events.append('evidence-bundle', { task: task.text, commit: res.commitHash, path: receipt.path, hash: receipt.bundleHash }))
@@ -405,7 +405,7 @@ async function runSingleOnce(deps: Deps, retry: InfraRetryState): Promise<CycleR
     // merge queue（併發基建）：合併一次一個；串行下等價直呼，併發池（GOAL B）沿用同一入口。
     const mergeFn = () => existsSync(cfg.stopFile) || observation?.recoveryRequired
       ? ({ merged: false, reason: 'paused' } as const)
-      : mergeAfterRebaseVerify(cfg, wt, task, res, verifier, deps.evidence, executionId, engineTag)
+      : mergeAfterRebaseVerify(cfg, wt, task, res, verifier, deps.evidence, executionId, engineTag, controlExecutionId)
     const candidateHead = defaultCommitHash(wt.cwd) ?? res.commitHash ?? 'unknown'
     const merge = teamClaim && deps.team
       ? await enqueueTeamMerge(cfg.projectPath, deps.team, { executionId, token: teamClaim.token, taskId: task.id, candidateHead, branch: wt.branch, worktreePath: wt.cwd }, Math.max(cfg.wedgeHardCapMs, cfg.verifyTimeoutMs), mergeFn)

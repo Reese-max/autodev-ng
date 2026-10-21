@@ -249,6 +249,7 @@ node web/server.mjs --config <path>
 - 每個信封有 TTL、單行/長度/`<!-- -->`/`adng:` 註記注入防線、重放拒絕；目標不存在/已終結/宿主死亡→`REJECTED_STALE_TARGET` 或 sweep 結案 `STALE`/`NOT_DELIVERED`——daemon 重啟後舊 execution 的信封**絕不**投給新 execution。
 - 每次狀態轉移（受理/預留/送達/結案）在 `dataDir/controls/receipts/` 寫一份 sha256 收據。只有 matching `commitId` 的信封已落地、且無未完成交易時，收據才代表已提交狀態；I/O 失敗留下的交易會阻止投遞，重啟不會自動執行曾回報失敗的指示。`adng execution controls` 或 `/controls` 可查狀態及交易錯誤；請保留故障紀錄供人工核對。
 - 原生送達回覆不符、斷線、已派工但宿主消失及未確認的 QUEUE 回合記 `DELIVERY_UNKNOWN`，不自動重送；存在 claimed／未確認指示時阻擋候選證據。已確認指示的 request／delivery 收據雜湊會連入候選證據，再由既有 merge receipt 綁定最終 commit。STEER 不使用 process signal，也不改變 pause、成本、issue lock、驗證與合併核可。
+- QUEUE 多回合沿用首回合的 base commit 檢查完整修改範圍；候選待審、重新啟動或 rebase 後恢復審查時，保留原 `controlExecutionId` 與控制收據來源鏈。舊待審紀錄若缺來源 ID 卻有已派工控制訊息，會保留候選並拒絕合併，待人工核對。
 - `/status` 與 `/monitor` 顯示完整 execution ID，請將它原樣貼入控制指令。已 degraded、正在取消或未知狀態的目標會立即拒收；控制紀錄已滿或有未完成交易時亦拒收。
 
 真實 Codex／CLI、FIFO、重啟及 commit lineage 證據見 [Issue #11 驗收](docs/verification/issue-11-2026-10-16.md)。成功範圍為 WSL 的隔離 observed transport；正式 team 路徑在同一 ownership claim 下，先核對有效租約並原子保留追加派工的成本與每日 attempt 額度，再呼叫 worker。

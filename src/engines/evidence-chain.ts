@@ -34,6 +34,7 @@ export interface EvidenceBundle {
   verdict: 'ready' | 'blocked'
   recordedAt: string
   controls?: ReturnType<ControlStore['lineage']>
+  controlExecutionId?: string
 }
 
 export interface EvidenceReceipt { path: string; bundleHash: string; releaseBlocked?: string }
@@ -59,6 +60,7 @@ export class EvidenceStore {
 
   record(args: {
     executionId: string
+    controlExecutionId?: string
     task: Task
     risk: TaskRisk
     writerIdentity: string
@@ -67,7 +69,8 @@ export class EvidenceStore {
   }): EvidenceReceipt {
     const release = releaseGate(args.task, args.verification.candidateCommit, args.releaseApprovalFile)
     const gates = { ci: args.verification.ci, reviewer: args.verification.reviewer, release }
-    const controls = new ControlStore(this.dataDir).lineage(args.executionId, args.task.id)
+    const controlExecutionId = args.controlExecutionId ?? args.executionId
+    const controls = new ControlStore(this.dataDir).lineage(controlExecutionId, args.task.id)
     const bundle: EvidenceBundle = {
       schemaVersion: 1,
       executionId: args.executionId,
@@ -76,7 +79,7 @@ export class EvidenceStore {
       risk: args.risk,
       candidateCommit: args.verification.candidateCommit,
       writer: { identity: args.writerIdentity },
-      ...(controls.length ? { controls } : {}),
+      ...(controls.length ? { controls, controlExecutionId } : {}),
       gates,
       verdict: [gates.ci, gates.reviewer, gates.release].some(g => ['fail', 'blocked', 'not-run'].includes(g.status)) ? 'blocked' : 'ready',
       recordedAt: new Date().toISOString(),
