@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "repositories": [
+    { "repo": "Reese-max/autodev-ng", "workflow": "ci.yml", "publish_details": true }
+  ],
+  "schedules": [
+    { "id": "product-board", "enabled": null, "external_id": null, "config_version": "unverified", "interval_hours": 6 },
+    { "id": "issue-worker", "enabled": null, "external_id": null, "config_version": "unverified", "interval_hours": 1 },
+    { "id": "academic-experiments", "enabled": false, "external_id": null, "config_version": "proposal-v1", "interval_hours": 168 }
+  ]
+}
