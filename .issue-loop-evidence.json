@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/autodev-ng",
+  "issue": 35,
+  "base_sha": "57762c1c131930668eaa7e9f3549f817fa933e73",
+  "red_proof": "Implementation not yet changed; command exited 1. tests/github-herdr-admission.test.ts (4 tests | 4 failed). FAIL runtime explains missing Herdr prerequisites without dispatch (repair=false). Expected: /Herdr GitHub intake disabled.*#33.*#34.*Windows canary.*report repairs remain unsupported/. Received: \"GitHub runner requires an explicitly selected regular engine\". FAIL doctor explains missing Herdr prerequisites before any live probe (repair=false). Received: \"Requires a bounded supported worker\". Test Files 1 failed (1); Tests 4 failed (4).",
+  "test_command": "npm test -- tests/github-herdr-admission.test.ts",
+  "test_exit": 0,
+  "tests_passed": 7,
+  "tests_failed": 0,
+  "summary": "此提交僅補齊 #35 相依受阻時的診斷：runtime 與 doctor 共用明確拒絕訊息，維持 Herdr 一般及 report repair 入口封鎖。7 個離線測試覆蓋缺證拒絕、Issue 文字不能選引擎、mock 與無 wall timeout 引擎仍拒絕，文件逐項標記驗收缺口。build、typecheck、CRAP 與 scoped mutation 通過；全套從基線 2763 passed／1 failed 到候選 2770 passed／1 failed，唯一失敗仍為 steering 控制紀錄容量測試逾時。",
+  "not_done": "#35 未完成：此 admitted base 缺少 #33 backend reconciliation 與 #34 trusted readiness 契約，因此未實作可信 config opt-in、一般已授權 bugfix-only／單機／單 Worker／指定 Herdr backend 的執行支援；report repair 仍不支援。#32–#34 相容能力及 #13 CI 尚未完成整合驗收；另行授權的 Windows 真實 Agent → 宿主提交 → 原版紅／候選綠 → review → draft PR canary、錯誤回執與斷線／逾時／重啟／重複事件對帳驗收均未執行。全套未全綠：基線與候選均有 tests/steering.test.ts:658 的既有容量測試失敗，候選明確回報 30000ms timeout；未修改或跳過它。未 push、未建立 PR，未操作其他分支、正式設定、排程或部署。"
+}

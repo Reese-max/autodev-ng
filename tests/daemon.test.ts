@@ -121,7 +121,7 @@ test('① lock 被占 → lock-busy，告警一次，runOnce 完全不執行', a
   const notifier = new FakeNotifier()
   const sleepCalls: number[] = []
   const lockDir = join(d.cfg.dataDir, '..', 'lock')
-  expect(acquireLock(lockDir)).toBe(true) // 佔住鎖，模擬已有 instance 在跑
+  expect(acquireLock(lockDir)).toBeTruthy() // 佔住鎖，模擬已有 instance 在跑
 
   const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir }))
 
@@ -227,7 +227,7 @@ test('④ stop 檔 → 回 stopped，且 lock 有被釋放（daemon 結束後可
   const result = await runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir }))
 
   expect(result).toBe('stopped')
-  expect(acquireLock(lockDir)).toBe(true) // 沒被釋放的話這裡會回 false
+  expect(acquireLock(lockDir)).toBeTruthy() // 沒被釋放的話這裡會回 false
 })
 
 test('⑤ digest 送失敗（notifier 回 false）→ stamp 不落，下一輪繼續重送', async () => {
@@ -413,7 +413,7 @@ test('⑮ 冷卻閘（修 1）：lock-busy 連續兩次啟動在冷卻窗內只�
   const notifier = new FakeNotifier()
   const sleepCalls: number[] = []
   const lockDir = join(d.cfg.dataDir, '..', 'lock')
-  expect(acquireLock(lockDir)).toBe(true) // 外部持鎖，模擬已有 instance 在跑（lock 全程不釋放）
+  expect(acquireLock(lockDir)).toBeTruthy() // 外部持鎖，模擬已有 instance 在跑（lock 全程不釋放）
 
   const r1 = await runDaemon(baseOpts(d, notifier, sleepCalls, { lockDir }))
   expect(r1).toBe('lock-busy')
