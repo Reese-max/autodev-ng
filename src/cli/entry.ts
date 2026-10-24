@@ -19,6 +19,7 @@ export const CLI_HELP = [
   '  adng monitor --configs-dir <dir> [--json]       多專案監控',
   '  adng execution list|capabilities|controls --config <path>  執行觀測／能力契約／控制信封',
   '  adng execution inspect-herdr --config <path> --id <executionId> [--request-id <requestId>]  唯讀 v1 關聯查核（不是派工或交付驗收）',
+  '  adng execution reconcile-herdr --config <path> --id <executionId> [--request-id <requestId>]  唯讀恢復決策；保留隔離、禁止重送',
 
   '  adng execution cancel --config <path> --id <executionId>  要求指定執行停止（仍須核對後端）',
   '  adng execution steer|enqueue --config <path> --id <executionId> --text <指示>  對指定執行送控制指示',

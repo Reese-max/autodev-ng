@@ -40,7 +40,10 @@ jobs:
         run: npm test -- tests/long-horizon-backend.test.ts tests/long-horizon-auditor-http.test.ts tests/long-horizon-lock.test.ts tests/cli-run.test.ts
       - name: Run lock ownership regressions
         run: npm test -- tests/lock.test.ts tests/lock-generation.test.ts tests/lock-errors.test.ts tests/lock-pidfile-cleanup.test.ts tests/github-owner-lock-team.integration.test.ts
-      - run: npm run test:flaky-regression
+      - name: Run two-round regression suite
+        run: npm run test:flaky-regression
+        env:
+          AUTODEV_GH_REPAIR_DIAGNOSTIC_DIR: ${{ runner.temp }}
       - name: Run retained GitHub regression tests
         shell: pwsh
         run: |
@@ -51,3 +54,11 @@ jobs:
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             }
           }
+      - name: Upload synthetic Issue 16 follow-up diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-16-repair-follow-up-diagnostics
+          path: ${{ runner.temp }}/autodev-ng-issue16-followup-*.json
+          if-no-files-found: ignore
+          retention-days: 30

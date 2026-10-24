@@ -45,7 +45,7 @@ test.each(adapters.flatMap(adapter => (['spawn', 'exit'] as const).map(at => [ad
     case 'devin': engine = new DevinEngine({ ...opts, profileDir: join(root, 'devin') }); break
     case 'herdr':
       writeFileSync(join(root, '.adng-worktree'), 'fixture')
-      engine = new HerdrEngine({ ...opts, commitChanges, runProcess: options => {
+      engine = new HerdrEngine({ ...opts, dataDir: root, commitChanges, runProcess: options => {
         expect(options.args).toContain('-RequestId')
         return runProcess({ ...options, command: process.execPath, args: [fake] })
       } }); break
@@ -61,7 +61,7 @@ test.each(adapters.flatMap(adapter => (['spawn', 'exit'] as const).map(at => [ad
   observation.finish('failed')
   expect(result).toMatchObject({ ok: false, cancelled: true, recoveryRequired: true, costUnknown: true })
   if (at === 'spawn') expect(events.map(event => event.type)).toContain('cancel-requested')
-  expect(events.at(-1)).toMatchObject({ type: 'exit', reason: at === 'spawn' ? 'cancelled' : 'exit' })
+  expect(events.filter(event => event.type !== 'backend-recovery').at(-1)).toMatchObject({ type: 'exit', reason: at === 'spawn' ? 'cancelled' : 'exit' })
   expect(getCommitHash).toHaveBeenCalledTimes(1)
   expect(commitChanges).not.toHaveBeenCalled()
   expect(readExecutions(root).records).toMatchObject([{ adapter, phase: 'unknown', outcome: 'unconfirmed' }])

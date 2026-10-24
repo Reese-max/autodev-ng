@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { TeamState } from '../src/engines/team-state.js'
 import { checkOwnership } from '../src/engines/ownership.js'
 import type { Task } from '../src/types.js'
@@ -21,6 +21,51 @@ function repo(): string {
 function task(id: string, write: string[]): Task {
   return { id, text: id, line: 0, status: 'open', ownership: { write, resources: [], risk: 'medium' } }
 }
+
+test('additional turns retain the same claim and durable per-dispatch attempt cap', () => {
+  const root = repo(), a = new TeamState(root), b = new TeamState(root)
+  try {
+    const claim = a.claim({ executionId: 'e1', task: task('t1', ['src/a.ts']), workerId: 'w1', reservedCostUsd: 2, spentUsd: 0, dailyHardUsd: 10, leaseMs: 60_000, dailyAttemptCap: 2 })
+    if (!claim.ok) throw new Error('fixture claim failed')
+    const turn = { executionId: 'e1', taskId: 't1', workerId: 'w1', token: claim.token, dispatchId: 'queue-1',
+      requiredReservedCostUsd: 4, spentUsd: 0, dailyHardUsd: 10, dailyAttemptCap: 2 }
+    for (const cost of [-1, NaN, Infinity]) expect(b.admitAdditionalTurn({ ...turn, requiredReservedCostUsd: cost })).toBe(false)
+    expect(b.admitAdditionalTurn(turn)).toBe(true)
+    expect(a.attemptsToday('w1')).toBe(2)
+    expect(a.snapshot().claims).toHaveLength(1)
+    expect(a.admitAdditionalTurn(turn)).toBe(false)
+    expect(a.admitAdditionalTurn({ ...turn, dispatchId: 'queue-2' })).toBe(false)
+    a.release('e1', claim.token)
+    expect(b.claim({ executionId: 'e2', task: task('t2', ['src/b.ts']), workerId: 'w1', reservedCostUsd: 0, spentUsd: 0, dailyHardUsd: 10, leaseMs: 60_000, dailyAttemptCap: 2 })).toMatchObject({ ok: false, reason: 'attempt-cap' })
+  } finally { a.close(); b.close() }
+})
+
+test('additional reservation includes other writers and cannot be reused by another instance', () => {
+  const root = repo(), a = new TeamState(root), b = new TeamState(root)
+  try {
+    const own = a.claim({ executionId: 'own', task: task('own', ['src/a.ts']), workerId: 'w1', reservedCostUsd: 2, spentUsd: 2, dailyHardUsd: 10, leaseMs: 60_000 })
+    expect(b.claim({ executionId: 'other', task: task('other', ['src/b.ts']), workerId: 'w2', reservedCostUsd: 3, spentUsd: 2, dailyHardUsd: 10, leaseMs: 60_000 }).ok).toBe(true)
+    if (!own.ok) throw new Error('fixture claim failed')
+    const turn = { executionId: 'own', taskId: 'own', workerId: 'w1', token: own.token, dispatchId: 'queue', requiredReservedCostUsd: 6, spentUsd: 2, dailyHardUsd: 10 }
+    expect(a.admitAdditionalTurn(turn)).toBe(false)
+    expect(b.admitAdditionalTurn({ ...turn, requiredReservedCostUsd: 5 })).toBe(true)
+    expect(a.claim({ executionId: 'third', task: task('third', ['src/c.ts']), workerId: 'w3', reservedCostUsd: 1, spentUsd: 2, dailyHardUsd: 10, leaseMs: 60_000 })).toMatchObject({ ok: false, reason: 'cost-reserved' })
+  } finally { a.close(); b.close() }
+})
+
+test.each(['wrong-token', 'wrong-task', 'wrong-worker', 'expired', 'quarantined', 'merge-ready'])('additional %s authority is refused before dispatch', mode => {
+  const root = repo(), team = new TeamState(root)
+  try {
+    const claim = team.claim({ executionId: 'e1', task: task('t1', ['src/a.ts']), workerId: 'w1', reservedCostUsd: 0, spentUsd: 0, dailyHardUsd: 10, leaseMs: 60_000 })
+    if (!claim.ok) throw new Error('fixture claim failed')
+    if (mode === 'expired') vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 120_000)
+    if (mode === 'quarantined') team.quarantine('e1', claim.token)
+    if (mode === 'merge-ready') team.enqueue({ executionId: 'e1', taskId: 't1', token: claim.token, candidateHead: 'abc', branch: 'fixture', worktreePath: root })
+    expect(team.admitAdditionalTurn({ executionId: 'e1', taskId: mode === 'wrong-task' ? 'other' : 't1', workerId: mode === 'wrong-worker' ? 'other' : 'w1',
+      token: mode === 'wrong-token' ? 'forged' : claim.token, dispatchId: 'queue', requiredReservedCostUsd: 1, spentUsd: 0, dailyHardUsd: 10 })).toBe(false)
+    expect(team.attemptsToday('w1')).toBe(1)
+  } finally { vi.restoreAllMocks(); team.close() }
+})
 
 test('ownership 拒絕 junction／symlink 別名，不能以兩個名稱取得重疊寫入權', () => {
   const root = repo(), team = new TeamState(root)

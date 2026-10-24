@@ -64,6 +64,23 @@ export function herdrExpectedPath(dir: string, requestId: string): string {
   return join(dir, `${requestId}.expected.json`)
 }
 
+export function herdrDispatchPath(dir: string, executionId: string): string {
+  return join(dir, 'dispatch', `${createHash('sha256').update(executionId).digest('hex')}.json`)
+}
+
+/** One durable intent per raw execution, independent of task/base/launcher changes.
+ * Never reclaimed automatically: an empty/partial file after a crash also fences dispatch. */
+export function reserveHerdrDispatch(dir: string, expected: HerdrExpectedBinding): boolean {
+  mkdirSync(join(dir, 'dispatch'), { recursive: true })
+  try {
+    writeFileSync(herdrDispatchPath(dir, expected.executionId), `${JSON.stringify(expected)}\n`, { flag: 'wx', mode: 0o600 })
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
+    throw error
+  }
+}
+
 /** 送件前原子保存預期綁定（tmp+rename，沿用 evidence-chain 寫法）。 */
 export function writeHerdrExpected(dir: string, expected: HerdrExpectedBinding): string {
   mkdirSync(dir, { recursive: true })
@@ -105,10 +122,14 @@ export function parseHerdrResult(raw: string): HerdrResultCheck {
 /** 讀回結果檔並逐欄位綁定本次 request；reason 只帶欄位名，不回洩檔案內容。
  * 同一 fd 上 fstat＋限量 read：檔案被換／長大也無法繞過大小上限。 */
 export function checkHerdrResultFile(path: string, expected: HerdrExpectedBinding): HerdrResultCheck {
-  return captureHerdrResultFile(path, expected).check
+  try {
+    return captureHerdrResultFile(path, expected, true).check
+  } catch {
+    return bad('invalid', '結果檔無法安全讀取')
+  }
 }
 
-/** Default preserves the existing run/check contract; inspection additionally rejects link paths.
+/** Dispatch and inspection require regular paths, rejecting links before following them.
  * No second read is used to compute result evidence. */
 export function captureHerdrResultFile(path: string, expected: HerdrExpectedBinding, requireRegularPath = false): HerdrResultCapture {
   if (requireRegularPath) {

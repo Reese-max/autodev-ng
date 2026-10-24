@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "envelopeId": "8723b47d-243c-4683-91fa-e1b835c08f11",
+  "project": "config",
+  "executionId": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+  "taskId": "b7efadc5",
+  "requestedMode": "QUEUE",
+  "disposition": "CLAIMED",
+  "issuer": "cli",
+  "channel": "cli",
+  "instructionHash": "a416e35a0291861e9e6dcfda3b67e2055442dbba4a3cee05a30acea5751dd752",
+  "commitId": "3abb0e12-9d4a-49bb-a71f-7c8b0ac7f674",
+  "authority": "committed matching envelope with no unresolved transaction",
+  "occurredAt": "2026-10-16T14:50:34.298Z",
+  "bundleHash": "6e953e3410e98afbc3354aad251fa25088efa82dfa08eef3ef6fb36da15322d4"
+}

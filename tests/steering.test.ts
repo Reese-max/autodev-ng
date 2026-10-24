@@ -15,11 +15,14 @@ import { ConfigSchema } from '../src/types.js'
 import * as globalAccounting from '../src/globalcost.js'
 import { localDay } from '../src/db.js'
 import * as incident from '../src/guardian/incident.js'
+import { TeamState } from '../src/engines/team-state.js'
 
 const roots: string[] = []
 const runDbs: RunDb[] = []
+const teams: TeamState[] = []
 afterEach(() => {
   try {
+    for (const team of teams.splice(0)) team.close()
     for (const db of runDbs.splice(0)) db.close()
   } finally {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
@@ -264,10 +267,46 @@ function e2eDeps(dir: string, engine: MockEngine): Deps {
     engines: { mock: { adapter: 'mock', executionMode: 'observed' } }, defaultEngine: 'mock',
     stopFile: join(dir, '.adng.stop'), worktreesDir: join(dir, 'worktrees'), timezoneOffsetHours: 0,
   })
-  const db = new RunDb(join(dir, 'run.db'))
+  mkdirSync(cfg.dataDir, { recursive: true })
+  const db = new RunDb(join(cfg.dataDir, 'run.db'))
   runDbs.push(db)
   return { cfg, store: new BacklogStore(backlogFile), db, engines: { resolve: () => engine }, events: new EventLog(cfg.dataDir) }
 }
+
+test.each([1, 2])('formal team QUEUE reserves an additional dispatch without bypassing attempt cap %s', async cap => {
+  const dir = root(); initGitRepo(dir)
+  const engine = queueOnFirstTurn(dir), d = e2eDeps(dir, engine)
+  d.team = new TeamState(dir); teams.push(d.team)
+  Object.assign(d.cfg.engines.mock!, { dailyAttemptCap: cap, costPerRunUsd: 2 })
+  expect(await runOnce(d)).toBe('done')
+  expect(engine.calls).toHaveLength(cap)
+  expect(d.team.attemptsToday('mock')).toBe(cap)
+  expect(d.team.snapshot().claims).toHaveLength(1)
+  expect(new ControlStore(d.cfg.dataDir).list().resolved[0]?.disposition).toBe(cap === 2 ? 'DELIVERED' : 'NOT_DELIVERED')
+})
+
+test('formal team QUEUE cannot hide ownership drift from the initial turn', async () => {
+  const dir = root(); initGitRepo(dir)
+  const commit = (cwd: string, file: string) => {
+    const git = (...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+    const base = git('rev-parse', 'HEAD')
+    writeFileSync(join(cwd, file), 'changed\n'); git('add', file); git('commit', '-m', `change ${file}`)
+    return base
+  }
+  const engine = new MockEngine([{ ok: true, beforeResult: job => {
+    const reply = new ControlStore(join(dir, 'data')).submit({ project: 'proj', executionId: job.executionId!, mode: 'QUEUE',
+      instruction: 'update allowed.txt', issuer: 'operator', channel: 'cli' })
+    expect(reply.envelope.disposition).toBe('QUEUED')
+    return commit(job.projectPath, 'forbidden.txt')
+  } }, { ok: true, beforeResult: job => commit(job.projectPath, 'allowed.txt') }])
+  const d = e2eDeps(dir, engine)
+  writeFileSync(d.cfg.backlogFile, '- [ ] update allowed.txt <!-- adng:ownership {"write":["allowed.txt"],"resources":[],"risk":"low"} -->\n')
+  d.team = new TeamState(dir); teams.push(d.team)
+  Object.assign(d.cfg.engines.mock!, { dailyAttemptCap: 2, costPerRunUsd: 1 })
+  expect(await runOnce(d)).toMatchObject({ kind: 'blocked', reason: 'ownership-drift' })
+  expect(engine.calls).toHaveLength(2)
+  expect(existsSync(join(dir, 'forbidden.txt'))).toBe(false)
+})
 
 test('e2e：執行中收到 QUEUE → 同 execution 的下一回合帶入指示，信封 DELIVERED、receipt 可追溯', async () => {
   const dir = root()
@@ -297,6 +336,27 @@ test('e2e：執行中收到 QUEUE → 同 execution 的下一回合帶入指示�
   const events = readFileSync(join(dataDir, 'events.jsonl'), 'utf8')
   expect(events).toContain('"type":"control-delivered"')
 }, 30_000)
+
+test('bounded execution keeps its original transport without a steering port', async () => {
+  const dir = root()
+  initGitRepo(dir)
+  const engine = new MockEngine()
+  const d = e2eDeps(dir, engine)
+  d.cfg.engines.mock!.executionMode = 'bounded'
+  expect(await runOnce(d)).toBe('done')
+  expect(engine.calls[0]!.control?.steer).toBeUndefined()
+})
+
+test('a failed queued transport cannot produce a DELIVERED receipt', async () => {
+  const dir = root()
+  initGitRepo(dir)
+  const engine = new MockEngine([{ ok: true, beforeResult: job => {
+    submit(join(dir, 'data'), { executionId: job.executionId!, instruction: 'queued instruction' })
+  } }, { ok: false, reason: 'native handshake rejected before turn start' }])
+  const d = e2eDeps(dir, engine)
+  expect(await runOnce(d)).toBe('failed')
+  expect(new ControlStore(d.cfg.dataDir).list().resolved[0]?.disposition).toBe('DELIVERY_UNKNOWN')
+})
 
 // ── 操作面：handleCommand（Discord）與 executionCli（CLI）──
 
@@ -379,7 +439,7 @@ test('e2e：STEER 於引擎運行中送達 → MockEngine 透過 steer port 取�
   await run
   expect(engine.steeredInstructions).toEqual(['改方向：只補測試'])
   expect(new ControlStore(dataDir).list().resolved.find(e => e.id === r.envelope.id)?.disposition).toBe('STEERED')
-}, 30_000)
+}, 120_000) // Windows Git setup plus V8 coverage can exceed thirty seconds.
 
 
 function queueOnFirstTurn(dir: string, onQueued?: () => void): MockEngine {
@@ -489,7 +549,7 @@ test('QUEUE cannot reuse a team reservation for an additional writer turn', asyn
   d = e2eDeps(dir, engine)
   await runOnce(d)
   expect(engine.calls).toHaveLength(1)
-  expect(new ControlStore(d.cfg.dataDir).list().resolved[0]?.disposition).toBe('STALE')
+  expect(new ControlStore(d.cfg.dataDir).list().resolved[0]?.disposition).toBe('NOT_DELIVERED')
 })
 
 
@@ -655,13 +715,16 @@ test.each(['degraded', 'cancelRequested', 'unknown'] as const)('submission rejec
   expect(store(dir).peekQueue('exec-1')).toEqual([])
 })
 
-test('full control inventory refuses admission before creating the unreadable 10001st record', () => {
+test('full control inventory refuses admission before creating the unreadable 10001st record', async () => {
   const dir = root(); liveExecution(dir)
   const accepted = submit(dir), template = JSON.parse(readFileSync(join(dir, 'controls', `${accepted.envelope.id}.json`), 'utf8'))
   template.state = 'resolved'; template.disposition = 'STALE'; template.resolvedAt = Date.now()
-  for (let i = 1; i < 10000; i++) {
-    const id = `inventory-${i}`
-    writeFileSync(join(dir, 'controls', `${id}.json`), JSON.stringify({ ...template, id, seq: i + 1 }))
+  const { writeFile } = await import('node:fs/promises')
+  for (let base = 1; base < 10000; base += 500) {
+    await Promise.all(Array.from({ length: Math.min(500, 10000 - base) }, (_, k) => {
+      const i = base + k, id = `inventory-${i}`
+      return writeFile(join(dir, 'controls', `${id}.json`), JSON.stringify({ ...template, id, seq: i + 1 }))
+    }))
   }
   const reply = submit(dir, { instruction: 'must not be hidden' })
   expect(reply.ok).toBe(false)
@@ -669,7 +732,7 @@ test('full control inventory refuses admission before creating the unreadable 10
   expect(readdirSync(join(dir, 'controls')).filter(name => name.endsWith('.json'))).toHaveLength(10000)
   expect(store(dir).list().errors).toEqual([])
   expect(store(dir).peekQueue('exec-1').map(env => env.instruction)).not.toContain('must not be hidden')
-}, 30000)
+}, 120_000) // 10,000 real files exceed 30s on Windows Defender-scanned worktrees.
 
 test('claimed queue failure resolves uncertainty without replaying the same command', () => {
   const dir = root(); liveExecution(dir)

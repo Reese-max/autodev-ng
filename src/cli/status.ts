@@ -48,7 +48,7 @@ export function formatStatus(input: StatusInput): string {
     `最後 digest 日期：${input.lastDigestDay ?? '尚未發送過'}`,
     // Issue #11：列出 active taskId/executionId 讓 operator 知道 /steer、/enqueue 要指哪個目標。
     ...(input.activeExecutions?.length
-      ? [`執行中：${input.activeExecutions.slice(0, 5).map(e => `${e.taskId}/${e.executionId.slice(0, 8)}`).join('、')}${input.activeExecutions.length > 5 ? ` 等 ${input.activeExecutions.length} 項` : ''}`]
+      ? [`執行中：${input.activeExecutions.slice(0, 5).map(e => `${e.taskId}/${e.executionId}`).join('、')}${input.activeExecutions.length > 5 ? ` 等 ${input.activeExecutions.length} 項` : ''}`]
       : []),
     ...(input.pendingControls ? [`控制信封：${input.pendingControls} 筆待處理（adng execution controls 查看）`] : []),
   ].join('\n')

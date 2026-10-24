@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "envelopeId": "260e749c-42d0-4113-9284-0b8fb10d8f1b",
+  "project": "config",
+  "executionId": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+  "taskId": "",
+  "requestedMode": "STEER",
+  "disposition": "REJECTED_STALE_TARGET",
+  "issuer": "cli",
+  "channel": "cli",
+  "instructionHash": "f8c0ed59039e71e9c64e7bc20e037b5163021d4d8feb160a57dd2bd1dc199794",
+  "commitId": "7e074437-0fba-4fda-917e-9bdee81a2d59",
+  "authority": "committed matching envelope with no unresolved transaction",
+  "occurredAt": "2026-10-16T14:50:57.397Z",
+  "bundleHash": "35503f96e3edeab3c1e17368ea915316b68104fe6aba91f0374dfbdbb35c1b8f"
+}

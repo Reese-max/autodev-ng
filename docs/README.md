@@ -20,6 +20,7 @@ AutoDev NG 將使用者授權的 backlog／GOAL 交給引擎，在隔離工作�
 | 引擎路由與不穩定測試調查 | [路由入口](engine-routing-insertion-points.md)、[隔離修正](flaky-isolation-fix.md) |
 | 金鑰輪替處理 | [security/CREDENTIAL_ROTATION.md](security/CREDENTIAL_ROTATION.md) |
 | GOAL 規格、待驗收項目與歷史草稿 | [goal-queue/README.md](goal-queue/README.md) |
+| Herdr 無人值守總驗收契約 | [herdr-unattended-acceptance.md](herdr-unattended-acceptance.md) |
 | 歷史探針標記 | [Pi Canary](legacy/probes/PI_PROVIDER_CANARY.md)、[Pi Canary V2](legacy/probes/PI_PROVIDER_CANARY_V2.md)、[probe.txt](legacy/probes/probe.txt) |
 | 跨專案產品稽核 | [Portfolio 稽核規則](portfolio-audit/2026-09-06-50-persona-audit.md)、[2026-09-07 進度](portfolio-audit/round-2-progress-2026-09-07.md) |
 
@@ -66,6 +67,7 @@ AutoDev NG 將使用者授權的 backlog／GOAL 交給引擎，在隔離工作�
 | 範圍 | 證據入口與界線 |
 |---|---|
 | GitHub 自動報告 | [2026-09-07 驗收](verification/github-reports-2026-09-07.md) |
+| exact execution STEER／QUEUE | [2026-10-16 真實 Codex 驗收與限制](verification/issue-11-2026-10-16.md) |
 | GitHub CLI 修復 | [2026-09-07 驗收](verification/github-repair-2026-09-07.md) |
 | CLI 自主開發與安全恢復 | [2026-09-08 驗收](verification/cli-autonomy-2026-09-08.md)；該紀錄仍缺真實 Codex 修復成功證據，最終以 `verify-autonomy.mjs` 對指定提交及 Issue 的檢查為準 |
 | 六份歷史 GOAL 草稿 | [規格索引](goal-queue/README.md)；保留各自缺少的驗收，不因文件整理改列完成 |

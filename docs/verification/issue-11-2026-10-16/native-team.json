@@ -1,0 +1,22 @@
+{
+  "claims": [
+    {
+      "execution_id": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+      "task_id": "b7efadc5",
+      "active": 0,
+      "state": "RELEASED",
+      "ownership_hash": "7c655c7e1335cf01d1d4ac99eab1c7c5b12029b86678ccd8153dbf26a1c4e3fd"
+    }
+  ],
+  "queue": [
+    {
+      "seq": 1,
+      "execution_id": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+      "task_id": "b7efadc5",
+      "candidate_head": "68652069acb29bde95c412950e7c11ecf9e040c9",
+      "state": "DONE",
+      "merged_head": "68652069acb29bde95c412950e7c11ecf9e040c9"
+    }
+  ],
+  "attempts": 2
+}

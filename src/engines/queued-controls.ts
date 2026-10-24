@@ -29,10 +29,10 @@ export async function additionalTurnAdmission(deps: Deps, engine: Engine, job: J
   try { readiness = await engine.preflight() } catch { return false }
   if (!readiness.ok || !res.ok && !res.failureReason?.startsWith('no-commit') || res.cancelled || res.recoveryRequired || job.control?.signal?.aborted || existsSync(deps.cfg.stopFile) || isDegraded()) return false
   const engineConfig = deps.cfg.engines[engineTag]
-  // QUEUE introduces an extra turn requiring separate team/attempt authority.
+  // QUEUE introduces an extra turn requiring separate team/attempt authority at dispatch.
   // The inherited single no-commit nudge remains part of the approved attempt;
   // preserve its uncertain-stop/quarantine behavior and count its actual fee.
-  if (!builtInNudge && (deps.team || engineConfig?.dailyAttemptCap !== undefined)) {
+  if (!builtInNudge && !deps.team && engineConfig?.dailyAttemptCap !== undefined) {
     quiet(() => deps.events.append('control-admission-blocked', { executionId: job.executionId, reason: 'additional-dispatch-authority-unverified' }))
     return false
   }
@@ -62,7 +62,7 @@ export async function additionalTurnAdmission(deps: Deps, engine: Engine, job: J
   return true
 }
 
-export async function deliverQueuedControls(deps: Deps, engine: Engine, job: Job, initial: RunResult, controls: ControlStore, isDegraded: () => boolean, engineTag: string, fixedCost: number | undefined, costState: { dispatchedTurns: number }): Promise<RunResult> {
+export async function deliverQueuedControls(deps: Deps, engine: Engine, job: Job, initial: RunResult, controls: ControlStore, isDegraded: () => boolean, engineTag: string, fixedCost: number | undefined, costState: { dispatchedTurns: number }, teamToken?: string): Promise<RunResult> {
   let res = initial
   for (let turn = 0; turn < MAX_CONTROL_TURNS; turn++) {
     if (!res.ok || res.cancelled || res.recoveryRequired || isDegraded() || job.control?.signal?.aborted || existsSync(deps.cfg.stopFile)) break
@@ -74,6 +74,20 @@ export async function deliverQueuedControls(deps: Deps, engine: Engine, job: Job
     let currentBatch
     try { currentBatch = controls.claimQueue(job.executionId ?? '', job.task.id) } catch { break }
     if (currentBatch.length === 0) break
+    if (deps.team) {
+      let admitted = false
+      try {
+        admitted = deps.team.admitAdditionalTurn({ executionId: job.executionId ?? '', token: teamToken ?? '', taskId: job.task.id,
+          workerId: engineTag, dispatchId: currentBatch[0]!.claimId!, dailyAttemptCap: deps.cfg.engines[engineTag]?.dailyAttemptCap,
+          requiredReservedCostUsd: deps.cfg.engines[engineTag]?.subscription ? 0 : fixedCost === undefined ? res.costUsd + deps.cfg.failureCostEstimateUsd : fixedCost * (costState.dispatchedTurns + 1),
+          spentUsd: deps.db.billedCostForLocalDay(localDay(new Date().toISOString(), deps.cfg.timezoneOffsetHours), deps.cfg.timezoneOffsetHours, subscriptionTags(deps.cfg)), dailyHardUsd: deps.cfg.dailyHardUsd })
+      } catch { /* Missing or uncertain authority never dispatches another writer. */ }
+      if (!admitted) {
+        controls.finishClaim(currentBatch, 'NOT_DELIVERED', '追加派工未取得有效 team 租約或成本／attempt 額度保留；未呼叫 worker')
+        quiet(() => deps.events.append('control-admission-blocked', { executionId: job.executionId, reason: 'team-additional-admission-denied' }))
+        break
+      }
+    }
     const directive = `${job.directive ?? job.task.text}\n\n[操作員於本次執行追加 ${currentBatch.length} 則指示，請依序納入當前工作]\n${currentBatch.map((e, i) => `${i + 1}. ${e.instruction}`).join('\n')}`
     try { deps.onWorkerStart?.(job.task.id) } catch { controls.finishClaim(currentBatch, 'NOT_DELIVERED', 'Dispatch hook failed before worker invocation'); return res }
     costState.dispatchedTurns++
@@ -83,8 +97,8 @@ export async function deliverQueuedControls(deps: Deps, engine: Engine, job: Job
       // Retain charges/output from every earlier successful queued turn.
       return combineRuns(res, { ok: false, output: `[control-turn error] ${String(err)}`, costUsd: 0, costUnknown: true, failureReason: `control-turn：${String(err)}` })
     }
-    if (res.cancelled || res.recoveryRequired) controls.finishClaim(currentBatch, 'DELIVERY_UNKNOWN', 'Worker returned without verified completion; do not resend')
-    const delivered = res.cancelled || res.recoveryRequired ? 0 : controls.markDelivered(currentBatch)
+    if (!res.ok || res.cancelled || res.recoveryRequired) controls.finishClaim(currentBatch, 'DELIVERY_UNKNOWN', 'Worker returned without verified completion; do not resend')
+    const delivered = !res.ok || res.cancelled || res.recoveryRequired ? 0 : controls.markDelivered(currentBatch)
     quiet(() => deps.events.append('control-delivered', { executionId: job.executionId, taskId: job.task.id, count: delivered }))
   }
   return res

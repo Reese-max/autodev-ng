@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "b1648b3a-9c53-41f8-b33b-89d2e42817ad",
+  "project": "config",
+  "taskId": "b7efadc5",
+  "executionId": "8671986a-1023-4aea-bc1e-c156f77e4ee0",
+  "requestedMode": "STEER",
+  "mode": "QUEUE",
+  "instruction": "MUST_NOT_APPLY_DURING_MERGE",
+  "instructionHash": "ea6aa34fe7ca90a5988b72ae4e80a2d15dfb8939e6233fc73165eb4843c1ede5",
+  "issuer": "cli",
+  "channel": "cli",
+  "adapter": "codex",
+  "seq": 4,
+  "createdAt": 1792162257065,
+  "expiresAt": 1792164057065,
+  "state": "resolved",
+  "commitId": "4fdd963d-0515-44f3-851c-42913ae1ace6",
+  "disposition": "STALE",
+  "detail": "execution 已結束；已派工但未確認的信封不得重送",
+  "resolvedAt": 1792162257133
+}

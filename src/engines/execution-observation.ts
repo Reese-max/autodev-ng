@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { writeJsonAtomic } from '../guardian/incident.js'
 import type { Job } from '../types.js'
 import { InventoryLockBusyError, withInventoryLock } from './inventory-lock.js'
-import { observeRun, type RunControl, type RunEvent } from './run-control.js'
+import { BackendRecoverySchema, observeRun, type RunControl, type RunEvent } from './run-control.js'
 
 export const OBSERVATION_INTERVAL_MS = 60_000
 export const UNKNOWN_SAMPLES_BEFORE_DIAGNOSIS = 5
@@ -25,7 +25,9 @@ const SnapshotSchema = z.object({
   lastProgressAt: z.number().optional(), lastEvent: z.string().max(80).optional(),
   outputBytes: z.number().nonnegative(), unknownSamples: z.number().int().nonnegative(), degraded: z.boolean(),
   cancelRequested: z.boolean(), exit: z.object({ code: z.number().nullable(), reason: z.enum(['exit', 'wall', 'idle', 'cancelled']) }).optional(),
+  inFlightSteer: z.boolean().optional(),
   outcome: z.enum(['completed', 'failed', 'unconfirmed']).optional(),
+  backendRecovery: BackendRecoverySchema.optional(),
 })
 export type ExecutionSnapshot = z.infer<typeof SnapshotSchema>
 export type ExecutionInventory = { records: ExecutionSnapshot[]; errors: string[]; protected: boolean; diagnosisDue: boolean; capacityExceeded: boolean; updateInProgress?: boolean }
@@ -377,7 +379,7 @@ export function createExecutionObservation(args: { dataDir: string; job: Job; ad
     version: 1, executionId: id, taskId: args.job.task.id, adapter: args.adapter, projectPath: args.job.projectPath,
     hostPid: process.pid, hostStartedAt: Date.now() - process.uptime() * 1000,
     startedAt: Date.now(), observedAt: Date.now(), sequence: 0, phase: 'running', outputBytes: 0,
-    unknownSamples: 0, degraded: false, cancelRequested: false,
+    unknownSamples: 0, degraded: false, cancelRequested: false, inFlightSteer: args.adapter === 'mock',
   }
   const buffers = { stdout: '', stderr: '' }, dropping = { stdout: false, stderr: false }, recent = new Set<string>()
   let finished = false, lastPersistedAt = 0, structuredSequence = 0
@@ -471,9 +473,11 @@ export function createExecutionObservation(args: { dataDir: string; job: Job; ad
     const previousStructuredSequence = structuredSequence
     state.sequence++; state.observedAt = Date.now()
     if (event.type === 'spawn') { state.worker = { pid: event.pid, startedAt: event.startedAt }; state.phase = 'running' }
+    if (event.type === 'steer-ready') state.inFlightSteer = event.supported
     if (event.type === 'output') output(event.stream, event.text)
     if (event.type === 'cancel-requested') { state.cancelRequested = true; state.phase = 'unknown' }
-    if (event.type === 'exit') { state.exit = { code: event.code, reason: event.reason }; state.phase = event.reason === 'exit' ? 'validating' : 'unknown' }
+    if (event.type === 'exit') { state.exit = { code: event.code, reason: event.reason }; state.phase = event.reason === 'exit' ? 'validating' : 'unknown'; state.inFlightSteer = false }
+    if (event.type === 'backend-recovery') state.backendRecovery = BackendRecoverySchema.parse(event.recovery)
     if (event.type !== 'output' || structuredSequence !== previousStructuredSequence || Date.now() - lastPersistedAt >= 1000) persist()
     observeRun(parent, event)
   }

@@ -382,6 +382,31 @@ test('Guardian CLI：排程可拆成 supervisor-only 與 guardian-only，預設�
   expect(parseArgv(['supervise', '--configs-dir', 'configs', '--guardian', 'only'])).toMatchObject({ guardianMode: 'only' })
 })
 
+test('Guardian recovery reasons have stable cooldowns across samples and distinct human next steps', async () => {
+  const f = fixture(), executionId = 'recovery-worker'
+  const observer = createExecutionObservation({ dataDir: f.dataDir, adapter: 'herdr', job: {
+    projectPath: f.projectPath, executionId, task: { id: 'ab12cd34', text: 'preserve work', line: 0, status: 'open' },
+  } })
+  observer.control.onEvent?.({ type: 'backend-recovery', recovery: {
+    state: 'waiting-human', reason: 'human-input-observed', nextAction: 'human-response-required',
+    requestId: 'original-request', backendStopConfirmed: false, redispatchAllowed: false,
+  } })
+  observer.finish('unconfirmed')
+  const runner = vi.fn(async (_opts: Parameters<typeof runProcess>[0]): Promise<ProcResult> => ({
+    exitCode: 0, stderr: '', timedOut: false, durationMs: 1, stdout: [
+      JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({
+        status: 'needs_attention', summary: 'human response required', actions: [], evidence: [], followUp: 'inspect exact request', restartRequired: false, forceRestart: false,
+      }) } }), JSON.stringify({ type: 'turn.completed' }),
+    ].join('\n'),
+  }))
+  const options = { fleetDataDir: join(f.root, 'fleet-data'), runProcessFn: runner, notifyFn: vi.fn(async () => true) }
+  await runFleetGuardian([superviseResult(f)], options)
+  expect(runner.mock.calls[0]?.[0].stdinText).toContain('waiting-human')
+  expect(runner.mock.calls[0]?.[0].stdinText).toContain('human-response-required')
+  expect(await runFleetGuardian([superviseResult(f)], options)).toMatchObject([{ kind: 'skipped', reason: 'cooldown' }])
+  expect(runner).toHaveBeenCalledTimes(1)
+})
+
 test('Guardian：健康專案不呼叫 LLM', async () => {
   const f = fixture()
   const runner = vi.fn()

@@ -1,0 +1,277 @@
+{
+  "schema": "BrowserCapabilityLeaseFixtureSet",
+  "schemaVersion": 1,
+  "inventory": {
+    "mode": "readonly-synthetic",
+    "network": false,
+    "realBrowser": false,
+    "realProfile": false,
+    "realCredentials": false,
+    "fields": [
+      "opaqueTabId",
+      "origin",
+      "capability",
+      "connection",
+      "sharedAuth",
+      "observedAt"
+    ],
+    "tabs": [
+      {
+        "opaqueTabId": "tab_1",
+        "origin": "https://example.test",
+        "capability": "SUPPORTED",
+        "connection": "CONTROL_ACTIVE",
+        "sharedAuth": "USER_SESSION",
+        "observedAt": "2026-10-21T00:00:00Z"
+      },
+      {
+        "opaqueTabId": "tab_2",
+        "origin": "https://example.test",
+        "capability": "SUPPORTED",
+        "connection": "CONNECTED_READONLY",
+        "sharedAuth": "USER_SESSION",
+        "observedAt": "2026-10-21T00:00:00Z"
+      }
+    ]
+  },
+  "evidence": {
+    "meta:release/bcl_1": { "leaseId": "bcl_1", "disposition": "RETURNED", "verification": "VERIFIED", "ambientAuthorityDropped": true },
+    "meta:expiry/bcl_1": { "leaseId": "bcl_1", "disposition": "EXPIRED", "verification": "VERIFIED", "ambientAuthorityDropped": true },
+    "meta:revoke/bcl_1": { "leaseId": "bcl_1", "disposition": "REVOKED", "verification": "VERIFIED", "ambientAuthorityDropped": true }
+  },
+  "fixtures": [
+    {
+      "id": "scoped-tab-lease",
+      "surface": "existing-tab",
+      "capability": "SUPPORTED",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "expected": "ALLOW"
+    },
+    {
+      "id": "sibling-tab-denied",
+      "surface": "existing-tab",
+      "capability": "SUPPORTED",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_2",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "expected": "OUT_OF_SCOPE"
+    },
+    {
+      "id": "profile-denied",
+      "capability": "SUPPORTED",
+      "state": "CONTROL_ACTIVE",
+      "surface": "profile",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "expected": "OUT_OF_SCOPE"
+    },
+    {
+      "id": "readonly-control-denied",
+      "surface": "existing-tab",
+      "capability": "SUPPORTED",
+      "state": "CONNECTED_READONLY",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "click",
+      "allowedActions": [
+        "click"
+      ],
+      "expected": "DENY_READONLY"
+    },
+    {
+      "id": "stale-replay-denied",
+      "surface": "existing-tab",
+      "capability": "SUPPORTED",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "envelope": { "executionId": "exec_old" },
+      "expected": "DENY_STALE"
+    },
+    {
+      "id": "revoked-action-denied",
+      "surface": "existing-tab",
+      "capability": "SUPPORTED",
+      "state": "REVOKED",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "expected": "DENY_INACTIVE"
+    },
+    {
+      "id": "takeover-freshness",
+      "surface": "existing-tab",
+      "capability": "SUPPORTED",
+      "state": "TAKEN_OVER",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "domFresh": false,
+      "expected": "DENY_FRESH_OBSERVATION"
+    },
+    {
+      "id": "protected-effect-handoff",
+      "surface": "existing-tab",
+      "capability": "SUPPORTED",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "click",
+      "allowedActions": [
+        "click"
+      ],
+      "protectedEffect": true,
+      "effectDecision": "ASK",
+      "expected": "HANDOFF"
+    },
+    {
+      "id": "page-injection-cannot-widen",
+      "surface": "existing-tab",
+      "capability": "SUPPORTED",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "navigate",
+      "allowedActions": [
+        "navigate"
+      ],
+      "pageRequestedOrigin": "https://evil.test",
+      "expected": "DENY_SCOPE_WIDENING"
+    },
+    {
+      "id": "ambiguous-submit-no-retry",
+      "surface": "existing-tab",
+      "capability": "SUPPORTED",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://example.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "click",
+      "allowedActions": [
+        "click"
+      ],
+      "duplicateSubmit": true,
+      "canonicalAbsenceConfirmed": false,
+      "expected": "EFFECT_UNKNOWN"
+    },
+    {
+      "id": "redirect-out-of-scope",
+      "surface": "existing-tab",
+      "capability": "SUPPORTED",
+      "state": "CONTROL_ACTIVE",
+      "tab": "tab_1",
+      "activeTab": "tab_1",
+      "origin": "https://other.test",
+      "allowedOrigins": [
+        "https://example.test"
+      ],
+      "action": "read-dom",
+      "allowedActions": [
+        "read-dom"
+      ],
+      "expected": "OUT_OF_SCOPE"
+    },
+    {
+      "id": "lease-expiry-receipt",
+      "leaseId": "bcl_1",
+      "state": "EXPIRED",
+      "receiptDisposition": "EXPIRED",
+      "verification": "VERIFIED",
+      "ambientAuthorityDropped": true,
+      "evidenceRefs": ["meta:expiry/bcl_1"],
+      "expected": "RECEIPT_EXPIRED"
+    },
+    {
+      "id": "bridge-loss-unknown",
+      "state": "UNKNOWN",
+      "receiptDisposition": "UNKNOWN",
+      "verification": "UNVERIFIED",
+      "expected": "RECEIPT_UNKNOWN"
+    },
+    {
+      "id": "lease-revocation-receipt",
+      "leaseId": "bcl_1",
+      "state": "REVOKED",
+      "receiptDisposition": "REVOKED",
+      "verification": "VERIFIED",
+      "ambientAuthorityDropped": true,
+      "evidenceRefs": ["meta:revoke/bcl_1"],
+      "expected": "RECEIPT_REVOKED"
+    },
+    {
+      "id": "no-secret-evidence",
+      "leaseId": "bcl_1",
+      "state": "RETURNED",
+      "receiptDisposition": "RETURNED",
+      "verification": "VERIFIED",
+      "ambientAuthorityDropped": true,
+      "evidenceRefs": [
+        "meta:release/bcl_1"
+      ],
+      "expected": "RECEIPT_RETURNED"
+    }
+  ]
+}

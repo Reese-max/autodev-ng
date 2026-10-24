@@ -48,6 +48,7 @@ export function combineRuns(first: RunResult, second: RunResult): RunResult {
   const unknownTurnCostsUsd = [...unknownTurnCosts(first), ...unknownTurnCosts(second)]
   return {
     ...second,
+    baseCommitHash: first.baseCommitHash,
     actualModel: first.actualModel === second.actualModel ? first.actualModel : 'multiple/unknown',
     output: joinOutput(first.output, second.output),
     costUsd: first.costUsd + second.costUsd,

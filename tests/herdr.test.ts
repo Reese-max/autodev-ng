@@ -109,7 +109,7 @@ test('requestId 綁定 executionId：同 task/base 不同 execution 產生不同
 
   const requests = calls.map(c => argAfter(c.args, '-RequestId'))
   expect(requests[0]).not.toBe(requests[1])
-  expect(requests[0]).toBe(requests[2])
+  expect(requests).toHaveLength(2) // same execution is a read-only recovery, never another prompt
   expect(requests[0]).toContain('exec-1')
 })
 
@@ -190,7 +190,7 @@ test('長 stdout 蓋過展示 buffer 上限時，合法終態仍可由結果檔�
   expect(result.output.length).toBeLessThan(10_000) // 人讀日誌維持有界
 })
 
-test('launcher 殘留舊回執檔在送件前被清掉，不會被當成本次結果', async () => {
+test('launcher 殘留舊回執檔被保留並隔離，不會被當成本次結果或再次派工', async () => {
   const { dir, launcher, cache } = fixture()
   const { runner } = contractRunner(null, 'AUTOPILOT_WAIT_OK request=old') // 舊 launcher：只印字串不寫檔
   mkdirSync(join(dir, 'herdr'), { recursive: true })
@@ -200,7 +200,8 @@ test('launcher 殘留舊回執檔在送件前被清掉，不會被當成本次�
   const result = await engine.run({ task, projectPath: dir, executionId: 'exec-s' })
 
   expect(result.ok).toBe(false)
-  expect(result.failureReason).toContain('unsupported')
+  expect(result.recoveryRequired).toBe(true)
+  expect(readFileSync(join(dir, 'herdr', 'adng-a-b-c-aaa-exec-s.result.json'), 'utf8')).toBe(JSON.stringify({ stale: true }))
 })
 
 const rejectCases: Array<{ name: string; patch?: Record<string, unknown> | null; raw?: string; want: string }> = [
