@@ -1,6 +1,7 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { lstatSync } from 'node:fs'
 import { extname, resolve } from 'node:path'
+import type { Writable } from 'node:stream'
 import { observeRun, type RunControl } from './run-control.js'
 
 export interface ProcResult {
@@ -68,12 +69,14 @@ export function withGitSafeDirectory(env: NodeJS.ProcessEnv, cwd: string): NodeJ
   return result
 }
 
-/** 引擎呼叫鐵三角唯一執法點：stdin 餵 prompt 後立即 end、wall timeout、逾時雙層樹斬、stderr 全收。 */
+/** 共用引擎程序邊界：stdin、wall timeout、逾時雙層樹斬、stderr 全收。 */
 export function runProcess(opts: {
   command: string
   args: string[]
   cwd: string
   stdinText: string
+  /** Native interactive protocols own stdin closure; ordinary prompt calls still close immediately. */
+  stdin?: (stream: Writable) => void
   timeoutMs: number
   /** 只在 stdout/stderr 完全無進度時觸發；與 timeoutMs=0（無總時限）可並用。 */
   idleTimeoutMs?: number
@@ -234,8 +237,12 @@ export function runProcess(opts: {
     if (opts.control?.signal?.aborted) cancel()
 
     child.stdin.on('error', () => { /* 子進程提早退出時 EPIPE，可忽略 */ })
-    child.stdin.write(opts.stdinText)
-    child.stdin.end() // 等效 < /dev/null：餵完即關，防巢狀 stdin 啞死
+    if (opts.stdin) {
+      try { opts.stdin(child.stdin) } catch (error) { stderr += String(error); stop('cancelled') }
+    } else {
+      child.stdin.write(opts.stdinText)
+      child.stdin.end() // 等效 < /dev/null：餵完即關，防巢狀 stdin 啞死
+    }
   })
 }
 

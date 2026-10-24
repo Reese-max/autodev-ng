@@ -203,10 +203,23 @@ Herdr adapter 只在任務明確標成 `[engine:herdr]` 時使用；`engines.her
 
 完成回執採結果契約 v1（issue #32）：派工時帶 `-RequestId`（綁定 task＋base commit＋`executionId`）、`-ExecutionId` 與 `-ResultFile <path>`；launcher 必須在終態把 `{"schemaVersion":1,"requestId","executionId","repo","taskId","baseCommit","server","session","pane","status":"done"|"failed"}` 寫入該檔。宿主送件前先把預期綁定存到 `dataDir/herdr/<requestId>.expected.json`，回讀時逐欄位核對——缺檔、壞 JSON、欄位不符或 schemaVersion≠1 一律拒收（`herdr-unsupported`/`herdr-result-invalid`/`herdr-result-mismatch`），不做宿主提交。stdout 只作人讀日誌，marker 字串不再是成功證據（長輸出截斷也不影響終態判定）。不支援 `-ResultFile` 的舊 launcher 會得到明確 unsupported，需更新 launcher。
 
+派工與唯讀 inspection 共用一般檔案防護：拒收符號連結、非一般檔案、超限檔案及開檔後路徑身分不符的回執。派工時無法安全讀取回執亦回報 `herdr-result-invalid` 並要求 recovery，不洩露檔案系統診斷、不提交或自動重送 prompt。`tests/herdr-receipt-channel.test.ts` 以 metadata fixture 驗證連結拒收，另透過真正的 Node 子程序與 `runProcess` 驗證雙流超限、跨寫入 UTF-8 和獨立終態檔；這些是離線產品回歸，不是真實 Herdr launcher canary。
+
 唯讀重查既有工作：`adng execution inspect-herdr --config <path> --id <executionId> [--request-id <requestId>]`。
 此入口只讀取既有 host execution snapshot、唯一匹配的 host expected record 與有界 v1 result；不派工、不清除或重寫回執、不建立 inventory lock、不遷移／封存／取消、不提交或驗收成果。`--request-id` 只是核對 selector，不能指定任意 expected/result 檔案或自稱 repo／base／session 身分。沒有 snapshot 的 bounded 工作會回 `untracked`，多個候選或查核期間 snapshot／expected selection 改變則拒絕採信。`execution get/list` 保留既有 inventory 行為，並非這個嚴格零寫入入口。
 `correlated-v1-done`／`correlated-v1-failed` 的 exit0 **只代表讀到關聯相符的觀察**（包含失敗終態），不是任務成功或交付；其他狀態 exit2。每次輸出都明示 `trustedTerminal:false`、`trustedServerPaneOccupant:"UNVERIFIED"`、`deadlineOrExpiry:"UNVERIFIED"`、`deliveryVerified:false`。result digest 取自 strict checker 實際解析的同一份 bytes，屬單次時間點證據；之後的矛盾回執不會因此得到可信終態保證。舊 `issuedAt` 不被臆測成過期。真實 launcher 版本／server 與 pane occupant／明確 deadline 契約和另外授權的 Windows canary 仍待驗證。
-正常 `Engine.run` 仍是明確 START；既有 eligible no-commit nudge 保留最多一次 CONTINUE。需要重查時用上述 inspection 入口，不把重跑 `run()` 當成狀態查詢。
+
+恢復決策（issue #33）：`adng execution reconcile-herdr --config <path> --id <executionId> [--request-id <requestId>]` 沿用上述唯讀關聯查核，回傳 `recovery.state`、`reason` 與 `nextAction`；仍需人工核對，固定 exit2，不送 prompt、提交、清鎖或更動 PR。每個 execution 派工前以 exclusive create 保存 `dataDir/herdr/dispatch/<sha256(executionId)>.json`；重入、控制端重啟或 HEAD 改變都不能再派同一 execution，也不會刪掉原 expected／result。timeout、非零 exit、取消與 transport 例外維持 `recoveryRequired`；原 attempt／成本寫入既有 RunDb，team claim、worktree、Issue blocked 狀態及原始驗收保留。waiting-human 理由保存於 execution receipt，沿用 Guardian／daemon 的既有通知去重與冷卻。未提供穩定 executionId 的直呼不具跨呼叫身分保證。
+
+| 恢復狀態 | 下一步 | 自動操作邊界 |
+| --- | --- | --- |
+| `observing` | `observe-same-request`：持續讀取同一 execution／request | 靜默與經過時間不觸發停止或重送 |
+| `waiting-human` | `human-response-required`：人工檢查登入、權限或問題 | 不自動回覆、Enter 或同意 |
+| `validation-required` | `verify-existing-result`：核對既有 SHA／驗收及 publication recovery | v1 回執不證明後端停止，不自動重寫／重建 PR |
+| `unknown` | `manual-recovery` 或 `preserve-partial-and-review` | 無可信 server 啟動／occupant／停止證據時維持隔離 |
+
+能力盤點、五組離線故障證據與另行授權的 Windows 實測表見 [Herdr recovery 驗收](docs/verification/herdr-recovery-33.md)。
+Herdr 的 `Engine.run` 首次呼叫才派工；宿主未產生新 commit 也會轉入恢復隔離。後續重查使用上述唯讀入口，不透過 no-commit nudge 重送 prompt。
 
 ### 4. Discord bot（可選）
 
@@ -244,11 +257,15 @@ node web/server.mjs --config <path>
 
 `/steer` 與 `/enqueue` 針對**正在跑的 exact execution**（`/status`、`/controls` 或 `adng execution list` 會列出 `taskId/executionId`）送 target-bound 控制信封，不是自由漂移的聊天文字：
 
-- **STEER**＝送到執行中的回合：只有能力表 `inFlightSteer=true` 的 adapter 能於安全點接收（目前僅 mock；真實 adapter 一律回 `UNSUPPORTED`，不假裝成功）。回合已結束但執行仍活著且支援 queue 時，明確轉為 `TOO_LATE_QUEUED`（收據記錄，非 silent fallback）。
+- **STEER**＝送到執行中的回合：隔離 fleet `CODEX_HOME` 的 observed Codex 使用原生 app-server，綁定 native thread/turn，等待工具完成，再以 matching `turn/steer` acknowledgement 記 `STEERED`。不支援的 adapter、共用登入或自訂 exec transport 回 `UNSUPPORTED`；啟動前及權限讀回失敗時也不宣稱支援。回合已結束但執行仍活著且支援 queue 時，明確轉為 `TOO_LATE_QUEUED`（收據記錄，非 silent fallback）。
 - **QUEUE**＝不打斷當前回合，排入同一 execution 的下一個安全回合邊界（`executionMode=observed/supervised` 才有快照可綁定目標）；派工前先記 `CLAIMED`，回合完成後記 `DELIVERED`。派工中的信封不因 TTL 過期變成未送達；`DELIVERY_UNKNOWN` 表示已派工但欠缺確認，應先核對執行結果與收據，勿直接重送。
 - 每個信封有 TTL、單行/長度/`<!-- -->`/`adng:` 註記注入防線、重放拒絕；目標不存在/已終結/宿主死亡→`REJECTED_STALE_TARGET` 或 sweep 結案 `STALE`/`NOT_DELIVERED`——daemon 重啟後舊 execution 的信封**絕不**投給新 execution。
 - 每次狀態轉移（受理/預留/送達/結案）在 `dataDir/controls/receipts/` 寫一份 sha256 收據。只有 matching `commitId` 的信封已落地、且無未完成交易時，收據才代表已提交狀態；I/O 失敗留下的交易會阻止投遞，重啟不會自動執行曾回報失敗的指示。`adng execution controls` 或 `/controls` 可查狀態及交易錯誤；請保留故障紀錄供人工核對。
+- 原生送達回覆不符、斷線、已派工但宿主消失及未確認的 QUEUE 回合記 `DELIVERY_UNKNOWN`，不自動重送；存在 claimed／未確認指示時阻擋候選證據。已確認指示的 request／delivery 收據雜湊會連入候選證據，再由既有 merge receipt 綁定最終 commit。STEER 不使用 process signal，也不改變 pause、成本、issue lock、驗證與合併核可。
+- QUEUE 多回合沿用首回合的 base commit 檢查完整修改範圍；候選待審、重新啟動或 rebase 後恢復審查時，保留原 `controlExecutionId` 與控制收據來源鏈。舊待審紀錄若缺來源 ID 卻有已派工控制訊息，會保留候選並拒絕合併，待人工核對。
 - `/status` 與 `/monitor` 顯示完整 execution ID，請將它原樣貼入控制指令。已 degraded、正在取消或未知狀態的目標會立即拒收；控制紀錄已滿或有未完成交易時亦拒收。
+
+真實 Codex／CLI、FIFO、重啟及 commit lineage 證據見 [Issue #11 驗收](docs/verification/issue-11-2026-10-16.md)。成功範圍為 WSL 的隔離 observed transport；正式 team 路徑在同一 ownership claim 下，先核對有效租約並原子保留追加派工的成本與每日 attempt 額度，再呼叫 worker。
 
 ## 鐵律摘要
 

@@ -9,7 +9,7 @@ import { eligibleForRun, prepareRepair, reviewRepair } from '../src/github/repai
 import { command, type GithubClient, type IssueBatch } from '../src/github/client.js'
 import { assertPublishable, checkoutDir, git, runtimeConfig } from '../src/github/job.js'
 import { publishIssue, runGithub } from '../src/github/runner.js'
-import { branchFor, fingerprint, readState, saveState, type IssueState } from '../src/github/state.js'
+import { branchFor, fingerprint, readState, runDir, saveState, type IssueState } from '../src/github/state.js'
 import { observeProject, reportFingerprint } from '../src/autopilot/report-research.js'
 import * as proc from '../src/engines/proc.js'
 import { githubCli } from '../src/github/cli.js'
@@ -20,6 +20,7 @@ import * as incident from '../src/guardian/incident.js'
 import { FreebuffEngine } from '../src/engines/freebuff.js'
 import * as admission from '../src/engines/cli-admission.js'
 import { PreflightCache } from '../src/preflight.js'
+import { buildFollowupDiagnostic, readFirstFailedAttempt, writeFollowupDiagnostic } from './helpers/github-repair-followup-diagnostic.js'
 
 const dirs: string[] = []
 const availableCodexAdmission = () => {
@@ -27,7 +28,7 @@ const availableCodexAdmission = () => {
   info.quota = { state: 'available', detail: 'fixture quota' }
   return info
 }
-afterEach(() => { vi.restoreAllMocks(); process.exitCode = undefined; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); process.exitCode = undefined; for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
 async function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'adng-repair-')); dirs.push(dir)
@@ -167,12 +168,17 @@ test.each(['codex', 'freebuff'])('%s: real Git/scheduler repairs red to green wi
   expect(() => assertPublishable(f.cfg, state)).toThrow('Missing original probe pass')
 }, 180_000)
 
-test('report repair follow-up preserves the original fix, proves a new regression and updates the same PR within its lifetime cap', async () => {
+async function repairFollowupScenario(acceptanceFails = false) {
   const f = await setup(), realRun = proc.runProcess
+  const diagnosticDir = join(f.dir, 'diagnostics')
+  if (acceptanceFails) {
+    mkdirSync(diagnosticDir)
+    vi.stubEnv('AUTODEV_GH_REPAIR_DIAGNOSTIC_DIR', diagnosticDir)
+  }
   vi.spyOn(admission, 'nativeAdmission').mockResolvedValue(availableCodexAdmission())
   f.cfg.publish = true; f.cfg.followup = true; f.cfg.maxRuns = 2
   f.cfg.acceptance = { command: 'node', args: ['check.cjs'] }
-  let writes = 0, remoteHead = '', feedback = '', created = false
+  let writes = 0, remoteHead = '', feedback = '', created = false, followupWorktree = ''
   const pr = () => ({ number: 5, html_url: 'https://github.com/owner/project/pull/5', head: { sha: remoteHead, ref: branchFor(4) }, base: { ref: f.cfg.base }, state: 'open' as const })
   f.client.findPr = async () => created ? pr() : undefined
   f.client.createPr = vi.fn(async () => { created = true; return pr() })
@@ -188,6 +194,7 @@ test('report repair follow-up preserves the original fix, proves a new regressio
       writeFileSync(opts.args[opts.args.indexOf('--output-last-message') + 1]!, JSON.stringify(judge ? { text: 'MATCH' } : { approved: true, rationale: 'The bounded change fixes the requested addition behavior.' }))
     } else if (!ping) {
       writes++
+      if (writes === 2) followupWorktree = opts.cwd
       writeFileSync(join(opts.cwd, 'add.cjs'), writes === 1 ? 'module.exports = (a, b) => a < 0 ? b : a + b\n' : 'module.exports = (a, b) => a + b\n')
       mkdirSync(join(opts.cwd, 'tests/regressions'), { recursive: true })
       writeFileSync(join(opts.cwd, `tests/regressions/github-4${writes === 1 ? '' : '-r1'}.test.cjs`),
@@ -204,8 +211,35 @@ test('report repair follow-up preserves the original fix, proves a new regressio
   expect(queued.status).toBe('queued'); expect(queued.revision?.baseCommit).toBe(first.commit)
   expect(repairMetrics(f.cfg).recordedFailedAttempts).toBe(0)
   queued.nextRunAt = 0; saveState(f.cfg, queued)
+  if (acceptanceFails) f.cfg.acceptance = { command: 'node', args: ['-e', 'process.exit(1)'] }
+  const followUpBefore = readState(f.cfg, 4)!
   const followUp = await runGithub(f.cfg, options), followUpState = readState(f.cfg, 4)
-  expect(followUp, `GitHub repair follow-up state: ${JSON.stringify(followUpState)}`).toBe('4: published')
+  let failureSummary = 'Synthetic follow-up returned a non-published result.'
+  if (followUp !== '4: published') {
+    const captured = readFirstFailedAttempt(join(runDir(f.cfg, followUpBefore), 'run.db'))
+    const input = { before: followUpBefore, after: followUpState, firstPublishedCommit: first.commit,
+      candidateCommit: followUpState?.commit, attempt: captured.attempt, attemptLookup: captured.lookup, fixtureRoot: f.dir }
+    failureSummary = JSON.stringify(buildFollowupDiagnostic(input))
+    writeFollowupDiagnostic(input)
+  }
+  if (acceptanceFails) {
+    expect(followUp).toBe('4: blocked')
+    const files = readdirSync(diagnosticDir)
+    expect(files).toHaveLength(1)
+    expect(files[0]).toMatch(/^autodev-ng-issue16-followup-.*\.json$/)
+    const diagnostic = JSON.parse(readFileSync(join(diagnosticDir, files[0]!), 'utf8'))
+    expect(diagnostic.firstFailingGate).toMatchObject({ gate: 'verification.acceptance', source: 'first-failed-run-db-attempt', failureClass: 'task' })
+    expect(diagnostic.stateBefore).toMatchObject({ status: 'queued', runNumber: 1 })
+    expect(diagnostic.stateAfter).toMatchObject({ status: 'blocked', runNumber: 2 })
+    expect(diagnostic.revisionRound).toBe(1)
+    expect(diagnostic.commits).toMatchObject({ firstPublished: first.commit, revisionBase: first.commit, candidate: git(followupWorktree, ['rev-parse', 'HEAD']) })
+    expect(diagnostic.commits.candidate).not.toBe(first.commit)
+    expect(f.client.createPr).toHaveBeenCalledTimes(1)
+    expect(writes).toBe(2)
+    expect(remoteHead).toBe(first.commit)
+    return
+  }
+  expect(followUp, failureSummary).toBe('4: published')
   const second = readState(f.cfg, 4)!
   assertPublishable(f.cfg, second)
   expect(second.runs).toBe(2); expect(second.pr).toBe(first.pr); expect(second.commit).not.toBe(first.commit)
@@ -218,7 +252,13 @@ test('report repair follow-up preserves the original fix, proves a new regressio
   expect(repairMetrics(f.cfg)).toMatchObject({ failedAttempts: 0, recordedFailedAttempts: 0 })
   writeFileSync(join(checkoutDir(f.cfg, second), 'add.cjs'), 'module.exports = () => 0\n')
   await expect(prepareRepair(f.cfg, second, checkoutDir(f.cfg, second), 10_000)).rejects.toThrow('does not preserve')
-}, 180_000)
+}
+
+test('report repair follow-up preserves the original fix, proves a new regression and updates the same PR within its lifetime cap',
+  () => repairFollowupScenario(), 180_000)
+
+test('a rejected follow-up preserves the actual failed candidate and revision in its diagnostic artifact',
+  () => repairFollowupScenario(true), 180_000)
 
 test('recovery retains attempt counts and pause until a fresh same-policy doctor passes; dirty and changed contracts stay blocked', async () => {
   const f = await setup(), pause = join(f.dir, 'repair.pause')

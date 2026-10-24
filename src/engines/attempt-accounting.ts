@@ -1,5 +1,7 @@
 import type Database from 'better-sqlite3'
-import type { RunResult } from '../types.js'
+import type { Config, RunResult } from '../types.js'
+import type { RunDb } from '../db.js'
+import { costWithUnknownTurnEstimates } from './no-commit-nudge.js'
 
 export interface AccountingSnapshot {
   version: 1
@@ -34,6 +36,36 @@ export function attemptAccounting(result: RunResult, config: { model?: string; s
       version: 'legacy-reference-2026-07-29-v1', source: 'repository historical reference; not a verified current tariff',
       modelBasis: model ? 'reported' : 'requested', input: rate[0], output: rate[1], cached: rate[2],
     } : null,
+  }
+}
+
+/** Shared by normal completion and quarantine: preserve every dispatched turn's cost.
+ * Unknown provider spend uses the existing per-turn estimate; configured-cost engines
+ * retain their fixed estimate on both success and failure. */
+export function runResultAccounting(result: RunResult, config: Parameters<typeof attemptAccounting>[1], fixedCost: number | undefined, failureEstimateUsd: number, dispatchedTurns: number) {
+  const estimated = fixedCost === undefined && result.costUnknown === true
+  const recordedCostUsd = fixedCost === undefined ? (estimated ? costWithUnknownTurnEstimates(result, failureEstimateUsd) : result.costUsd) : fixedCost * dispatchedTurns
+  const detail = result.failureReason ?? result.commitHash ?? ''
+  const failureClass = result.failureReason?.startsWith('no-commit') ? 'task' as const : 'supply' as const
+  const quotaUsage = { costUsd: recordedCostUsd, tokensIn: result.tokensIn, tokensOut: result.tokensOut, tokensCached: result.tokensCached }
+  return { recordedCostUsd, failureClass, quotaUsage, attempt: { ...quotaUsage, ok: result.ok,
+    detail: estimated ? `${detail} [cost-estimated]` : detail, accounting: attemptAccounting(result, config, estimated),
+    ...(!result.ok ? { failureClass } : {}) } }
+}
+
+/** Keep accounting and its persistence together for both completion and quarantine.
+ * Deferred review reuses an already billed result; queued turns retain the live
+ * dispatch counter until the final combined result is recorded. */
+export function createRunRecorder(input: {
+  db: Pick<RunDb, 'record'>; cfg: Pick<Config, 'engines' | 'failureCostEstimateUsd'>;
+  taskId: string; engineTag: string; fixedCost: number | undefined; runStartMs: number;
+  controlCost: { dispatchedTurns: number }; skip: boolean;
+}) {
+  return (result: RunResult) => {
+    const accounting = runResultAccounting(result, input.cfg.engines[input.engineTag] ?? {}, input.fixedCost,
+      input.cfg.failureCostEstimateUsd, input.controlCost.dispatchedTurns)
+    if (!input.skip) input.db.record({ ...accounting.attempt, taskId: input.taskId, engine: input.engineTag, durationMs: Date.now() - input.runStartMs })
+    return accounting
   }
 }
 

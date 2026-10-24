@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "91f3aeeb-74b3-4fa4-811f-ee34d2c05857",
+  "project": "config",
+  "taskId": "c9a1761e",
+  "executionId": "08759120-35a2-436a-9dfe-0cdeb7cdc9b2",
+  "requestedMode": "QUEUE",
+  "mode": "QUEUE",
+  "instruction": "OLD_ENVELOPE_MUST_NOT_REACH_NEW_TASK",
+  "instructionHash": "cba777cfe27a86b10ec8a3cf9877ac8de8ac071876e6b5babe0783e7c19827f7",
+  "issuer": "cli",
+  "channel": "cli",
+  "adapter": "codex",
+  "seq": 1,
+  "createdAt": 1792162343245,
+  "expiresAt": 1792164143245,
+  "state": "resolved",
+  "commitId": "f5047d53-3ae6-4775-9233-1f23d2f3cbb7",
+  "disposition": "STALE",
+  "detail": "目標執行已不在可投遞狀態",
+  "resolvedAt": 1792162343534
+}

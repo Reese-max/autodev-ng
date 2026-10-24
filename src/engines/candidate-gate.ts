@@ -11,7 +11,7 @@ export interface CandidateGateResult extends VerifierCheck { receipt?: EvidenceR
 /** rebase 成功後仍在 merge queue 內驗收；只有非紅燈才允許唯一一次 merge 重試。 */
 export async function mergeAfterRebaseVerify(
   cfg: Config, wt: WorktreeHandle, task: Task, result: RunResult,
-  verifier: Parameters<typeof runCandidateGate>[0]['verifier'], evidence: EvidenceStore | undefined, executionId: string, writerIdentity: string,
+  verifier: Parameters<typeof runCandidateGate>[0]['verifier'], evidence: EvidenceStore | undefined, executionId: string, writerIdentity: string, controlExecutionId?: string,
 ): Promise<MergeBackResult> {
   const timeouts = { gitTimeoutMs: cfg.gitTimeoutMs, worktreeAddTimeoutMs: cfg.worktreeAddTimeoutMs }
   const first = mergeBack(cfg.projectPath, wt.branch, wt.baseBranch, wt.baseHead, wt.cwd, {
@@ -28,7 +28,7 @@ export async function mergeAfterRebaseVerify(
     const commitHash = defaultCommitHash(wt.cwd)
     if (!baseCommitHash || !commitHash) return { ...first, reason: 'verification-infra', failureStage: 'verify' }
     const gate = await runCandidateGate({
-      cfg, task, cwd: wt.cwd, verifier, evidence, executionId, writerIdentity,
+      cfg, task, cwd: wt.cwd, verifier, evidence, executionId, writerIdentity, controlExecutionId,
       result: { ...result, baseCommitHash, commitHash }, preserveOnReject: true,
     })
     if (!gate.pass) return { ...first, reason: gate.paused ? 'paused' : (gate.blockedReason ?? 'merge-conflict'), failureStage: 'verify', retryAt: gate.retryAt }
@@ -57,6 +57,7 @@ export async function runCandidateGate(opts: {
   verifier?: { check(job: Job, result: RunResult): Promise<VerifierCheck> }
   evidence?: EvidenceStore
   executionId: string
+  controlExecutionId?: string
   writerIdentity: string
   preserveOnReject?: boolean
 }): Promise<CandidateGateResult> {
@@ -91,6 +92,7 @@ export async function runCandidateGate(opts: {
   try {
     const receipt = opts.evidence.record({
       executionId: opts.executionId,
+      controlExecutionId: opts.controlExecutionId,
       task: opts.task,
       risk: check.risk ?? risk,
       writerIdentity: opts.writerIdentity,

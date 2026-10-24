@@ -17,6 +17,7 @@ import { FREE_MODEL_CATALOG, FREE_MODEL_URL } from '../src/engines/free-model-po
 import { pendingReviewFile, readPendingReview, reviewRetryDelay } from '../src/engines/pending-review.js'
 import { runGoalSession } from '../src/autopilot/orchestrator.js'
 import { baseAlertMessage } from '../src/engines/daemon-alerts.js'
+import { ControlStore } from '../src/engines/steering.js'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }).trim()
@@ -50,6 +51,66 @@ function fixture() {
   const deps: Deps = { cfg, db, team, store: new BacklogStore(backlogFile), events: new EventLog(dataDir), engines: { resolve: vi.fn(() => engine) }, verifier, evidence: new EvidenceStore(dataDir) }
   return { deps, engine, fetch, blockAll: () => { blockAll = true }, allowBackup: () => { blockAll = false }, available: () => { available = true }, unavailable: () => { available = false }, reject: () => { available = true; reject = true } }
 }
+
+test.each(['normal', 'rebase', 'legacy'])('deferred review preserves delivered control lineage after reopen (%s)', async mode => {
+  const f = fixture(), d = f.deps, worker = f.engine.run
+  d.cfg.engines['oc-worker']!.executionMode = 'observed'
+  let sourceExecutionId = ''
+  f.engine.run = vi.fn(async job => {
+    sourceExecutionId = job.executionId!
+    const reply = new ControlStore(d.cfg.dataDir).submit({ project: 'fixture', executionId: sourceExecutionId, mode: 'STEER',
+      instruction: 'only update value.cjs', issuer: 'operator', channel: 'cli' })
+    expect(reply.envelope.disposition).toBe('PENDING')
+    expect(job.control?.steer?.poll()).toBe('only update value.cjs')
+    const result = await worker(job)
+    job.control?.onEvent?.({ type: 'exit', code: 0, reason: 'exit' })
+    return result
+  })
+  if (mode === 'rebase') {
+    f.available()
+    const verifier = d.verifier!
+    let checks = 0
+    d.verifier = { check: async (job, result) => {
+      const check = await verifier.check(job, result)
+      if (++checks === 1) {
+        expect(check.pass).toBe(true)
+        writeFileSync(join(d.cfg.projectPath, 'other.txt'), 'main advanced\n')
+        git(d.cfg.projectPath, 'add', 'other.txt'); git(d.cfg.projectPath, 'commit', '-m', 'advance main')
+        f.unavailable()
+      }
+      return check
+    } }
+  }
+  try {
+    expect(await runOnce(d)).toBe('deferred')
+    const task = d.store.read()[0]!, pending = readPendingReview(d.cfg, task)!
+    const controls = new ControlStore(d.cfg.dataDir).lineage(sourceExecutionId, task.id)
+    expect(controls).toHaveLength(1)
+    if (mode === 'legacy') {
+      const { controlExecutionId: _origin, ...legacy } = pending
+      writeFileSync(pendingReviewFile(d.cfg, task), JSON.stringify(legacy))
+    }
+    d.db.close(); d.team!.close()
+    d.db = new RunDb(join(d.cfg.dataDir, 'run.db')); d.team = new TeamState(d.cfg.projectPath)
+    f.available(); vi.spyOn(Date, 'now').mockReturnValue(pending.retryAt + 1000)
+    const resumed = await runOnce(d)
+    if (mode === 'legacy') {
+      expect(resumed).toMatchObject({ kind: 'blocked', reason: 'team-state-quarantined', alertDetail: expect.stringContaining('control') })
+      expect(f.engine.run).toHaveBeenCalledTimes(1)
+      expect(git(d.cfg.projectPath, 'rev-parse', 'HEAD')).toBe(pending.wt.baseHead)
+      expect(new ControlStore(d.cfg.dataDir).lineage(sourceExecutionId, task.id)).toEqual(controls)
+      return
+    }
+    expect(resumed).toBe('done')
+    expect(f.engine.run).toHaveBeenCalledTimes(1)
+    const bundles = readdirSync(join(d.cfg.dataDir, 'evidence')).map(file => JSON.parse(readFileSync(join(d.cfg.dataDir, 'evidence', file), 'utf8')))
+    const merged = bundles.find(bundle => bundle.mergedCommit === pending.candidateHead)
+    const ready = bundles.find(bundle => bundle.bundleHash === merged?.gateBundleHash)
+    expect(ready?.controls).toEqual(controls)
+    expect(ready?.controlExecutionId).toBe(sourceExecutionId)
+    expect(d.evidence!.verifiedTaskCommit(task.id, task.text)).toBe(pending.candidateHead)
+  } finally { d.db.close(); d.team?.close() }
+}, 60_000)
 
 test('all free reviewers deferred: reopened scheduler merges through the recovered backup without rerunning the worker', async () => {
   const f = fixture(), d = f.deps, backup = 'test/backup:free'

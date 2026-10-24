@@ -12,6 +12,7 @@ import type { PreflightCache } from '../preflight.js'
 import { defaultCommitHash } from './commit-hash.js'
 import { WORKER_GUARDS } from './prompt-guard.js'
 import { buildFleetCodexEnv, ensureFleetCodexHome, FLEET_CODEX_PERMISSION_ARGS } from './codex-runtime.js'
+import { runCodexSession } from './codex-session.js'
 
 export interface CodexOpts {
   /** 觀測用引擎識別；registry 以 tag 帶入區分多檔位，未設維持 'codex'。 */
@@ -23,6 +24,8 @@ export interface CodexOpts {
   useUserLogin?: boolean
   /** run 用 args。沙箱由艦隊隔離 CODEX_HOME 的 config 決定。 */
   baseArgs?: string[]
+  /** Native observed transport; overrides are for protocol fixtures. Shared-login execution stays unsupported. */
+  appServerArgs?: string[]
   /** preflight 用 args。預設 read-only＋ephemeral：探針唯讀、不落 session（規格卡 ping 形式）。 */
   pingArgs?: string[]
   timeoutMs?: number
@@ -58,6 +61,8 @@ export class CodexEngine implements Engine {
   private readonly homeDir: string
   private readonly env: Record<string, string>
   private readonly useUserLogin: boolean
+  private readonly appServerArgs?: string[]
+  private readonly effort?: string
 
   constructor(opts: CodexOpts) {
     this.id = opts.id ?? 'codex'
@@ -65,6 +70,9 @@ export class CodexEngine implements Engine {
     const modelArgs = opts.model ? ['--model', opts.model] : []
     const effortArgs = opts.effort ? ['-c', `model_reasoning_effort=${opts.effort}`] : []
     this.useUserLogin = opts.useUserLogin ?? false
+    this.effort = opts.effort
+    this.appServerArgs = this.useUserLogin ? undefined : opts.appServerArgs ?? (opts.baseArgs ? undefined
+      : ['--strict-config', ...modelArgs, ...effortArgs, 'app-server', '--listen', 'stdio://'])
     const loginArgs = this.useUserLogin ? ['--ignore-user-config', '--ignore-rules', '-c', 'approval_policy="never"',
       '-c', 'allow_login_shell=false', '-c', 'windows.sandbox="elevated"',
       ...['multi_agent', 'multi_agent_v2', 'apps', 'plugins', 'remote_plugin', 'browser_use', 'computer_use', 'hooks'].flatMap(f => ['--disable', f])] : []
@@ -127,7 +135,11 @@ export class CodexEngine implements Engine {
     const before = this.getCommitHash(job.projectPath)
     const managedWorktree = existsSync(join(job.projectPath, '.adng-worktree'))
     let committedByHost = false
-    const r = await runProcess({
+    const r = this.appServerArgs && job.control?.steer ? await runCodexSession({
+      command: this.command, args: this.appServerArgs, cwd: job.projectPath, prompt,
+      timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs, env: this.runtimeEnv(),
+      model: cliModel(this.baseArgs), effort: this.effort, control: job.control,
+    }) : await runProcess({
       command: this.command, args: this.baseArgs, cwd: job.projectPath,
       stdinText: prompt, timeoutMs: this.timeoutMs, idleTimeoutMs: this.idleTimeoutMs,
       env: this.runtimeEnv(), replaceEnv: true, control: job.control

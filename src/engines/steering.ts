@@ -66,6 +66,12 @@ export interface ControlRequest {
 export interface ControlReply { ok: boolean; text: string; envelope: ControlEnvelope }
 export interface ControlList { pending: ControlEnvelope[]; resolved: ControlEnvelope[]; errors: string[] }
 
+/** Inventory passes repeat per submit/transition; unchanged records (same path,
+ *  mtime, size) reuse the raw text instead of paying the per-open read again.
+ *  Parsing always re-runs so callers never share a mutable envelope object. */
+const recordTextCache = new Map<string, { mtimeMs: number; size: number; text: string }>()
+const RECORD_TEXT_CACHE_LIMIT = 50_000
+
 type EventSink = { append(type: string, data?: Record<string, unknown>): void }
 
 /** 託管主機存活性：EPERM＝活著但非我方可碰（仍視為活）；其餘錯誤（ESRCH/EINVAL）＝不在。 */
@@ -146,7 +152,9 @@ export class ControlStore {
   /** pending 信封的終態轉移（STEERED/DELIVERED/STALE/NOT_DELIVERED）。 */
   private transition(env: ControlEnvelope, disposition: ControlDisposition, detail?: string, expectedState: 'pending' | 'claimed' = 'pending'): boolean {
     return this.withControlLock(() => {
-      const current = this.readAll().envelopes.find(record => record.id === env.id)
+      const inventory = this.readAll()
+      if (inventory.errors.length && (disposition === 'STEERED' || disposition === 'DELIVERED')) return false
+      const current = inventory.envelopes.find(record => record.id === env.id)
       if (!current || current.state !== expectedState || current.executionId !== env.executionId || current.taskId !== env.taskId || current.instructionHash !== env.instructionHash || expectedState === 'claimed' && current.claimId !== env.claimId) return false
       current.state = 'resolved'; current.disposition = disposition; current.resolvedAt = Date.now()
       if (detail) current.detail = detail
@@ -171,9 +179,11 @@ export class ControlStore {
     const envelopes: ControlEnvelope[] = [], errors: string[] = []
     const dir = this.controlsDir()
     if (!existsSync(dir)) return { envelopes, errors }
+    let pendingTx = new Set<string>()
     if (existsSync(this.transactionsDir())) {
       try {
-        for (const file of readdirSync(this.transactionsDir()).filter(f => f.endsWith('.json')).slice(0, 10_001))
+        pendingTx = new Set(readdirSync(this.transactionsDir()).filter(f => f.endsWith('.json')))
+        for (const file of [...pendingTx].slice(0, 10_001))
           errors.push(`uncommitted control transaction: ${file.slice(0, 110)}`)
       } catch { errors.push('control transaction inventory unavailable') }
     }
@@ -183,10 +193,19 @@ export class ControlStore {
     if (files.length > 10_000) return { envelopes, errors: ['control inventory exceeds 10000 records'] }
     for (const file of files) {
       try {
-        if (existsSync(this.transactionFile(file.slice(0, -5)))) continue
-        const info = lstatSync(join(dir, file))
+        if (pendingTx.has(file)) continue
+        const path = join(dir, file)
+        const info = lstatSync(path)
         if (!info.isFile() || info.size > 16_384) throw new Error('oversized or non-regular record')
-        const env = EnvelopeSchema.parse(JSON.parse(readFileSync(join(dir, file), 'utf8')))
+        const hit = recordTextCache.get(path)
+        const text = hit && hit.mtimeMs === info.mtimeMs && hit.size === info.size
+          ? hit.text
+          : readFileSync(path, 'utf8')
+        if (!hit || hit.mtimeMs !== info.mtimeMs || hit.size !== info.size) {
+          if (recordTextCache.size >= RECORD_TEXT_CACHE_LIMIT) recordTextCache.clear()
+          recordTextCache.set(path, { mtimeMs: info.mtimeMs, size: info.size, text })
+        }
+        const env = EnvelopeSchema.parse(JSON.parse(text))
         if (file !== `${env.id}.json`) throw new Error('identity mismatch')
         if (env.disposition !== 'REJECTED_INVALID' && createHash('sha256').update(env.instruction).digest('hex') !== env.instructionHash) throw new Error('instruction hash mismatch')
         envelopes.push(env)
@@ -203,7 +222,9 @@ export class ControlStore {
 
   /** 同一 execution 的 pending FIFO（seq, createdAt, id 排序——跨 process 寫入亦決定論）。 */
   private pendingFor(executionId: string, now: number): ControlEnvelope[] {
-    return this.readAll().envelopes
+    const inventory = this.readAll()
+    if (inventory.errors.length) return []
+    return inventory.envelopes
       .filter(e => e.state === 'pending' && e.executionId === executionId && e.expiresAt > now)
   }
 
@@ -229,8 +250,10 @@ export class ControlStore {
       createdAt: now, expiresAt: now + CONTROL_TTL_MS,
       state: 'resolved', disposition: 'REJECTED_INVALID',
     }
+    if (this.envelopeCount() >= 10_000)
+      return this.reply(env, 'REJECTED_INVALID', false, '控制指令被拒：控制紀錄已滿或尚有未完成交易；請先檢查 /controls，不會接受不可投遞的信封', undefined, false)
     const inventory = this.readAll()
-    if (inventory.errors.length || this.envelopeCount() >= 10_000)
+    if (inventory.errors.length)
       return this.reply(env, 'REJECTED_INVALID', false, '控制指令被拒：控制紀錄已滿或尚有未完成交易；請先檢查 /controls，不會接受不可投遞的信封', undefined, false)
     if (!SAFE_ID.test(args.executionId))
       return this.reply(env, 'REJECTED_INVALID', false, `控制指令被拒：executionId 格式不合法`)
@@ -246,7 +269,7 @@ export class ControlStore {
     env.taskId = record.taskId
     env.adapter = record.adapter
     const cap = ENGINE_CAPABILITIES[record.adapter as Adapter]?.control
-    const inFlight = cap?.inFlightSteer === true, nextTurn = cap?.nextTurnQueue === true
+    const inFlight = cap?.inFlightSteer === true && record.inFlightSteer === true, nextTurn = cap?.nextTurnQueue === true
 
     const pending = inventory.envelopes.filter(e => e.executionId === record.executionId && (e.state === 'claimed' || e.state === 'pending' && e.expiresAt > now))
     if (pending.some(e => e.instructionHash === env.instructionHash))
@@ -283,7 +306,7 @@ export class ControlStore {
   takeInFlight(executionId: string, now = Date.now()): string | undefined {
     try {
       const target = readExecution(this.dataDir, executionId)
-      if (!target || target.phase !== 'running' || target.degraded || target.cancelRequested || !pidAlive(target.hostPid)) return undefined
+      if (!target || !target.inFlightSteer || target.phase !== 'running' || target.degraded || target.cancelRequested || !pidAlive(target.hostPid)) return undefined
       const next = this.pendingFor(executionId, now).find(e => e.mode === 'STEER' && e.taskId === target.taskId)
       if (!next) return undefined
       return this.transition(next, 'STEERED') ? next.instruction : undefined
@@ -292,7 +315,22 @@ export class ControlStore {
 
   /** 供 scheduler 接進 job.control.steer；adapter 於自家安全邊界呼叫 poll()。 */
   steerPort(executionId: string): SteerPort {
-    return { poll: () => { try { return this.takeInFlight(executionId) } catch { return undefined } } }
+    return {
+      poll: () => this.takeInFlight(executionId),
+      claim: () => {
+        try {
+          return this.withControlLock(() => {
+            const target = readExecution(this.dataDir, executionId)
+            if (!target || !target.inFlightSteer || target.phase !== 'running' || target.degraded || target.cancelRequested || !pidAlive(target.hostPid)) return undefined
+            const env = this.pendingFor(executionId, Date.now()).find(e => e.mode === 'STEER' && e.taskId === target.taskId)
+            if (!env) return undefined
+            env.state = 'claimed'; env.disposition = 'CLAIMED'; env.claimId = randomUUID(); env.claimedAt = Date.now()
+            this.commit(env); this.emit('control-claim', env)
+            return { id: env.id, instruction: env.instruction, settle: (disposition, detail) => { this.transition(env, disposition, detail, 'claimed') } }
+          })
+        } catch { return undefined }
+      },
+    }
   }
 
   /** 回合邊界（scheduler follow-up turn 前）讀出全部 pending QUEUE（不轉態）；
@@ -351,7 +389,7 @@ export class ControlStore {
 
   /** 惰性治理：逾 TTL、目標紀錄消失/終結、宿主進程死亡 → fail closed 結案。回傳結案數。 */
   sweep(now = Date.now()): number {
-    const pending = this.readAll().envelopes.filter(e => e.state === 'pending')
+    const pending = this.readAll().envelopes.filter(e => e.state !== 'resolved')
     if (!pending.length) return 0
     const inventory = readExecutions(this.dataDir, now)
     // 快照清單讀取有誤時不做 dead-target 判定（暫時性 IO 故障不該殺掉有效信封；TTL 仍兜底）。
@@ -360,11 +398,13 @@ export class ControlStore {
     for (const env of pending) {
       const record = inventory.records.find(r => r.executionId === env.executionId)
       const dead = targetCheck && (!record || record.phase === 'terminal' || !pidAlive(record.hostPid))
-      const disposition: ControlDisposition | null = env.expiresAt <= now ? 'STALE'
+      const disposition: ControlDisposition | null = env.state === 'claimed' ? (dead ? 'DELIVERY_UNKNOWN' : null)
+        : env.expiresAt <= now ? 'STALE'
         : dead ? (env.mode === 'STEER' ? 'NOT_DELIVERED' : 'STALE')
         : null
       if (!disposition) continue
-      try { if (this.transition(env, disposition, env.expiresAt <= now ? '控制信封逾 TTL 未送達' : '目標執行已不在可投遞狀態')) changed++ }
+      try { if (this.transition(env, disposition, env.state === 'claimed' ? '宿主已結束；無法確認已派工指示的送達，不得重送'
+        : env.expiresAt <= now ? '控制信封逾 TTL 未送達' : '目標執行已不在可投遞狀態', env.state as 'pending' | 'claimed')) changed++ }
       catch { /* 治理面故障留待下輪 */ }
     }
     return changed
@@ -379,6 +419,33 @@ export class ControlStore {
       resolved: envelopes.filter(e => e.state === 'resolved'),
       errors,
     }
+  }
+
+  /** Bind verification candidates to immutable accepted/delivered control receipts. */
+  lineage(executionId: string, taskId: string) {
+    const inventory = this.readAll()
+    if (inventory.errors.length) throw new Error('Control lineage inventory unavailable')
+    if (inventory.envelopes.some(env => env.executionId === executionId && env.taskId === taskId
+      && (env.state === 'claimed' || env.disposition === 'DELIVERY_UNKNOWN')))
+      throw new Error('Control delivery unconfirmed; reconcile before accepting a candidate')
+    return inventory.envelopes.filter(env => env.executionId === executionId && env.taskId === taskId
+      && ['STEERED', 'DELIVERED'].includes(env.disposition)).map(env => {
+      const receipts = readdirSync(this.receiptsDir()).filter(name => name.startsWith(`${env.id}-`) && name.endsWith('.json')).sort().map(name => {
+        const file = join(this.receiptsDir(), name), info = lstatSync(file)
+        if (!info.isFile() || info.size > 16_384) throw new Error('Invalid control lineage receipt')
+        const { bundleHash, ...body } = JSON.parse(readFileSync(file, 'utf8'))
+        if (bundleHash !== createHash('sha256').update(JSON.stringify(body)).digest('hex')
+          || body.envelopeId !== env.id || body.executionId !== executionId || body.taskId !== taskId
+          || body.instructionHash !== env.instructionHash || body.issuer !== env.issuer || body.requestedMode !== env.requestedMode)
+          throw new Error('Control lineage receipt mismatch')
+        return { ...body, bundleHash }
+      })
+      const request = receipts.find(receipt => ['PENDING', 'QUEUED', 'TOO_LATE_QUEUED'].includes(receipt.disposition))
+      const delivery = receipts.find(receipt => receipt.commitId === env.commitId && receipt.disposition === env.disposition)
+      if (!request || !delivery) throw new Error('Control lineage receipt missing')
+      return { envelopeId: env.id, instructionHash: env.instructionHash, requestedMode: env.requestedMode,
+        disposition: env.disposition, requestReceiptHash: request.bundleHash as string, deliveryReceiptHash: delivery.bundleHash as string }
+    })
   }
 }
 
