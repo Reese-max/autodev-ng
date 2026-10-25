@@ -12,15 +12,17 @@ import { writeJsonAtomic } from '../guardian/incident.js'
 import { githubStopFile, loadGithubConfig, type GithubConfig } from './config.js'
 import { command, githubClient, type GithubClient } from './client.js'
 import { eligibleForRun } from './repair.js'
-import { assertPublishable, checkoutDir, git, HERDR_GITHUB_ADMISSION_BLOCKED, issueTask, prepareCheckout, runtimeConfig } from './job.js'
+import { assertPublishable, checkoutDir, git, issueTask, prepareCheckout, runtimeConfig } from './job.js'
+import { assertHerdrGithubAdmission } from './herdr-admission.js'
 import { alternativeRunPending, branchFor, candidatePolicyHash, fingerprint, issueDir, runDir, readState, saveState, states, type IssueState } from './state.js'
 import { readExecutions } from '../engines/execution-observation.js'
 import { hasPendingReview, readPendingReview } from '../engines/pending-review.js'
 
 export async function repairDoctor(cfg: GithubConfig, live = false) {
-  const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(readFileSync(cfg.sourceConfig, 'utf8'))))
+  const sourceBytes = readFileSync(cfg.sourceConfig)
+  const source = expandConfigPaths(dirname(cfg.sourceConfig), ConfigSchema.parse(JSON.parse(sourceBytes.toString('utf8'))))
   const engine = source.engines[cfg.engine]
-  if (engine?.adapter === 'herdr') throw new Error(HERDR_GITHUB_ADMISSION_BLOCKED)
+  if (engine?.adapter === 'herdr') assertHerdrGithubAdmission(cfg, source, sourceBytes)
   if (!engine || engine.adapter === 'mock' || engine.timeoutMs === 0) throw new Error('Requires a bounded supported worker')
   const verify = cfg.verifyCommand ?? source.verifyCommand
   if (!(Array.isArray(verify) ? verify.length > 0 : verify?.trim()) || !(source.reviewEngine ?? source.auditModel)) throw new Error('Requires verification command and independent reviewer')

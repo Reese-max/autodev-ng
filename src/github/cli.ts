@@ -25,6 +25,7 @@ export const GITHUB_HELP = [
   '',
   '  doctor [--live]、retry/resume --issue N --reason TEXT：診斷與恢復',
   '  reconcile --issue N [--apply --reason TEXT]：對帳；預設唯讀，套用僅結束過期的本機佇列',
+  '  reapprove --issue N --old SHA256 --new SHA256 --state SHA256 --reason TEXT [--stopped ID]：可信操作者批准精確新需求；保留歷史與總額',
   '  delivery、metrics、accept --issue N --commit SHA --reason EVIDENCE：交付與驗收',
   '  report/report-collect/report-status、repair/repair-status/repair-batch：通報與修復',
   '  proposal-review/proposal-status/proposal-feedback：提案審查',
@@ -43,6 +44,7 @@ export async function githubCli(argv: string[]): Promise<void> {
     return
   }
   const [mode, flag, file, ...extra] = argv
+  if (mode === 'reapprove') { await (await import('./reapproval.js')).reapprovalCli(argv.slice(1)); return }
   if (mode === 'reconcile' || mode === 'repair-reconcile') {
     await (await import('./reconcile.js')).reconciliationCli(argv.slice(1)); return
   }

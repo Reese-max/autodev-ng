@@ -19,7 +19,7 @@ export function issueBillingDbs(dir: string): string[] {
     try { return lstatSync(file) }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error }
   }
-  const issueDb = (issueDir: string) => {
+  const runDbs = (issueDir: string) => {
     const direct = join(issueDir, 'run.db')
     if (present(direct)) out.push(direct) // Preserve broken-link evidence; realpath/open must reject it.
     const revs = join(issueDir, 'revisions')
@@ -32,6 +32,16 @@ export function issueBillingDbs(dir: string): string[] {
         const f = join(revs, r.name, 'run.db')
         if (present(f)) out.push(f)
       }
+    }
+  }
+  const issueDb = (dir: string) => {
+    runDbs(dir)
+    const requirements = join(dir, 'requirements'), root = present(requirements)
+    if (!root) return
+    if (root.isSymbolicLink() || !root.isDirectory()) throw new Error('Unsupported billing requirements layout')
+    for (const entry of readdirSync(requirements, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) throw new Error('Unsupported linked billing requirement')
+      if (/^[1-9]\d*$/.test(entry.name) && entry.isDirectory()) runDbs(join(requirements, entry.name))
     }
   }
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
