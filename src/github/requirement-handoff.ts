@@ -53,8 +53,8 @@ export function requirementHandoff(cfg: GithubConfig, state: IssueState, current
       requiredBinding: ['repository', 'issue', 'oldFingerprint', 'newFingerprint', 'trustedOperator', 'configuration', 'backendStop', 'budgetScope'],
       issueTextOrLabelToggleIsApproval: false },
     continuationBlockers: [
-      { code: 'successor-transition-unimplemented', scope: 'software',
-        detail: 'Current IssueState and checkout layout have no successor requirement lineage; no state replacement or queued successor is performed' },
+      { code: 'trusted-successor-not-approved', scope: 'trust',
+        detail: 'This preview does not approve or queue a successor. The separate authenticated reapprove action requires exact old/new/state hashes, proven stopped executions, clean owned worktrees, no existing PR and complete cumulative budget evidence' },
       { code: 'trusted-approval-missing', scope: 'trust',
         detail: 'No authenticated allowed-operator receipt has approved this exact old-to-new fingerprint pair' },
       { code: 'backend-stop-unproved', scope: 'runtime',
@@ -68,7 +68,7 @@ export function requirementHandoff(cfg: GithubConfig, state: IssueState, current
       'Keep the saved Issue snapshot, state.json, history, candidate commits and billing evidence; do not delete state or reset attempt counters',
       'Review the exact old/new snapshots and fingerprints with an allowed operator outside Issue text and candidate-controlled files',
       'Confirm the exact old backend stopped, reconcile PR/worktree ownership and obtain complete cumulative budget evidence',
-      'Use reviewed manual handoff while successor transition remains unavailable; sync, retry and label toggles do not approve changed requirements',
+      'An allowed authenticated operator may use github reapprove with these exact old/new fingerprints and captured state SHA; unsupported or unproved cases remain manual handoff. Sync, retry and label toggles do not approve changed requirements',
     ],
   }
 }

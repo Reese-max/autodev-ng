@@ -5,7 +5,7 @@ import { githubStopFile, loadGithubConfig, type GithubConfig, type Issue } from 
 import { eligibleForRun } from './repair.js'
 import { describeIssueBatchCoverage, githubClient, issueBatchFor, transientGithubRead, type GithubClient } from './client.js'
 import { assertPublishable, checkoutDir, executeIssue, git, issueReviewPending } from './job.js'
-import { alternativeRunPending, branchFor, candidatePolicyHash, fingerprint, MAX_CONTROL_RUNS, readState, saveState, states, type IssueState } from './state.js'
+import { alternativeRunPending, assertRequirementPolicy, branchFor, candidatePolicyHash, fingerprint, MAX_CONTROL_RUNS, readState, saveState, states, type IssueState } from './state.js'
 import { observePr } from './followup.js'
 import { issueQualityVeto } from './intake-quality.js'
 
@@ -32,6 +32,7 @@ function checkpointFor(cfg: GithubConfig, state: IssueState, phase: 'issue-read'
 }
 export async function publishIssue(cfg: GithubConfig, state: IssueState, client: GithubClient, check = assertPublishable,
   push = () => git(checkoutDir(cfg, state), ['push', 'origin', `${state.commit}:refs/heads/${branchFor(state.issue.number)}`]), active = () => true): Promise<void> {
+  assertRequirementPolicy(cfg, state)
   if (!cfg.enabled || !cfg.publish || existsSync(githubStopFile(cfg)) || !active()) return
   if (state.candidateCheck) throw new Error('Candidate awaiting external recheck; resume the original runner checkpoint')
   if (!currentIssue(cfg, state, await client.issue(state.issue.number))) throw new Error('Issue closed, changed, or approval label/author no longer matches')
@@ -140,6 +141,7 @@ export async function runGithubOutcome(cfg: GithubConfig, options: {
       state.status = 'queued'; saveState(cfg, state)
     }
     try {
+      assertRequirementPolicy(cfg, state)
       if (checkpoint && checkpoint.attempts >= 5) throw new Error('candidate-read-retry-exhausted: inspect exact candidate and use existing recovery')
       if (checkpoint && checkpoint.policyHash !== policyHash) throw new Error('candidate-policy-changed: restore the original gate/source configuration before manual recovery')
       if (!currentIssue(cfg, state, await client.issue(state.issue.number))) {

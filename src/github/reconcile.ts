@@ -9,6 +9,7 @@ import { githubStopFile, parseGithubConfig, type Issue } from './config.js'
 import { eligibleForRun } from './repair.js'
 import { fingerprint, issueDir, parseIssueState, readState, saveState } from './state.js'
 import { requirementHandoff } from './requirement-handoff.js'
+export { reapproveIssue } from './reapproval.js'
 
 export async function reconcileIssue(file: string, number: number, options: { apply?: boolean; reason?: string; client?: GithubClient } = {}) {
   if (!Number.isSafeInteger(number) || number < 1) throw new Error('Positive Issue number required')

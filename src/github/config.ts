@@ -15,6 +15,10 @@ export const GithubConfigSchema = z.object({
   /** 額外全域計帳根目錄；GitHub Issue 的 dataDir 仍必計入。owner 模式由內部 resolver 依 repo 套用政策。 */
   billingScope: z.string().min(1).optional(),
   engine: z.string().min(1),
+  /** Trusted operator configuration only. Missing/false stays closed; Issue text cannot opt in. */
+  herdrIntake: z.object({
+    enabled: z.boolean().default(false), evidenceFile: z.string().min(1), evidenceSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }).strict().optional(),
   verifyCommand: z.union([z.string().trim().min(1), z.array(z.string().trim().min(1)).min(1)]).optional(),
   regressionPrepareCommand: z.string().trim().min(1).optional(),
   regression: z.object({
@@ -46,6 +50,7 @@ export function loadGithubConfig(path: string): GithubConfig {
 export function parseGithubConfig(path: string, text: string): GithubConfig {
   const cfg = GithubConfigSchema.parse(JSON.parse(text))
   return { ...cfg, sourceConfig: resolve(dirname(path), cfg.sourceConfig), dataDir: resolve(dirname(path), cfg.dataDir),
+    herdrIntake: cfg.herdrIntake ? { ...cfg.herdrIntake, evidenceFile: resolve(dirname(path), cfg.herdrIntake.evidenceFile) } : undefined,
     billingScope: cfg.billingScope ? resolve(dirname(path), cfg.billingScope) : undefined,
     stopFile: cfg.stopFile ? resolve(dirname(path), cfg.stopFile) : undefined,
     repair: cfg.repair ? { ...cfg.repair, reportConfig: resolve(dirname(path), cfg.repair.reportConfig) } : undefined }
