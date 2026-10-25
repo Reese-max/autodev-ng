@@ -7,6 +7,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { spawnPauseGated, withPauseGate } from './pause-gated-spawn.mjs';
+import { memoryPilotIsolation } from './memory-lifecycle-isolation.mjs';
+import { runMemoryLifecycle } from './memory-lifecycle.mjs';
+import { checkPublication, observedPublication, publicationArguments, publicationMessage } from './memory-lifecycle-publication.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STOP = path.join(ROOT, 'configs', '.adng.stop');
@@ -44,33 +47,29 @@ async function backupSqlite(src, dst) {
   }
 }
 
-export async function publishSnapshot(mem, stop, execute, today) {
+export async function publishSnapshot(mem, stop, execute, today, authority = undefined) {
   const checked = async (command, args, timeoutMs) => {
-    const r = await execute(command, args, timeoutMs)
+    const phase = ['remote', 'add', 'commit', 'push'].find(value => args.includes(value))
+    checkPublication(authority, phase)
+    const r = await execute(command, publicationArguments(authority, args), timeoutMs)
     if (!r.started || r.status !== 0) throw new Error('Snapshot command failed or paused')
+    observedPublication(authority, phase, today)
     return r
   }
   // Existing origin is an explicit deployment prerequisite; never create a repository implicitly.
   await checked('git', ['-C', mem, 'remote', 'get-url', 'origin'])
   await checked('git', ['-C', mem, 'add', '-A'])
-  const diff = await execute('git', ['-C', mem, 'diff', '--cached', '--quiet'])
+  checkPublication(authority, 'diff')
+  const diff = await execute('git', publicationArguments(authority, ['-C', mem, 'diff', '--cached', '--quiet']))
   if (!diff.started || ![0, 1].includes(diff.status)) throw new Error('Snapshot diff failed')
-  if (diff.status === 1) await checked('git', ['-C', mem, 'commit', '-q', '-m', `snapshot ${today}`])
+  if (diff.status === 1) await checked('git', ['-C', mem, 'commit', '-q', '-m', publicationMessage(authority, today)])
   await checked('git', ['-C', mem, 'push', '-q', '-u', 'origin', 'main'], 180_000)
+  checkPublication(authority, 'stamp')
   if (!withPauseGate(stop, () => fs.writeFileSync(path.join(mem, '.last-snapshot'), today)).started) throw new Error('Paused before snapshot receipt')
+  observedPublication(authority, 'stamp', today)
 }
 
-async function snapshot() {
-  try {
-    const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10); // 本地日
-    if (fs.existsSync(STAMP) && fs.readFileSync(STAMP, 'utf8').trim() === today) return;
-
-    if (!mutate(() => fs.mkdirSync(MEM, { recursive: true }))) return;
-    if (!fs.existsSync(path.join(MEM, '.git'))) {
-      const init = await run('git', ['-C', MEM, 'init', '-b', 'main']);
-      if (!init.started || init.status !== 0) throw new Error('Snapshot init failed');
-    }
-
+async function copySnapshotFiles() {
     const put = (src, rel) => {
       try {
         if (!fs.existsSync(src)) return true;
@@ -83,9 +82,9 @@ async function snapshot() {
     };
 
     // 制度層
-    if (!put(path.join(ROOT, 'data/patrol-log.md'), 'patrol-log.md')) return;
-    if (!put(path.join(ROOT, 'data/PATROL-ALERTS.md'), 'PATROL-ALERTS.md')) return;
-    if (!put(path.join(ROOT, 'data/patrol-heartbeat.json'), 'patrol-heartbeat.json')) return;
+    if (!put(path.join(ROOT, 'data/patrol-log.md'), 'patrol-log.md')) return false;
+    if (!put(path.join(ROOT, 'data/PATROL-ALERTS.md'), 'PATROL-ALERTS.md')) return false;
+    if (!put(path.join(ROOT, 'data/patrol-heartbeat.json'), 'patrol-heartbeat.json')) return false;
 
     // 各船：run.db（.backup 一致性快照）＋ BACKLOG ＋方向盤 ＋ GOAL
     for (const f of fs.readdirSync(path.join(ROOT, 'configs')).filter(x => x.endsWith('.json'))) {
@@ -98,14 +97,40 @@ async function snapshot() {
         const backup = await backupSqlite(db, path.join(MEM, ship, 'run.db'));
         if (backup !== 'ok') throw new Error('SQLite snapshot failed or paused');
       }
-      if (!put(path.resolve(path.join(ROOT, 'configs'), cfg.backlogFile), `${ship}/BACKLOG.md`)) return;
+      if (!put(path.resolve(path.join(ROOT, 'configs'), cfg.backlogFile), `${ship}/BACKLOG.md`)) return false;
       for (const extra of ['USER-SIGNALS.md', 'NORTHSTAR.md', 'GOAL.md', 'learnings.md']) {
-        if (!put(path.join(dataDir, extra), `${ship}/${extra}`)) return;
+        if (!put(path.join(dataDir, extra), `${ship}/${extra}`)) return false;
       }
     }
 
+    return true;
+}
+
+async function snapshot() {
+  try {
+    const pilot = memoryPilotIsolation(ROOT, MEM);
+    if (pilot) {
+      const result = await runMemoryLifecycle(pilot, process.argv.slice(2), {
+        copy: copySnapshotFiles, publish: (today, authority) => publishSnapshot(MEM, STOP, run, today, authority) });
+      console.log(JSON.stringify(result));
+      if (result.status === 'CANNOT_VERIFY' || result.status === 'REJECTED') process.exitCode = 2;
+      return;
+    }
+    const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10); // 本地日
+    if (fs.existsSync(STAMP) && fs.readFileSync(STAMP, 'utf8').trim() === today) return;
+    if (!mutate(() => fs.mkdirSync(MEM, { recursive: true }))) return;
+    if (!fs.existsSync(path.join(MEM, '.git'))) {
+      const init = await run('git', ['-C', MEM, 'init', '-b', 'main']);
+      if (!init.started || init.status !== 0) throw new Error('Snapshot init failed');
+    }
+    if (!await copySnapshotFiles()) return;
     await publishSnapshot(MEM, STOP, run, today);
-  } catch { console.error('MEMORY_SNAPSHOT_FAIL: verify source files, sqlite3 and existing backup remote'); process.exitCode = 1; }
+  } catch (error) {
+    if (process.env.ADNG_MEMORY_LIFECYCLE_PILOT !== undefined) {
+      const reason = /^[A-Z_]{1,80}$/.test(error.code ?? error.message ?? '') ? error.code ?? error.message : 'OWNER_PILOT_CANNOT_VERIFY';
+      console.log(JSON.stringify({ version: 1, status: 'CANNOT_VERIFY', reason, memory_grants_action: false })); process.exitCode = 2;
+    } else { console.error('MEMORY_SNAPSHOT_FAIL: verify source files, sqlite3 and existing backup remote'); process.exitCode = 1; }
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) await snapshot();
