@@ -141,7 +141,10 @@ export async function flakyRegressionMain(
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  flakyRegressionMain().then(
+  const action = process.argv.length > 2
+    ? import('./regression-shards.js').then(module => module.regressionShardCli(process.argv.slice(2)))
+    : flakyRegressionMain()
+  action.then(
     code => { process.exitCode = code },
     error => {
       console.error(error instanceof Error ? error.message : String(error))
